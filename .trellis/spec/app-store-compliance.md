@@ -41,7 +41,7 @@
 **弹窗内容必须包含：**
 
 1. **发送内容**：用户输入的对话内容将发送给第三方 AI 服务
-2. **处理方**：OpenAI (GPT 系列 API)
+2. **处理方**：Google (Gemini 系列 API)
 3. **用途**：AI 生成个性化回复、成长洞察、性格分析
 4. **存储方式**：对话内容加密存储于 ClosenAI 数据库，AI 模型供应商不持久化用户数据
 5. **用户控制权**：用户可随时在"我的 → 记忆管理"中查看和删除 AI 记住的内容；注销账号时彻底删除所有数据
@@ -62,8 +62,8 @@ if (!hasAIConsent) {
   showDataSharingConsentModal({
     title: "AI 对话数据说明",
     content: [
-      "ClosenAI 使用第三方 AI 服务（OpenAI GPT 系列）生成对话回复。",
-      "您输入的内容将发送至 OpenAI 进行处理，用于生成个性化回复和成长洞察。",
+      "ClosenAI 使用第三方 AI 服务（Google Gemini 系列）生成对话回复。",
+      "您输入的内容将发送至 Google Gemini 进行处理，用于生成个性化回复和成长洞察。",
       "对话内容加密存储，AI 服务商不持久化您的数据。",
       "您可随时在「我的 → 记忆管理」中查看和删除数据，注销账号时彻底删除。"
     ],
@@ -155,10 +155,10 @@ ClosenAI 是个人成长追踪工具，AI 生成内容仅供自我探索和娱�
 ### 5.2 披露内容
 
 ```
-AI 模型来源：GPT 系列 API (OpenAI)
+AI 模型来源：Gemini 系列 API (Google)
 
-ClosenAI 的 AI 功能由 OpenAI GPT 系列模型提供支持。
-包括但不限于：GPT-4o（深度推理）、GPT-4o-mini（日常对话）。
+ClosenAI 的 AI 功能由 Google Gemini 系列模型提供支持。
+包括但不限于：Gemini 2.5 Flash（深度推理/实时对话）、Gemini 2.5 Flash-Lite（异步任务/轻量级判断）。
 所有 AI 生成内容均标注"AI 生成"标识。
 ```
 

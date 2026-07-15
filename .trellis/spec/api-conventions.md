@@ -159,7 +159,7 @@ eventSource.addEventListener('error', (event) => {
 | 403 | `AI_CONSENT_REQUIRED` | 未同意 AI 数据共享 | 弹出 5.1.2(i) 弹窗 |
 | 404 | `RESOURCE_NOT_FOUND` | 资源不存在 | 前端处理空状态 |
 | 409 | `CONFLICT` | 资源状态冲突（如重复签到） | 前端忽略或提示 |
-| 422 | `LLM_GENERATION_FAILED` | LLM 生成失败 | 主动消息 fallback 模板；对话返回"稍等"重试 |
+| 422 | `LLM_GENERATION_FAILED` | LLM 生成失败（Gemini API 超时/限流/内容过滤） | 主动消息 fallback 模板；对话返回"稍等"重试 |
 | 429 | `RATE_LIMIT_EXCEEDED` | 请求频率超限 | 指数退避重试 |
 | 500 | `INTERNAL_ERROR` | 服务器内部错误 | 记录 request_id 报告 |
 
@@ -170,7 +170,7 @@ eventSource.addEventListener('error', (event) => {
 async def generate_active_message(user: User) -> str:
     try:
         return await llm_service.chat(
-            model="gpt-4o-mini",
+            model="gemini-2.5-flash-lite",
             messages=build_prompt(user),
             timeout=30,
         )

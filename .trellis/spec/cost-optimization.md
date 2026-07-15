@@ -17,12 +17,12 @@
 | 情绪签到回复 | Rule Engine + 情绪映射模板 | ~25% | $0 | P0-F03 情绪签到 |
 | Daily Discovery | Rule Engine + 数据对比 + 模板 | ~15% | $0 | P0-F10 每日发现 |
 | 提醒 / Streak 通知 | 固定模板 | ~10% | $0 | P0-F04 Streak |
-| 用户对话回复 | LLM（GPT-4o-mini，流式） | ~20% | ~$0.001/条 | P0-F01 实时对话 |
-| 性格画像生成 | LLM（GPT-4o，深度推理） | ~2% | ~$0.03/次 | P0-F05 性格画像 |
-| 成长洞察 / Pattern Discovery | LLM（GPT-4o，分析推理） | ~5% | ~$0.02/条 | P0-F07 / P0-F10 |
-| 主动消息（深度版） | LLM（GPT-4o-mini，异步） | ~3% | ~$0.0005/条 | P0-F01 主动消息（引用洞察时） |
+| 用户对话回复 | LLM（Gemini 2.5 Flash，流式） | ~20% | ~$0.0005/条 | P0-F01 实时对话 |
+| 性格画像生成 | LLM（Gemini 2.5 Flash，深度推理） | ~2% | ~$0.007/次 | P0-F05 性格画像 |
+| 成长洞察 / Pattern Discovery | LLM（Gemini 2.5 Flash，分析推理） | ~5% | ~$0.004/条 | P0-F07 / P0-F10 |
+| 主动消息（深度版） | LLM（Gemini 2.5 Flash-Lite，异步） | ~3% | ~$0.0001/条 | P0-F01 主动消息（引用洞察时） |
 
-**成本对比**：原方案（全 LLM）1 万 DAU 月成本 ~$900。分层后 Rule Engine 处理 70% 消息（$0），LLM 仅处理 30%，月成本降至 ~$350，**降幅 61%**。
+**成本对比**：原方案（全 LLM）1 万 DAU 月成本 ~$900。分层后 Rule Engine 处理 70% 消息（$0），LLM 仅处理 30%，GPT 方案月成本 ~$532；切换至 Gemini 2.5 Flash/Flash-Lite 后月成本降至 ~$75，**降幅 86%**。
 
 ### 1.2 分层决策原则
 
@@ -43,32 +43,34 @@ LLM 适用场景：
 
 | 场景 | 模型 | 定价 | 原因 |
 |------|------|------|------|
-| 主动消息（异步） | GPT-4o-mini | $0.15/1M input tokens | 用户不在等，低成本批量生成，无实时压力 |
-| 实时对话（流式） | GPT-4o-mini | $0.15/1M input tokens | 平衡速度与成本，首 token < 3 秒 |
-| 性格画像生成 | GPT-4o | $2.50/1M input tokens | 深度推理，频率低（~2%），单次成本高可接受 |
-| 成长洞察 / Pattern Discovery | GPT-4o | $2.50/1M input tokens | 跨时间模式分析需要更强能力 |
-| 矛盾检测（记忆） | GPT-4o-mini | $0.15/1M input tokens | 轻量级分类判断，~$0.00004/次 |
+| 主动消息（异步） | Gemini 2.5 Flash-Lite | $0.10/1M input, $0.40/1M output | 用户不在等，低成本批量生成，无实时压力 |
+| 实时对话（流式） | Gemini 2.5 Flash | $0.30/1M input, $2.50/1M output | 平衡速度与成本，首 token < 3 秒 |
+| 性格画像生成 | Gemini 2.5 Flash | $0.30/1M input, $2.50/1M output | 深度推理，频率低（~2%），单次成本可接受 |
+| 成长洞察 / Pattern Discovery | Gemini 2.5 Flash | $0.30/1M input, $2.50/1M output | 跨时间模式分析需要更强能力 |
+| 矛盾检测（记忆） | Gemini 2.5 Flash-Lite | $0.10/1M input, $0.40/1M output | 轻量级分类判断，~$0.00003/次 |
 | 情绪签到解读（基础版） | Rule Engine | $0 | 情绪映射模板库（每种情绪 10+ 模板） |
-| 情绪签到解读（深度版） | GPT-4o-mini | $0.15/1M input tokens | 仅连续异常时触发（连续 3 天同一情绪） |
+| 情绪签到解读（深度版） | Gemini 2.5 Flash-Lite | $0.10/1M input, $0.40/1M output | 仅连续异常时触发（连续 3 天同一情绪） |
 
 ### 1.4 主动消息成本优化
 
-主动消息是后端异步生成，用户不在等，可以用 GPT-4o-mini 而非 GPT-4o。
+主动消息是后端异步生成，用户不在等，可以用 Gemini 2.5 Flash-Lite 而非 Gemini 2.5 Flash。
 
 ```
 假设 1 万 DAU，每人每天 1 条主动消息：
   每条 ~500 tokens input + 150 tokens output
-  GPT-4o-mini: $0.15/1M input + $0.60/1M output
-  月成本 = 10000 × 30 × (500/1M × $0.15 + 150/1M × $0.60)
-         = 10000 × 30 × ($0.000075 + $0.00009)
-         = 10000 × 30 × $0.000165
-         = ~$49.50/月
+  Gemini 2.5 Flash-Lite: $0.10/1M input + $0.40/1M output
+  月成本 = 10000 × 30 × (500/1M × $0.10 + 150/1M × $0.40)
+         = 10000 × 30 × ($0.00005 + $0.00006)
+         = 10000 × 30 × $0.00011
+         = ~$33/月
 
-  vs GPT-4o: $2.50/1M input + $10.00/1M output
-  月成本 = 10000 × 30 × (500/1M × $2.50 + 150/1M × $10.00)
-         = ~$825/月
+  vs Gemini 2.5 Flash: $0.30/1M input + $2.50/1M output
+  月成本 = 10000 × 30 × (500/1M × $0.30 + 150/1M × $2.50)
+         = ~$157.50/月
 
-  节省：~$775/月（94% 降幅）
+  节省：~$124.50/月（79% 降幅）
+
+  开发阶段额外优势：Gemini 2.5 Flash 有免费额度（RPM 限制内），开发零成本。
 ```
 
 ### 1.5 LLM 失败的 Fallback 策略
@@ -78,7 +80,7 @@ LLM 适用场景：
 async def generate_active_message(user: User) -> str:
     try:
         return await llm_service.chat(
-            model="gpt-4o-mini",
+            model="gemini-2.5-flash-lite",
             messages=build_prompt(user),
             timeout=30,
         )
@@ -91,7 +93,7 @@ async def generate_daily_summary(user: User) -> str:
     # 在摘要 prompt 中追加"检测是否与已有记忆矛盾"指令
     # 一次 LLM 调用同时完成：摘要生成 + 矛盾检测
     prompt = build_summary_prompt(user, include_conflict_detection=True)
-    return await llm_service.chat(model="gpt-4o-mini", messages=prompt)
+    return await llm_service.chat(model="gemini-2.5-flash-lite", messages=prompt)
 ```
 
 ---
@@ -113,40 +115,42 @@ async def generate_daily_summary(user: User) -> str:
   vs 每条消息方案 200GB/月，相差 100 倍
 ```
 
-### 2.2 三件套优化（1536 维 → 384 维 halfvec）
+### 2.2 三件套优化（768 维 halfvec）
 
-**问题**：默认 1536 维 float32 向量，10K DAU 90 天稳态需 ~21GB，Supabase Pro 8GB 在 38 天即满。
+**问题**：Gemini Embedding 默认 768 维 float32 向量，10K DAU 90 天稳态需 ~12GB，必须优化。
 
 **解决方案**：
 
-#### ① 降维 1536→384 维（省 75%）
+#### ① 使用 Gemini Embedding 768 维（原生维度）
 
-- OpenAI `text-embedding-3-small` 支持 `dimensions=384` 参数
-- MTEB 仅降 0.7 分（62.3→61.6），且 384 维仍超过 ada-002 的 1536 维
-- 聊天记忆场景：在单个用户 ~90 天摘要库（几千行）里做 Top-5 召回，0.7 分差异无感知
+- Google Gemini Embedding 原生输出 768 维，无需降维参数
+- 定价 $0.0075/1M tokens（vs OpenAI text-embedding-3-small $0.02/1M，降 62%）
+- 聊天记忆场景：在单个用户 ~90 天摘要库（几千行）里做 Top-5 召回，768 维召回精度足够
 
 ```python
-# 生成 384 维 embedding
-response = await openai_client.embeddings.create(
-    model="text-embedding-3-small",
-    input=text,
-    dimensions=384,  # 降维参数
+# 生成 768 维 embedding（Gemini Embedding 原生 768 维）
+from google import genai
+
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+response = await client.aio.models.embed_content(
+    model="gemini-embedding-001",
+    contents=text,
 )
-embedding = response.data[0].embedding  # 384 维向量
+embedding = response.embeddings[0].values  # 768 维向量
 ```
 
 #### ② halfvec 替代 float32（再省 50%）
 
-- pgvector 原生支持 `halfvec(384)` 类型，2 字节/维（vs float32 的 4 字节）
+- pgvector 原生支持 `halfvec(768)` 类型，2 字节/维（vs float32 的 4 字节）
 - fp16 对余弦相似度召回影响可忽略
 
 ```sql
--- 使用 halfvec(384) 类型
-ALTER TABLE memories ALTER COLUMN embedding TYPE halfvec(384);
+-- 使用 halfvec(768) 类型
+ALTER TABLE memories ALTER COLUMN embedding TYPE halfvec(768);
 
 -- HNSW 索引
 CREATE INDEX idx_memories_embedding ON memories
-  USING hnsw ((embedding::halfvec(384)) halfvec_cosine_ops);
+  USING hnsw ((embedding::halfvec(768)) halfvec_cosine_ops);
 ```
 
 #### ③ 90 天 TTL + 分区 DROP（稳态控制）
@@ -160,7 +164,7 @@ CREATE TABLE memories (
     id UUID DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
     content TEXT NOT NULL,
-    embedding halfvec(384),
+    embedding halfvec(768),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- ... 其他字段
 ) PARTITION BY RANGE (created_at);
@@ -179,8 +183,8 @@ DROP TABLE IF EXISTS memories_2026_04;
 |------|------|
 | 系统/PG 内置 + 关系表索引 | ~0.5 GB |
 | 其他 P0 数据（聊天/成长/签到，90 天） | ~4.1 GB（或下沉后 ~0.9 GB） |
-| Embedding（384-dim halfvec, HNSW, 90 天） | ~2.2-2.5 GB |
-| **总计** | **~6.8-7.2 GB（在 8GB 内）** |
+| Embedding（768-dim halfvec, HNSW, 90 天） | ~4.4-5.0 GB |
+| **总计** | **~9.0-9.6 GB（超 8GB，需启用聊天日志下沉降至 ~5.8 GB）** |
 
 #### ④ 聊天日志下沉（可选，进一步省空间）
 
@@ -270,19 +274,19 @@ async def get_mood_interpretation(emoji: str, personality: str) -> str:
 
 | 项目 | 月成本 | 说明 |
 |------|--------|------|
-| AI 消息（Rule Engine 70% + LLM 30%） | -$350 | GPT-4o-mini 对话 + GPT-4o 画像/洞察 |
+| AI 消息（Rule Engine 70% + LLM 30%） | -$75 | Gemini 2.5 Flash 对话/画像/洞察 + Flash-Lite 异步任务 |
 | 基础设施（Supabase Pro + Vercel） | -$200 | Supabase Pro $25 + Vercel Pro $20 + 其他 |
 | 推送（APNs/FCM + QStash） | -$50 | QStash Pro $20 + 推送基础设施 |
-| **总成本** | **-$600** | 1 万 DAU 月运营成本 |
+| **总成本** | **-$325** | 1 万 DAU 月运营成本 |
 
 ### 5.2 毛利率分析
 
 | 项目 | 月金额 |
 |------|--------|
 | Pro 转化率 5% × $4.99/月 | +$2,495（500 Pro 用户） |
-| 总成本 | -$600 |
-| **月毛利** | **+$1,895** |
-| **毛利率** | **76%** |
+| 总成本 | -$325 |
+| **月毛利** | **+$2,170** |
+| **毛利率** | **87%** |
 
 ### 5.3 VPS 迁移后的成本对比
 
@@ -293,4 +297,4 @@ async def get_mood_interpretation(emoji: str, personality: str) -> str:
 | 5,000 | ~$27/月 | ~$90/月 | 70% |
 | 10,000 | ~$46/月 | ~$116/月 | 60% |
 
-**关键结论**：Rule Engine 处理 70% 消息（$0 成本）是盈利的关键。Pro 转化率 5% 是保守估计（Replika 约 5-8%），如果达到 8% 则月毛利可达 $3,395。
+**关键结论**：Rule Engine 处理 70% 消息（$0 成本）+ Gemini 低成本定价是盈利的关键。开发阶段 Gemini 2.5 Flash 免费额度进一步降低试错成本。Pro 转化率 5% 是保守估计（Replika 约 5-8%），如果达到 8% 则月毛利可达 $3,670。

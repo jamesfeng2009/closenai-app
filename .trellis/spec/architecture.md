@@ -16,7 +16,7 @@
 | 异步任务队列 | QStash (Upstash) | 已有，复用——批量 LLM 调用分块分发（每块 50 用户） |
 | 定时任务 | Vercel Cron (每小时 GET) + QStash 分发 | 复用 `daily_fortune_cron` 架构 |
 | 缓存 | Upstash Redis | 已有，用于情绪签到缓存等 |
-| LLM | OpenAI GPT-4o / GPT-4o-mini + 豆包(Doubao) | 主动消息用 mini/豆包，实时对话用 GPT-4o |
+| LLM | Google Gemini 2.5 Flash / Flash-Lite + 豆包(Doubao) | 实时对话用 Flash（$0.30/$2.50），异步任务用 Flash-Lite（$0.10/$0.40）。开发阶段有免费额度（零成本），1M 上下文窗口 |
 | 推送 | 自建 APNs/FCM provider (FastAPI) | 已有 `push/service.py`，替代 Expo Push |
 | 向量搜索 | pgvector (Supabase Pro) | P0-F02 长期记忆需要 |
 | 监控 | Axiom + Sentry | 已有，复用 |
@@ -58,8 +58,8 @@
                               │
                               ▼
                      ┌──────────────────┐
-                     │  OpenAI API      │
-                     │  GPT-4o / mini   │
+                     │  Gemini API      │
+                     │  Flash / Lite    │
                      └──────────────────┘
 ```
 
@@ -130,9 +130,9 @@ async def stream_chat_message(
             insights=insights,
         )
 
-        # 4. LLM 流式生成（GPT-4o-mini，实时对话模型）
+        # 4. LLM 流式生成（Gemini 2.5 Flash，实时对话模型）
         async for chunk in llm_service.stream_chat(
-            model="gpt-4o-mini",
+            model="gemini-2.5-flash",
             system=system_prompt,
             user_msg=request.content,
             max_tokens=500,
@@ -161,7 +161,7 @@ async def stream_chat_message(
 | 用户在等？ | 否（用户可能没开 App） | 是（用户在对话界面等待） |
 | 延迟要求 | 无严格要求（10-30 秒可接受） | < 3 秒 |
 | 生成方式 | LLM 异步生成 → 存入 DB → 发推送 | LLM 实时流式生成（SSE） |
-| 成本优化 | GPT-4o-mini 批量生成 | GPT-4o-mini 流式生成 |
+| 成本优化 | Gemini 2.5 Flash-Lite 批量生成 | Gemini 2.5 Flash 流式生成 |
 | 失败处理 | LLM 失败 → fallback 模板消息 | LLM 失败 → "稍等，我想想..." + 重试 |
 
 ---
@@ -202,7 +202,7 @@ prompt = {
     }
 }
 
-# 3. 调用 LLM（GPT-4o-mini，异步，无实时压力）→ 生成 50-150 字消息
+# 3. 调用 LLM（Gemini 2.5 Flash-Lite，异步，无实时压力）→ 生成 50-150 字消息
 # 4. 存入 DB（chat_messages 表）+ 发送自建推送
 # 5. 用户打开 App / 点击推送 → 拉取消息 → 显示在对话流
 

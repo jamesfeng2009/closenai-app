@@ -193,7 +193,7 @@ class ChatService:
         # 4. LLM 流式生成
         full_response = ""
         async for chunk in self.llm_service.stream_chat(
-            model="gpt-4o-mini",
+            model="gemini-2.5-flash",
             system=system_prompt,
             user_msg=request.content,
         ):
@@ -274,7 +274,7 @@ class LLMDeepStrategy(MessageStrategy):
     """深度消息——调用 LLM"""
     async def generate(self, user, context):
         return await self.llm_service.chat(
-            model="gpt-4o-mini",
+            model="gemini-2.5-flash-lite",
             messages=self.prompt_builder.build_active_message_prompt(user, context),
         )
 
@@ -311,13 +311,28 @@ class LLMProvider(ABC):
     async def stream_chat(self, model: str, messages: list, **kwargs) -> AsyncGenerator:
         pass
 
-class OpenAIProvider(LLMProvider):
-    """OpenAI GPT 系列实现"""
+class GeminiProvider(LLMProvider):
+    """Google Gemini 系列实现（通过 OpenAI 兼容端点）"""
+    def __init__(self):
+        from openai import AsyncOpenAI
+        self.client = AsyncOpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=os.environ["GEMINI_API_KEY"],
+        )
+
     async def chat(self, model, messages, **kwargs):
         response = await self.client.chat.completions.create(
             model=model, messages=messages, **kwargs
         )
         return response.choices[0].message.content
+
+    async def stream_chat(self, model, messages, **kwargs):
+        stream = await self.client.chat.completions.create(
+            model=model, messages=messages, stream=True, **kwargs
+        )
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
 
 class DoubaoProvider(LLMProvider):
     """豆包模型实现——未来扩展，不修改现有代码"""
@@ -421,7 +436,7 @@ async def stream_message(
 ### 5.3 依赖注入的优势
 
 1. **可测试性**：单元测试时可注入 Mock Repository/Service
-2. **可替换性**：LLMService 从 OpenAI 切换到豆包时，只需替换 Provider 实现
+2. **可替换性**：LLMService 从 Gemini 切换到豆包时，只需替换 Provider 实现
 3. **松耦合**：路由层不直接实例化 Service，Service 不直接实例化 Repository
 4. **生命周期管理**：FastAPI 自动管理依赖的生命周期（如数据库 Session 的创建和关闭）
 

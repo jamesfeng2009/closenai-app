@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS memories (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID NOT NULL REFERENCES profiles(id),
   content         TEXT NOT NULL,            -- 记忆内容
-  embedding       halfvec(384),             -- 384 维 halfvec 向量（降维+半精度）
+  embedding       halfvec(768),             -- 768 维 halfvec 向量（Gemini Embedding 原生维度+半精度）
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
@@ -42,7 +42,7 @@ CREATE INDEX idx_memories_superseded ON memories(user_id, superseded_by)
   WHERE superseded_by IS NOT NULL;
 CREATE INDEX idx_memories_category ON memories(user_id, category, status);
 CREATE INDEX idx_memories_embedding ON memories
-  USING hnsw ((embedding::halfvec(384)) halfvec_cosine_ops);
+  USING hnsw ((embedding::halfvec(768)) halfvec_cosine_ops);
 ```
 
 ### 1.2 status 三态生命周期
@@ -90,7 +90,7 @@ CREATE INDEX idx_memories_embedding ON memories
    用 embedding cosine similarity 搜索 Top-3 最相关记忆（阈值 > 0.75）
 
 ② 矛盾判断
-   用 GPT-4o-mini 做一次分类判断（成本 ~$0.00004/次）：
+   用 Gemini 2.5 Flash-Lite 做一次分类判断（成本 ~$0.00003/次）：
    输入：当前摘要 + 候选记忆（Top-3）
    输出：{ "conflicts_with": "memory_id 或 null", "reason": "矛盾原因" }
 
@@ -276,7 +276,7 @@ context = {
 
 | 操作 | 额外延迟 | 额外成本 | 频率 |
 |------|---------|---------|------|
-| 转变检测（写入时） | + 200-400ms（GPT-4o-mini 调用） | ~$0.00004/次（或合并到摘要调用 = $0） | 每日 1 次/用户 |
+| 转变检测（写入时） | + 200-400ms（Gemini 2.5 Flash-Lite 调用） | ~$0.00003/次（或合并到摘要调用 = $0） | 每日 1 次/用户 |
 | 回归识别（读取时） | 0ms（已有向量搜索，仅扩大 WHERE 范围） | $0 | 每次对话 |
 | 情绪过滤 | 0ms（复用已有情感分析数据） | $0 | 每日 1 次/用户 |
 | 渐变漂移检测 | 0ms（周维度 Cron Job 异步） | $0（纯 SQL 计算） | 每周 1 次/用户 |
