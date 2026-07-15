@@ -87,6 +87,25 @@
 
 ---
 
+### 2.4 域名架构
+
+> 详细配置参见 `domain-configuration.md` spec 文件。
+
+| 域名 | 用途 | 部署位置 | 状态 |
+|------|------|---------|------|
+| `closenai.app` | 落地页 / App Store 引导页 / 隐私政策 | Vercel（独立静态项目） | 待配置 |
+| `api.closenai.app` | FastAPI 后端 API | Vercel（Serverless Functions） | 待配置 |
+
+**架构决策**：采用子域名而非路径模式（`api.closenai.app` 而非 `closenai.app/api/`），原因：
+- 后端独立部署为 Vercel 项目，与落地页项目解耦
+- 未来可灵活扩展 `app.closenai.app`（Web 面板）等子域名
+- API 和静态资源各自独立缓存策略
+- 移动端 App 无同源限制，子域名天然适合
+
+**DNS 托管**：Cloudflare（部署到 Vercel 时统一配置）。
+
+---
+
 ## 3. Vercel SSE 流式支持
 
 ### 3.1 实时对话（用户发消息后）
