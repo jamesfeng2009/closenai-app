@@ -65,6 +65,11 @@ closenai-app/
 |   |-- app.json               # Expo 配置
 |   |-- App.tsx                # 应用入口
 |   `-- package.json           # Node 依赖
+|-- .claude/                   # AI 助手技能配置
+|   |-- settings.json          # 技能框架配置
+|   `-- skills/                # 技能指令文件
+|       |-- superpowers/       # 执行层技能（brainstorming, TDD, code-review...）
+|       `-- matt-pocock/       # 诊断层技能（grill-with-docs, diagnosing-bugs）
 |-- CONTEXT.md                 # 领域术语表（必读）
 |-- CLAUDE.md                  # 本文件
 |-- README.md                  # 项目说明
@@ -75,65 +80,22 @@ closenai-app/
 
 ## 技能框架组合
 
-本项目采用 **三层技能框架组合**，各层职责清晰、互不冲突：
+本项目采用 **三层技能框架组合**（Trellis 框架层 + Superpowers 执行层 + Matt Pocock 诊断层）。
 
-### 架构总览
+> **完整定义**（架构总览、各层职责、冲突解决、红旗概念、Spec 产出路径）参见 [`.trellis/workflow.md`](./.trellis/workflow.md) §〇 技能框架组合。
+>
+> 技能指令文件位于 `.claude/skills/` 目录，配置文件为 `.claude/settings.json`。
+> 技能安装验证脚本：`node .trellis/scripts/verify-skills.js`
 
-```
-Trellis（框架层 — 项目骨架）
-├── SessionStart hook        ← 保留：注入项目状态 + spec 引用
-├── 任务状态机                ← start / before-dev / finish-work / update-spec
-├── 记忆层 + 多平台配置
-│
-├── Superpowers（执行层 + 设计层 — 强化纪律）
-│   ├── brainstorming              ← 替换 Trellis brainstorm
-│   ├── requesting-code-review     ← 替换 Trellis check
-│   ├── test-driven-development    ← TDD 纪律
-│   ├── systematic-debugging       ← 深度调试
-│   ├── verification-before-completion ← 完成前验证
-│   └── subagent-driven-development    ← 无人值守批量任务（按需）
-│
-└── Matt Pocock（诊断层 — 精准工具）
-    ├── grill-with-docs            ← 与文档深度对话
-    ├── diagnosing-bugs            ← Bug 根因定位
-    ├── improve-codebase-architecture
-    └── domain-modeling
-```
+### 红旗速查（详见 workflow.md）
 
-### 各层职责
-
-| 层级 | 框架 | 职责 | 关键能力 |
-|------|------|------|---------|
-| 框架层 | Trellis | 项目骨架、任务状态机、记忆层、多平台 | SessionStart hook、spec/tasks 目录结构、跨会话记忆 |
-| 执行层 | Superpowers | 强化开发纪律、系统化流程 | HARD-GATE brainstorm、TDD、系统化调试、两阶段代码审查 |
-| 诊断层 | Matt Pocock | 精准诊断工具、按需调用 | 文档对话、Bug 定位、架构改进、领域建模 |
-
-### 冲突解决
-
-| 冲突点 | 采用方案 | 原因 |
-|--------|---------|------|
-| Brainstorming | **Superpowers** | HARD-GATE 确保需求充分讨论；Visual Companion 可视化辅助；Spec 自审减少遗漏 |
-| SessionStart Hook | **Trellis** | Superpowers Memory Layer 会注入大量历史信息消耗 token；Trellis 仅注入项目状态 + spec 引用，更轻量 |
-| Code Review | **Superpowers** | git SHA diff 精确定位；三级反馈（阻断/建议/赞美）；两阶段审查更系统化 |
-
-### Superpowers 红旗概念（Red Flags）
-
-开发过程中遇到以下信号时，必须停下来使用对应技能：
-
-| 红旗信号 | 触发技能 | 说明 |
-|---------|---------|------|
-| 需求模糊、边界不清 | `brainstorming` | 不要在需求不明确时直接写代码 |
-| 写完代码没有测试 | `test-driven-development` | 先写失败测试，再写实现 |
-| Bug 反复出现、修了又坏 | `systematic-debugging` | 停止打补丁，构建根因链 |
-| 准备说"完成了" | `verification-before-completion` | 完成前必须通过合规验证清单 |
-| 代码审查走形式 | `requesting-code-review` | 使用 git SHA diff + 三级反馈机制 |
-| 大量重复性任务 | `subagent-driven-development` | 考虑用子代理批量处理 |
-
-### Spec 产出路径
-
-Superpowers `brainstorming` 产出的 spec 文件写入 **`.trellis/tasks/`** 目录（而非 `docs/superpowers/specs/`），与 Trellis 任务状态机保持一致。
-
----
+| 红旗信号 | 触发技能 |
+|---------|---------|
+| 需求模糊、边界不清 | `brainstorming` |
+| 写完代码没有测试 | `test-driven-development` |
+| Bug 反复出现、修了又坏 | `systematic-debugging` |
+| 准备说"完成了" | `verification-before-completion` |
+| 代码审查走形式 | `requesting-code-review` |
 
 ## 开发原则
 
