@@ -9,7 +9,7 @@
 
 | 组件 | 技术 | 说明 |
 |------|------|------|
-| API 框架 | FastAPI (async) | 已有，复用。原生支持 SSE StreamingResponse |
+| API 框架 | FastAPI (Python 3.12, async) | 已有，复用。原生支持 SSE StreamingResponse |
 | 部署 | Vercel Serverless (Pro 计划) | 已有，Pro 计划 60s 超时 |
 | 数据库 | Supabase PostgreSQL (asyncpg + SQLAlchemy 2.0) | 已有，复用 |
 | 实时消息 | Supabase Realtime (Postgres Changes) | App 前台时订阅 `chat_messages` 表变更 |
@@ -38,7 +38,7 @@
 │  React Native │     │              Vercel Serverless                │
 │   (Expo) App  │────▶│                                              │
 │               │     │  ┌─────────────┐  ┌──────────────────────┐  │
-│  - 前台: WS   │     │  │ Vercel Cron  │  │  FastAPI (async)     │  │
+│  - 前台: WS   │     │  │ Vercel Cron  │  │  FastAPI (Python 3.12, async)     │  │
 │    (Realtime) │     │  │ (每小时 GET) │─▶│  /api/v1/*           │  │
 │  - 后台: 推送 │     │  └──────┬──────┘  │                      │  │
 │    (APNs/FCM) │     │         │         │  - SSE StreamingResp  │  │

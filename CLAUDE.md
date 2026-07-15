@@ -20,7 +20,7 @@ ClosenAI 是一款**个人成长追踪工具**，帮助用户通过反思记录�
 ## 技术栈
 
 ### 后端（backend/）
-- **语言**：Python 3.11+
+- **语言**：Python 3.12+
 - **框架**：FastAPI
 - **数据验证**：Pydantic v2
 - **ORM**：SQLAlchemy 2.0（如需要数据库）

@@ -9,7 +9,7 @@
 ## 技术栈
 
 ### 后端
-- Python 3.11+
+- Python 3.12+
 - FastAPI（Web 框架）
 - Pydantic v2（数据验证）
 - SSE（流式响应）

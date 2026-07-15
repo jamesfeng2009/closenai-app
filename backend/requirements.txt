@@ -1,5 +1,5 @@
 # ClosenAI 后端依赖
-# Python 3.11+
+# Python 3.12+
 
 # Web 框架
 fastapi>=0.110.0
