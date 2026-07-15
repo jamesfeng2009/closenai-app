@@ -1,0 +1,22 @@
+{
+  "id": "P1-F05",
+  "title": "新用户引导流程",
+  "status": "pending",
+  "priority": "P1",
+  "dependencies": [
+    "P0-F01",
+    "P0-F05",
+    "P0-F06"
+  ],
+  "estimated_files": [
+    "frontend/pages/OnboardingWelcome.tsx",
+    "frontend/pages/OnboardingPersonality.tsx",
+    "frontend/components/EmptyStateGrowth.tsx",
+    "frontend/components/OnboardingCard.tsx",
+    "backend/routers/onboarding.py"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

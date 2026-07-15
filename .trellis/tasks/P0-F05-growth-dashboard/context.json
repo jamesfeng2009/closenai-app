@@ -1,0 +1,24 @@
+{
+  "id": "P0-F05",
+  "title": "Growth Dashboard",
+  "status": "pending",
+  "priority": "P0",
+  "dependencies": [
+    "P0-F03",
+    "P0-F06",
+    "P0-F07"
+  ],
+  "estimated_files": [
+    "backend/routers/growth.py",
+    "backend/services/growth_metrics.py",
+    "backend/services/streak_service.py",
+    "backend/services/weekly_insight.py",
+    "frontend/pages/GrowthDashboard.tsx",
+    "frontend/components/GrowthMetricsCard.tsx",
+    "frontend/components/StreakBadge.tsx"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

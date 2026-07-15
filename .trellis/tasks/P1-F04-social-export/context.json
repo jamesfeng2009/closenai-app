@@ -1,0 +1,21 @@
+{
+  "id": "P1-F04",
+  "title": "社交分享导出",
+  "status": "pending",
+  "priority": "P1",
+  "dependencies": [
+    "P0-F06",
+    "P1-F03"
+  ],
+  "estimated_files": [
+    "backend/routers/share.py",
+    "backend/services/card_generator.py",
+    "backend/services/export_service.py",
+    "frontend/components/PersonalityCard.tsx",
+    "frontend/components/ShareSheet.tsx"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

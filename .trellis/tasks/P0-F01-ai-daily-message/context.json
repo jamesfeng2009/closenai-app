@@ -1,0 +1,17 @@
+{
+  "id": "P0-F01",
+  "title": "AI 每日主动消息",
+  "status": "pending",
+  "priority": "P0",
+  "dependencies": [],
+  "estimated_files": [
+    "backend/routers/messages.py",
+    "backend/services/message_generator.py",
+    "backend/services/scheduler.py",
+    "backend/tasks/daily_message.py"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

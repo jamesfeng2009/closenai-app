@@ -1,0 +1,24 @@
+{
+  "id": "P0-F07",
+  "title": "成长记录与 Timeline",
+  "status": "pending",
+  "priority": "P0",
+  "dependencies": [
+    "P0-F01",
+    "P0-F02",
+    "P0-F03"
+  ],
+  "estimated_files": [
+    "backend/routers/growth_records.py",
+    "backend/services/insight_generator.py",
+    "backend/services/timeline_service.py",
+    "backend/models/growth_record.py",
+    "backend/models/relationship_milestone.py",
+    "frontend/pages/GrowthTimeline.tsx",
+    "frontend/components/HeatmapCalendar.tsx"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

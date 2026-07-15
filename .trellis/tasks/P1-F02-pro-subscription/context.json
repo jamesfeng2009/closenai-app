@@ -1,0 +1,23 @@
+{
+  "id": "P1-F02",
+  "title": "Pro 订阅功能",
+  "status": "pending",
+  "priority": "P1",
+  "dependencies": [
+    "P0-F05",
+    "P0-F06",
+    "P0-F07"
+  ],
+  "estimated_files": [
+    "backend/routers/subscriptions.py",
+    "backend/services/subscription_service.py",
+    "backend/services/iap_validator.py",
+    "backend/models/subscription.py",
+    "frontend/pages/SubscriptionPage.tsx",
+    "frontend/pages/PaywallView.tsx"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "P0-F03",
+  "title": "情绪签到（融入对话）",
+  "status": "pending",
+  "priority": "P0",
+  "dependencies": [
+    "P0-F01"
+  ],
+  "estimated_files": [
+    "backend/routers/mood_checkins.py",
+    "backend/services/mood_service.py",
+    "backend/models/mood_checkin.py",
+    "frontend/components/MoodQuickReply.tsx"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

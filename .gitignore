@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+pip-wheel-metadata/
+.Python
+venv/
+.venv/
+env/
+.env
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# Node / React Native / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+.expo-shared/
+*.tsbuildinfo
+npm-debug.*
+yarn-error.log
+.yarn/
+.pnp.*
+
+# Trellis 个人工作空间（不提交）
+.trellis/workspace/
+
+# Trellis 开发者配置（个人）
+.trellis/.developer
+
+# Trellis 运行时缓存
+.trellis/.runtime/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 测试覆盖率
+.coverage
+htmlcov/
+.pytest_cache/
+coverage.xml
+
+# 数据库
+*.db
+*.sqlite3
+*.sqlite

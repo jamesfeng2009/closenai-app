@@ -1,0 +1,22 @@
+{
+  "id": "P0-F02",
+  "title": "Memory Layer（含 Temporal Memory）",
+  "status": "pending",
+  "priority": "P0",
+  "dependencies": [
+    "P0-F03",
+    "P0-F06",
+    "P0-F07"
+  ],
+  "estimated_files": [
+    "backend/routers/memories.py",
+    "backend/services/memory_service.py",
+    "backend/services/temporal_memory.py",
+    "backend/services/semantic_search.py",
+    "backend/models/memory.py"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "P0-F04",
+  "title": "Reflection Card",
+  "status": "pending",
+  "priority": "P0",
+  "dependencies": [
+    "P0-F01",
+    "P0-F02",
+    "P0-F03"
+  ],
+  "estimated_files": [
+    "backend/routers/reflections.py",
+    "backend/services/reflection_generator.py",
+    "backend/models/reflection_card.py",
+    "frontend/components/ReflectionMode.tsx",
+    "frontend/components/ReflectionCard.tsx"
+  ],
+  "spec_refs": [
+    "spec/architecture.md",
+    "spec/api-conventions.md"
+  ]
+}
