@@ -17,6 +17,23 @@ ClosenAI 是一款**个人成长追踪工具**，帮助用户通过反思记录�
 
 ---
 
+## 团队角色与协作
+
+本项目由两人协作开发，各自负责明确的目录和 spec 文件。
+
+| 角色 | 负责人 | 负责目录 | 核心 spec |
+|------|--------|---------|-----------|
+| 后端开发 | @jamesfeng2009 | `backend/` | architecture.md, code-architecture.md, api-conventions.md, memory-layer.md, cost-optimization.md, domain-configuration.md |
+| 前端开发 | @frontend-dev | `frontend/` | ui-design-system.md, app-startup-timing.md, frontend-sqlite-schema.md, app-store-compliance.md |
+
+**关键规则**：
+- 后端开发者只在 `backend/` 目录操作，前端开发者只在 `frontend/` 目录操作
+- API 契约由后端定义，前端依赖但不直接修改
+- Spec 文件归属详见 [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Git 分支策略：`feat/backend/*` 和 `feat/frontend/*` 独立分支，通过 PR 合并
+
+---
+
 ## 技术栈
 
 ### 后端（backend/）

@@ -47,6 +47,12 @@
       "file": ".claude/skills/superpowers/verification-before-completion.md"
     },
     {
+      "name": "subagent-driven-development",
+      "layer": "superpowers",
+      "file": ".claude/skills/superpowers/subagent-driven-development.md",
+      "usage": "on-demand"
+    },
+    {
       "name": "grill-with-docs",
       "layer": "matt-pocock",
       "file": ".claude/skills/matt-pocock/grill-with-docs.md"
@@ -55,6 +61,18 @@
       "name": "diagnosing-bugs",
       "layer": "matt-pocock",
       "file": ".claude/skills/matt-pocock/diagnosing-bugs.md"
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "layer": "matt-pocock",
+      "file": ".claude/skills/matt-pocock/improve-codebase-architecture.md",
+      "usage": "on-demand"
+    },
+    {
+      "name": "domain-modeling",
+      "layer": "matt-pocock",
+      "file": ".claude/skills/matt-pocock/domain-modeling.md",
+      "usage": "on-demand"
     }
   ],
   "workflow_definition": ".trellis/workflow.md",

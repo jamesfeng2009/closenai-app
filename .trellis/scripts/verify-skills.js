@@ -42,25 +42,28 @@ check(exists('.claude/settings.json'), '.claude/settings.json 存在');
 check(exists('.claude/skills/superpowers/'), '.claude/skills/superpowers/ 目录存在');
 check(exists('.claude/skills/matt-pocock/'), '.claude/skills/matt-pocock/ 目录存在');
 
-// 2. 检查 Superpowers 技能文件
-console.log('\n── Superpowers 技能文件（执行层）──');
+// 2. 检查 Superpowers 技能文件（6 个）
+console.log('\n── Superpowers 技能文件（执行层，6 个）──');
 const superpowersSkills = [
   'brainstorming.md',
   'requesting-code-review.md',
   'test-driven-development.md',
   'systematic-debugging.md',
   'verification-before-completion.md',
+  'subagent-driven-development.md',
 ];
 for (const skill of superpowersSkills) {
   const relPath = `.claude/skills/superpowers/${skill}`;
   check(exists(relPath), relPath);
 }
 
-// 3. 检查 Matt Pocock 技能文件
-console.log('\n── Matt Pocock 技能文件（诊断层）──');
+// 3. 检查 Matt Pocock 技能文件（4 个）
+console.log('\n── Matt Pocock 技能文件（诊断层，4 个）──');
 const mattPocockSkills = [
   'grill-with-docs.md',
   'diagnosing-bugs.md',
+  'improve-codebase-architecture.md',
+  'domain-modeling.md',
 ];
 for (const skill of mattPocockSkills) {
   const relPath = `.claude/skills/matt-pocock/${skill}`;
@@ -73,7 +76,7 @@ if (exists('.claude/settings.json')) {
   try {
     const settings = JSON.parse(read('.claude/settings.json'));
     check(settings.skill_framework === 'three-layer', 'skill_framework = three-layer');
-    check(settings.skills && settings.skills.length === 7, `skills 数量 = 7（实际 ${settings.skills ? settings.skills.length : 0}）`);
+    check(settings.skills && settings.skills.length === 10, `skills 数量 = 10（实际 ${settings.skills ? settings.skills.length : 0}）`);
 
     // 检查每个 skill 的 file 路径指向实际存在的文件
     if (settings.skills) {
@@ -118,8 +121,11 @@ if (exists('.trellis/workflow.md')) {
   check(wf.includes('requesting-code-review'), 'workflow.md 引用 requesting-code-review');
   check(wf.includes('systematic-debugging'), 'workflow.md 引用 systematic-debugging');
   check(wf.includes('verification-before-completion'), 'workflow.md 引用 verification-before-completion');
+  check(wf.includes('subagent-driven-development'), 'workflow.md 引用 subagent-driven-development');
   check(wf.includes('grill-with-docs'), 'workflow.md 引用 grill-with-docs');
   check(wf.includes('diagnosing-bugs'), 'workflow.md 引用 diagnosing-bugs');
+  check(wf.includes('improve-codebase-architecture'), 'workflow.md 引用 improve-codebase-architecture');
+  check(wf.includes('domain-modeling'), 'workflow.md 引用 domain-modeling');
   check(!wf.includes('/trellis:check'), 'workflow.md 不再使用 /trellis:check（已替换为 requesting-code-review）');
 }
 
@@ -138,17 +144,13 @@ if (exists('.trellis/spec/cost-optimization.md') && exists('.trellis/spec/memory
   const cost = read('.trellis/spec/cost-optimization.md');
   const mem = read('.trellis/spec/memory-layer.md');
 
-  // cost-optimization.md §3.2 应该是引用而非完整表格
   check(!cost.includes('| `values`（价值观） | 365 天 | 核心信念'), 'cost-optimization.md §3.2 不再包含完整 TTL 表（已引用 memory-layer.md）');
   check(cost.includes('memory-layer.md'), 'cost-optimization.md 引用 memory-layer.md');
-
-  // memory-layer.md §8 应有唯一权威标注
   check(mem.includes('唯一权威'), 'memory-layer.md §8 标注为唯一权威来源');
 }
 
 if (exists('.trellis/spec/architecture.md') && exists('.trellis/spec/domain-configuration.md')) {
   const arch = read('.trellis/spec/architecture.md');
-  // architecture.md §2.4 应该是简短引用
   check(arch.includes('domain-configuration.md'), 'architecture.md §2.4 引用 domain-configuration.md');
   check(!arch.includes('**架构决策**'), 'architecture.md §2.4 不再包含详细架构决策（已移至 domain-configuration.md）');
 }
@@ -176,6 +178,11 @@ for (const dir of taskDirs) {
 }
 check(pendingCount + otherCount === 12, `任务文件数量 = 12（实际 ${pendingCount + otherCount}）`);
 check(pendingCount === 12, `所有任务状态为 pending（${pendingCount} pending, ${otherCount} 其他）— P0 阶段尚未开始，状态正确`);
+
+// 10. 检查协作配置
+console.log('\n── 双人协作配置 ──');
+check(exists('.github/CODEOWNERS'), '.github/CODEOWNERS 存在');
+check(exists('CONTRIBUTING.md'), 'CONTRIBUTING.md 存在');
 
 // 结果
 console.log('\n' + '═'.repeat(50));

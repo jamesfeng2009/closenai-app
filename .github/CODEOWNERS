@@ -1,0 +1,27 @@
+# ClosenAI Code Owners
+# 详见 CONTRIBUTING.md
+
+# 后端代码 — 后端开发者负责
+/backend/                    @jamesfeng2009
+/.trellis/spec/architecture.md @jamesfeng2009
+/.trellis/spec/code-architecture.md @jamesfeng2009
+/.trellis/spec/api-conventions.md @jamesfeng2009
+/.trellis/spec/memory-layer.md @jamesfeng2009
+/.trellis/spec/cost-optimization.md @jamesfeng2009
+/.trellis/spec/domain-configuration.md @jamesfeng2009
+/pyproject.toml              @jamesfeng2009
+/vercel.json                 @jamesfeng2009
+
+# 前端代码 — 前端开发者负责
+/frontend/                   @frontend-dev
+/.trellis/spec/ui-design-system.md @frontend-dev
+/.trellis/spec/app-startup-timing.md @frontend-dev
+/.trellis/spec/frontend-sqlite-schema.md @frontend-dev
+/.trellis/spec/app-store-compliance.md @frontend-dev
+
+# 项目配置 — 双方共同负责
+/.trellis/workflow.md        @jamesfeng2009 @frontend-dev
+/CLAUDE.md                   @jamesfeng2009 @frontend-dev
+/CONTEXT.md                  @jamesfeng2009 @frontend-dev
+/README.md                   @jamesfeng2009 @frontend-dev
+/.claude/                    @jamesfeng2009 @frontend-dev
