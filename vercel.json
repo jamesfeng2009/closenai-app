@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "backend/main.py": {
+      "excludeFiles": "{tests/**,__tests__/**,**/*.test.py,**/test_*.py,fixtures/**,frontend/**,node_modules/**,.trellis/**}"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/v1/cron/daily-message",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/v1/cron/daily-insight",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/v1/cron/drift-detection",
+      "schedule": "0 0 * * 0"
+    }
+  ]
+}
