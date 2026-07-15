@@ -9,12 +9,12 @@
   "estimated_files": [
     "backend/routers/personality.py",
     "backend/services/personality_service.py",
-    "backend/services/personality_discovery.py",
-    "backend/models/personality_profile.py",
-    "frontend/pages/PersonalityProfile.tsx"
+    "backend/models/personality.py",
+    "frontend/src/screens/PersonalityProfile.tsx"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/cost-optimization.md"
   ]
 }

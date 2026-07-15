@@ -10,13 +10,15 @@
   ],
   "estimated_files": [
     "backend/routers/reflections.py",
-    "backend/services/reflection_generator.py",
-    "backend/models/reflection_card.py",
-    "frontend/components/ReflectionMode.tsx",
-    "frontend/components/ReflectionCard.tsx"
+    "backend/services/reflection_service.py",
+    "backend/models/schemas.py",
+    "frontend/src/components/ReflectionMode.tsx",
+    "frontend/src/components/ReflectionCard.tsx"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/ui-design-system.md",
+    "spec/memory-layer.md"
   ]
 }

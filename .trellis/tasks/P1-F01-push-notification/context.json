@@ -8,15 +8,13 @@
     "P0-F06"
   ],
   "estimated_files": [
-    "backend/routers/notifications.py",
+    "backend/routers/push.py",
     "backend/services/push_service.py",
-    "backend/services/apns_client.py",
-    "backend/services/fcm_client.py",
-    "backend/services/push_content_generator.py",
-    "backend/models/device_token.py"
+    "backend/models/schemas.py"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/app-store-compliance.md"
   ]
 }

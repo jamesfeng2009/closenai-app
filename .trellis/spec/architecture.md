@@ -12,7 +12,7 @@
 | API 框架 | FastAPI (Python 3.12, async) | 已有，复用。原生支持 SSE StreamingResponse |
 | 部署 | Vercel Serverless (Pro 计划) | 已有，Pro 计划 60s 超时 |
 | 数据库 | Supabase PostgreSQL (asyncpg + SQLAlchemy 2.0) | 已有，复用 |
-| 实时消息 | Supabase Realtime (Postgres Changes) | App 前台时订阅 `chat_messages` 表变更 |
+| 实时消息 | SSE (FastAPI StreamingResponse) | P0+P1 不需要 Realtime；AI 对话用 SSE，多设备同步用 API 查询 |
 | 异步任务队列 | QStash (Upstash) | 已有，复用——批量 LLM 调用分块分发（每块 50 用户） |
 | 定时任务 | Vercel Cron (每小时 GET) + QStash 分发 | 复用 `daily_fortune_cron` 架构 |
 | 缓存 | Upstash Redis | 已有，用于情绪签到缓存等 |
@@ -70,17 +70,17 @@
 | 函数超时 | Pro 计划 60s (Hobby 10s 不够) | 批量 LLM 调用必须用 QStash 分块（每块 50 用户） |
 | 冷启动 | 1-3s | Vercel Cron 每 5 分钟调 `/health` 保持函数温热 |
 | Cron 限制 | 仅支持 GET 请求 | QStash callback 可用 POST |
-| 持久连接 | 不支持 WebSocket | IM 实时通信依赖 Supabase Realtime（迁移 VPS 后启用已有 WebSocket 代码） |
+| 持久连接 | 不支持 WebSocket | P0+P1 不需要持久连接；AI 对话用 SSE，多设备同步用 API 查询 |
 
 ### 2.3 保热机制
 
 ```json
-// vercel.json — 每 5 分钟健康检查保热
+// vercel.json — 实际 Cron 配置
 {
   "crons": [
-    { "path": "/api/v1/health", "schedule": "*/5 * * * *" },
-    { "path": "/api/v1/cron/active-message", "schedule": "0 * * * *" },
-    { "path": "/api/v1/cron/growth-insight", "schedule": "0 23 * * *" }
+    { "path": "/api/v1/cron/daily-message", "schedule": "0 * * * *" },
+    { "path": "/api/v1/cron/daily-insight", "schedule": "0 15 * * *" },
+    { "path": "/api/v1/cron/drift-detection", "schedule": "0 0 * * 0" }
   ]
 }
 ```
@@ -251,14 +251,14 @@ async def dispatch_active_messages(users: list[User]):
 
 | App 状态 | Realtime 连接 | 送达方式 | 用户体验 |
 |----------|--------------|---------|---------|
-| 前台运行 | Supabase Realtime 活跃 | Realtime 推送新消息事件 | 消息实时出现在对话流，无需推送通知 |
-| 后台挂起 | iOS 挂起 App 后连接断开 | APNs/FCM 推送通知 | 收到推送 → 点击 → 打开 App → 拉取消息 |
+| 前台运行 | API 轮询 / SSE 连接 | SSE 推送新消息事件 | 消息实时出现在对话流，无需推送通知 |
+| 后台挂起 | SSE 连接断开 | APNs/FCM 推送通知 | 收到推送 → 点击 → 打开 App → 拉取消息 |
 | 被 Kill | 完全断开 | APNs/FCM 推送通知 | 推送是唯一送达通道 |
 
-**方案 A（推荐）：统一发推送，App 前台时静默处理。**
+**方案 A（推荐）：统一发推送，App 前台时静默处理。**（前台时 SSE 已连接，消息实时显示）
 
 ```javascript
-// App 端：前台收到推送 → 静默处理（不弹通知），Realtime 自动更新对话流
+// App 端：前台收到推送 → 静默处理（不弹通知），SSE 已实时推送消息
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: false,    // 前台不弹通知
@@ -304,7 +304,7 @@ Notifications.setNotificationHandler({
 ### 5.4 迁移关键点
 
 - **Auth 迁移**：Supabase Auth → 自建 JWT（约 8 天工作量），核心是 `user_id` UUID 保持不变，业务表零改动
-- **Realtime 迁移**：已有 `app/core/websocket.py` 的 `ConnectionManager` 实现，取消注释 + 替换 Supabase Realtime 调用（约 2-3 天）
+- **实时通信迁移**：已有 `backend/core/websocket.py` 的 `ConnectionManager` 实现，取消注释 + 替换 SSE 调用（约 2-3 天）
 - **最大隐性成本**：DevOps 时间（初期搭建 20-40 小时，日常维护 2-5 小时/月）
 
 ---

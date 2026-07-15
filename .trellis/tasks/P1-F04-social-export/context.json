@@ -9,13 +9,13 @@
   ],
   "estimated_files": [
     "backend/routers/share.py",
-    "backend/services/card_generator.py",
     "backend/services/export_service.py",
-    "frontend/components/PersonalityCard.tsx",
-    "frontend/components/ShareSheet.tsx"
+    "frontend/src/components/PersonalityCard.tsx",
+    "frontend/src/components/ShareSheet.tsx"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/ui-design-system.md"
   ]
 }

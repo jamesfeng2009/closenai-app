@@ -5,13 +5,15 @@
   "priority": "P0",
   "dependencies": [],
   "estimated_files": [
-    "backend/routers/messages.py",
-    "backend/services/message_generator.py",
-    "backend/services/scheduler.py",
-    "backend/tasks/daily_message.py"
+    "backend/routers/chat.py",
+    "backend/services/active_message_service.py",
+    "backend/services/rule_engine.py",
+    "backend/services/scheduler.py"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/cost-optimization.md",
+    "spec/memory-layer.md"
   ]
 }

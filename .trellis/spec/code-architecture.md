@@ -1,6 +1,6 @@
 # 代码架构规范
 
-> 来源：ClosenAI 技术方案设计 v1.0 + PRD v2.0
+> 来源：ClosenAI 技术方案设计 v1.1 (2026-07-15) + PRD v2.0
 > 状态：P0 阶段执行标准
 
 ---
@@ -16,18 +16,20 @@
 │                          │     │                                  │
 │  - UI 渲染               │◀───▶│  - RESTful API (/api/v1/*)       │
 │  - 状态管理              │ HTTP│  - SSE 流式响应                   │
-│  - 本地缓存              │  SSE│  - JWT 认证                      │
-│  - Supabase Realtime     │     │  - 业务逻辑                      │
-│    订阅                   │     │  - LLM 调用编排                   │
+│  - 本地缓存 (SQLite)     │  SSE│  - JWT 认证                      │
+│  - 推送 Token 管理        │     │  - 业务逻辑                      │
+│                          │     │  - LLM 调用编排                   │
 │                          │     │  - Cron Job / QStash 任务         │
 └─────────────────────────┘     └─────────────────────────────────┘
 ```
+
+> **P0+P1 不使用 Supabase Realtime**。前端通过常规 REST API 获取数据，iPad 等多设备场景通过 App 启动时查询 DB 获取最新状态即可。
 
 ### 1.2 职责划分
 
 | 层面 | 前端职责 | 后端职责 |
 |------|---------|---------|
-| 数据获取 | 调用 API 获取数据，Supabase Realtime 订阅 | 提供 RESTful API，管理数据库 |
+| 数据获取 | 调用 API 获取数据，本地 SQLite 缓存 | 提供 RESTful API，管理数据库 |
 | 业务逻辑 | 仅 UI 交互逻辑（过渡动画、空状态展示） | 所有业务逻辑（消息生成、记忆管理、成本分层） |
 | LLM 调用 | 禁止前端直接调用 LLM API | 所有 LLM 调用在后端编排（成本控制、Prompt 安全） |
 | 认证 | 存储 JWT，携带 Authorization 头 | JWT 签发与验证 |
@@ -47,95 +49,90 @@
 ### 2.1 目录结构
 
 ```
-app/
-├── api/                          # 路由层（HTTP 入口）
-│   ├── v1/
-│   │   ├── __init__.py
-│   │   ├── auth.py               # /api/v1/auth/*
-│   │   ├── chat.py               # /api/v1/chat/*
-│   │   ├── memories.py           # /api/v1/memories/*
-│   │   ├── mood_checkins.py      # /api/v1/mood-checkins/*
-│   │   ├── personality.py        # /api/v1/personality/*
-│   │   ├── growth.py             # /api/v1/growth/*
-│   │   ├── profile.py            # /api/v1/profile
-│   │   └── push.py               # /api/v1/push/*
-│   └── deps.py                   # 依赖注入（get_current_user 等）
+backend/
+├── routers/                     # 路由层（HTTP 入口）
+│   ├── __init__.py
+│   ├── chat.py                  # /api/v1/chat/*
+│   ├── memories.py              # /api/v1/memories/*
+│   ├── mood_checkins.py         # /api/v1/mood-checkins/*
+│   ├── personality.py           # /api/v1/personality/*
+│   ├── growth.py                # /api/v1/growth/*
+│   ├── reflections.py           # /api/v1/reflections/*
+│   ├── auth.py                  # /api/v1/auth/*
+│   ├── push.py                  # /api/v1/push/*
+│   └── deps.py                  # 依赖注入（get_current_user 等）
 │
-├── services/                     # 服务层（业务逻辑）
-│   ├── chat_service.py           # 对话消息管理
-│   ├── memory_service.py         # 记忆检索与注入
-│   ├── llm_service.py            # LLM 调用封装（流式/非流式）
-│   ├── personality_service.py    # 性格画像管理
-│   ├── mood_service.py           # 情绪签到
-│   ├── growth_service.py         # 成长洞察生成
-│   ├── active_message_service.py # 主动消息生成（Rule Engine + LLM 分层）
-│   ├── push_service.py           # APNs/FCM 推送
-│   ├── prompt_builder.py         # Prompt 构建器
-│   └── rule_engine.py            # Rule Engine（模板消息生成）
+├── services/                    # 服务层（业务逻辑）
+│   ├── chat_service.py          # 对话消息管理
+│   ├── memory_service.py        # 记忆检索与注入
+│   ├── temporal_memory.py       # Temporal Memory（信念演变）
+│   ├── llm_service.py           # LLM 调用封装（流式/非流式）
+│   ├── personality_service.py   # 性格画像管理
+│   ├── mood_service.py          # 情绪签到
+│   ├── growth_service.py        # 成长洞察生成
+│   ├── reflection_service.py    # Reflection Card 生成
+│   ├── active_message_service.py# 主动消息生成（Rule Engine + LLM 分层）
+│   ├── push_service.py          # APNs/FCM 推送
+│   ├── prompt_builder.py        # Prompt 构建器
+│   └── rule_engine.py           # Rule Engine（模板消息生成）
 │
-├── repositories/                 # 数据访问层（数据库操作）
-│   ├── base_repository.py        # 基类（CRUD 通用方法）
-│   ├── chat_repository.py        # chat_messages 表操作
-│   ├── memory_repository.py      # memories 表操作 + pgvector 查询
-│   ├── mood_repository.py        # mood_checkins 表操作
-│   ├── personality_repository.py # personality 表操作
-│   ├── growth_repository.py      # growth_records 表操作
-│   └── user_repository.py        # profiles / users 表操作
+├── repositories/                # 数据访问层（数据库操作）
+│   ├── base_repository.py       # 基类（CRUD 通用方法）
+│   ├── chat_repository.py       # chat_messages 表操作
+│   ├── memory_repository.py     # memories 表操作 + pgvector 查询
+│   ├── mood_repository.py       # mood_checkins 表操作
+│   ├── personality_repository.py# personality 表操作
+│   ├── growth_repository.py     # growth_records 表操作
+│   └── user_repository.py       # profiles / users 表操作
 │
-├── models/                       # 数据模型层（SQLAlchemy ORM）
-│   ├── base.py                   # SQLAlchemy Base
-│   ├── user.py                   # User / Profile
-│   ├── chat.py                   # ChatMessage
-│   ├── memory.py                 # Memory
-│   ├── mood.py                   # MoodCheckin
-│   ├── personality.py            # PersonalityProfile
-│   └── growth.py                 # GrowthRecord / GrowthMetric
+├── models/                      # 数据模型层（Pydantic + SQLAlchemy）
+│   ├── __init__.py
+│   ├── base.py                  # SQLAlchemy Base
+│   ├── schemas.py               # Pydantic 请求/响应模型
+│   ├── user.py                  # User / Profile
+│   ├── chat.py                  # ChatMessage
+│   ├── memory.py                # Memory
+│   ├── mood.py                  # MoodCheckin
+│   ├── personality.py           # PersonalityProfile
+│   └── growth.py                # GrowthRecord / GrowthMetric
 │
-├── schemas/                      # Pydantic 请求/响应模型
-│   ├── chat.py
-│   ├── memory.py
-│   ├── mood.py
-│   ├── personality.py
-│   ├── growth.py
-│   └── common.py                 # 通用响应/错误模型
+├── core/                        # 核心基础设施
+│   ├── config.py                # 环境配置
+│   ├── security.py              # JWT 签发与验证
+│   ├── database.py              # 数据库连接池
+│   ├── redis.py                 # Redis 连接
+│   └── logging.py               # 日志配置
 │
-├── core/                         # 核心基础设施
-│   ├── config.py                 # 环境配置
-│   ├── security.py               # JWT 签发与验证
-│   ├── database.py               # 数据库连接池
-│   ├── redis.py                  # Redis 连接
-│   ├── websocket.py              # ConnectionManager（VPS 迁移时启用）
-│   └── logging.py                # 日志配置
-│
-└── main.py                       # FastAPI 应用入口
+├── config.py                    # 应用配置（Pydantic Settings）
+├── main.py                      # FastAPI 应用入口
+└── requirements.txt             # Python 依赖
 ```
 
 ### 2.2 层间依赖规则
 
 ```
-api/ (路由层)
+routers/ (路由层)
   ↓ 依赖注入
 services/ (服务层)
   ↓ 调用
 repositories/ (数据访问层)
   ↓ 操作
-models/ (ORM 模型) → Database
+models/ (ORM 模型 + Pydantic 模型) → Database
 
-schemas/ (Pydantic 模型) — 被所有层引用，定义数据契约
 core/ (基础设施) — 被所有层引用，提供配置/安全/连接
 ```
 
-**禁止反向依赖**：repositories 不能调用 services，services 不能调用 api。
+**禁止反向依赖**：repositories 不能调用 services，services 不能调用 routers。
 
 ### 2.3 路由层示例
 
 ```python
-# app/api/v1/chat.py
+# backend/routers/chat.py
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from app.api.deps import get_current_user
-from app.schemas.chat import ChatMessageRequest, ChatMessageResponse
-from app.services.chat_service import ChatService
+from backend.routers.deps import get_current_user
+from backend.models.schemas import ChatMessageRequest
+from backend.services.chat_service import ChatService
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -155,12 +152,12 @@ async def stream_message(
 ### 2.4 服务层示例
 
 ```python
-# app/services/chat_service.py
+# backend/services/chat_service.py
 from typing import AsyncGenerator
-from app.repositories.chat_repository import ChatRepository
-from app.repositories.memory_repository import MemoryRepository
-from app.services.llm_service import LLMService
-from app.services.prompt_builder import PromptBuilder
+from backend.repositories.chat_repository import ChatRepository
+from backend.repositories.memory_repository import MemoryRepository
+from backend.services.llm_service import LLMService
+from backend.services.prompt_builder import PromptBuilder
 
 class ChatService:
     def __init__(
@@ -198,19 +195,19 @@ class ChatService:
             user_msg=request.content,
         ):
             full_response += chunk
-            yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\\n\\n"
 
         # 5. 保存完整 AI 消息
         await self.chat_repo.save_ai_message(user_id, full_response)
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\\n\\n"
 ```
 
 ### 2.5 数据访问层示例
 
 ```python
-# app/repositories/memory_repository.py
-from app.repositories.base_repository import BaseRepository
-from app.models.memory import Memory
+# backend/repositories/memory_repository.py
+from backend.repositories.base_repository import BaseRepository
+from backend.models.memory import Memory
 from sqlalchemy.ext.asyncio import AsyncSession
 
 class MemoryRepository(BaseRepository[Memory]):
@@ -244,7 +241,7 @@ class MemoryRepository(BaseRepository[Memory]):
 消息生成采用 Rule Engine + LLM 分层架构（70% / 30%）。新增消息类型时，只需新增模板，不修改现有逻辑。
 
 ```python
-# app/services/rule_engine.py
+# backend/services/rule_engine.py
 from abc import ABC, abstractmethod
 
 class MessageStrategy(ABC):
@@ -300,7 +297,7 @@ class ActiveMessageService:
 ### 3.2 LLM 服务扩展点
 
 ```python
-# app/services/llm_service.py
+# backend/services/llm_service.py
 class LLMProvider(ABC):
     """LLM 提供商接口——新增提供商只需实现此接口"""
     @abstractmethod
@@ -353,11 +350,13 @@ class DoubaoProvider(LLMProvider):
 |---------|---------|-----------|
 | `ChatService` | 对话消息的生成、存储、流式推送 | 不直接操作 LLM API（通过 LLMService） |
 | `MemoryService` | 记忆的提取、存储、检索、注入 | 不直接构建 Prompt（通过 PromptBuilder） |
+| `TemporalMemoryService` | 信念演变追踪（转变检测、回归识别、漂移检测） | 不直接操作 LLM（通过 LLMService 做矛盾分类） |
 | `LLMService` | LLM API 调用封装（流式/非流式/重试） | 不包含业务逻辑（不知道"记忆"是什么） |
 | `PromptBuilder` | Prompt 模板构建（记忆+性格+洞察拼接） | 不调用 LLM，不操作数据库 |
 | `PushService` | APNs/FCM 推送发送 | 不生成消息内容（仅发送已生成的内容） |
 | `ActiveMessageService` | 主动消息的生成编排（Rule Engine vs LLM 决策） | 不直接生成模板（通过 RuleEngine） |
 | `GrowthService` | 成长洞察生成、成长指标计算 | 不管理对话消息 |
+| `ReflectionService` | Reflection Card 草稿生成与确认 | 不管理对话消息流 |
 
 ### 4.2 Repository 职责
 
@@ -374,16 +373,16 @@ class DoubaoProvider(LLMProvider):
 ### 5.1 FastAPI 依赖注入
 
 ```python
-# app/api/deps.py
+# backend/routers/deps.py
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_session
-from app.core.security import verify_token
-from app.repositories.chat_repository import ChatRepository
-from app.repositories.memory_repository import MemoryRepository
-from app.services.chat_service import ChatService
-from app.services.llm_service import LLMService
-from app.services.prompt_builder import PromptBuilder
+from backend.core.database import get_session
+from backend.core.security import verify_token
+from backend.repositories.chat_repository import ChatRepository
+from backend.repositories.memory_repository import MemoryRepository
+from backend.services.chat_service import ChatService
+from backend.services.llm_service import LLMService
+from backend.services.prompt_builder import PromptBuilder
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
@@ -420,12 +419,12 @@ async def get_chat_service(
 ### 5.2 路由中使用依赖注入
 
 ```python
-# app/api/v1/chat.py
+# backend/routers/chat.py
 @router.post("/messages/stream")
 async def stream_message(
     request: ChatMessageRequest,
     user: dict = Depends(get_current_user),
-    chat_service: ChatService = Depends(get_chat_service),  # 注入完整 Service
+    chat_service: ChatService = Depends(get_chat_service),
 ):
     return StreamingResponse(
         chat_service.stream_message(user["sub"], request),
@@ -470,14 +469,12 @@ async def test_chat_service_with_mock():
 后端 auth 相关逻辑集中在一个 service 文件中，迁移时只改这一个文件。
 
 ```python
-# app/services/auth_service.py
+# backend/services/auth_service.py
 class AuthService:
     """Auth 服务——迁移 VPS 时只修改此类"""
 
     async def verify_apple_token(self, id_token: str) -> dict:
         """验证 Apple ID Token（Apple 公钥 JWKS）"""
-        # 当前：调 Supabase Auth
-        # 迁移后：直接验证 Apple JWKS
         pass
 
     async def verify_google_token(self, id_token: str) -> dict:

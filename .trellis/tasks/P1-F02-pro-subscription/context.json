@@ -11,13 +11,13 @@
   "estimated_files": [
     "backend/routers/subscriptions.py",
     "backend/services/subscription_service.py",
-    "backend/services/iap_validator.py",
-    "backend/models/subscription.py",
-    "frontend/pages/SubscriptionPage.tsx",
-    "frontend/pages/PaywallView.tsx"
+    "backend/models/schemas.py",
+    "frontend/src/screens/SubscriptionPage.tsx"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/cost-optimization.md",
+    "spec/app-store-compliance.md"
   ]
 }

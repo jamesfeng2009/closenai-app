@@ -10,15 +10,16 @@
   ],
   "estimated_files": [
     "backend/routers/growth.py",
-    "backend/services/growth_metrics.py",
-    "backend/services/streak_service.py",
-    "backend/services/weekly_insight.py",
-    "frontend/pages/GrowthDashboard.tsx",
-    "frontend/components/GrowthMetricsCard.tsx",
-    "frontend/components/StreakBadge.tsx"
+    "backend/services/growth_service.py",
+    "backend/models/growth.py",
+    "frontend/src/screens/GrowthDashboard.tsx",
+    "frontend/src/components/GrowthMetricsCard.tsx"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/ui-design-system.md",
+    "spec/frontend-sqlite-schema.md",
+    "spec/app-startup-timing.md"
   ]
 }

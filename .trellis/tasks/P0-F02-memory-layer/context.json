@@ -12,11 +12,13 @@
     "backend/routers/memories.py",
     "backend/services/memory_service.py",
     "backend/services/temporal_memory.py",
-    "backend/services/semantic_search.py",
+    "backend/repositories/memory_repository.py",
     "backend/models/memory.py"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/memory-layer.md",
+    "spec/cost-optimization.md"
   ]
 }

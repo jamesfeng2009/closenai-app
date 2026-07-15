@@ -1,90 +1,106 @@
-# Matt Pocock Skills 安装指南
+# Matt Pocock Skills 诊断层说明
 
-本指南介绍如何安装 Matt Pocock 的 TypeScript/React 技能集，并说明其与 Trellis 工作流的配合方式。
+本文件说明 Matt Pocock 技能集在本项目三层技能框架中的定位和使用方式。
+
+> **三层框架**：Trellis（框架层）+ Superpowers（执行层）+ Matt Pocock（诊断层）
+> 详见 `workflow.md` §〇 技能框架组合
 
 ---
 
-## 安装命令
+## 1. 定位：诊断层
 
-使用 Claude Code 的 skill 安装命令：
+Matt Pocock skills 在三层框架中属于**诊断层**，作为 Superpowers 执行层的**精准工具**被调用：
 
-```bash
-# 安装 Matt Pocock 技能集
-claude skill install matt-pocock-skills
+```
+Superpowers 执行层
+├── brainstorming      ← 阶段内调用 grill-with-docs
+├── systematic-debugging ← 阶段内调用 diagnosing-bugs
+└── TDD / code-review  ← 可调用 improve-codebase-architecture / domain-modeling
 ```
 
-或者通过 npx：
-
-```bash
-npx @anthropic/matt-pocock-skills install
-```
-
-安装后，技能会注册到 Claude Code 的技能系统中，可在对话中通过 `/skill` 命令调用。
+**核心原则**：Matt Pocock skills 不是独立步骤，而是 Superpowers 各阶段内的子工具。
 
 ---
 
-## 推荐的 6 个核心技能
+## 2. 四个核心技能
 
-### 1. TypeScript Best Practices
-- **用途**：强制 TypeScript 最佳实践，包括类型安全、泛型使用、类型推断优化
-- **调用方式**：在 `/implement` 阶段自动激活
-- **适用场景**：前端 TypeScript 代码编写
+### 2.1 grill-with-docs（与文档深度对话）
 
-### 2. React Component Design
-- **用途**：指导 React 组件设计，包括组件拆分、Props 设计、状态管理
-- **调用方式**：手动 `/skill react-component-design`
-- **适用场景**：创建新的 React Native 组件
+- **用途**：与 `.trellis/spec/` 中的规范文件深度对话，澄清需求细节
+- **调用时机**：在 Superpowers `brainstorming` 阶段内调用
+- **调用方式**：`/grill-with-docs`（在 brainstorming 同一上下文窗口内）
+- **适用场景**：新功能开发时，确认数据模型、API 设计、边界条件与现有 spec 的一致性
 
-### 3. API Type Safety
-- **用途**：确保前后端 API 类型安全，自动生成 TypeScript 类型定义
-- **调用方式**：在 API 变更时手动调用
-- **适用场景**：前后端接口对齐
+### 2.2 diagnosing-bugs（Bug 根因定位）
 
-### 4. Error Handling Patterns
-- **用途**：标准化错误处理模式，包括错误边界、异步错误捕获、用户友好提示
-- **调用方式**：手动 `/skill error-handling`
-- **适用场景**：实现错误处理逻辑
+- **用途**：精准定位 Bug 到具体文件和代码行
+- **调用时机**：在 Superpowers `systematic-debugging` 阶段内调用
+- **调用方式**：`/diagnosing-bugs`（在 systematic-debugging 同一上下文窗口内）
+- **适用场景**：Bug 修复时，在构建根因链后用此工具精确定位代码位置
 
-### 5. Testing Strategies
-- **用途**：指导测试策略，包括单元测试、集成测试、组件测试的编写规范
-- **调用方式**：在 `/trellis:check` 阶段手动调用
-- **适用场景**：编写和审查测试代码
+### 2.3 improve-codebase-architecture（架构改进）
 
-### 6. Performance Optimization
-- **用途**：识别和优化性能瓶颈，包括 React 渲染优化、列表虚拟化、图片懒加载
-- **调用方式**：手动 `/skill performance`
-- **适用场景**：性能优化和代码审查
+- **用途**：评估和改进现有代码架构，识别违反 OCP/SRP 的代码
+- **调用时机**：按需手动调用，通常在代码审查发现架构问题时
+- **调用方式**：`/improve-codebase-architecture`
+- **适用场景**：重构现有模块、评估分层架构合规性
+
+### 2.4 domain-modeling（领域建模）
+
+- **用途**：为复杂业务领域建立类型模型，确保领域概念在代码中正确表达
+- **调用时机**：按需手动调用，通常在 brainstorming 阶段设计复杂数据模型时
+- **调用方式**：`/domain-modeling`
+- **适用场景**：Temporal Memory 数据模型设计、成长指标体系建模
 
 ---
 
-## 与 Trellis 的配合方式
+## 3. 与 Superpowers 的配合关系
 
-Matt Pocock Skills 与 Trellis 工作流互补使用：
-
-| Trellis 阶段 | 推荐使用的 Skill | 说明 |
-|-------------|-----------------|------|
-| /grill-with-docs | — | 需求讨论阶段，不涉及编码 |
-| /trellis:before-dev | TypeScript Best Practices | 检查类型安全规范 |
-| /implement | React Component Design, API Type Safety | 编码时自动激活或手动调用 |
-| /trellis:check | Testing Strategies, Error Handling Patterns | 审查测试和错误处理 |
-| /trellis:finish-work | Performance Optimization | 最终性能审查 |
-| /trellis:update-spec | — | 更新规范文件，不涉及编码 |
+| Superpowers 阶段 | 调用的 Matt Pocock 技能 | 说明 |
+|------------------|----------------------|------|
+| `brainstorming` | `grill-with-docs` | 与 spec 文档深度对话，确保需求与架构一致 |
+| `brainstorming`（复杂数据模型时） | `domain-modeling` | 为 Temporal Memory 等复杂领域建立类型模型 |
+| `systematic-debugging` | `diagnosing-bugs` | 在根因链构建后，精准定位代码位置 |
+| `requesting-code-review`（发现架构问题时） | `improve-codebase-architecture` | 评估架构违规，提出重构建议 |
 
 ### 配合原则
 
-1. **Trellis 管流程，Skills 管质量**：Trellis 定义工作流程和阶段，Matt Pocock Skills 在各阶段提供编码质量保障
-2. **不冲突**：Skills 的建议应与 `.trellis/spec/` 中的规范一致，如有冲突以 spec 为准
-3. **可选使用**：Skills 是辅助工具，不是强制步骤。根据实际需要选择使用
-4. **上下文独立**：Skills 的使用不依赖之前的对话上下文，与 Trellis 的上下文卫生规则一致
+1. **诊断层是子工具，不是独立步骤**：Matt Pocock skills 始终在 Superpowers 阶段内被调用，不独立成步骤
+2. **不与 Superpowers 冲突**：如遇冲突，以 Superpowers 的 HARD-GATE / TDD / 系统化流程为准
+3. **可选使用**：根据实际需要选择调用，不是每个步骤都必须调用
+4. **上下文一致**：在 Superpowers 阶段的同一上下文窗口内调用，不切换上下文
 
 ---
 
-## 验证安装
+## 4. 安装方式
 
-安装完成后，运行以下命令验证：
+Matt Pocock skills 来源于 GitHub 仓库 [`mattpocock/skills`](https://github.com/mattpocock/skills)。
+
+### 4.1 Claude Code 安装
 
 ```bash
-claude skill list
+# 克隆仓库到本地
+git clone https://github.com/mattpocock/skills.git ~/skills/matt-pocock
+
+# 在 Claude Code 中引用
+# 在项目根目录的 .claude/settings.json 中添加 skills 路径
 ```
 
-确认上述 6 个技能已出现在列表中。如未出现，检查安装日志或重新安装。
+### 4.2 其他 AI 编码助手
+
+将 `~/skills/matt-pocock` 中的 skill 文件复制到对应 AI 助手的 skills 目录中，或通过 `CLAUDE.md` 中的技能框架组合章节引用。
+
+### 4.3 验证
+
+安装后，在对话中尝试调用 `/grill-with-docs` 或 `/diagnosing-bugs`，确认技能可用。
+
+---
+
+## 5. 速查表
+
+| 场景 | 调用命令 | 所属层 | 在哪个 Superpowers 阶段 |
+|------|---------|--------|----------------------|
+| 与 spec 文档对话 | `/grill-with-docs` | Matt Pocock | brainstorming |
+| Bug 根因定位 | `/diagnosing-bugs` | Matt Pocock | systematic-debugging |
+| 架构评估 | `/improve-codebase-architecture` | Matt Pocock | 按需 |
+| 领域建模 | `/domain-modeling` | Matt Pocock | brainstorming（复杂数据模型时） |

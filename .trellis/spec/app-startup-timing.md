@@ -942,7 +942,7 @@ async function conditionalFetch<T>(
 
 ```python
 # 后端 ETag 支持（FastAPI 示例）
-# app/api/v1/profile.py
+# backend/routers/profile.py
 
 from fastapi import APIRouter, Depends, Request, Response
 import hashlib, json

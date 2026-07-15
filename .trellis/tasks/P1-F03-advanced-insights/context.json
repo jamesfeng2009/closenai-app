@@ -11,15 +11,14 @@
   ],
   "estimated_files": [
     "backend/routers/reports.py",
-    "backend/services/weekly_report.py",
-    "backend/services/monthly_report.py",
-    "backend/services/quarterly_report.py",
-    "backend/services/year_in_review.py",
-    "backend/services/pattern_discovery.py",
-    "frontend/pages/ReportViewer.tsx"
+    "backend/services/growth_service.py",
+    "backend/models/growth.py",
+    "frontend/src/screens/ReportViewer.tsx"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/memory-layer.md",
+    "spec/cost-optimization.md"
   ]
 }

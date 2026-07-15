@@ -9,16 +9,17 @@
     "P0-F03"
   ],
   "estimated_files": [
-    "backend/routers/growth_records.py",
-    "backend/services/insight_generator.py",
-    "backend/services/timeline_service.py",
-    "backend/models/growth_record.py",
-    "backend/models/relationship_milestone.py",
-    "frontend/pages/GrowthTimeline.tsx",
-    "frontend/components/HeatmapCalendar.tsx"
+    "backend/routers/growth.py",
+    "backend/services/growth_service.py",
+    "backend/models/growth.py",
+    "frontend/src/screens/GrowthTimeline.tsx",
+    "frontend/src/components/HeatmapCalendar.tsx"
   ],
   "spec_refs": [
     "spec/architecture.md",
-    "spec/api-conventions.md"
+    "spec/api-conventions.md",
+    "spec/memory-layer.md",
+    "spec/cost-optimization.md",
+    "spec/ui-design-system.md"
   ]
 }
