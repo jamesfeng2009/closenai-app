@@ -23,7 +23,7 @@ ClosenAI 是一款**个人成长追踪工具**，帮助用户通过反思记录�
 
 | 角色 | 负责人 | 负责目录 | 核心 spec |
 |------|--------|---------|-----------|
-| 后端开发 | @jamesfeng2009 | `backend/` | architecture.md, code-architecture.md, api-conventions.md, memory-layer.md, cost-optimization.md, domain-configuration.md |
+| 后端开发 | @jamesfeng2009 | `backend/` | architecture.md, code-architecture.md, api-conventions.md, memory-layer.md, context-engineering.md, cost-optimization.md, domain-configuration.md |
 | 前端开发 | @frontend-dev | `frontend/` | ui-design-system.md, app-startup-timing.md, frontend-sqlite-schema.md, app-store-compliance.md |
 
 **关键规则**：

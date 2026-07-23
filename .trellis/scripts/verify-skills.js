@@ -107,6 +107,7 @@ const specFiles = [
   'app-startup-timing.md',
   'frontend-sqlite-schema.md',
   'domain-configuration.md',
+  'context-engineering.md',
 ];
 console.log('\n── .trellis/spec/ 规范文件 ──');
 for (const spec of specFiles) {
@@ -153,6 +154,16 @@ if (exists('.trellis/spec/architecture.md') && exists('.trellis/spec/domain-conf
   const arch = read('.trellis/spec/architecture.md');
   check(arch.includes('domain-configuration.md'), 'architecture.md §2.4 引用 domain-configuration.md');
   check(!arch.includes('**架构决策**'), 'architecture.md §2.4 不再包含详细架构决策（已移至 domain-configuration.md）');
+}
+
+if (exists('.trellis/spec/context-engineering.md') && exists('.trellis/spec/memory-layer.md')) {
+  const ctx = read('.trellis/spec/context-engineering.md');
+  const mem = read('.trellis/spec/memory-layer.md');
+  check(ctx.includes('memory-layer.md'), 'context-engineering.md 引用 memory-layer.md');
+  check(ctx.includes('短期对话上下文'), 'context-engineering.md 定义短期对话上下文');
+  check(ctx.includes('滑动窗口'), 'context-engineering.md 包含滑动窗口设计');
+  check(!ctx.includes('Temporal Memory 数据模型'), 'context-engineering.md 不重复定义 Temporal Memory（memory-layer.md 权威）');
+  check(!mem.includes('滑动窗口'), 'memory-layer.md 不包含滑动窗口（context-engineering.md 权威）');
 }
 
 // 9. 检查任务状态

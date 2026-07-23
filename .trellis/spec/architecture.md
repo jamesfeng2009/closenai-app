@@ -131,7 +131,8 @@ async def stream_chat_message(
         )
         insights = await memory_service.get_recent_insights(user["sub"], days=7)
 
-        # 3. 构建 LLM 上下文
+        # 3. 构建 LLM 上下文（system + history + user_msg）
+        # 对话历史注入详见 context-engineering.md §3.1
         system_prompt = prompt_builder.build_chat_prompt(
             personality=await personality_service.get(user["sub"]),
             memories=memories,
@@ -142,6 +143,7 @@ async def stream_chat_message(
         async for chunk in llm_service.stream_chat(
             model="gemini-2.5-flash",
             system=system_prompt,
+            history=history,          # 对话历史（context-engineering.md §3.1）
             user_msg=request.content,
             max_tokens=500,
         ):
