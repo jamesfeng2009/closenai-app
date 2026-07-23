@@ -99,7 +99,7 @@
 
 ### 3.1 实时对话（用户发消息后）
 
-用户发消息后 AI 流式回复，首 token < 3 秒，使用 SSE (Server-Sent Events) 流式输出降低感知延迟。
+用户发消息后 AI 流式回复，首 token ~2.5-3.2 秒（含准实时预处理），使用 SSE (Server-Sent Events) 流式输出降低感知延迟。
 
 ```python
 from fastapi import APIRouter, Depends
@@ -117,13 +117,20 @@ async def stream_chat_message(
     """
     SSE 流式对话接口。
     用户发消息 → 后端注入记忆 → LLM 流式生成 → 逐 token SSE 推送。
-    延迟要求：< 3 秒首 token。
+    延迟要求：首 token ~2.5-3.2 秒（含准实时预处理 ~170ms）。
     """
     async def event_stream() -> AsyncGenerator[str, None]:
         # 1. 存储用户消息
         await chat_service.save_user_message(user["sub"], request.content)
 
-        # 2. 记忆注入（延迟 < 500ms）
+        # 2. 对话历史（滑动窗口 N=10，详见 context-engineering.md §3.1）
+        history = await chat_service.get_recent_history(
+            user_id=user["sub"],
+            chat_id=request.chat_id,
+            limit=10,
+        )
+
+        # 3. 记忆注入（延迟 < 500ms）
         memories = await memory_service.retrieve_relevant(
             user_id=user["sub"],
             query=request.content,
@@ -131,25 +138,52 @@ async def stream_chat_message(
         )
         insights = await memory_service.get_recent_insights(user["sub"], days=7)
 
-        # 3. 构建 LLM 上下文（system + history + user_msg）
-        # 对话历史注入详见 context-engineering.md §3.1
-        system_prompt = prompt_builder.build_chat_prompt(
+        # 4. 准实时预处理（~170ms，详见 context-engineering.md §13）
+        #    Step 1: 消息 Embedding（~20ms）
+        msg_embedding = await chat_service.get_message_embedding(request.content)
+
+        #    Step 2: SQL 漂移快查（~25ms，纯 SQL 零成本）
+        drift_signals = await memory_service.check_realtime_drift(
+            user_id=user["sub"],
+            msg_embedding=msg_embedding,
+        )
+
+        #    Step 3: Flash-Lite 预处理（~120ms，指代消解 + 矛盾预检 + 情绪评估）
+        preprocessing = await chat_service.preprocess_message(
+            user_msg=request.content,
+            history=history,
+            memories=memories,
+            drift_signals=drift_signals,
+        )
+
+        # 5. 构建 LLM 上下文（含实时增强信号）
+        system_prompt = prompt_builder.build_chat_prompt_enhanced(
             personality=await personality_service.get(user["sub"]),
             memories=memories,
             insights=insights,
+            history=history,
+            preprocessing=preprocessing,
+            drift_signals=drift_signals,
         )
 
-        # 4. LLM 流式生成（Gemini 2.5 Flash，实时对话模型）
+        # 6. LLM 流式生成（Gemini 2.5 Flash，实时对话模型）
+        resolved_msg = preprocessing["resolved_msg"]
         async for chunk in llm_service.stream_chat(
             model="gemini-2.5-flash",
             system=system_prompt,
-            history=history,          # 对话历史（context-engineering.md §3.1）
-            user_msg=request.content,
+            history=history,
+            user_msg=resolved_msg,    # 使用指代消解后的消息
             max_tokens=500,
         ):
             yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
 
-        # 5. 流结束，保存完整 AI 消息
+        # 7. 流结束，异步保存预处理结果（不阻塞用户）
+        await chat_service.save_preprocessing_results(
+            user_id=user["sub"],
+            chat_id=request.chat_id,
+            preprocessing=preprocessing,
+            drift_signals=drift_signals,
+        )
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(

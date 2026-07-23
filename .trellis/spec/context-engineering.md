@@ -385,9 +385,10 @@ ClosenAI 的 Agent 架构采用**单一对话 Agent + 异步辅助 Agent**模式
 ```
 用户消息
     │
-    ├── 【实时路径】对话 Agent (Flash) ← 注入短期+长期上下文
+    ├── 【实时路径】预处理 (Flash-Lite + SQL) → 对话 Agent (Flash)
     │       │
-    │       └── 流式回复用户（< 3 秒首 token）
+    │       ├── 准实时预处理（~170ms，详见 §13）
+    │       └── 流式回复用户（首 token ~2.5-3.2s）
     │
     └── 【异步路径】对话结束后触发
             ├── 摘要 Agent (Flash-Lite) → 每日摘要 + 信念提取
@@ -622,6 +623,318 @@ P0 增量成本 $90/月，相对于现有 LLM 成本 ~$75/月，增幅 120%。�
 | 意图驱动选择 | 大 | 不同意图注入不同上下文 |
 | 意图隔离 | 大 | vent 意图不注入无关信念 |
 
+
+---
+
+## 13. 实时检测方案（准实时串行架构）
+
+> 本节定义对话进行时的实时矛盾检测、漂移检测和指代消解方案。
+> 设计原则：ClosenAI 是反思追踪工具，用户预期是"准实时"（2-5 秒可接受），不需要 IM 级秒回。
+> 因此采用串行架构而非激进并行，换取更简单的实现和更精准的检测结果。
+
+### 13.1 延迟预算重新定义
+
+ClosenAI 的产品定位决定了用户对延迟的预期与 IM 不同：
+
+| 产品类型 | 用户预期延迟 | ClosenAI 适用 |
+|---------|------------|-------------|
+| 即时通讯（微信/QQ） | < 500ms | 否 |
+| AI 聊天（ChatGPT） | 1-3 秒 | 参考 |
+| **反思追踪（ClosenAI）** | **2-5 秒完全可接受** | **是** |
+
+用户在 Reflect Tab 写深度反思内容时，AI "思考" 1-2 秒再回复反而更自然。因此首 token 延迟预算从 3 秒放宽到 **5 秒**，预处理总预算放宽到 **500ms**（含降级超时）。
+
+### 13.2 准实时串行流水线
+
+采用串行三步预处理，每步的输出供下一步使用，检测更精准：
+
+```
+用户消息
+    │
+    ├── Step 1: Embedding API（~20ms）
+    │     用户消息 → 768 维向量（gemini-embedding-001）
+    │
+    ├── Step 2: SQL 漂移快查（~25ms）
+    │     用 Step 1 的向量查询：
+    │     • 语义距离：当前消息 vs current 信念
+    │     • 漂移趋势：最近摘要 vs 信念距离变化
+    │     • 回归信号：superseded 信念 similarity > 0.80
+    │
+    ├── Step 3: Flash-Lite 预处理 Agent（~120ms，超时 500ms）
+    │     输入：用户消息 + 对话历史 + current 信念 + Step 2 漂移信号
+    │     一次调用三件事：
+    │     • 指代消解："那上海呢" → "上海限号"
+    │     • 矛盾预检：用户消息 vs current 信念
+    │     • 情绪评估：intensity 0.0-1.0
+    │     （拿到漂移信号后，可做更精准的 severity 判断）
+    │
+    ├── PromptBuilder 增强（~5ms）
+    │     追加【矛盾感知】【漂移信号】【情绪状态】到 system prompt
+    │
+    └── Flash 流式生成（首 token ~2-3s）
+         总预处理 ~170ms，首 token ~2.5-3.2s
+```
+
+**串行优于并行的原因**：Step 3 的 Flash-Lite 可以拿到 Step 2 的漂移信号作为输入。例如 SQL 查到"漂移分数 0.18"，Flash-Lite 就知道这不是突发矛盾而是渐变积累，severity 标低一些。并行架构做不到这种信息传递。
+
+### 13.3 Step 1：消息 Embedding
+
+```python
+# backend/services/chat_service.py
+
+async def get_message_embedding(self, text: str) -> list[float]:
+    """
+    生成用户消息的 768 维 embedding。
+    用于 SQL 漂移快查和增强记忆检索精度。
+    延迟 ~20ms，成本 ~$0.000007/次。
+    """
+    response = await self.llm_service.embed(
+        model="gemini-embedding-001",
+        contents=text,
+    )
+    return response.embeddings[0].values  # 768 维向量
+```
+
+### 13.4 Step 2：实时漂移快查（纯 SQL）
+
+异步漂移检测（memory-layer.md §3.2）是每周 Cron Job 计算 4 周漂移分数。实时版本是一个**轻量快速信号**，用单条 SQL 查询三种信号：
+
+```sql
+-- 输入：$user_id, $msg_embedding（Step 1 产出的消息向量）
+-- 延迟 ~25ms，成本 $0（纯 SQL）
+
+SELECT
+  -- 信号 1：当前消息 vs 每条 current 信念的语义距离
+  m.id,
+  m.content AS belief_content,
+  m.conviction,
+  1 - (m.embedding <=> $msg_embedding) AS current_similarity,
+
+  -- 信号 2：最近 7 天摘要 vs 该信念的距离变化趋势
+  (SELECT 1 - (ds_latest.embedding <=> m.embedding)
+   FROM daily_summaries ds_latest
+   WHERE ds_latest.user_id = m.user_id
+   ORDER BY ds_latest.created_at DESC LIMIT 1
+  ) AS latest_summary_similarity,
+
+  -- 信号 3：回归检测——是否有 superseded 信念与新消息高度相似
+  (SELECT ms.content
+   FROM memories ms
+   WHERE ms.user_id = m.user_id
+     AND ms.status = 'superseded'
+     AND 1 - (ms.embedding <=> $msg_embedding) > 0.80
+   LIMIT 1
+  ) AS regression_belief
+
+FROM memories m
+WHERE m.user_id = $user_id
+  AND m.status = 'current'
+  AND m.source = 'self'
+  AND m.deleted = FALSE
+ORDER BY m.embedding <=> $msg_embedding
+LIMIT 5;
+```
+
+**三种信号的含义与阈值**：
+
+| 信号 | 含义 | 触发阈值 | 传给 Flash-Lite 的作用 |
+|------|------|---------|---------------------|
+| current_similarity | 当前消息与 current 信念的相关度 | > 0.75 时高度相关 | 高相关 + 矛盾 → severity=high |
+| latest_summary_similarity | 最近摘要与信念的距离 | 比历史均值低 0.15+ | 漂移趋势 → severity 降级为 medium |
+| regression_belief | superseded 信念与新消息高度相似 | similarity > 0.80 | 回归信号 → 追加 [回归信念] hint |
+
+### 13.5 Step 3：Flash-Lite 预处理 Agent（三合一）
+
+将指代消解、矛盾预检、情绪评估合并到**同一个 Flash-Lite 调用**，同时输入 Step 2 的漂移信号：
+
+```python
+# backend/services/chat_service.py
+
+PREPROCESS_PROMPT = """
+你是 ClosenAI 的上下文预处理模块。请基于对话历史、已有信念和漂移信号，
+对用户最新消息做三项分析，输出一个 JSON。
+
+分析任务：
+1. 指代消解：将消息中的指代词（那、它、这个、前面提到的）替换为具体内容。
+   如果没有指代词，原样返回。
+2. 矛盾预检：判断用户消息是否与"已有信念"中的某条 [当前信念] 矛盾。
+   注意区分：self 表达 vs others 引用 vs hypothetical 假设。
+   只标记 self 来源的矛盾。
+   如果漂移信号显示渐变趋势，severity 降为 medium。
+3. 情绪评估：评估用户当前消息的情感强度 0.0-1.0。
+   >0.8 视为情绪化表达。
+
+对话历史：
+{history_formatted}
+
+已有信念：
+{memories_formatted}
+
+漂移信号：
+{drift_signals_formatted}
+
+用户最新消息：{user_msg}
+
+输出 JSON：
+{
+  "resolved_msg": "消解后的消息（无指代则原样）",
+  "contradiction": {
+    "detected": true/false,
+    "contradicted_belief": "被矛盾的信念内容或null",
+    "reason": "矛盾原因或null",
+    "severity": "high/medium/low/null"
+  },
+  "emotion": {
+    "intensity": 0.0-1.0,
+    "is_emotional": true/false
+  }
+}
+"""
+
+async def preprocess_message(
+    self,
+    user_msg: str,
+    history: list[dict],
+    memories: list[dict],
+    drift_signals: dict,
+) -> dict:
+    """
+    Flash-Lite 预处理：指代消解 + 矛盾预检 + 情绪评估。
+    一次调用三件事，延迟 ~120ms，成本 ~$0.00003/次。
+    超时 500ms 降级为返回原始消息（不阻断主流程）。
+    """
+    try:
+        result = await self.llm_service.chat(
+            model="gemini-2.5-flash-lite",
+            messages=[{
+                "role": "user",
+                "content": PREPROCESS_PROMPT.format(
+                    history_formatted=format_history(history),
+                    memories_formatted=format_memories(memories),
+                    drift_signals_formatted=format_drift(drift_signals),
+                    user_msg=user_msg,
+                ),
+            }],
+            max_tokens=150,
+            timeout=0.5,  # 500ms 超时
+        )
+        return json.loads(result)
+    except (LLMTimeoutError, LLMError, json.JSONDecodeError):
+        # 降级：返回原始消息，无矛盾/情绪信号
+        return {
+            "resolved_msg": user_msg,
+            "contradiction": {"detected": False, "contradicted_belief": None,
+                              "reason": None, "severity": None},
+            "emotion": {"intensity": 0.5, "is_emotional": False},
+        }
+```
+
+### 13.6 PromptBuilder 增强
+
+将预处理结果追加到 system prompt 的【实时上下文增强】区域：
+
+```python
+# backend/services/prompt_builder.py
+
+def build_chat_prompt_enhanced(
+    personality: dict,
+    memories: list,
+    insights: list,
+    history: list[dict],
+    preprocessing: dict,    # Step 3 输出
+    drift_signals: dict,    # Step 2 输出
+) -> str:
+    """增强版 system prompt，包含实时检测信号。"""
+
+    # 基础区域
+    prompt = f"""
+你是用户的 AI 朋友，帮助追踪个人成长。
+用户性格画像：{personality['type']}
+相关记忆：{format_memories(memories)}
+最近洞察：{format_insights(insights)}
+对话历史：{format_history(history)}
+"""
+
+    # 实时上下文增强区域
+    enhancement = "\n【实时上下文增强】\n"
+
+    # 矛盾感知
+    if preprocessing["contradiction"]["detected"]:
+        severity = preprocessing["contradiction"]["severity"]
+        enhancement += f"⚠️ 矛盾感知（{severity}）：\n"
+        enhancement += f"  用户当前表达可能与已有信念矛盾——\n"
+        enhancement += f"  被矛盾的信念：\"{preprocessing['contradiction']['contradicted_belief']}\"\n"
+        enhancement += f"  矛盾原因：{preprocessing['contradiction']['reason']}\n"
+        if preprocessing["emotion"]["is_emotional"]:
+            enhancement += "  用户当前处于情绪化状态，请轻轻带过，不追问转变原因。\n"
+        else:
+            enhancement += "  请在回复中自然地提及这个矛盾，好奇地询问转变原因。\n"
+        enhancement += "  注意：不要下结论说用户\"变了\"——可能只是探讨。\n\n"
+
+    # 漂移信号
+    if drift_signals.get("drift_detected"):
+        enhancement += f"📊 漂移信号：\n"
+        enhancement += f"  该信念最近 7 天的语义距离呈增大趋势（漂移分数 {drift_signals['drift_score']:.2f}）。\n"
+        enhancement += f"  用户可能在缓慢调整立场。可以温和地提及。\n\n"
+
+    # 回归信号
+    if drift_signals.get("regression_belief"):
+        enhancement += f"🔄 回归信号：\n"
+        enhancement += f"  用户似乎回到了之前的观点：\"{drift_signals['regression_belief']}\"\n"
+        enhancement += f"  可以在回复中自然体现回归认知。\n\n"
+
+    prompt += enhancement
+    return prompt
+```
+
+### 13.7 实时检测 → 异步 Agent 衔接
+
+实时检测只做"感知和提示"，不做记忆状态变更。所有 status 变更仍由异步 Agent 在确认后执行：
+
+| 实时检测发现 | 异步 Agent 衔接 | 最终状态变更 |
+|-------------|----------------|------------|
+| 矛盾（非情绪化） | 当晚矛盾检测 Agent 优先处理该条"待确认"记录，跳过候选筛选（实时已找到矛盾信念），直接走情绪过滤 + 确认转变 | 次日 AI 主动确认 → 用户确认后 current → superseded |
+| 矛盾（情绪化） | 当晚矛盾检测 Agent 检测到 emotion_intensity > 0.8，标记 emotion_context，不触发状态变更 | 不标记转变。3 天后观察 |
+| 漂移信号 | 实时只是信号提示。每周漂移检测 Cron Job 仍按周维度计算正式 drift_score | 周日 Cron → drift_score > 0.15 → AI 主动确认 |
+| 回归信号 | 实时已标记 regression_belief。当晚矛盾检测 Agent 直接走回归识别流程 | superseded → reverted，新记忆 reverted_from 指向 |
+
+### 13.8 降级策略
+
+| 失败场景 | 降级行为 | 影响 |
+|---------|---------|------|
+| Embedding API 超时 | 跳过 Step 1-2，Flash-Lite 仍执行（无漂移信号输入） | 漂移/回归信号缺失，矛盾预检仍可用 |
+| Flash-Lite 超时（>500ms） | 跳过 Step 3，用原始 user_msg | LLM 仍能通过注入的记忆自己发现矛盾（兜底） |
+| SQL 查询失败 | 跳过 Step 2 | 不影响 Flash-Lite 预处理（无漂移信号） |
+| 所有预处理都失败 | 等价于无实时检测设计 | 异步 Agent 仍正常工作 |
+
+### 13.9 延迟与成本
+
+| 环节 | 延迟 | 成本 | 模型 |
+|------|------|------|------|
+| Step 1: Embedding | ~20ms | ~$0.000007/次 | gemini-embedding-001 |
+| Step 2: SQL 快查 | ~25ms | $0 | PostgreSQL pgvector |
+| Step 3: Flash-Lite | ~120ms | ~$0.00003/次 | gemini-2.5-flash-lite |
+| Prompt 增强 | ~5ms | $0 | 字符串拼接 |
+| **预处理总计** | **~170ms** | **~$0.00004/次** | - |
+| Flash 流式生成 | ~2-3s 首 token | ~$0.0005/次 | gemini-2.5-flash |
+| **首 token 总延迟** | **~2.5-3.2s** | - | - |
+
+月成本（1 万 DAU，3 轮/用户/天）：预处理 ~$4/月，可忽略。
+
+### 13.10 与异步检测的职责划分
+
+| 职责 | 实时（对话中） | 异步（对话后） |
+|------|-------------|-------------|
+| 指代消解 | Flash-Lite 实时改写 | 不需要 |
+| 矛盾感知 | LLM 在回复中自然提及 | - |
+| 矛盾状态变更 | 不做 | 矛盾检测 Agent + 情绪过滤 + 用户确认 |
+| 漂移感知 | SQL 快查信号 → LLM 提及 | 每周 Cron 正式计算 drift_score |
+| 回归感知 | SQL 查到 superseded similarity > 0.80 | 异步 Agent 正式标记 reverted |
+| 情绪过滤 | is_emotional → 降级矛盾 hint | > 0.8 正式过滤，不标记转变 |
+
+**核心原则**：实时只做"感知和提示"，异步才做"状态变更"。三道安全阀（情绪过滤、source 过滤、用户确认）不被绕过。
+
+
 ---
 
 ## 12. 与现有 Spec 的关系
@@ -629,7 +942,7 @@ P0 增量成本 $90/月，相对于现有 LLM 成本 ~$75/月，增幅 120%。�
 | Spec 文件 | 关系 | 说明 |
 |-----------|------|------|
 | `memory-layer.md` | **互补** | 本文档定义短期对话上下文，memory-layer.md 定义长期记忆。两者互不重叠 |
-| `architecture.md` §3.1 | **修改** | `stream_chat_message` 需增加对话历史注入步骤 |
+| `architecture.md` §3.1 | **修改** | `stream_chat_message` 需增加对话历史注入 + 实时预处理步骤（§13） |
 | `code-architecture.md` §4 | **扩展** | `ChatService` 新增 `get_recent_history()` 方法 |
 | `api-conventions.md` §2 | **不变** | 请求体/响应体格式不变，历史由后端自动查询 |
 | `cost-optimization.md` §1 | **补充** | 新增对话历史注入的 token 成本（~$90/月） |
