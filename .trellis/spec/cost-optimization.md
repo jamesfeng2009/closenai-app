@@ -44,7 +44,7 @@ LLM 适用场景：
 | 场景 | 模型 | 定价 | 原因 |
 |------|------|------|------|
 | 主动消息（异步） | Gemini 2.5 Flash-Lite | $0.10/1M input, $0.40/1M output | 用户不在等，低成本批量生成，无实时压力 |
-| 实时对话（流式） | Gemini 2.5 Flash | $0.30/1M input, $2.50/1M output | 平衡速度与成本，首 token < 3 秒 |
+| 实时对话（流式） | Gemini 2.5 Flash | $0.30/1M input, $2.50/1M output | 平衡速度与成本，首 token ~2.5-3.2s 准实时（含预处理 ~170ms，详见 context-engineering.md §13） |
 | 性格画像生成 | Gemini 2.5 Flash | $0.30/1M input, $2.50/1M output | 深度推理，频率低（~2%），单次成本可接受 |
 | 成长洞察 / Pattern Discovery | Gemini 2.5 Flash | $0.30/1M input, $2.50/1M output | 跨时间模式分析需要更强能力 |
 | 矛盾检测（记忆） | Gemini 2.5 Flash-Lite | $0.10/1M input, $0.40/1M output | 轻量级分类判断，~$0.00003/次 |
