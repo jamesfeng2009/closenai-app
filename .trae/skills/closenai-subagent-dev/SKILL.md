@@ -1,7 +1,11 @@
-# subagent-driven-development (Superpowers)
+---
+name: "closenai-subagent-dev"
+description: "Parallel subagent-driven development for ClosenAI: decompose large tasks, dispatch to subagents, collect and verify results. Invoke when facing 5+ independent sub-tasks like batch API endpoint testing or code skeleton generation."
+---
 
-> 层级：执行层（Superpowers）
-> 调用命令：`/subagent-driven-development`
+# Subagent-Driven Development (子代理驱动开发)
+
+> 层级：执行层
 > 调用时机：按需调用，适用于大量重复性任务
 
 ---
@@ -9,7 +13,7 @@
 ## 触发条件
 
 当存在以下场景时考虑使用：
-- 批量为 12 个 task 生成初始代码骨架
+- 批量为多个 task 生成初始代码骨架
 - 批量执行 API 端点的 TDD 测试编写
 - 批量检查所有 spec 文件与代码的一致性
 - 任何可分解为 5+ 个独立子任务的工作
@@ -36,9 +40,10 @@
 
 ### 2. 子代理调度
 
-为每个子任务启动一个子代理（subagent），提供：
+使用 `Agent` 工具为每个子任务启动一个子代理（subagent），提供：
 - 任务描述（明确的目标和输出格式）
 - 相关 spec 文件路径（作为唯一信息源）
+- 可调用的领域技能（如 `closenai-backend`、`closenai-supabase`、`closenai-tdd`）
 - 验证标准（如何判断任务完成）
 
 ### 3. 结果收集与验证

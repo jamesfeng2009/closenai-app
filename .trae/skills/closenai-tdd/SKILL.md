@@ -1,13 +1,14 @@
-# test-driven-development (Superpowers)
-
-> 层级：执行层（Superpowers）
-> 调用命令：在 `/implement` 阶段内遵循此纪律
-
+---
+name: "closenai-tdd"
+description: "Test-Driven Development discipline for ClosenAI: red-green-refactor cycle, test layering (unit/integration/API), bug-fix regression tests. Invoke during implementation phase for all feature development and bug fixes."
 ---
 
-## 触发条件
+# Test-Driven Development (测试驱动开发)
 
-所有功能实现和 Bug 修复都必须遵循 TDD 纪律。
+> 层级：执行层
+> 调用时机：所有功能实现和 Bug 修复都必须遵循 TDD 纪律
+
+---
 
 ## 红-绿-重构循环
 
@@ -80,3 +81,29 @@ async def stream_message(self, user_id, request):
 1. 写测试复现 Bug（测试失败 = Bug 存在）
 2. 修复代码（测试通过 = Bug 已修复）
 3. 确认无其他测试被破坏
+
+## ClosenAI 专项测试要点
+
+| 测试场景 | 要点 |
+|---------|------|
+| SSE 流式对话 | 验证 token 逐条输出，验证 done 信号 |
+| 主动消息生成 | 验证 LLM 失败时 fallback 到 Rule Engine 模板 |
+| 记忆注入 | 验证 sliding window N=10，验证 superseded 记忆过滤 |
+| 推送通知 | 验证 logout 后 push_token 清除 |
+| IAP 收据 | 验证伪造收据被拒绝，验证退款后权益回收 |
+| 情绪签到 | 验证 Redis 缓存命中时返回模板解读 |
+
+## 可调用的子技能
+
+| 场景 | 调用技能 |
+|------|---------|
+| 后端测试 | `closenai-backend` |
+| 数据库测试 | `closenai-supabase` |
+| LLM Mock | `closenai-llm` |
+| 前端测试 | `closenai-frontend` |
+
+## 产出
+
+- 测试用例文件
+- 测试通过确认
+- 回归测试（Bug 修复时）

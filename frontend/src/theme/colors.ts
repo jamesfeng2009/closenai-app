@@ -1,49 +1,98 @@
 /**
- * ClosenAI 主题颜色定义
+ * ClosenAI Design Tokens。
  *
- * 设计理念：深色背景为主，金色和紫色为强调色，
- * 营造专注、内省的视觉氛围。
+ * 从 UI 原型 (closenai-p0-prototype.html) 的 CSS 变量映射而来。
+ * 暗色主题，金色/紫色高亮。
  */
+export const Colors = {
+  // Gold
+  gold400: '#FFD700',
+  gold500: '#D4AF37',
+  gold600: '#B8960C',
 
-export const colors = {
-  /** 主背景色 — 深黑 */
-  background: '#050508',
+  // Accent (Purple)
+  accent500: '#6366F1',
+  accent600: '#4F46E5',
+  accent800: '#1E1B48',
 
-  /** 卡片/表面背景 — 略亮于背景 */
-  surface: '#0F0F1A',
+  // Neon
+  neonPink: '#E879F9',
+  neonPurple: '#C084FC',
+  neonDeep: '#7C3AED',
 
-  /** 表面高亮 */
-  surfaceHighlight: '#1A1A2E',
+  // Backgrounds
+  bgPrimary: '#050508',
+  bgSecondary: '#0D0D12',
+  bgTertiary: '#16161D',
+  bgCard: '#1E1B48',
+  bgElevated: '#1F0F22',
 
-  /** 主强调色 — 金色 */
-  primary: '#FFD700',
+  // Text
+  textPrimary: '#FFFFFF',
+  textSecondary: '#A1A1AA',
+  textTertiary: '#71717A',
+  textGold: '#FFD700',
+  textMuted: '#4A4A5A',
 
-  /** 次强调色 — 紫色 */
-  secondary: '#C084FC',
+  // Borders
+  borderGold: 'rgba(255, 215, 0, 0.1)',
+  borderGoldStrong: 'rgba(255, 215, 0, 0.3)',
+  borderLight: 'rgba(255, 255, 255, 0.1)',
 
-  /** 主要文字 */
-  text: '#FFFFFF',
+  // Semantic
+  success: '#10B981',
+  warning: '#F59E0B',
+  error: '#EF4444',
 
-  /** 次要文字 */
-  textSecondary: '#8888A0',
-
-  /** 辅助文字 */
-  textTertiary: '#4A4A5E',
-
-  /** 成功 */
-  success: '#4ADE80',
-
-  /** 警告 */
-  warning: '#FBBF24',
-
-  /** 错误 */
-  error: '#F87171',
-
-  /** 边框 */
-  border: '#1E1E2E',
-
-  /** 分割线 */
-  divider: '#12121F',
+  // Gradients
+  gradGold: ['#FFE566', '#FFD700', '#B8860B', '#FFE566'] as const,
+  gradNeon: ['#E879F9', '#C084FC', '#7C3AED'] as const,
+  gradCta: ['#8B05CF', '#8B5CF6', '#EC4899'] as const,
+  gradCosmic: ['#050508', '#1E1B48', '#050508'] as const,
+  gradCard: ['rgba(255,215,0,0.05)', 'rgba(255,215,0,0.02)'] as const,
 } as const;
 
-export type ColorScheme = typeof colors;
+export const Spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
+} as const;
+
+export const FontSize = {
+  xs: 9,
+  sm: 10,
+  md: 11,
+  lg: 12,
+  xl: 13,
+  xxl: 14,
+  title: 15,
+  h3: 18,
+} as const;
+
+export const BorderRadius = {
+  sm: 8,
+  md: 10,
+  lg: 12,
+  xl: 14,
+  pill: 20,
+  phone: 47,
+} as const;
+
+export const Shadow = {
+  gold: {
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  card: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+} as const;
