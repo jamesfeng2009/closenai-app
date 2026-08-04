@@ -14,7 +14,7 @@ LLM 集成规范：Gemini 2.5 Flash/Flash-Lite + 豆包 + Rule Engine 成本分�
 | **Gemini 2.5 Flash** | Real-time chat, personality profiling, growth insights | $0.30/1M input | Fast (streaming) |
 | **Gemini 2.5 Flash-Lite** | Active messages (async), pattern detection, contradiction checking | $0.10/1M input | Moderate |
 | **Doubao (豆包)** | Active messages (async fallback), Chinese content | Low | Moderate |
-| **Gemini Embedding** | Memory embeddings (768-dim) | $0.0075/1M tokens | Fast |
+| **DashScope text-embedding-v4** | Memory embeddings (512-dim halfvec, MRL 截断) | 按量计费 | Fast |
 
 ## Rule Engine + LLM Cost Layering (70% / 30%)
 
@@ -62,7 +62,7 @@ LLM failure → fallback to Rule Engine template.
 ```
 Serial Pipeline (total ~170ms, first token ~2.5-3.2s):
 │
-├── Step 1: Message Embedding (~20ms, gemini-embedding-001, 768-dim)
+├── Step 1: Message Embedding (~20ms, text-embedding-v4, 512-dim halfvec)
 ├── Step 2: SQL Drift Quick Check (~25ms, pure SQL, zero cost)
 ├── Step 3: Flash-Lite Preprocessing Agent (~120ms, timeout 500ms)
 │           Pronoun resolution + contradiction pre-check + emotion assessment
@@ -121,3 +121,73 @@ const memoryContext = memories.map(m => {
 3. **Merge LLM calls**: Contradiction detection can be merged into daily summary generation (incremental cost = $0)
 4. **Short outputs**: mood check-ins use `max_tokens=60-100`
 5. **Redis cache**: Cache common emoji combo responses
+
+## Multilingual Support (多语言规范)
+
+### 支持语言（15 种）
+
+| Code | 语言 | 地区 | 文化敏感度 |
+|------|------|------|-----------|
+| `en` | English | 全球 | 通用 |
+| `zh` | 中文 | 中国大陆/港台 | 语气、节日 |
+| `es` | Español | 西语区 | 热情、亲密称呼 |
+| `ko` | 한국어 | 韩国 | 敬语体系（존경어/존칭） |
+| `ja` | 日本語 | 日本 | 敬语（です/ます）、语气 |
+| `ru` | Русский | 俄罗斯 | 正式/非正式 (Вы/ты) |
+| `id` | Bahasa Indonesia | 印尼 | 温和、友善 |
+| `ms` | Bahasa Melayu | 马来西亚 | 温和、友善 |
+| `th` | ไทย | 泰国 | 礼貌词（ครับ/ค่ะ） |
+| `de` | Deutsch | 德国 | 正式/非正式 (Sie/du) |
+| `fr` | Français | 法国 | 正式/非正式 (vous/tu) |
+| `it` | Italiano | 意大利 | 亲昵、热情 |
+| `pt` | Português | 巴西/葡萄牙 | 地区差异（BR vs PT） |
+| `vi` | Tiếng Việt | 越南 | Bạn 敬称、温和 |
+| `km` | ខ្មែរ | 柬埔寨 | អ្នក 礼貌正式体 |
+
+### 模型多语言支持矩阵（2026-08 核实）
+
+| 环节 | 实际使用 | vi | km | 依据 |
+|------|---------|----|----|------|
+| 对话/画像/洞察 LLM | DashScope Qwen3 系列（qwen3.6-flash / qwen-flash） | ✅ | ✅ | Qwen3 官方 119 语言列表（Austroasiatic: Vietnamese, Khmer） |
+| 记忆 Embedding | text-embedding-v4（Qwen3-Embedding） | ✅ | ✅ | 官方 100+ 语种；**v3 只保证 50+ 主流语种（km 不明确），禁止回退 v3** |
+| 备选 Gemini 2.5 Flash | provider=gemini | ✅ | 以 Google 官方语言列表为准，接入前实测 | Gemini 多语言文档 |
+
+> ⚠️ Embedding 模型更换 = 向量空间更换：v3↔v4 不兼容，存量 memories.embedding 必须全量重嵌入，否则新旧记忆互相检索不到。
+
+### 核心原则
+
+1. **语言跟随（Language Follow）**：AI 必须用用户的语言回复。用户说什么语言，AI 就用什么语言。
+   - 用户 `users.language` 字段存储（默认 `en`，可在设置中修改）
+   - 首次交互时检测：若用户已发消息，用传入语言；否则用 `Accept-Language` 或默认 `en`
+2. **语言注入 prompt**：所有 LLM 调用 system prompt 必须含 `language` 指令，防止 AI 用错语言
+3. **主动消息**：按用户 `language` 生成，禁止所有用户收到同一语言
+4. **文化敏感度**：不同语言/地区注意称呼、敬语、节日、时区。AI 陪伴语气需贴合当地文化（如韩语用敬语、日语用です/ます）
+
+### Prompt 模板（语言指令）
+
+```json
+{
+  "system": "You are the user's AI friend. Reply in the user's language exclusively.\nLanguage: {language}\nUser's language code: {locale}\n\n{context}"
+}
+```
+
+### 语言检测与存储
+
+**优先级（Header 优先 + 库兜底）**：
+1. `X-Language` header（前端每次请求携带，实时、无状态）
+2. `users.language`（数据库偏好，跨设备/重装兜底）
+3. 默认 `en`
+
+- 解析入口：`backend/core/language.py` 的 `get_request_language` 依赖（与 `X-User-Id` header 透传模式一致）
+- `X-Language` 值归一化：`zh-CN → zh`（取 `-` 前段小写），仅接受 `supported_languages` 内的码
+- 前端所有请求必须带 `X-Language` header（取当前 i18n 语言）
+- `users.language` 字段：`en` | `zh` | `es` | `ko` | `ja` | `ru` | `id` | `ms` | `th` | `de` | `fr` | `it` | `pt` | `vi` | `km`
+- 用户可在 ProfileScreen 设置中手动切换，后端更新 `users.language`
+- **前端首次启动用 `expo-localization` 读取系统语言做默认值**：系统语言在 15 种支持列表内 → 用之（`zh-CN/zh-Hans → zh`）；不在 → 默认 `en`（见 `frontend/src/i18n/index.ts` 的 `detectLanguage()`）。初始化后所有请求自动携带对应 `X-Language`，无需额外处理
+
+### 避免踩坑
+
+- ❌ 不要用单一语言生成所有内容（用户会流失）
+- ❌ 不要用英文 prompt 生成中文内容再翻译（质量差、成本高）
+- ✅ 直接让模型用目标语言生成（模型原生多语言，不翻译）
+- 支持的语言切换不影响 LLM 成本（token 数相同）

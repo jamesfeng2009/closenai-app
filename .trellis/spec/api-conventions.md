@@ -366,3 +366,31 @@ Authorization: Bearer {internal_service_token}
 # 3. Cron Job 检查 is_active = true，为 false 则不生成消息也不发推送
 # 4. 已生成消息保留在 DB，用户重新登录后可查看历史消息
 ```
+
+---
+
+## 6. 时间与时区规范（出海强制）
+
+### 6.1 三条铁律
+
+| 层 | 规则 | 实现 |
+|----|------|------|
+| **存储** | 一律 UTC，列类型必须 `timestamptz`（`DateTime(timezone=True)`），禁止 naive `DateTime` | SQLAlchemy models 全部 `timezone=True`，PostgreSQL 内部以 UTC 存储 |
+| **传输** | API 序列化一律 ISO 8601 显式 UTC（`2026-07-15T01:00:00Z`），禁止无时区后缀的字符串 | Pydantic 默认序列化 tz-aware datetime 即带偏移 |
+| **展示** | 前端渲染时按设备本地时区转换，后端不输出"格式化好的本地时间字符串" | RN `new Date(iso)` 天然按设备时区 |
+
+> 注意："不带时区" ≠ "以 UTC 为准"。naive datetime 会被服务器/客户端本地时区静默污染，是出海应用最常见的数据事故源。正确做法是**显式 UTC**（带 `Z`/`+00:00`）。
+
+### 6.2 业务日边界：唯一例外用"用户本地时区"
+
+- "今日"语义（每日配额重置、streak 连续打卡、主动消息 9:00 触发、每日洞察）**必须按用户本地时区**计算，禁用服务器时区/UTC 日期
+- 统一走 `backend/core/time_utils.py` 的 `local_today(tz)` / `local_now(tz)`，禁止业务代码直接 `date.today()` / `datetime.now()`（无参）
+- `users.timezone` 存 **IANA 时区名**（`Asia/Shanghai`、`America/New_York`），禁止 `"UTC+8"` 偏移格式（`zoneinfo` 无法解析会静默回退 UTC）
+- 前端启动时上报一次设备时区：`Intl.DateTimeFormat().resolvedOptions().timeZone` → `PATCH /user/settings {timezone}`；用户跨时区旅行时下次启动自动纠正
+
+### 6.3 检查清单（新增时间字段/功能时）
+
+- [ ] 新列是 `DateTime(timezone=True)` 而非 naive `DateTime`
+- [ ] API 响应示例带 `Z` 后缀
+- [ ] 涉及"今日/每日"逻辑走 `time_utils`，参数来自 `users.timezone`
+- [ ] Cron 按用户时区分组触发，而非固定 UTC 时刻全量发

@@ -6,7 +6,6 @@ Pydantic 数据模型定义。
 """
 from datetime import datetime
 from typing import Optional, List, Literal
-from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -44,8 +43,8 @@ class MemoryCreate(BaseModel):
 
 class MemoryResponse(BaseModel):
     """记忆查询响应。"""
-    id: UUID
-    user_id: UUID
+    id: str
+    user_id: str
     content: str
     category: str
     status: str  # current | superseded | reverted
@@ -65,7 +64,7 @@ class MemorySearchRequest(BaseModel):
 
 class MemoryVersionRequest(BaseModel):
     """记忆版本化请求。"""
-    memory_id: UUID = Field(..., description="原记忆 ID")
+    memory_id: str = Field(..., description="原记忆 ID")
     transition_type: Literal["gradual", "sudden", "revert"] = Field(..., description="转变类型")
     reason: Optional[str] = Field(None, description="转变原因")
     emotion_context: Optional[dict] = Field(None, description="情绪上下文")
@@ -81,7 +80,7 @@ class MoodCheckinRequest(BaseModel):
 
 class MoodCheckinResponse(BaseModel):
     """情绪签到响应。"""
-    id: UUID
+    id: str
     mood_emoji: str
     mood_label: str
     ai_interpretation: str
@@ -133,6 +132,7 @@ class GrowthDashboardResponse(BaseModel):
     mood_timeline: List[str]   # 14 天热力图颜色
     weekly_insight: Optional[str]
     yesterday_record: Optional[str]
+    mbti_type: Optional[str] = None   # 性格画像入口展示
 
 
 class WeeklyInsightResponse(BaseModel):
@@ -142,11 +142,37 @@ class WeeklyInsightResponse(BaseModel):
     period: str                # 本周日期范围
 
 
+# ═══ Reflection Card (P0-F04) ═══
+
+class ReflectionGenerateRequest(BaseModel):
+    """Reflection 草稿生成请求。"""
+    context: Optional[str] = Field(None, description="可选补充上下文")
+
+
+class ReflectionCreate(BaseModel):
+    """保存 Reflection 请求。"""
+    content: str = Field(..., description="Reflection 内容")
+
+
+class ReflectionResponse(BaseModel):
+    """Reflection 响应。"""
+    id: str
+    content: str
+    related_memory_ids: Optional[List[str]] = None
+    created_at: datetime
+
+
+class ReflectionDraftResponse(BaseModel):
+    """Reflection 草稿响应。"""
+    draft: str
+    related_memory_ids: Optional[List[str]] = None
+
+
 # ═══ Personality (P0-F05) ═══
 
 class PersonalityProfileResponse(BaseModel):
     """性格画像响应。"""
-    id: UUID
+    id: str
     mbti_type: Optional[str]       # INTP 等
     mbti_label: Optional[str]      # 逻辑学家
     observations: List[str]
@@ -169,15 +195,22 @@ class PersonalityRefreshResponse(BaseModel):
 
 class UserProfileResponse(BaseModel):
     """用户信息响应。"""
-    id: UUID
+    id: str
     name: Optional[str]
     mbti_type: Optional[str]
+    language: Optional[str] = None
     streak_count: int
     relationship_level: str
     chat_count: int
     tier: str  # free | pro | pro_plus
     daily_quota_used: int
     daily_quota_total: int
+    ai_consent: bool = False  # AI 数据共享同意状态（合规 5.1.2(i)）
+
+
+class AIConsentUpdate(BaseModel):
+    """AI 数据共享同意更新（5.1.2(i)：用户可随时同意/撤回）。"""
+    consent: bool
 
 
 class UserSettingsUpdate(BaseModel):
@@ -185,7 +218,11 @@ class UserSettingsUpdate(BaseModel):
     name: Optional[str] = None
     chat_style: Optional[str] = None
     push_time: Optional[str] = None   # HH:MM 格式
-    timezone: Optional[str] = None    # UTC+8
+    timezone: Optional[str] = None    # IANA 时区名（如 Asia/Shanghai），禁止 "UTC+8" 偏移格式
+    language: Optional[str] = None    # 15 种语言码之一
+    push_frequency: Optional[Literal["daily", "important", "off"]] = None  # 推送频率
+    push_enabled: Optional[bool] = None  # 推送总开关
+    mbti_type: Optional[str] = None  # 引导流程中用户已知的 MBTI 类型（P1-F05）
 
 
 class PushTokenRequest(BaseModel):

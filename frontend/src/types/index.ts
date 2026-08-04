@@ -15,6 +15,7 @@ export interface ChatHistoryItem {
   id: string;
   role: 'user' | 'ai';
   content: string;
+  is_ai_generated?: boolean;
   created_at: string;
 }
 
@@ -23,6 +24,7 @@ export interface SSEEvent {
   content?: string;
   memories?: Memory[];
   message?: string;
+  code?: number;
 }
 
 // ═══ Memory ═══
@@ -89,12 +91,36 @@ export interface GrowthDashboard {
   mood_timeline: string[];
   weekly_insight: string | null;
   yesterday_record: string | null;
+  mbti_type: string | null;
 }
 
 export interface WeeklyInsight {
   level: string;
   content: string;
   period: string;
+}
+
+export interface GrowthTimelineDay {
+  date: string;
+  value: number;
+}
+
+export interface GrowthTimeline {
+  days: GrowthTimelineDay[];
+}
+
+// ═══ Reflection (P0-F04) ═══
+
+export interface ReflectionDraft {
+  draft: string;
+  related_memory_ids: string[] | null;
+}
+
+export interface ReflectionItem {
+  id: string;
+  content: string;
+  related_memory_ids: string[] | null;
+  created_at: string;
 }
 
 // ═══ Personality ═══
@@ -112,6 +138,12 @@ export interface PersonalityProfile {
   created_at: string;
 }
 
+export interface PersonalityRefreshResult {
+  success: boolean;
+  profile: PersonalityProfile | null;
+  message: string;
+}
+
 // ═══ User ═══
 
 export type UserTier = 'free' | 'pro' | 'pro_plus';
@@ -120,12 +152,14 @@ export interface UserProfile {
   id: string;
   name: string | null;
   mbti_type: string | null;
+  language: string | null;
   streak_count: number;
   relationship_level: string;
   chat_count: number;
   tier: UserTier;
   daily_quota_used: number;
   daily_quota_total: number;
+  ai_consent: boolean;
 }
 
 export interface UserSettings {
@@ -133,6 +167,10 @@ export interface UserSettings {
   chat_style?: string;
   push_time?: string;
   timezone?: string;
+  language?: string;
+  push_frequency?: 'daily' | 'important' | 'off';
+  push_enabled?: boolean;
+  mbti_type?: string;
 }
 
 // ═══ Discovery ═══
@@ -152,6 +190,13 @@ export interface SubscriptionStatus {
   expires_at: string | null;
   product_id: string | null;
   auto_renew: boolean;
+}
+
+export interface ReceiptVerifyResult {
+  valid: boolean;
+  tier: UserTier | null;
+  expires_at: string | null;
+  message: string;
 }
 
 // ═══ Navigation ═══

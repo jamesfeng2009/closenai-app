@@ -1,132 +1,227 @@
 """
 记忆服务 (P0-F02)。
 
-管理 Temporal Memory 的存储、检索、语义搜索和信念演变。
-处理：转变检测、渐变漂移、回归识别、矛盾判断。
-"""
-from datetime import datetime
-from typing import Optional, List, Dict, Any
-from uuid import UUID
+长期记忆 + pgvector 语义检索 + 三态版本化（current/superseded/reverted）。
 
+记忆注入链路：
+    chat / mood 沉淀 → create_memory（embedding + 渐变漂移检测）→ 检索注入
+"""
+import logging
+from typing import List, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.core.errors import AppException, ErrorCode
+from backend.core.llm import llm
+from backend.core.time_utils import utc_now
+from backend.models.memory import Memory
 from backend.models.schemas import MemoryResponse
+from backend.repositories import memory_repository
+
+logger = logging.getLogger("closenai.memory")
+
+# 渐变漂移：相似度超过该阈值视为同一信念的演变，而非新记忆
+DRIFT_SIMILARITY_THRESHOLD = 0.85
+
+
+def _to_response(memory: Memory) -> MemoryResponse:
+    """ORM → 响应模型。"""
+    return MemoryResponse(
+        id=memory.id,
+        user_id=memory.user_id,
+        content=memory.content,
+        category=memory.category,
+        status=memory.status,
+        source=memory.source,
+        conviction=memory.conviction_score,
+        created_at=memory.created_at,
+        superseded_at=memory.superseded_at,
+        transition_reason=memory.transition_reason,
+    )
+
+
+def _to_response_from_row(row) -> MemoryResponse:
+    """pgvector 检索行（含 similarity）→ 响应模型。"""
+    return MemoryResponse(
+        id=row["id"],
+        user_id=row["user_id"],
+        content=row["content"],
+        category=row["category"],
+        status=row["status"],
+        source=row["source"],
+        conviction=row["conviction_score"],
+        created_at=row["created_at"],
+        superseded_at=row["superseded_at"],
+        transition_reason=row["transition_reason"],
+    )
 
 
 class MemoryService:
-    """Temporal Memory 管理服务。"""
+    """记忆服务。"""
 
     async def list_memories(
-        self, user_id: str, limit: int = 20, category: Optional[str] = None
+        self,
+        db: AsyncSession,
+        user_id: str,
+        limit: int = 20,
+        category: Optional[str] = None,
     ) -> List[MemoryResponse]:
-        """
-        查询记忆列表。
+        """查询记忆列表。"""
+        memories = await memory_repository.list(db, user_id, limit=limit, category=category)
+        return [_to_response(m) for m in memories]
 
-        默认只返回 status='current' 的记忆。
-        按 category 过滤（values | preference | relationship | goal | factual）。
-        """
-        # TODO: 从 memories 表查询（WHERE user_id, status='current'）
-        return []
+    async def get_memory(self, db: AsyncSession, memory_id: str) -> Optional[MemoryResponse]:
+        """获取单条记忆。"""
+        memory = await memory_repository.get(db, memory_id)
+        return _to_response(memory) if memory else None
 
-    async def get_memory(self, memory_id: str) -> Optional[MemoryResponse]:
-        """获取单条记忆详情。"""
-        # TODO: 从 memories 表查询
-        return None
+    async def create_memory(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        content: str,
+        category: str = "factual",
+        source: str = "self_reflection",
+        conviction: float = 0.5,
+        emotion_context: Optional[str] = None,
+    ) -> MemoryResponse:
+        """创建记忆（含向量化 + 渐变漂移检测）。"""
+        embedding = await self._embed_or_none(content)
+
+        # 渐变漂移检测：与已有 current 记忆高度相似时，视为同一信念演化
+        if embedding:
+            similar = await memory_repository.semantic_search(
+                db, user_id, embedding, limit=1, include_superseded=False
+            )
+            if similar and similar[0].get("similarity", 0) >= DRIFT_SIMILARITY_THRESHOLD:
+                existing = similar[0]
+                # 提升置信度并更新内容（漂移累积）
+                new_conviction = min(1.0, (existing["conviction_score"] or 0.5) + 0.05)
+                memory = await memory_repository.create(
+                    db,
+                    user_id,
+                    content=content,
+                    category=category,
+                    source=source,
+                    conviction=new_conviction,
+                    embedding=embedding,
+                    emotion_context=emotion_context,
+                )
+                # 旧记忆标记 superseded（渐变漂移）
+                await memory_repository.version_out(
+                    db,
+                    existing["id"],
+                    status="superseded",
+                    superseded_by=memory.id,
+                    superseded_at=utc_now(),
+                    transition_reason="gradual_drift",
+                )
+                return _to_response(memory)
+
+        memory = await memory_repository.create(
+            db,
+            user_id,
+            content=content,
+            category=category,
+            source=source,
+            conviction=conviction,
+            embedding=embedding,
+            emotion_context=emotion_context,
+        )
+        return _to_response(memory)
 
     async def semantic_search(
-        self, user_id: str, query: str, limit: int = 10, include_superseded: bool = False
+        self,
+        db: AsyncSession,
+        user_id: str,
+        query: str,
+        limit: int = 10,
+        include_superseded: bool = False,
     ) -> List[MemoryResponse]:
-        """
-        语义搜索记忆。
+        """语义搜索记忆。"""
+        embedding = await self._embed_or_none(query)
+        if not embedding:
+            return []
+        rows = await memory_repository.semantic_search(
+            db, user_id, embedding, limit=limit, include_superseded=include_superseded
+        )
+        return [_to_response_from_row(r) for r in rows]
 
-        使用 pgvector halfvec(768) 的 cosine similarity 搜索。
-        默认排除 superseded 记忆。
-        搜索范围包含 reverted 和 superseded 记忆（用于回归识别）。
-        """
-        # TODO: 调用 pgvector similarity search
-        # SELECT *, 1 - (embedding <=> query_embedding) AS similarity
-        # FROM memories
-        # WHERE user_id = $1 AND (status = 'current' OR $3)
-        # ORDER BY embedding <=> query_embedding
-        # LIMIT $2
-        return []
+    async def get_memory_context(
+        self, db: AsyncSession, user_id: str, query: str, limit: int = 5
+    ) -> List[MemoryResponse]:
+        """获取记忆上下文（用于对话 / 主动消息注入）。"""
+        return await self.semantic_search(db, user_id, query, limit=limit)
 
     async def record_version(
-        self, user_id: str, memory_id: UUID, transition_type: str,
-        reason: Optional[str] = None, emotion_context: Optional[Dict] = None
-    ):
+        self,
+        db: AsyncSession,
+        user_id: str,
+        memory_id: str,
+        transition_type: str,
+        reason: Optional[str],
+        emotion_context: Optional[dict] = None,
+    ) -> None:
         """
         记录信念演变。
 
-        转变类型：
-        - gradual: 渐变漂移（每周 Cron Job 检测）
-        - sudden: 突然转变（矛盾检测触发）
-        - revert: 回归识别（语义搜索发现 superseded 记忆相似度 > 0.85）
-
-        操作：
-        1. 标记原记忆 status='superseded', superseded_at=NOW()
-        2. 创建新记忆 status='current'（内容从对话中提取）
-        3. 新记忆 superseded_by 指向原记忆
-        4. 如果 transition_type='revert'，新记忆 reverted_from 指向原记忆
+        - gradual: 渐变漂移（原记忆 superseded，置信度提升）
+        - sudden: 突然转变（原记忆 superseded）
+        - revert: 回归（原记忆标记 reverted，恢复被 superseded 的旧记忆）
         """
-        # TODO: 实现版本化写入
-        # 1. UPDATE memories SET status='superseded', superseded_at=NOW(), transition_reason=$reason
-        # 2. INSERT INTO memories (..., status='current', superseded_by=$memory_id)
-        pass
+        memory = await memory_repository.get(db, memory_id)
+        if not memory:
+            raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在")
 
-    async def detect_belief_shift(self, user_id: str) -> List[Dict]:
-        """
-        转变检测（每日摘要生成后执行）。
+        if transition_type == "revert":
+            # 回归：找到被该记忆取代的旧记忆，恢复为 current
+            await memory_repository.version_out(
+                db, memory_id, status="reverted", transition_reason=reason or "revert"
+            )
+            if memory.superseded_by:
+                # 新记忆作为回归结果
+                await memory_repository.create(
+                    db,
+                    user_id,
+                    content=memory.content,
+                    category=memory.category,
+                    source=memory.source,
+                    conviction=memory.conviction_score,
+                    embedding=memory.embedding,
+                    status="current",
+                    emotion_context=memory.emotion_context,
+                )
+            return
 
-        1. 从新摘要提取候选信念
-        2. 对每条候选信息，在 status='current' 且相同 category 的记忆中
-           用 embedding similarity 搜索 Top-3（阈值 > 0.75）
-        3. 高相似度但矛盾 → 记录 TBD
-        4. 低相似度 → 新信念，正常写入
-        """
-        # TODO: 实现矛盾检测
-        return []
+        # gradual / sudden：旧记忆 superseded，写入新记忆
+        new_conviction = min(1.0, memory.conviction_score + 0.1) if transition_type == "gradual" else memory.conviction_score
+        new_memory = await memory_repository.create(
+            db,
+            user_id,
+            content=memory.content,
+            category=memory.category,
+            source=memory.source,
+            conviction=new_conviction,
+            embedding=memory.embedding,
+            emotion_context=memory.emotion_context,
+        )
+        await memory_repository.version_out(
+            db,
+            memory_id,
+            status="superseded",
+            superseded_by=new_memory.id,
+            superseded_at=utc_now(),
+            transition_reason=reason or transition_type,
+        )
 
-    async def detect_gradual_drift(self, user_id: str) -> List[Dict]:
-        """
-        渐变漂移检测（每周日凌晨 Cron Job）。
-
-        对每条 current 信念计算最近 4 周的 drift_score：
-        drift_score = week1_similarity - week4_similarity
-
-        drift_score > 0.3 → 标记为渐变漂移，记录 insight
-        """
-        # TODO: SQL 查询 4 周 drift
-        # WITH weekly_similarities AS (...)
-        return []
-
-    async def detect_regression(self, user_id: str) -> List[Dict]:
-        """
-        回归识别（每次对话时触发）。
-
-        在语义搜索中，如果返回的 Top 记忆是 superseded 而非 current，
-        且相似度 > 0.85 → 用户可能回归到之前状态。
-
-        注入 prompt 追加上下文：
-        "用户曾持有此观点 → 因 {reason} 转变 → 现在又回到此观点"
-        """
-        # TODO: 扩大搜索范围包含 superseded 记忆
-        return []
-
-    async def get_memory_context(self, user_id: str, query: str, n: int = 5) -> List[Dict]:
-        """
-        获取记忆上下文（用于对话注入）。
-
-        返回：
-        1. 最近 n 条相关 current 记忆（语义搜索）
-        2. 最近 7 天洞察摘要（从 growth_records）
-        3. 性格画像（从 personality_profiles）
-
-        注入格式：
-        - current: "[当前信念] {content}"
-        - superseded: "[历史信念·已转变] {content} → 转变原因：{reason}"
-        - reverted: "[回归信念] 用户曾持有此观点，后因{reason}转变，现已回归"
-        """
-        # TODO: 实现记忆注入
-        return []
+    async def _embed_or_none(self, text: str) -> Optional[List[float]]:
+        """向量化文本，失败返回 None 不阻塞主流程。"""
+        try:
+            vectors = await llm.embed([text])
+            return vectors[0] if vectors else None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("embedding 失败: %s", exc)
+            return None
 
 
 memory_service = MemoryService()

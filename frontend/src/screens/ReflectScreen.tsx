@@ -1,52 +1,134 @@
 /**
- * Reflect 对话页面 (P0-F01/P0-F03)。
+ * Reflect 对话页面 (P0-F01/P0-F03/P0-F04)。
  *
  * 按 UI 原型 screen-chat 实现：
- * - Streak badge + 等级指示器
+ * - Streak badge + 等级指示器（来自 /growth/dashboard）
  * - 情绪签到提醒条（今日未签到时显示）
  * - 快捷签到面板（点击提醒条展开）
- * - AI 记忆延续消息
- * - AI 预填 Reflection 草稿
- * - 对话消息列表
- * - 输入框
+ * - 真实对话历史（/chat/history）
+ * - AI 预填 Reflection 草稿（/reflections/generate，可保存 /reflections）
+ * - SSE 流式对话（/chat/stream）
  */
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView,
+  Platform, ActivityIndicator, Alert,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { streamChat, moodCheckin } from '../services/api';
+import {
+  streamChat, moodCheckin, getChatHistory, getGrowthDashboard,
+  generateReflectionDraft, saveReflection, getUserProfile, setAiConsent, ApiError,
+} from '../services/api';
+import AIConsentModal from '../components/AIConsentModal';
 import type { MoodEmoji } from '../types';
+import { useTranslation } from 'react-i18next';
+
+// 与后端 ErrorCode.AI_CONSENT_REQUIRED 对齐
+const CODE_AI_CONSENT_REQUIRED = 40303;
 
 interface Message {
   id: string;
   role: 'user' | 'ai';
   content: string;
   isDraft?: boolean;
+  draftSaved?: boolean;
 }
 
+const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'];
+
 export default function ReflectScreen() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'ai-1', role: 'ai',
-      content: '你昨天提到项目 deadline 提前了，今天还是因为这个感到 😰 吗？\n\n我根据昨天的对话帮你起草了今天的 Reflection，你看看需要修改吗？',
-    },
-    {
-      id: 'ai-draft', role: 'ai', isDraft: true,
-      content: '📋 Today\'s Reflection · 草稿\n\n情绪：😰 焦虑\n可能的原因：项目 deadline 提前，团队人手不足（基于昨天对话）\n值得感谢的事：（点击补充）',
-    },
-  ]);
+  const { t } = useTranslation();
+  const navigation = useNavigation<any>();
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showMoodPanel, setShowMoodPanel] = useState(false);
   const [moodCheckedIn, setMoodCheckedIn] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [streak, setStreak] = useState(0);
+  const [levelLabel, setLevelLabel] = useState('');
+  const [consentVisible, setConsentVisible] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const cancelStreamRef = useRef<(() => void) | null>(null);
 
-  const sendMessage = async () => {
+  useEffect(() => {
+    loadInitial();
+    return () => cancelStreamRef.current?.();
+  }, []);
+
+  const loadInitial = async () => {
+    try {
+      setLoading(true);
+      const [dashboard, history, profile] = await Promise.all([
+        getGrowthDashboard(),
+        getChatHistory(20),
+        getUserProfile(),
+      ]);
+      // 合规 5.1.2(i)：未同意 AI 数据共享时先弹说明弹窗
+      if (!profile.ai_consent) {
+        setConsentVisible(true);
+      }
+      setStreak(dashboard.streak_count);
+      setLevelLabel(dashboard.relationship_level || dashboard.level_label || '');
+      setMoodCheckedIn(!!dashboard.today_mood);
+
+      const msgs: Message[] = history.map((h) => ({
+        id: h.id,
+        role: h.role,
+        content: h.content,
+      }));
+
+      // 无历史对话且已同意数据共享时，预填今日 Reflection 草稿（P0-F04）
+      if (msgs.length === 0 && profile.ai_consent) {
+        try {
+          const draft = await generateReflectionDraft();
+          if (draft.draft) {
+            msgs.push({
+              id: `draft-${Date.now()}`,
+              role: 'ai',
+              content: draft.draft,
+              isDraft: true,
+            });
+          }
+        } catch {
+          // 草稿生成失败不阻塞对话
+        }
+      }
+      setMessages(msgs);
+    } catch (e) {
+      console.warn('Failed to load reflect screen:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 同意：持久化并关闭弹窗，进入 AI 对话
+  const onConsentAgree = async () => {
+    try {
+      await setAiConsent(true);
+    } catch (e) {
+      console.warn('Failed to save AI consent:', e);
+    }
+    setConsentVisible(false);
+  };
+
+  // 拒绝：持久化选择并回到成长 Tab（AI 功能停用，其他功能可用）
+  const onConsentDecline = async () => {
+    try {
+      await setAiConsent(false);
+    } catch (e) {
+      console.warn('Failed to save AI consent:', e);
+    }
+    setConsentVisible(false);
+    navigation.navigate('Growth');
+  };
+
+  const sendMessage = () => {
     const text = input.trim();
     if (!text || isStreaming) return;
 
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text };
+    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
 
@@ -54,7 +136,7 @@ export default function ReflectScreen() {
     setMessages((prev) => [...prev, { id: aiMsgId, role: 'ai', content: '' }]);
     setIsStreaming(true);
 
-    await streamChat(
+    cancelStreamRef.current = streamChat(
       { content: text, message_type: 'reply' },
       (token) => {
         setMessages((prev) =>
@@ -62,9 +144,18 @@ export default function ReflectScreen() {
         );
       },
       () => setIsStreaming(false),
-      (error) => {
+      (error, code) => {
+        // 未同意 AI 数据共享：移除占位气泡并弹出 consent 弹窗（合规 5.1.2(i)）
+        if (code === CODE_AI_CONSENT_REQUIRED) {
+          setMessages((prev) => prev.filter((m) => m.id !== aiMsgId));
+          setConsentVisible(true);
+          setIsStreaming(false);
+          return;
+        }
         setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, content: `[错误: ${error}]` } : m))
+          prev.map((m) =>
+            m.id === aiMsgId ? { ...m, content: t('reflect.aiError', { error }) } : m
+          )
         );
         setIsStreaming(false);
       }
@@ -80,10 +171,32 @@ export default function ReflectScreen() {
       ]);
       setMoodCheckedIn(true);
       setShowMoodPanel(false);
+      setStreak(result.streak_updated);
     } catch (e) {
-      console.warn('Mood checkin failed:', e);
+      const msg = e instanceof ApiError ? e.message : 'checkin failed';
+      Alert.alert(t('common.error'), msg);
     }
   };
+
+  const onSaveDraft = async (msg: Message) => {
+    try {
+      await saveReflection(msg.content);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, draftSaved: true } : m))
+      );
+    } catch (e) {
+      const text = e instanceof ApiError ? e.message : 'save failed';
+      Alert.alert(t('common.error'), text);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator color={Colors.gold400} />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -96,9 +209,9 @@ export default function ReflectScreen() {
         <View style={styles.headerLeft}>
           <View style={styles.streakBadge}>
             <Text style={styles.streakIcon}>🔥</Text>
-            <Text style={styles.streakText}>15</Text>
+            <Text style={styles.streakText}>{streak}</Text>
           </View>
-          <Text style={styles.levelBadge}>✨ 知己 L2</Text>
+          {!!levelLabel && <Text style={styles.levelBadge}>✨ {levelLabel}</Text>}
         </View>
         <Text style={styles.headerTitle}>ClosenAI</Text>
         <View style={styles.headerRight}>
@@ -111,17 +224,17 @@ export default function ReflectScreen() {
       {!moodCheckedIn && !showMoodPanel && (
         <TouchableOpacity style={styles.moodReminder} onPress={() => setShowMoodPanel(true)}>
           <Text style={styles.moodReminderIcon}>💭</Text>
-          <Text style={styles.moodReminderText}>今天还没签到 · 点这里选个表情</Text>
-          <Text style={styles.moodReminderTime}>3 秒完成</Text>
+          <Text style={styles.moodReminderText}>{t('reflect.moodReminder')}</Text>
+          <Text style={styles.moodReminderTime}>{t('reflect.moodReminderTime')}</Text>
         </TouchableOpacity>
       )}
 
       {/* 快捷签到面板 */}
       {showMoodPanel && (
         <View style={styles.moodPanel}>
-          <Text style={styles.moodPanelTitle}>今天心情怎么样？</Text>
+          <Text style={styles.moodPanelTitle}>{t('reflect.moodPanelTitle')}</Text>
           <View style={styles.moodPanelRow}>
-            {(['😊', '😌', '😰', '😢', '😡', '😴'] as MoodEmoji[]).map((emoji) => (
+            {MOOD_EMOJIS.map((emoji) => (
               <TouchableOpacity
                 key={emoji}
                 style={styles.moodQuickBtn}
@@ -140,7 +253,7 @@ export default function ReflectScreen() {
         style={styles.messages}
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
       >
-        <Text style={styles.modeLabel}>✨ Reflection Mode · 智能草稿</Text>
+        <Text style={styles.modeLabel}>{t('reflect.modeLabel')}</Text>
         {messages.map((msg) => (
           <View key={msg.id} style={[styles.msgRow, msg.role === 'user' && styles.msgRowUser]}>
             {msg.role === 'ai' && <Text style={styles.avatar}>✨</Text>}
@@ -148,7 +261,15 @@ export default function ReflectScreen() {
               <Text style={[styles.bubbleText, msg.role === 'user' && styles.bubbleTextUser]}>
                 {msg.content}
               </Text>
-              {msg.role === 'ai' && <Text style={styles.aiTag}>AI 生成</Text>}
+              {msg.role === 'ai' && <Text style={styles.aiTag}>{t('reflect.aiTag')}</Text>}
+              {msg.isDraft && !msg.draftSaved && (
+                <TouchableOpacity style={styles.saveDraftBtn} onPress={() => onSaveDraft(msg)}>
+                  <Text style={styles.saveDraftText}>{t('reflect.saveDraft')}</Text>
+                </TouchableOpacity>
+              )}
+              {msg.isDraft && msg.draftSaved && (
+                <Text style={styles.draftSavedTag}>✓ {t('common.done')}</Text>
+              )}
             </View>
           </View>
         ))}
@@ -160,21 +281,33 @@ export default function ReflectScreen() {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="输入消息..."
+          placeholder={t('reflect.placeholder')}
           placeholderTextColor={Colors.textMuted}
           multiline
           onSubmitEditing={sendMessage}
         />
-        <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
+        <TouchableOpacity
+          style={[styles.sendBtn, isStreaming && styles.sendBtnDisabled]}
+          onPress={sendMessage}
+          disabled={isStreaming}
+        >
           <Text style={styles.sendBtnText}>→</Text>
         </TouchableOpacity>
       </View>
+
+      {/* AI 数据共享同意弹窗（合规 5.1.2(i)） */}
+      <AIConsentModal
+        visible={consentVisible}
+        onAgree={onConsentAgree}
+        onDecline={onConsentDecline}
+      />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     padding: Spacing.lg, paddingTop: 50, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
@@ -221,6 +354,13 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: FontSize.title, color: Colors.textPrimary, lineHeight: 1.5 },
   bubbleTextUser: { color: Colors.textPrimary },
   aiTag: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6, paddingTop: 4 },
+  saveDraftBtn: {
+    marginTop: 8, alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,215,0,0.15)', borderWidth: 1, borderColor: Colors.gold400,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.pill,
+  },
+  saveDraftText: { fontSize: FontSize.sm, color: Colors.gold400, fontWeight: '600' },
+  draftSavedTag: { fontSize: FontSize.sm, color: Colors.success, marginTop: 8 },
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     padding: Spacing.md, paddingHorizontal: Spacing.lg,
@@ -236,5 +376,6 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: Colors.accent500, justifyContent: 'center', alignItems: 'center',
   },
+  sendBtnDisabled: { opacity: 0.5 },
   sendBtnText: { fontSize: 20, color: Colors.textPrimary, fontWeight: '700' },
 });

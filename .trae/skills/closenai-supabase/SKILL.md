@@ -26,7 +26,7 @@ CREATE TABLE memories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id),
   content TEXT NOT NULL,
-  embedding halfvec(768),  -- Gemini embedding, halfvec saves 50% vs float32
+  embedding halfvec(512),  -- text-embedding-v4 MRL 512 维 + halfvec，省 ~66% vs vector(768)
   
   -- Memory versioning (v2.0)
   status VARCHAR(20) DEFAULT 'current',  -- current | superseded | reverted
@@ -104,23 +104,29 @@ CREATE TABLE personality_assessment_sessions (
 ### halfvec (Save 50% Storage)
 
 ```sql
--- Use halfvec instead of vector(768) for embeddings
--- 2 bytes/dim vs 4 bytes/dim for float32
--- fp16 precision loss negligible for cosine similarity recall
+-- Embedding 列定义：halfvec(512)（text-embedding-v4 MRL 截断 512 维）
+-- 2 bytes/dim vs 4 bytes/dim for float32；768→512 再省 1/3
+-- fp16 + MRL 512 对余弦召回损失 <1%（短文本记忆检索场景可忽略）
 
-CREATE INDEX idx_memories_embedding 
-  ON memories 
-  USING hnsw ((embedding::halfvec(768)) halfvec_cosine_ops);
+CREATE INDEX ix_memories_embedding_hnsw
+  ON memories
+  USING hnsw (embedding halfvec_cosine_ops);
 ```
 
-### 8GB Budget Allocation (Optimized)
+### 容量估算（512-dim halfvec，Supabase 免费版 500MB）
 
 | Item | Size |
 |------|------|
-| System/PG + relational indexes | ~0.5 GB |
-| Other P0 data (chat/growth/check-ins, 90 days) | ~4.1 GB (or ~0.9 GB with chat offload) |
-| Embedding (768-dim halfvec, HNSW, 90 days) | ~4.4-5.0 GB |
-| **Total** | **~9.0-9.6 GB (over 8GB; with chat offload: ~5.8 GB ✅)** |
+| 单条记忆（数据 ~1KB + HNSW 图 ~1.2KB） | ~2.3-2.6 KB |
+| 免费版可承载记忆量 | ~19 万条（768-float4 方案仅 ~6 万条） |
+| 召回影响 | MTEB 多语言召回损失 <1% |
+
+### 多语言向量空间（禁止按语言分库）
+
+- Embedding 用 **text-embedding-v4**（多语言模型，100+ 语种），**所有语言共享同一向量空间**：中文存的记忆，用英文 query 也能命中（跨语言检索天然支持）
+- **禁止**按语言分表/分库/在检索 SQL 加 `language` 过滤：用户切换语言后历史记忆必须仍可检索
+- `memories` 表**不需要** `language` 隔离列；`content` 保留原文语言即可
+- 唯一风险：更换 embedding 模型 = 更换向量空间（v3↔v4 不兼容），存量 `memories.embedding` 必须**全量重嵌入**，否则新旧记忆互相检索不到
 
 ### TTL Partition Strategy
 
@@ -197,6 +203,65 @@ Raw chat messages can be offloaded to Supabase Storage (Pro includes 100GB):
 -- Raw messages stored in Supabase Storage as JSONL
 -- Reduces relational data from ~4.1GB to ~0.9GB
 ```
+
+## Alembic Migration Management（版本管理）
+
+> ⚠️ **建表必须通过 Alembic 迁移，禁止手动在 Supabase SQL Editor 粘贴 DDL。**
+> 所有改动走 `alembic revision --autogenerate` + `alembic upgrade head`，保证可回滚、可追溯。
+
+### 项目约定
+
+- 依赖：`sqlalchemy>=2.0.0` + `asyncpg>=0.29.0` + `alembic>=1.13.0` + `pgvector>=0.3.0`
+- 依赖必须**同时**写入两处：`pyproject.toml`（Vercel 读取）+ `backend/requirements.txt`（本地开发）
+- 连接串：`DATABASE_URL` 从 `.env` 读取，**Vercel Serverless 用 Transaction pooler（端口 6543）**
+- 认证：自建 JWT（HS256），不使用 Supabase Auth
+- 数据库访问：直接走 SQLAlchemy ORM（asyncpg），**不使用 supabase-py REST**
+
+### 目录结构
+
+```
+backend/
+├── database.py              # async engine + Base + get_db
+├── alembic.ini              # Alembic 配置（不硬编码连接串）
+├── alembic/
+│   ├── env.py               # 从 backend.config 读取 DATABASE_URL
+│   ├── script.py.mako
+│   └── versions/            # 迁移文件
+└── models/                  # SQLAlchemy ORM 模型（每表一个文件）
+    ├── __init__.py          # 导出 Base + 所有模型（供 autogenerate 发现）
+    ├── user.py  memory.py  chat.py  mood.py
+    ├── growth.py  personality.py  subscription.py  push.py
+```
+
+### 常用命令
+
+```bash
+# 从 backend/ 目录执行
+cd backend
+
+# 生成迁移（自动对比 models 与数据库）
+alembic revision --autogenerate -m "description"
+
+# 预览将执行的 SQL（不连接数据库）
+alembic upgrade head --sql
+
+# 应用迁移
+alembic upgrade head
+
+# 回滚一步
+alembic downgrade -1
+```
+
+### RLS 约定
+
+- **不开 RLS**：后端通过 service_role 语义访问（FastAPI 层用 `Depends(get_current_user)` 校验），
+  RLS 被绕过且会增加 migration 复杂度
+- 若未来前端直连 Supabase（Realtime）再给特定表开 RLS
+
+### pgvector 字段
+
+- ORM 用 `pgvector.sqlalchemy.HALFVEC(512)` 定义 embedding 字段
+- 迁移中需先 `CREATE EXTENSION IF NOT EXISTS vector;` 再建表
 
 ## Migration Path
 

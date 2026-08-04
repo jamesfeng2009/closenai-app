@@ -1,17 +1,24 @@
 /**
  * ClosenAI API 服务。
  *
- * 封装所有后端 API 调用。
+ * 封装所有后端 API 调用：
+ * - 统一解包后端响应信封 {code, message, data, trace_id, user_id}
+ * - 统一错误处理（ApiError 携带业务错误码）
+ * - SSE 流式对话基于 XMLHttpRequest（React Native fetch 不支持流式 body）
  */
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import i18n from '../i18n';
 import type {
   ChatStreamRequest, ChatHistoryItem, SSEEvent,
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
-  GrowthDashboard, WeeklyInsight,
-  PersonalityProfile,
+  GrowthDashboard, WeeklyInsight, GrowthTimeline,
+  PersonalityProfile, PersonalityRefreshResult,
   UserProfile, UserSettings,
   DailyDiscovery,
-  SubscriptionStatus,
+  SubscriptionStatus, ReceiptVerifyResult,
+  ReflectionDraft, ReflectionItem,
+  Memory,
 } from '../types';
 
 // 开发环境 API 地址
@@ -21,140 +28,353 @@ const API_BASE = Platform.select({
   default: 'http://localhost:8000/api/v1',
 });
 
-const headers = {
-  'Content-Type': 'application/json',
-};
+// ═══ 设备级用户标识（P0 阶段：X-User-Id 透传，正式鉴权上线后替换为 JWT）═══
 
-// ═══ Chat (P0-F01) ═══
+const USER_ID_KEY = '@closenai/device_user_id';
+let cachedUserId: string | null = null;
 
-export async function streamChat(
-  request: ChatStreamRequest,
-  onToken: (token: string) => void,
-  onDone: () => void,
-  onError: (error: string) => void,
-): Promise<void> {
+function generateUuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/** 初始化/获取设备级用户 ID（App 启动时调用，保证数据按设备隔离）。 */
+export async function initApiUser(): Promise<string> {
+  if (cachedUserId) return cachedUserId;
+  let id: string | null = null;
   try {
-    const response = await fetch(`${API_BASE}/chat/stream`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(request),
-    });
-
-    const reader = response.body?.getReader();
-    if (!reader) return;
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const event: SSEEvent = JSON.parse(line.slice(6));
-          switch (event.type) {
-            case 'token':
-              onToken(event.content || '');
-              break;
-            case 'done':
-              onDone();
-              break;
-            case 'error':
-              onError(event.message || '未知错误');
-              break;
-          }
-        }
-      }
+    id = await AsyncStorage.getItem(USER_ID_KEY);
+  } catch {
+    // ignore
+  }
+  if (!id) {
+    id = generateUuid();
+    try {
+      await AsyncStorage.setItem(USER_ID_KEY, id);
+    } catch {
+      // ignore
     }
-  } catch (e) {
-    onError((e as Error).message);
+  }
+  cachedUserId = id;
+  return id;
+}
+
+/** 重置设备身份（退出登录/注销后调用）：清除本地用户 ID 并生成新身份。 */
+export async function resetApiUser(): Promise<void> {
+  cachedUserId = null;
+  try {
+    await AsyncStorage.removeItem(USER_ID_KEY);
+  } catch {
+    // ignore
+  }
+  await initApiUser();
+}
+
+// ═══ 统一请求封装（信封解包 + 错误处理）═══
+
+export class ApiError extends Error {
+  code: number;
+  constructor(code: number, message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'ApiError';
   }
 }
 
+// 动态请求头：Content-Type + 语言透传（X-Language）+ 用户标识（X-User-Id）
+// 后端按「X-Language header → users.language → en」优先级解析 LLM 回复语言
+function getHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Language': (i18n.language || 'en').slice(0, 2),
+  };
+  if (cachedUserId) {
+    headers['X-User-Id'] = cachedUserId;
+  }
+  return headers;
+}
+
+interface Envelope<T> {
+  code: number;
+  message: string;
+  data: T;
+}
+
+function isEnvelope(body: unknown): body is Envelope<unknown> {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'code' in body &&
+    'data' in body &&
+    typeof (body as { code: unknown }).code === 'number'
+  );
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: { ...getHeaders(), ...(options.headers as Record<string, string> | undefined) },
+    });
+  } catch {
+    throw new ApiError(-1, '网络连接失败，请检查网络后重试');
+  }
+
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    // 非 JSON 响应
+  }
+
+  if (!res.ok) {
+    const msg =
+      isEnvelope(body) && typeof body.message === 'string'
+        ? body.message
+        : `请求失败（HTTP ${res.status}）`;
+    const code = isEnvelope(body) ? body.code : res.status;
+    throw new ApiError(code, msg);
+  }
+
+  if (isEnvelope(body)) {
+    if (body.code !== 200) {
+      throw new ApiError(body.code, body.message || '请求失败');
+    }
+    return body.data as T;
+  }
+  return body as T;
+}
+
+// ═══ Chat (P0-F01) ═══
+
+/**
+ * SSE 流式对话。
+ *
+ * React Native 的 fetch 不支持流式响应体（response.body 为 null），
+ * 这里用 XMLHttpRequest 的 onprogress 增量读取 responseText 实现 SSE 解析。
+ *
+ * @returns 取消函数（调用可中断流）
+ */
+export function streamChat(
+  requestBody: ChatStreamRequest,
+  onToken: (token: string) => void,
+  onDone: () => void,
+  onError: (error: string, code?: number) => void,
+  onMemoryContext?: (memories: SSEEvent['memories']) => void,
+): () => void {
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${API_BASE}/chat/stream`);
+  const headers = getHeaders();
+  Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+  let processed = 0; // 已处理的 responseText 长度
+  let buffer = '';
+  let settled = false;
+
+  const finish = (fn: () => void) => {
+    if (settled) return;
+    settled = true;
+    fn();
+  };
+
+  const handleLine = (line: string) => {
+    if (!line.startsWith('data: ')) return;
+    let event: SSEEvent;
+    try {
+      event = JSON.parse(line.slice(6));
+    } catch {
+      return;
+    }
+    switch (event.type) {
+      case 'token':
+        onToken(event.content || '');
+        break;
+      case 'memory_context':
+        onMemoryContext?.(event.memories);
+        break;
+      case 'done':
+        finish(onDone);
+        break;
+      case 'error':
+        finish(() => onError(event.message || '未知错误', event.code));
+        break;
+    }
+  };
+
+  const pump = () => {
+    buffer += xhr.responseText.slice(processed);
+    processed = xhr.responseText.length;
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    lines.forEach(handleLine);
+  };
+
+  xhr.onprogress = pump;
+  xhr.onload = () => {
+    // 非 2xx（如 403 AI_CONSENT_REQUIRED）：响应为 JSON 信封而非 SSE 流，按错误处理
+    if (xhr.status < 200 || xhr.status >= 300) {
+      let message = `请求失败（HTTP ${xhr.status}）`;
+      let code: number = xhr.status;
+      try {
+        const body = JSON.parse(xhr.responseText);
+        if (typeof body?.message === 'string') message = body.message;
+        if (typeof body?.code === 'number') code = body.code;
+      } catch {
+        // 非 JSON 响应，保留默认错误
+      }
+      finish(() => onError(message, code));
+      return;
+    }
+    pump();
+    if (buffer.trim()) handleLine(buffer.trim());
+    // 流正常结束但未收到 done 事件时，兜底完成
+    finish(onDone);
+  };
+  xhr.onerror = () => finish(() => onError('网络连接失败，请检查网络后重试'));
+  xhr.ontimeout = () => finish(() => onError('请求超时，请稍后再试'));
+  xhr.timeout = 60000;
+
+  xhr.send(JSON.stringify(requestBody));
+  return () => xhr.abort();
+}
+
 export async function getChatHistory(limit: number = 20): Promise<ChatHistoryItem[]> {
-  const res = await fetch(`${API_BASE}/chat/history?limit=${limit}`, { headers });
-  return res.json();
+  return request<ChatHistoryItem[]>(`/chat/history?limit=${limit}`);
 }
 
 // ═══ Mood (P0-F03) ═══
 
 export async function moodCheckin(emoji: MoodEmoji, note?: string): Promise<MoodCheckinResponse> {
-  const res = await fetch(`${API_BASE}/mood/checkin`, {
+  return request<MoodCheckinResponse>('/mood/checkin', {
     method: 'POST',
-    headers,
     body: JSON.stringify({ emoji, note }),
   });
-  return res.json();
 }
 
-export async function getMoodTrend(weeks: number = 4): Promise<MoodTrendData> {
-  const res = await fetch(`${API_BASE}/mood/trend?weeks=${weeks}`, { headers });
-  return res.json();
+export async function getMoodTrend(days: number = 14): Promise<MoodTrendData> {
+  return request<MoodTrendData>(`/mood/trend?days=${days}`);
 }
 
 // ═══ Growth (P0-F07) ═══
 
 export async function getGrowthDashboard(): Promise<GrowthDashboard> {
-  const res = await fetch(`${API_BASE}/growth/dashboard`, { headers });
-  return res.json();
+  return request<GrowthDashboard>('/growth/dashboard');
 }
 
 export async function getWeeklyInsight(): Promise<WeeklyInsight> {
-  const res = await fetch(`${API_BASE}/growth/insights`, { headers });
-  return res.json();
+  return request<WeeklyInsight>('/growth/insights');
 }
 
-export async function getTimeline(days: number = 365): Promise<{ days: number; data: unknown[] }> {
-  const res = await fetch(`${API_BASE}/growth/timeline?days=${days}`, { headers });
-  return res.json();
+export async function getTimeline(days: number = 365): Promise<GrowthTimeline> {
+  return request<GrowthTimeline>(`/growth/timeline?days=${days}`);
 }
 
-// ═══ Personality (P0-F05) ═══
+// ═══ Reflection (P0-F04) ═══
+
+export async function generateReflectionDraft(context?: string): Promise<ReflectionDraft> {
+  return request<ReflectionDraft>('/reflections/generate', {
+    method: 'POST',
+    body: JSON.stringify({ context: context ?? null }),
+  });
+}
+
+export async function saveReflection(content: string): Promise<ReflectionItem> {
+  return request<ReflectionItem>('/reflections', {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function listReflections(limit: number = 20): Promise<ReflectionItem[]> {
+  return request<ReflectionItem[]>(`/reflections?limit=${limit}`);
+}
+
+// ═══ Personality (P0-F06) ═══
 
 export async function getPersonalityProfile(): Promise<PersonalityProfile> {
-  const res = await fetch(`${API_BASE}/personality/profile`, { headers });
-  return res.json();
+  return request<PersonalityProfile>('/personality/profile');
 }
 
-export async function refreshPersonality(): Promise<{ success: boolean; message: string }> {
-  const res = await fetch(`${API_BASE}/personality/refresh`, {
-    method: 'POST',
-    headers,
-  });
-  return res.json();
+export async function refreshPersonality(): Promise<PersonalityRefreshResult> {
+  return request<PersonalityRefreshResult>('/personality/refresh', { method: 'POST' });
 }
 
 // ═══ User (P0-F04) ═══
 
 export async function getUserProfile(): Promise<UserProfile> {
-  const res = await fetch(`${API_BASE}/user/profile`, { headers });
-  return res.json();
+  return request<UserProfile>('/user/profile');
 }
 
 export async function updateUserSettings(settings: UserSettings): Promise<UserProfile> {
-  const res = await fetch(`${API_BASE}/user/settings`, {
+  return request<UserProfile>('/user/settings', {
     method: 'PATCH',
-    headers,
     body: JSON.stringify(settings),
   });
-  return res.json();
+}
+
+export async function registerPushToken(token: string, platform: 'ios' | 'android'): Promise<void> {
+  await request<{ status: string }>('/user/push-token', {
+    method: 'POST',
+    body: JSON.stringify({ token, platform }),
+  });
+}
+
+/** 登出时清除推送 Token（此后不再收到推送）。 */
+export async function clearPushToken(): Promise<void> {
+  await request<{ status: string }>('/user/push-token', { method: 'DELETE' });
+}
+
+/** 注销账号：级联删除全部数据，不可恢复。 */
+export async function deleteAccount(): Promise<void> {
+  await request<{ deleted: boolean }>('/user/account', { method: 'DELETE' });
+}
+
+/** 设置 AI 数据共享同意状态（合规 5.1.2(i)）。 */
+export async function setAiConsent(consent: boolean): Promise<boolean> {
+  const res = await request<{ ai_consent: boolean }>('/user/ai-consent', {
+    method: 'POST',
+    body: JSON.stringify({ consent }),
+  });
+  return res.ai_consent;
+}
+
+// ═══ Memory (P0-F02) ═══
+
+export async function listMemories(limit: number = 50): Promise<Memory[]> {
+  return request<Memory[]>(`/memories?limit=${limit}`);
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  await request<{ deleted: boolean }>(`/memories/${memoryId}`, { method: 'DELETE' });
 }
 
 // ═══ Discovery (P0-F10) ═══
 
 export async function getDailyDiscovery(): Promise<DailyDiscovery> {
-  const res = await fetch(`${API_BASE}/discovery/daily`, { headers });
-  return res.json();
+  return request<DailyDiscovery>('/discovery/daily');
 }
 
-// ═══ IAP ═══
+// ═══ IAP (P1-F02) ═══
 
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
-  const res = await fetch(`${API_BASE}/iap/status`, { headers });
-  return res.json();
+  return request<SubscriptionStatus>('/iap/status');
+}
+
+export async function verifyReceipt(
+  receiptData: string,
+  productId: string,
+  isSandbox: boolean = __DEV__,
+): Promise<ReceiptVerifyResult> {
+  return request<ReceiptVerifyResult>('/iap/verify', {
+    method: 'POST',
+    body: JSON.stringify({
+      receipt_data: receiptData,
+      product_id: productId,
+      is_sandbox: isSandbox,
+    }),
+  });
 }

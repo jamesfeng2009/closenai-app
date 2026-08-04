@@ -3,9 +3,13 @@ ClosenAI 后端配置管理。
 
 通过环境变量读取配置，提供合理的默认值。
 """
+from pathlib import Path
 from typing import List
 
 from pydantic_settings import BaseSettings
+
+# backend 目录绝对路径（保证从任何位置运行都能定位 .env）
+BASE_DIR = Path(__file__).resolve().parent
 
 
 class Settings(BaseSettings):
@@ -32,12 +36,41 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 7
 
-    # LLM
+    # LLM（多 Provider）
+    # 可切换：dashscope / doubao / gemini / openai
+    llm_provider: str = "dashscope"
+    # DashScope（通义千问）
+    dashscope_api_key: str = ""
+    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_model: str = "qwen3.6-flash"
+    dashscope_lite_model: str = "qwen-flash"
+    dashscope_embedding_model: str = "text-embedding-v4"
+    # 豆包（火山方舟）
+    doubao_api_key: str = ""
+    doubao_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    doubao_model: str = ""
+    doubao_lite_model: str = ""
+    # Gemini（保留）
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     gemini_lite_model: str = "gemini-2.5-flash-lite"
-    doubao_api_key: str = ""
-    doubao_model: str = ""
+    # OpenAI 兼容自定义
+    openai_api_key: str = ""
+    openai_base_url: str = ""
+    openai_model: str = ""
+    openai_lite_model: str = ""
+
+    # 支持语言（多语言，15 种：13 种首发 + vi 越南语 + km 高棉语）
+    supported_languages: List[str] = [
+        "en", "zh", "es", "ko", "ja", "ru",
+        "id", "ms", "th", "de", "fr", "it", "pt",
+        "vi", "km",
+    ]
+
+    # 向量维度（memories.embedding 使用 512 维 halfvec，与 DashScope text-embedding-v4 对齐）
+    # 注意：v4（Qwen3-Embedding，100+ 语种含 vi/km，MRL 支持 128-2048 截断）与 v3 向量空间不兼容；
+    # 512 维为 MRL 推荐截断点之一，召回损失 <1%，存储/索引较 768 维 float4 节省 ~66%（Supabase 免费版 500MB 约束下的性价比最优解）
+    embedding_dim: int = 512
 
     # Redis (Upstash)
     redis_url: str = ""
@@ -69,7 +102,7 @@ class Settings(BaseSettings):
     health_check_interval: int = 5       # /health 保热间隔（分钟）
 
     model_config = {
-        "env_file": ".env",
+        "env_file": BASE_DIR / ".env",
         "env_file_encoding": "utf-8",
     }
 

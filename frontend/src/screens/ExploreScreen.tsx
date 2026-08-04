@@ -13,8 +13,10 @@ import {
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getPersonalityProfile } from '../services/api';
 import type { PersonalityProfile } from '../types';
+import { useTranslation } from 'react-i18next';
 
 export default function ExploreScreen({ navigation }: { navigation: any }) {
+  const { t } = useTranslation();
   const [profile, setProfile] = useState<PersonalityProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -44,7 +46,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>探索</Text>
+      <Text style={styles.title}>{t('explore.title')}</Text>
 
       {/* 性格画像主体卡片 */}
       <TouchableOpacity
@@ -53,11 +55,11 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
       >
         <Text style={styles.personalityIcon}>🧠</Text>
         <Text style={styles.mbtiType}>{profile?.mbti_type || 'INTP'}</Text>
-        <Text style={styles.mbtiLabel}>{profile?.mbti_label || '逻辑学家'} · 你的性格画像</Text>
+        <Text style={styles.mbtiLabel}>{profile?.mbti_label || t('explore.logician')} · {t('explore.personalityLabel')}</Text>
         {(profile?.observations || []).map((obs, i) => (
           <Text key={i} style={styles.observation}>• {obs}</Text>
         ))}
-        <Text style={styles.viewFull}>查看完整画像 →</Text>
+        <Text style={styles.viewFull}>{t('explore.viewFull')}</Text>
       </TouchableOpacity>
 
       {/* 冷启动进度（新用户） */}
@@ -66,9 +68,9 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
           <View style={styles.coldStartHeader}>
             <Text style={styles.coldStartIcon}>🧠</Text>
             <View style={{ flex: 1 }}>
-              <Text style={styles.coldStartTitle}>性格画像</Text>
+              <Text style={styles.coldStartTitle}>{t('explore.coldStartTitle')}</Text>
               <Text style={styles.coldStartStatus}>
-                AI 正在了解你（第 {Math.ceil(profile.cold_start_progress * 7)}/7 天）
+                {t('explore.coldStartStatus', { day: Math.ceil(profile.cold_start_progress * 7) })}
               </Text>
             </View>
           </View>
@@ -76,15 +78,15 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
             <View style={[styles.coldStartFill, { width: `${profile.cold_start_progress * 100}%` }]} />
           </View>
           <View style={styles.coldStartStages}>
-            {['破冰', '观察', '探索', '揭示', '运用'].map((stage, i) => (
+            {['stageIntro', 'stageObserve', 'stageExplore', 'stageReveal', 'stageApply'].map((stageKey, i) => (
               <Text
-                key={stage}
+                key={stageKey}
                 style={[
                   styles.stageText,
-                  profile.cold_start_stage === stage && styles.stageActive,
+                  profile.cold_start_stage === t(`explore.${stageKey}`) && styles.stageActive,
                 ]}
               >
-                {i + 1} {stage}
+                {i + 1} {t(`explore.${stageKey}`)}
               </Text>
             ))}
           </View>
@@ -93,23 +95,23 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
 
       {/* 更多探索 */}
       <View style={styles.moreSection}>
-        <Text style={styles.sectionTitle}>更多探索</Text>
+        <Text style={styles.sectionTitle}>{t('explore.moreTitle')}</Text>
         <View style={styles.exploreGrid}>
           <TouchableOpacity
             style={styles.exploreTile}
             onPress={() => navigation.navigate('Natal')}
           >
             <Text style={styles.tileIcon}>⭐</Text>
-            <Text style={styles.tileName}>本命星盘</Text>
-            <Text style={styles.tileDesc}>了解你的星象</Text>
+            <Text style={styles.tileName}>{t('explore.natal')}</Text>
+            <Text style={styles.tileDesc}>{t('explore.natalDesc')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.exploreTile}
             onPress={() => navigation.navigate('PersonalityCard')}
           >
             <Text style={styles.tileIcon}>🃏</Text>
-            <Text style={styles.tileName}>性格名片</Text>
-            <Text style={styles.tileDesc}>生成分享卡片</Text>
+            <Text style={styles.tileName}>{t('explore.personCard')}</Text>
+            <Text style={styles.tileDesc}>{t('explore.personCardDesc')}</Text>
           </TouchableOpacity>
         </View>
       </View>

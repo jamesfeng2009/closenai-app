@@ -51,6 +51,13 @@ backend/
 ├── main.py                    # FastAPI app entry
 ├── config.py                  # Environment configuration
 ├── requirements.txt           # Python dependencies
+├── core/                      # 基础设施层（统一响应/错误码/日志/中间件/LLM）
+│   ├── errors.py              # 错误码 + 业务异常
+│   ├── response.py            # 统一响应 success()/fail()
+│   ├── logging.py             # 日志系统（trace_id/user_id 透传）
+│   ├── middleware.py          # TraceIdMiddleware + 全局异常处理
+│   ├── auth.py                # get_current_user 依赖
+│   └── llm.py                 # LLM 客户端封装
 ├── routers/                   # API route handlers
 │   ├── __init__.py
 │   ├── chat.py                # Chat & SSE streaming endpoints
@@ -77,6 +84,32 @@ backend/
 | 测试文件 | `backend/tests/` |
 | 推送服务 | `backend/services/push/` |
 | 定时任务 | `backend/routers/`（作为路由端点） |
+
+## 🔴 依赖双文件约束（必须遵守）
+
+**依赖必须同时写入两个文件，否则 Vercel 部署会失败：**
+
+| 文件 | 用途 | 谁读取 |
+|------|------|--------|
+| `pyproject.toml` `[project.dependencies]` | **Vercel 部署实际读取**（`[tool.vercel] entrypoint`） | Vercel |
+| `backend/requirements.txt` | 本地开发 / IDE | 本地 |
+
+新增任何 Python 依赖（如 `sqlalchemy`、`asyncpg`、`alembic`、`pgvector`）时，**两处都要加**。
+
+## 数据库层（Alembic + SQLAlchemy）
+
+- 连接：`backend/database.py` 创建 async engine + `Base` + `get_db`
+- 版本管理：建表/改表走 **Alembic 迁移**（`alembic upgrade head`），禁止手动 SQL Editor
+- 连接串：`DATABASE_URL` 从 `.env` 读取，Vercel 用 **Transaction pooler**（端口 6543）
+- 详见表结构约定 → `closenai-supabase` SKILL
+
+```
+backend/
+├── database.py          # async engine + Base + get_db
+├── alembic.ini
+├── alembic/             # env.py + versions/
+└── models/              # SQLAlchemy ORM（每表一文件）
+```
 
 ## Key Architecture Patterns
 
@@ -157,6 +190,93 @@ Real-time chat LLM call
   └── Failure → "稍等，我想想..." + retry
 ```
 
+## 统一响应格式 / 错误码 / 日志系统（必须遵守）
+
+所有 API 返回统一 JSON 结构，错误码集中维护，日志带 trace_id / user_id 透传。
+基础设施位于 `backend/core/`：
+
+```
+backend/core/
+├── errors.py      # 错误码体系（ErrorCode 枚举）+ 业务异常 AppException
+├── response.py    # 统一响应构造 success() / fail()
+├── logging.py     # 日志系统（contextvars 透传 trace_id / user_id）
+├── middleware.py  # TraceIdMiddleware + 全局异常处理器
+├── auth.py        # get_current_user 依赖 + resolve_user_id_from_request
+└── llm.py         # LLM 客户端封装（多 Provider + 多语言）
+```
+
+### 1. 统一响应格式
+
+所有接口（成功与失败）返回：
+
+```json
+{
+  "code": 200,          // 整数状态码（非字符串），成功 200，错误为业务错误码
+  "message": "success", // 人类可读消息
+  "data": { ... },      // 业务数据（可为 null）
+  "trace_id": "xxx",    // 请求追踪 ID（透传 X-Trace-Id 或生成 UUID）
+  "user_id": "xxx"      // 用户 ID（未登录为 ""）
+}
+```
+
+**路由规范：**
+- 成功：`return success(data)`（`from backend.core.response import success`）
+- 失败：抛 `raise AppException(ErrorCode.XXX, "消息")`，全局处理器自动转标准响应
+- **禁止**在路由里手动构造失败 dict / 直接返回裸 dict / 返回 Pydantic 模型
+- **不要**为路由设置 `response_model=`（返回的是统一包装，非业务模型）
+- SSE 流式接口（`/chat/stream`）保持 SSE 事件格式，不套统一包装
+
+### 2. 错误码体系（backend/core/errors.py）
+
+错误码为**整数状态码**，遵循 HTTP 语义分段：
+
+| 段 | 含义 | 例子 |
+|----|------|------|
+| 2xx | 成功 | 200 OK |
+| 4xx | 客户端错误 | 400 参数、401 认证、403 权限、404 资源、409 冲突、429 限流 |
+| 4xxxx | 业务细分 | 40001 参数无效、40101 token 过期、40403 记忆不存在 |
+| 5xx | 服务端错误 | 500 内部、503 不可用 |
+| 5xxxx | 业务细分 | 50001 LLM 错误、50003 数据库错误 |
+
+**新增错误码必须**在 `ErrorCode` 枚举中集中定义，禁止在业务代码硬编码数字。
+
+### 3. 日志系统（backend/core/logging.py）
+
+- 使用 `contextvars` 透传 `trace_id` / `user_id`，每条日志自动附加
+- 中间件在请求入口设置 `trace_id`（透传 `X-Trace-Id` 或生成 UUID）与 `user_id`
+- 业务代码只需 `logger = logging.getLogger(__name__)`，无需手动拼 trace_id
+- 日志格式：
+  ```
+  2026-08-04 00:30:31 | INFO | closenai | trace_id=xxx | user_id=xxx | message
+  ```
+
+### 4. 认证与 user_id 透传（backend/core/auth.py）
+
+user_id 来源（按优先级）：
+1. `Authorization: Bearer <JWT>` → 解码 `sub`（需配 `JWT_SECRET`）
+2. `X-User-Id` 头 → 透传（网关/开发）
+3. 未解析 → `anonymous`
+
+路由通过 `user_id: str = Depends(get_current_user)` 获取当前用户，并自动写入 contextvar。
+**注意**：`BaseHTTPMiddleware` 在子任务中执行 `call_next`，依赖内设置的 contextvar 不会回传外层；
+因此 `user_id` 由中间件在 `call_next` **之前**用 `resolve_user_id_from_request` 写入外层 context，
+保证成功与异常路径的日志都能透传。
+
+### 5. 多语言透传（backend/core/language.py）
+
+语言解析遵循 **Header 优先 + 库兜底** 双轨机制（与 `X-User-Id` 透传模式一致）：
+
+| 优先级 | 来源 | 说明 |
+|--------|------|------|
+| 1 | `X-Language` header | 前端每次请求携带，实时、无状态 |
+| 2 | `users.language` | 数据库偏好，跨设备/重装兜底 |
+| 3 | 默认 `en` | 兜底 |
+
+- 依赖：`language: str = Depends(get_request_language)`（`from backend.core.language import get_request_language`）
+- `X-Language` 归一化：`zh-CN → zh`（取 `-` 前段小写），仅接受 `supported_languages` 内的码
+- 该 `language` 必须传给 LLM 调用（`llm.stream(..., language=language)`），保证 AI 用用户语言回复
+- 前端所有请求带 `X-Language` header（取当前 i18n 语言），见 `frontend/src/services/api.ts` 的 `getHeaders()`
+
 ## Performance Targets
 
 | Metric | Target | Feature |
@@ -175,3 +295,13 @@ Real-time chat LLM call
 - **Cold start**: 1-3s. Mitigate with /health warming + mini models + Redis cache
 - **QStash cost**: 10K DAU = ~400 chunks/day. Pro plan ($20/month, 100K calls/day) needed
 - **Auth migration**: Supabase Auth → self-signed JWT (HS256). Keep auth logic in one service file
+
+## 时间与时区（出海强制，细则见 .trellis/spec/api-conventions.md §6）
+
+- **存储一律 UTC + `timestamptz`**：models 必须 `DateTime(timezone=True)`，禁止 naive DateTime
+- **API 传输一律 ISO 8601 显式 UTC**（`...T01:00:00Z`），禁止无时区后缀字符串
+- **"今日"语义（配额重置/streak/主动消息/每日洞察）按用户本地时区**：统一走 `core/time_utils.py` 的 `local_today(tz)`/`local_now(tz)`，禁止无参 `date.today()`/`datetime.now()`
+- **与 timestamptz 列比较必须 tz-aware**：用 `local_day_start_utc(tz)`（本地 00:00 → UTC）做范围起点，当前时刻用 `utc_now()`；禁止 naive `datetime.combine(day, min.time())`（会被当 UTC，边界偏 ±14h）
+- **按"日"分组/星期统计**：先转用户本地时区再取 date/weekday（见 `mood_repository.count_by_day(tz=...)`，Python 侧转换兼容 SQLite/PG，禁用 PG 专有 `func.timezone`）
+- **`users.timezone` 只存 IANA 名**（`Asia/Shanghai`），禁止 `"UTC+8"` 偏移格式（zoneinfo 静默回退 UTC 的坑）
+- 前端启动时上报设备时区到 `PATCH /user/settings`（App.tsx 已内置）

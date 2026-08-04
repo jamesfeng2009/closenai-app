@@ -48,7 +48,7 @@ interface Memory {
   status: 'current' | 'superseded' | 'reverted';
   conviction_score: number;  // 0.0 - 1.0
   source: 'self_reflection' | 'ai_inference' | 'quoted_other';
-  embedding: number[];       // 768-dim (Gemini Embedding)
+  embedding: number[];       // 512-dim halfvec (DashScope text-embedding-v4, MRL 截断)
   created_at: Date;
   superseded_at: Date | null;
   reverted_at: Date | null;

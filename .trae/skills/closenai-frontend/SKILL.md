@@ -388,3 +388,85 @@ purchaseErrorListener((error) => {
 5. **3 秒签到** — 情绪 emoji 一点即完成，每日快速 hook
 6. **AI 消息标注** — 所有 AI 生成内容底部标注"AI 生成"（合规）
 7. **iOS 原生体验** — SafeAreaView、键盘避让、毛玻璃 Tab Bar、触觉反馈
+
+## Internationalization (i18n 多语言)
+
+### 支持语言（15 种）
+
+`en`(英语) `zh`(中文) `es`(西语) `ko`(韩语) `ja`(日语) `ru`(俄语) `id`(印尼语) `ms`(马来语) `th`(泰语) `de`(德语) `fr`(法语) `it`(意大利语) `pt`(葡萄牙语) `vi`(越南语) `km`(高棉语)
+
+### 技术选型
+
+- **react-i18next** + **expo-localization**（跟随系统语言 + 手动切换）
+- 禁止硬编码 UI 文案（所有文案走 i18n 资源）
+
+### 资源文件结构
+
+```
+frontend/src/
+├── i18n/
+│   ├── index.ts              # i18n 初始化（detect 语言 + 加载资源）
+│   ├── locales/
+│   │   ├── en.ts             # 英语
+│   │   ├── zh.ts             # 中文
+│   │   ├── es.ts             # 西语
+│   │   ├── ko.ts             # 韩语
+│   │   ├── ja.ts             # 日语
+│   │   ├── ru.ts             # 俄语
+│   │   ├── id.ts             # 印尼语
+│   │   ├── ms.ts             # 马来语
+│   │   ├── th.ts             # 泰语
+│   │   ├── de.ts             # 德语
+│   │   ├── fr.ts             # 法语
+│   │   ├── it.ts             # 意大利语
+│   │   ├── pt.ts             # 葡萄牙语
+│   │   ├── vi.ts             # 越南语
+│   │   └── km.ts             # 高棉语
+└── types/
+    └── index.ts              # 增加 Language 类型
+```
+
+### 初始化（index.ts）
+
+```typescript
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import * as Localization from 'expo-localization';
+import * as en from './locales/en';
+import * as zh from './locales/zh';
+// ... 其余语言
+
+const resources = { en, zh, es, ko, ja, ru, id, ms, th, de, fr, it, pt, vi, km };
+
+i18n.use(initReactI18next).init({
+  resources,
+  lng: Localization.getLocales()[0]?.languageCode ?? 'en',
+  fallbackLng: 'en',
+  interpolation: { escapeValue: false },
+});
+
+export default i18n;
+```
+
+### 使用规范
+
+```typescript
+import { useTranslation } from 'react-i18next';
+
+export function HomeScreen() {
+  const { t } = useTranslation();
+  return <Text>{t('home.streakTitle')}</Text>;         // 🔥 today's streak
+}
+
+// 语言切换（ProfileScreen 设置）
+i18n.changeLanguage('ja');
+api.updateUserSettings({ language: 'ja' });  // 同步后端 users.language
+```
+
+### 关键约束
+
+- **AI 生成内容语言**：前端每个 API 请求自动携带 `X-Language` header（取当前 i18n 语言，见 `services/api.ts` 的 `getHeaders()`）；后端按 `X-Language → users.language → en` 优先级解析（见 closenai-llm / closenai-backend SKILL）
+- **文案 key 命名**：`页面.子模块.字段`（如 `home.streakTitle`、`profile.settings.language`）
+- **语言切换入口**：ProfileScreen → 其他设置 → 语言（列出 15 种语言）
+- 首次启动用 `expo-localization` 读取系统语言（`detectLanguage()`）：在支持列表内 → 用之（`zh-CN/zh-Hans → zh`）；**不在 → 默认 `en`**；可在设置中覆盖并持久化（AsyncStorage）
+- Emoji 图标（🌱🧭📝👤）不依赖语言，各语言通用

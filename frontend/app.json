@@ -4,7 +4,6 @@
     "slug": "closenai",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "scheme": "closenai",
     "userInterfaceStyle": "dark",
     "splash": {
@@ -21,6 +20,8 @@
       "bundler": "metro",
       "output": "static"
     },
-    "plugins": ["expo-router"]
+    "plugins": [
+      "react-native-iap"
+    ]
   }
 }

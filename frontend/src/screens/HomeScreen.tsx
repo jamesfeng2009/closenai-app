@@ -12,29 +12,74 @@
  */
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { getGrowthDashboard } from '../services/api';
-import type { GrowthDashboard } from '../types';
+import { getGrowthDashboard, moodCheckin, ApiError } from '../services/api';
+import type { GrowthDashboard, MoodEmoji } from '../types';
+import { useTranslation } from 'react-i18next';
+
+// 与后端 MOOD_MAP 严格一致（schemas.py: emoji 字段契约）
+const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'];
+
+// 仪表盘本地缓存（SWR：先渲染缓存秒开首屏，后台刷新覆盖）
+const DASHBOARD_CACHE_KEY = '@closenai/dashboard_cache';
 
 export default function HomeScreen({ navigation }: { navigation: any }) {
+  const { t } = useTranslation();
   const [dashboard, setDashboard] = useState<GrowthDashboard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checkingIn, setCheckingIn] = useState(false);
 
   useEffect(() => {
-    loadDashboard();
+    (async () => {
+      // 1. 先读缓存立即渲染（无缓存则保持 loading，由网络请求兜底）
+      try {
+        const cached = await AsyncStorage.getItem(DASHBOARD_CACHE_KEY);
+        if (cached) {
+          setDashboard(JSON.parse(cached));
+          setLoading(false);
+        }
+      } catch {
+        // 缓存损坏忽略，走网络
+      }
+      // 2. 后台拉最新数据覆盖
+      loadDashboard();
+    })();
   }, []);
 
   const loadDashboard = async () => {
     try {
-      setLoading(true);
       const data = await getGrowthDashboard();
       setDashboard(data);
+      AsyncStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data)).catch(() => {});
     } catch (e) {
       console.warn('Failed to load dashboard:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onMoodPress = async (emoji: MoodEmoji) => {
+    if (checkingIn || dashboard?.today_mood) return; // 已签到或请求中则忽略
+    try {
+      setCheckingIn(true);
+      const res = await moodCheckin(emoji);
+      // 本地立即更新：标记今日已签到 + 刷新 streak
+      setDashboard((prev) =>
+        prev
+          ? { ...prev, today_mood: res.mood_emoji, streak_count: res.streak_updated }
+          : prev,
+      );
+      if (res.ai_interpretation) {
+        Alert.alert(`${res.mood_emoji} ${res.mood_label}`, res.ai_interpretation);
+      }
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : '签到失败，请稍后重试';
+      Alert.alert(t('common.error'), msg);
+    } finally {
+      setCheckingIn(false);
     }
   };
 
@@ -51,7 +96,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
       {/* 日期 + 问候 */}
       <View style={styles.header}>
         <Text style={styles.date}>{dashboard?.date || '...'}</Text>
-        <Text style={styles.greeting}>{dashboard?.greeting || '你好，今天感觉怎么样？'}</Text>
+        <Text style={styles.greeting}>{dashboard?.greeting || t('home.greeting')}</Text>
       </View>
 
       {/* Streak + 等级 */}
@@ -59,7 +104,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         <View style={styles.streakItem}>
           <Text style={styles.streakIcon}>🔥</Text>
           <Text style={styles.streakNum}>{dashboard?.streak_count || 0}</Text>
-          <Text style={styles.streakLabel}>天</Text>
+          <Text style={styles.streakLabel}>{t('common.days')}</Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.streakItem}>
@@ -69,41 +114,53 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           </View>
         </View>
         <View style={styles.divider} />
-        <Text style={styles.chatCount}>💬 {dashboard?.chat_count || 0} 次</Text>
+        <Text style={styles.chatCount}>💬 {dashboard?.chat_count || 0} {t('common.times')}</Text>
       </TouchableOpacity>
 
       {/* Today's Reflection */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>✓ Today's Reflection</Text>
-          <Text style={styles.doneTag}>✓ 已完成</Text>
+          <Text style={styles.cardTitle}>✓ {t('home.todayReflection')}</Text>
+          {dashboard?.today_mood && (
+            <Text style={styles.doneTag}>✓ {t('common.done')}</Text>
+          )}
         </View>
-        <Text style={styles.cardSubtitle}>今天的成长任务 · 选择一个开始记录</Text>
+        <Text style={styles.cardSubtitle}>{t('home.todayReflectionSubtitle')}</Text>
         <View style={styles.moodRow}>
-          {['😞', '😐', '🙂', '😊', '😄'].map((emoji) => (
-            <TouchableOpacity key={emoji} style={styles.moodBtn}>
-              <Text style={styles.moodEmoji}>{emoji}</Text>
-            </TouchableOpacity>
-          ))}
+          {MOOD_EMOJIS.map((emoji) => {
+            const selected = dashboard?.today_mood === emoji;
+            const disabled = checkingIn || !!dashboard?.today_mood;
+            return (
+              <TouchableOpacity
+                key={emoji}
+                style={[styles.moodBtn, selected && styles.moodBtnSelected]}
+                disabled={disabled}
+                onPress={() => onMoodPress(emoji)}
+              >
+                <Text style={[styles.moodEmoji, disabled && !selected && styles.moodEmojiDim]}>
+                  {emoji}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
       {/* Growth This Week */}
       <TouchableOpacity style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitlePurple}>📈 Growth This Week</Text>
-          <Text style={styles.detailArrow}>详情 →</Text>
+          <Text style={styles.cardTitlePurple}>📈 {t('home.growthThisWeek')}</Text>
+          <Text style={styles.detailArrow}>{t('home.details')} →</Text>
         </View>
         <View style={styles.metricsRow}>
-          {dashboard?.growth_metrics && Object.entries({
-            '😌 情绪': dashboard.growth_metrics.emotion_change,
-            '💛 社交': dashboard.growth_metrics.social_change,
-            '💪 自信': dashboard.growth_metrics.confidence_change,
-            '⚡ 压力': dashboard.growth_metrics.stress_change,
-            '🔍 好奇': dashboard.growth_metrics.curiosity_change,
-            '🎯 目标': dashboard.growth_metrics.goals_change,
-          }).map(([label, value]) => {
-            const [emoji, name] = label.split(' ');
+          {dashboard?.growth_metrics && ([
+            ['😌', t('home.emotion'), dashboard.growth_metrics.emotion_change],
+            ['💛', t('home.social'), dashboard.growth_metrics.social_change],
+            ['💪', t('home.confidence'), dashboard.growth_metrics.confidence_change],
+            ['⚡', t('home.stress'), dashboard.growth_metrics.stress_change],
+            ['🔍', t('home.curiosity'), dashboard.growth_metrics.curiosity_change],
+            ['🎯', t('home.goals'), dashboard.growth_metrics.goals_change],
+          ] as [string, string, string | number][]).map(([emoji, name, value]) => {
             const isPositive = typeof value === 'number' ? value > 0 : value === '↑';
             const isNegative = typeof value === 'number' ? value < 0 : value === '↓';
             const color = isPositive ? Colors.success : isNegative ? Colors.error : Colors.warning;
@@ -126,14 +183,16 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
             <View key={i} style={[styles.timelineDot, { backgroundColor: color }]} />
           ))}
         </View>
-        <Text style={styles.timelineHint}>连续 {dashboard?.streak_count || 0} 天 · 查看 365 天 Timeline →</Text>
+        <Text style={styles.timelineHint}>
+          {t('common.days')} {dashboard?.streak_count || 0} · {t('home.timelineHint')} →
+        </Text>
       </TouchableOpacity>
 
       {/* 本周 Insight */}
       {dashboard?.weekly_insight && (
         <TouchableOpacity style={styles.card}>
           <View style={styles.cardHeader}>
-            <Text style={styles.cardTitlePurple}>📈 本周 Insight</Text>
+            <Text style={styles.cardTitlePurple}>📈 {t('home.weeklyInsight')}</Text>
             <Text style={styles.insightBadge}>L2 Pattern</Text>
           </View>
           <Text style={styles.insightText}>{dashboard.weekly_insight}</Text>
@@ -154,11 +213,11 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         onPress={() => navigation.navigate('Personality')}
       >
         <View style={styles.cardHeader}>
-          <Text style={styles.profileTitle}>🧬 性格画像</Text>
+          <Text style={styles.profileTitle}>🧬 {t('home.personality')}</Text>
           <Text style={styles.arrow}>→</Text>
         </View>
         <Text style={styles.profileDesc}>
-          {dashboard?.mbti_type || 'INTP'} · 逻辑学家 · 7 天相处发现
+          {dashboard?.mbti_type || 'INTP'} · {t('home.personalityDesc')}
         </Text>
       </TouchableOpacity>
     </ScrollView>
@@ -204,7 +263,9 @@ const styles = StyleSheet.create({
   doneTag: { fontSize: FontSize.sm, color: Colors.success, backgroundColor: 'rgba(16,185,129,0.1)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   moodRow: { flexDirection: 'row', justifyContent: 'space-around', gap: 8 },
   moodBtn: { flex: 1, alignItems: 'center', padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10 },
+  moodBtnSelected: { backgroundColor: 'rgba(255,215,0,0.18)', borderWidth: 1, borderColor: Colors.gold400 },
   moodEmoji: { fontSize: 22 },
+  moodEmojiDim: { opacity: 0.35 },
   metricsRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
   metricItem: {
     flex: 1, alignItems: 'center', padding: 6,

@@ -15,7 +15,7 @@
       "schedule": "0 15 * * *"
     },
     {
-      "path": "/api/v1/cron/drift-detection",
+      "path": "/api/v1/cron/weekly-insight",
       "schedule": "0 0 * * 0"
     }
   ]
