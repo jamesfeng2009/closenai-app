@@ -5,7 +5,7 @@
 """
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.push import PushToken
@@ -42,7 +42,7 @@ class PushTokenRepository:
     async def delete(self, db: AsyncSession, token_id: str) -> None:
         """删除失效 Token。"""
         await db.execute(
-            select(PushToken).where(PushToken.id == token_id).delete()
+            delete(PushToken).where(PushToken.id == token_id)
         )
         await db.flush()
 

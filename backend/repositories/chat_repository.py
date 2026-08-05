@@ -86,6 +86,18 @@ class ChatRepository:
         )
         return int(result.scalar_one() or 0)
 
+    async def count_since(
+        self, db: AsyncSession, user_id: str, start: datetime, role: Optional[str] = None
+    ) -> int:
+        """统计 start 之后的消息条数（role 可选过滤；用于画像刷新新数据检测）。"""
+        stmt = select(func.count(ChatMessage.id)).where(
+            ChatMessage.user_id == user_id, ChatMessage.created_at >= start
+        )
+        if role:
+            stmt = stmt.where(ChatMessage.role == role)
+        result = await db.execute(stmt)
+        return int(result.scalar_one() or 0)
+
     async def get_last_user_message(
         self, db: AsyncSession, user_id: str
     ) -> Optional[ChatMessage]:
@@ -97,6 +109,47 @@ class ChatRepository:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def list_recent_activity(
+        self, db: AsyncSession, user_id: str, start: datetime, limit: int = 200
+    ) -> List[datetime]:
+        """查询 start 之后用户消息的发送时间（role=user，用于活跃时段统计）。"""
+        result = await db.execute(
+            select(ChatMessage.created_at)
+            .where(
+                ChatMessage.user_id == user_id,
+                ChatMessage.role == "user",
+                ChatMessage.created_at >= start,
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def list_user_contents(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        start: datetime,
+        end: datetime,
+        limit: int = 50,
+    ) -> List[str]:
+        """查询时间窗口 [start, end) 内用户消息内容（role=user，按时间倒序截断）。
+
+        用于渐变漂移周检测的消息窗口向量化。
+        """
+        result = await db.execute(
+            select(ChatMessage.content)
+            .where(
+                ChatMessage.user_id == user_id,
+                ChatMessage.role == "user",
+                ChatMessage.created_at >= start,
+                ChatMessage.created_at < end,
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limit)
+        )
+        return [c for c in result.scalars().all() if c]
 
 
 chat_repository = ChatRepository()

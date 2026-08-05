@@ -18,7 +18,14 @@ const resource = {
     "title": "Управление памятью",
     "empty": "Пока нет воспоминаний",
     "deleteTitle": "Удалить воспоминание",
-    "deleteConfirm": "Удалить это воспоминание? Это действие нельзя отменить."
+    "deleteConfirm": "Удалить это воспоминание? Это действие нельзя отменить.",
+    "category": {
+      "values": "Ценности",
+      "preference": "Предпочтение",
+      "relationship": "Отношения",
+      "goal": "Цель",
+      "factual": "Факт"
+    }
   },
   "consent": {
     "title": "Уведомление о данных диалогов с ИИ",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Недельный инсайт",
     "yesterday": "Вчерашняя запись",
     "personality": "Личность",
-    "personalityDesc": "раскрыта за 7 дней"
+    "personalityDesc": "раскрыта за 7 дней",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Исследовать",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Натальная карта",
     "natalDesc": "Узнайте свою астрологию",
     "personCard": "Карточка личности",
-    "personCardDesc": "Создать карточку для обмена"
+    "personCardDesc": "Создать карточку для обмена",
+    "comingSoon": "Скоро"
   },
   "personality": {
     "observations": "Наблюдения ИИ",
     "uniqueTraits": "Уникальные черты",
     "refresh": "Обновить профиль",
-    "quotaLeft": "Осталось: {{count}}"
+    "quotaLeft": "Осталось: {{count}}",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Перейдите на ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Безлимитные диалоги с ИИ",
     "featurePriorityLLM": "Приоритетные ответы модели",
     "featurePersonalityRefresh": "Больше обновлений личности",
-    "featureTimeline": "Таймлайн роста за 365 дней"
+    "featureTimeline": "Таймлайн роста за 365 дней",
+    "trialBadge": "Пробный период"
   },
   "reflect": {
     "moodReminder": "Сегодня ещё не отмечено · Нажмите, чтобы выбрать эмодзи",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Создано ИИ",
     "saveDraft": "Сохранить рефлексию",
     "placeholder": "Введите сообщение...",
-    "aiError": "[Ошибка: {{error}}]"
+    "aiError": "[Ошибка: {{error}}]",
+    "quotaTitle": "Дневной лимит исчерпан",
+    "quotaMessage": "Вы использовали все бесплатные сообщения на сегодня. Обновитесь до Pro для безлимитного общения или возвращайтесь завтра.",
+    "quotaUpgrade": "Обновить"
   },
   "profile": {
     "sectionAI": "ИИ и память",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Удалить аккаунт",
     "deleteConfirmMessage": "Это навсегда удалит все ваши данные (диалоги, воспоминания, отметки, записи роста, подписку), и это действие нельзя отменить. Продолжить?",
     "deleteDone": "Аккаунт удалён",
+    "defaultName": "Гость",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

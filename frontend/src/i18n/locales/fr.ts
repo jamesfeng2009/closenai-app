@@ -18,7 +18,14 @@ const resource = {
     "title": "Gestion de la mémoire",
     "empty": "Aucun souvenir pour le moment",
     "deleteTitle": "Supprimer le souvenir",
-    "deleteConfirm": "Supprimer ce souvenir ? Cette action est irréversible."
+    "deleteConfirm": "Supprimer ce souvenir ? Cette action est irréversible.",
+    "category": {
+      "values": "Valeurs",
+      "preference": "Préférence",
+      "relationship": "Relation",
+      "goal": "Objectif",
+      "factual": "Fait"
+    }
   },
   "consent": {
     "title": "Informations sur les données des conversations IA",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Aperçu hebdomadaire",
     "yesterday": "Enregistrement d'hier",
     "personality": "Personnalité",
-    "personalityDesc": "découverte en 7 jours"
+    "personalityDesc": "découverte en 7 jours",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Explorer",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Thème natal",
     "natalDesc": "Comprendre votre astrologie",
     "personCard": "Carte de personnalité",
-    "personCardDesc": "Générer une carte à partager"
+    "personCardDesc": "Générer une carte à partager",
+    "comingSoon": "Bientôt disponible"
   },
   "personality": {
     "observations": "Observations de l'IA",
     "uniqueTraits": "Traits uniques",
     "refresh": "Actualiser le profil",
-    "quotaLeft": "{{count}} restant(s)"
+    "quotaLeft": "{{count}} restant(s)",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Passer à ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Conversations IA illimitées",
     "featurePriorityLLM": "Réponses prioritaires du modèle",
     "featurePersonalityRefresh": "Plus d'actualisations de personnalité",
-    "featureTimeline": "Chronologie de croissance sur 365 jours"
+    "featureTimeline": "Chronologie de croissance sur 365 jours",
+    "trialBadge": "Essai gratuit"
   },
   "reflect": {
     "moodReminder": "Pas encore enregistré aujourd'hui · Touchez pour choisir un emoji",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Généré par IA",
     "saveDraft": "Enregistrer la réflexion",
     "placeholder": "Saisissez un message...",
-    "aiError": "[Erreur : {{error}}]"
+    "aiError": "[Erreur : {{error}}]",
+    "quotaTitle": "Limite quotidienne atteinte",
+    "quotaMessage": "Vous avez utilisé tous vos messages gratuits du jour. Passez à Pro pour des conversations illimitées, ou revenez demain.",
+    "quotaUpgrade": "Passer à Pro"
   },
   "profile": {
     "sectionAI": "IA et mémoire",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Supprimer le compte",
     "deleteConfirmMessage": "Cette action supprime définitivement toutes vos données (conversations, souvenirs, enregistrements, suivis de croissance, abonnement) et est irréversible. Continuer ?",
     "deleteDone": "Compte supprimé",
+    "defaultName": "Invité",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

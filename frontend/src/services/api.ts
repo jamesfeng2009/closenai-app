@@ -14,6 +14,7 @@ import type {
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
   GrowthDashboard, WeeklyInsight, GrowthTimeline,
   PersonalityProfile, PersonalityRefreshResult,
+  AssessmentState, AssessmentAnswerResult, ComboReport,
   UserProfile, UserSettings,
   DailyDiscovery,
   SubscriptionStatus, ReceiptVerifyResult,
@@ -282,10 +283,13 @@ export async function generateReflectionDraft(context?: string): Promise<Reflect
   });
 }
 
-export async function saveReflection(content: string): Promise<ReflectionItem> {
+export async function saveReflection(
+  content: string,
+  relatedMemoryIds?: string[] | null,
+): Promise<ReflectionItem> {
   return request<ReflectionItem>('/reflections', {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, related_memory_ids: relatedMemoryIds ?? null }),
   });
 }
 
@@ -301,6 +305,31 @@ export async function getPersonalityProfile(): Promise<PersonalityProfile> {
 
 export async function refreshPersonality(): Promise<PersonalityRefreshResult> {
   return request<PersonalityRefreshResult>('/personality/refresh', { method: 'POST' });
+}
+
+/** 查询对话式评估状态（not_started / in_progress / completed + 下一题）。 */
+export async function getAssessment(): Promise<AssessmentState> {
+  return request<AssessmentState>('/personality/assessment');
+}
+
+/** 开始/续答 8 题对话式评估，返回当前题。 */
+export async function startAssessment(): Promise<AssessmentState> {
+  return request<AssessmentState>('/personality/assessment/start', { method: 'POST' });
+}
+
+/** 提交当前题答案：快捷选项（option）或自由输入（answer）二选一。 */
+export async function answerAssessment(
+  payload: { option: 'a' | 'b' | 'neutral' } | { answer: string },
+): Promise<AssessmentAnswerResult> {
+  return request<AssessmentAnswerResult>('/personality/assessment/answer', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 生成 Pro 组合报告（16 型人格 × 星座 × 九型交叉解读；每月 1 份缓存）。 */
+export async function generateComboReport(): Promise<ComboReport> {
+  return request<ComboReport>('/personality/combo-report', { method: 'POST' });
 }
 
 // ═══ User (P0-F04) ═══

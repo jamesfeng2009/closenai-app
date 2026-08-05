@@ -26,6 +26,10 @@ class Subscription(Base):
         String(255), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 是否免费试用中（P1-F02 §4，从收据 is_trial_period 解析）
+    is_trial: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 试用到期 24h 提醒是否已发送（防 cron 重复提醒）
+    trial_reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

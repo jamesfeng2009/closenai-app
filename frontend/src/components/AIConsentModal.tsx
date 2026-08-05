@@ -9,7 +9,7 @@
  * 内容必须包含（合规）：发送内容 / 处理方 / 用途 / 存储方式 / 用户控制权。
  */
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 
@@ -28,13 +28,16 @@ export default function AIConsentModal({ visible, onAgree, onDecline }: Props) {
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.title}>{t('consent.title')}</Text>
-          {POINT_KEYS.map((key) => (
-            <View key={key} style={styles.pointRow}>
-              <Text style={styles.bullet}>•</Text>
-              <Text style={styles.pointText}>{t(`consent.${key}`)}</Text>
-            </View>
-          ))}
-          <Text style={styles.note}>{t('consent.declineNote')}</Text>
+          {/* 小屏设备内容可滚动（按钮固定底部始终可见） */}
+          <ScrollView style={styles.scroll}>
+            {POINT_KEYS.map((key) => (
+              <View key={key} style={styles.pointRow}>
+                <Text style={styles.bullet}>•</Text>
+                <Text style={styles.pointText}>{t(`consent.${key}`)}</Text>
+              </View>
+            ))}
+            <Text style={styles.note}>{t('consent.declineNote')}</Text>
+          </ScrollView>
 
           <TouchableOpacity style={styles.agreeBtn} onPress={onAgree}>
             <Text style={styles.agreeText}>{t('consent.agree')}</Text>
@@ -54,8 +57,10 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: Colors.bgPrimary, borderRadius: BorderRadius.xl, padding: Spacing.xl,
-    borderWidth: 1, borderColor: Colors.borderLight,
+    borderWidth: 1, borderColor: Colors.borderLight, maxHeight: '90%',
   },
+  // RN 默认 flexShrink=0，需显式允许 ScrollView 收缩以触发滚动
+  scroll: { flexGrow: 0, flexShrink: 1, marginBottom: Spacing.sm },
   title: {
     fontSize: FontSize.h3, fontWeight: '700', color: Colors.textPrimary,
     marginBottom: Spacing.lg, textAlign: 'center',

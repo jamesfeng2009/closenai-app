@@ -18,7 +18,14 @@ const resource = {
     "title": "Gerenciamento de memória",
     "empty": "Ainda não há memórias",
     "deleteTitle": "Excluir memória",
-    "deleteConfirm": "Excluir esta memória? Esta ação não pode ser desfeita."
+    "deleteConfirm": "Excluir esta memória? Esta ação não pode ser desfeita.",
+    "category": {
+      "values": "Valores",
+      "preference": "Preferência",
+      "relationship": "Relacionamento",
+      "goal": "Meta",
+      "factual": "Fato"
+    }
   },
   "consent": {
     "title": "Aviso sobre dados de conversas com IA",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Insight semanal",
     "yesterday": "Registro de ontem",
     "personality": "Personalidade",
-    "personalityDesc": "descoberta em 7 dias"
+    "personalityDesc": "descoberta em 7 dias",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Explorar",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Mapa natal",
     "natalDesc": "Entenda sua astrologia",
     "personCard": "Cartão de personalidade",
-    "personCardDesc": "Gerar um cartão para compartilhar"
+    "personCardDesc": "Gerar um cartão para compartilhar",
+    "comingSoon": "Em breve"
   },
   "personality": {
     "observations": "Observações da IA",
     "uniqueTraits": "Traços únicos",
     "refresh": "Atualizar perfil",
-    "quotaLeft": "Restam {{count}}"
+    "quotaLeft": "Restam {{count}}",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Atualize para o ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Conversas ilimitadas com IA",
     "featurePriorityLLM": "Respostas prioritárias do modelo",
     "featurePersonalityRefresh": "Mais atualizações de personalidade",
-    "featureTimeline": "Linha do tempo de crescimento de 365 dias"
+    "featureTimeline": "Linha do tempo de crescimento de 365 dias",
+    "trialBadge": "Teste grátis"
   },
   "reflect": {
     "moodReminder": "Ainda não registrou hoje · Toque para escolher um emoji",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Gerado por IA",
     "saveDraft": "Salvar reflexão",
     "placeholder": "Digite uma mensagem...",
-    "aiError": "[Erro: {{error}}]"
+    "aiError": "[Erro: {{error}}]",
+    "quotaTitle": "Limite diário atingido",
+    "quotaMessage": "Você usou todas as mensagens gratuitas de hoje. Assine o Pro para conversas ilimitadas, ou volte amanhã.",
+    "quotaUpgrade": "Assinar"
   },
   "profile": {
     "sectionAI": "IA e memória",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Excluir conta",
     "deleteConfirmMessage": "Isso exclui permanentemente todos os seus dados (conversas, memórias, registros, histórico de crescimento, assinatura) e não pode ser desfeito. Continuar?",
     "deleteDone": "Conta excluída",
+    "defaultName": "Convidado",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

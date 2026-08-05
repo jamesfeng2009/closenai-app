@@ -4,7 +4,7 @@
 职责：只与 growth_records 表交互，不含业务逻辑。
 - 每日洞察 / 周报 / 模式发现 的写入与查询
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional
 from uuid import uuid4
 
@@ -25,6 +25,8 @@ class GrowthRepository:
         record_type: str,
         content: str,
         related_memory_ids: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        metadata_json: Optional[str] = None,
     ) -> GrowthRecord:
         """写入一条成长记录。"""
         record = GrowthRecord(
@@ -33,6 +35,8 @@ class GrowthRepository:
             record_type=record_type,
             content=content,
             related_memory_ids=",".join(related_memory_ids) if related_memory_ids else None,
+            tags=",".join(tags) if tags else None,
+            metadata_json=metadata_json,
         )
         db.add(record)
         await db.flush()
@@ -76,6 +80,27 @@ class GrowthRepository:
         result = await db.execute(
             select(GrowthRecord)
             .where(GrowthRecord.user_id == user_id, GrowthRecord.record_type == record_type)
+            .order_by(GrowthRecord.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def list_between(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        start: datetime,
+        end: datetime,
+        limit: int = 20,
+    ) -> List[GrowthRecord]:
+        """查询时间窗口 [start, end) 内的成长记录（按时间倒序，用于回忆卡片）。"""
+        result = await db.execute(
+            select(GrowthRecord)
+            .where(
+                GrowthRecord.user_id == user_id,
+                GrowthRecord.created_at >= start,
+                GrowthRecord.created_at < end,
+            )
             .order_by(GrowthRecord.created_at.desc())
             .limit(limit)
         )

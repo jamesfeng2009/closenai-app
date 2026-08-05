@@ -17,8 +17,14 @@ alembic>=1.13.0
 pgvector>=0.3.0
 greenlet>=3.0.0
 
-# HTTP 客户端（调用 Gemini API / OpenAI 兼容模式）
-httpx>=0.27.0
+# HTTP 客户端（调用 Gemini API / OpenAI 兼容模式；http2 用于 APNs 推送）
+httpx[http2]>=0.27.0
+
+# JWT 认证（core/auth.py Bearer 解码）
+PyJWT>=2.8.0
+
+# APNs ES256 签名 + App Store 通知 JWS 验签
+cryptography>=42.0.0
 
 # Google GenAI SDK（Gemini 2.5 Flash / Flash-Lite）
 google-genai>=1.0.0

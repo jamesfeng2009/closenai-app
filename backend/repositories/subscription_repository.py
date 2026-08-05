@@ -4,9 +4,10 @@
 职责：只与 subscriptions / receipts 表交互，不含业务逻辑。
 - 订阅的 upsert / 查询 / 过期 / 退款
 - 收据的写入与查询
+- 试用到期提醒的扫描与标记
 """
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import select, update
@@ -49,6 +50,7 @@ class SubscriptionRepository:
         expires_at: Optional[datetime],
         original_transaction_id: Optional[str],
         is_active: bool = True,
+        is_trial: bool = False,
     ) -> Subscription:
         """写入/更新订阅。同一用户同一原始交易只保留一条，重复则更新。"""
         existing = None
@@ -60,9 +62,13 @@ class SubscriptionRepository:
         if existing:
             existing.product_id = product_id
             existing.tier = tier
+            # 订阅周期变化（新购/续期）时重置提醒状态，允许对新周期再提醒一次
+            if existing.expires_at != expires_at:
+                existing.trial_reminder_sent = False
             existing.expires_at = expires_at
             existing.original_transaction_id = original_transaction_id or existing.original_transaction_id
             existing.is_active = is_active
+            existing.is_trial = is_trial
             await db.flush()
             return existing
 
@@ -74,10 +80,36 @@ class SubscriptionRepository:
             expires_at=expires_at,
             original_transaction_id=original_transaction_id,
             is_active=is_active,
+            is_trial=is_trial,
         )
         db.add(sub)
         await db.flush()
         return sub
+
+    async def list_expiring_trials(
+        self, db: AsyncSession, now: datetime, until: datetime
+    ) -> List[Subscription]:
+        """扫描 (now, until] 窗口内到期且未提醒的试用订阅。"""
+        result = await db.execute(
+            select(Subscription).where(
+                Subscription.is_active.is_(True),
+                Subscription.is_trial.is_(True),
+                Subscription.trial_reminder_sent.is_(False),
+                Subscription.expires_at.isnot(None),
+                Subscription.expires_at > now,
+                Subscription.expires_at <= until,
+            )
+        )
+        return list(result.scalars().all())
+
+    async def mark_trial_reminded(self, db: AsyncSession, subscription_id: str) -> None:
+        """标记试用到期提醒已发送。"""
+        await db.execute(
+            update(Subscription)
+            .where(Subscription.id == subscription_id)
+            .values(trial_reminder_sent=True)
+        )
+        await db.flush()
 
     async def set_active(self, db: AsyncSession, subscription_id: str, is_active: bool) -> None:
         """更新订阅激活状态。"""

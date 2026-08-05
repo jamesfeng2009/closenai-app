@@ -132,8 +132,10 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       {/* User Info */}
       <View style={styles.profileHeader}>
         <Text style={styles.avatar}>🧑</Text>
-        <Text style={styles.name}>{profile?.name || 'Alex'}</Text>
-        <Text style={styles.type}>{profile?.mbti_type || 'INTP'} · 逻辑学家</Text>
+        <Text style={styles.name}>{profile?.name || t('profile.defaultName')}</Text>
+        {profile?.mbti_type && (
+          <Text style={styles.type}>{profile.mbti_type} · {t(`mbti.${profile.mbti_type}`)}</Text>
+        )}
       </View>
 
       {/* AI 与记忆 */}

@@ -26,6 +26,8 @@ import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode.AI_CONSENT_REQUIRED 对齐
 const CODE_AI_CONSENT_REQUIRED = 40303;
+// 与后端 ErrorCode.QUOTA_EXCEEDED 对齐（免费配额耗尽 → 引导付费）
+const CODE_QUOTA_EXCEEDED = 40301;
 
 interface Message {
   id: string;
@@ -33,6 +35,8 @@ interface Message {
   content: string;
   isDraft?: boolean;
   draftSaved?: boolean;
+  // 草稿关联的记忆 ID（保存 Reflection 时透传给后端）
+  relatedMemoryIds?: string[] | null;
 }
 
 const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'];
@@ -89,6 +93,7 @@ export default function ReflectScreen() {
               role: 'ai',
               content: draft.draft,
               isDraft: true,
+              relatedMemoryIds: draft.related_memory_ids,
             });
           }
         } catch {
@@ -124,6 +129,18 @@ export default function ReflectScreen() {
     navigation.navigate('Growth');
   };
 
+  // 配额耗尽（40301）：引导付费，可跳 Paywall
+  const showQuotaAlert = () => {
+    Alert.alert(
+      t('reflect.quotaTitle'),
+      t('reflect.quotaMessage'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('reflect.quotaUpgrade'), onPress: () => navigation.navigate('Paywall') },
+      ],
+    );
+  };
+
   const sendMessage = () => {
     const text = input.trim();
     if (!text || isStreaming) return;
@@ -152,6 +169,13 @@ export default function ReflectScreen() {
           setIsStreaming(false);
           return;
         }
+        // 配额耗尽：移除占位气泡并引导付费
+        if (code === CODE_QUOTA_EXCEEDED) {
+          setMessages((prev) => prev.filter((m) => m.id !== aiMsgId));
+          setIsStreaming(false);
+          showQuotaAlert();
+          return;
+        }
         setMessages((prev) =>
           prev.map((m) =>
             m.id === aiMsgId ? { ...m, content: t('reflect.aiError', { error }) } : m
@@ -168,11 +192,20 @@ export default function ReflectScreen() {
       setMessages((prev) => [
         ...prev,
         { id: `mood-${Date.now()}`, role: 'ai', content: result.ai_interpretation },
+        // 连续异常触发的深度解读作为后续一条 AI 消息展示
+        ...(result.deep_interpretation
+          ? [{ id: `mood-deep-${Date.now()}`, role: 'ai' as const, content: result.deep_interpretation }]
+          : []),
       ]);
       setMoodCheckedIn(true);
       setShowMoodPanel(false);
       setStreak(result.streak_updated);
     } catch (e) {
+      // 配额耗尽（签到解读也计入免费配额）：引导付费
+      if (e instanceof ApiError && e.code === CODE_QUOTA_EXCEEDED) {
+        showQuotaAlert();
+        return;
+      }
       const msg = e instanceof ApiError ? e.message : 'checkin failed';
       Alert.alert(t('common.error'), msg);
     }
@@ -180,7 +213,7 @@ export default function ReflectScreen() {
 
   const onSaveDraft = async (msg: Message) => {
     try {
-      await saveReflection(msg.content);
+      await saveReflection(msg.content, msg.relatedMemoryIds);
       setMessages((prev) =>
         prev.map((m) => (m.id === msg.id ? { ...m, draftSaved: true } : m))
       );

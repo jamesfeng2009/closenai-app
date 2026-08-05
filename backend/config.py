@@ -79,21 +79,40 @@ class Settings(BaseSettings):
     # QStash
     qstash_token: str = ""
     qstash_url: str = ""
+    # QStash 回调验签密钥（Signing Keys，支持轮换：current 验不过再试 next）
+    qstash_current_signing_key: str = ""
+    qstash_next_signing_key: str = ""
+    # 后端公网基础 URL（QStash publish 的回调目标，如 https://your-app.vercel.app）
+    backend_base_url: str = ""
 
     # 推送
     apns_key_id: str = ""
     apns_team_id: str = ""
     apns_private_key: str = ""
     apns_topic: str = ""
+    # FCM legacy server key（已废弃，仅作 HTTP v1 未配置时的回退）
     fcm_server_key: str = ""
+    # FCM HTTP v1 service account JSON（内容为单行 JSON 串或 JSON 文件路径；配置后优先走 v1）
+    fcm_service_account_json: str = ""
 
     # IAP
     app_store_shared_secret: str = ""
     app_store_env: str = "sandbox"  # sandbox | production
+    # 试用到期前提醒提前量（小时，PRD P1-F02 §4：7 天免费试用，到期前 24 小时提醒）
+    trial_remind_hours: int = 24
 
-    # 配额
-    free_daily_messages: int = 5       # 免费每日 AI 主动消息
+    # 分享（P1-F04 §5：分享落地 → App Store 下载页）
+    app_store_url: str = "https://apps.apple.com/app/closenai/id6740000000"
+
+    # 配额（每日额度判定统一由 services/quota_service.py 执行。双口径，PRD P1-F02 §2：
+    # ① 对话轮数 = chat/stream 的 user 消息数；② 统一池 = 主动消息 + 签到解读。
+    # pro / pro_plus 为高限（≈不限，防异常调用打爆 LLM 成本的熔断上限））
+    free_daily_messages: int = 5       # 免费统一池每日额度（主动消息 + 签到解读）
     free_daily_chat_rounds: int = 10   # 免费每日对话轮次
+    pro_daily_messages: int = 100      # Pro 统一池每日高限
+    pro_plus_daily_messages: int = 1000  # Pro+ 统一池每日高限
+    pro_daily_chat_rounds: int = 100   # Pro 每日对话轮次高限
+    pro_plus_daily_chat_rounds: int = 1000  # Pro+ 每日对话轮次高限
     free_personality_refreshes: int = 3  # 免费性格画像刷新（总计）
     pro_personality_refreshes: int = 5   # Pro 性格画像刷新（每月）
 

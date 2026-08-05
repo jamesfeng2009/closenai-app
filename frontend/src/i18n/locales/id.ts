@@ -18,7 +18,14 @@ const resource = {
     "title": "Manajemen Memori",
     "empty": "Belum ada memori",
     "deleteTitle": "Hapus Memori",
-    "deleteConfirm": "Hapus memori ini? Tindakan ini tidak dapat dibatalkan."
+    "deleteConfirm": "Hapus memori ini? Tindakan ini tidak dapat dibatalkan.",
+    "category": {
+      "values": "Nilai",
+      "preference": "Preferensi",
+      "relationship": "Hubungan",
+      "goal": "Tujuan",
+      "factual": "Fakta"
+    }
   },
   "consent": {
     "title": "Pemberitahuan Data Percakapan AI",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Wawasan Mingguan",
     "yesterday": "Catatan Kemarin",
     "personality": "Kepribadian",
-    "personalityDesc": "ditemukan dalam 7 hari"
+    "personalityDesc": "ditemukan dalam 7 hari",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Jelajahi",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Kartu Natal",
     "natalDesc": "Pahami astrologi Anda",
     "personCard": "Kartu Kepribadian",
-    "personCardDesc": "Buat kartu untuk dibagikan"
+    "personCardDesc": "Buat kartu untuk dibagikan",
+    "comingSoon": "Segera hadir"
   },
   "personality": {
     "observations": "Pengamatan AI",
     "uniqueTraits": "Sifat Unik",
     "refresh": "Perbarui Profil",
-    "quotaLeft": "Sisa {{count}}"
+    "quotaLeft": "Sisa {{count}}",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Tingkatkan ke ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Percakapan AI tanpa batas",
     "featurePriorityLLM": "Respons model prioritas",
     "featurePersonalityRefresh": "Lebih banyak pembaruan kepribadian",
-    "featureTimeline": "Garis waktu pertumbuhan 365 hari"
+    "featureTimeline": "Garis waktu pertumbuhan 365 hari",
+    "trialBadge": "Uji coba gratis"
   },
   "reflect": {
     "moodReminder": "Belum check-in hari ini · Ketuk untuk memilih emoji",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Dibuat oleh AI",
     "saveDraft": "Simpan Refleksi",
     "placeholder": "Ketik pesan...",
-    "aiError": "[Error: {{error}}]"
+    "aiError": "[Error: {{error}}]",
+    "quotaTitle": "Batas harian tercapai",
+    "quotaMessage": "Anda telah menggunakan semua pesan gratis hari ini. Tingkatkan ke Pro untuk percakapan tanpa batas, atau kembali besok.",
+    "quotaUpgrade": "Tingkatkan"
   },
   "profile": {
     "sectionAI": "AI & Memori",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Hapus Akun",
     "deleteConfirmMessage": "Ini akan menghapus secara permanen semua data Anda (percakapan, memori, check-in, catatan pertumbuhan, langganan) dan tidak dapat dibatalkan. Lanjutkan?",
     "deleteDone": "Akun dihapus",
+    "defaultName": "Tamu",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

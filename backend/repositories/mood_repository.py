@@ -8,6 +8,7 @@ from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import local_day_start_utc, safe_zoneinfo, utc_now
@@ -34,6 +35,59 @@ class MoodRepository:
             ai_interpretation=ai_interpretation,
         )
         db.add(record)
+        await db.flush()
+        return record
+
+    async def create_once_today(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        mood_emoji: str,
+        mood_label: str,
+        ai_interpretation: str,
+        day_start: datetime,
+    ) -> tuple[MoodCheckin, bool]:
+        """写入今日签到；若今日已存在则返回已有记录（created=False）。
+
+        先查后写；并发下若撞上唯一约束（IntegrityError），回滚到 savepoint 后
+        重查并返回已存在记录，保证同一用户同一本地日不会双记。
+        注意：mood_checkins 目前无 (user_id, 本地日) 唯一约束，调用方需配合
+        用户行锁（for_update）先行串行化，本方法作为 DB 层兜底。
+        """
+        existing = await self.get_today(db, user_id, day_start)
+        if existing:
+            return existing, False
+        record = MoodCheckin(
+            id=str(uuid4()),
+            user_id=user_id,
+            mood_emoji=mood_emoji,
+            mood_label=mood_label,
+            ai_interpretation=ai_interpretation,
+        )
+        db.add(record)
+        try:
+            async with db.begin_nested():
+                await db.flush()
+        except IntegrityError:
+            # 并发双写兜底：回滚到 savepoint，重查返回已存在记录
+            existing = await self.get_today(db, user_id, day_start)
+            if existing is None:
+                raise
+            return existing, False
+        return record, True
+
+    async def update(
+        self,
+        db: AsyncSession,
+        record: MoodCheckin,
+        mood_emoji: str,
+        mood_label: str,
+        ai_interpretation: str,
+    ) -> MoodCheckin:
+        """更新已有签到记录（同一本地日重复签到走更新，不新增行）。"""
+        record.mood_emoji = mood_emoji
+        record.mood_label = mood_label
+        record.ai_interpretation = ai_interpretation
         await db.flush()
         return record
 

@@ -18,7 +18,14 @@ const resource = {
     "title": "Quản lý Ký ức",
     "empty": "Chưa có ký ức nào",
     "deleteTitle": "Xóa Ký ức",
-    "deleteConfirm": "Xóa ký ức này? Hành động này không thể hoàn tác."
+    "deleteConfirm": "Xóa ký ức này? Hành động này không thể hoàn tác.",
+    "category": {
+      "values": "Giá trị",
+      "preference": "Sở thích",
+      "relationship": "Mối quan hệ",
+      "goal": "Mục tiêu",
+      "factual": "Sự thật"
+    }
   },
   "consent": {
     "title": "Thông báo về Dữ liệu Hội thoại AI",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Thông tin chi tiết Hàng tuần",
     "yesterday": "Bản ghi Hôm qua",
     "personality": "Tính cách",
-    "personalityDesc": "được khám phá trong 7 ngày"
+    "personalityDesc": "được khám phá trong 7 ngày",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Khám phá",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Bản đồ Sao",
     "natalDesc": "Hiểu về chiêm tinh của bạn",
     "personCard": "Thẻ Tính cách",
-    "personCardDesc": "Tạo thẻ có thể chia sẻ"
+    "personCardDesc": "Tạo thẻ có thể chia sẻ",
+    "comingSoon": "Sắp ra mắt"
   },
   "personality": {
     "observations": "Quan sát của AI",
     "uniqueTraits": "Đặc điểm Độc đáo",
     "refresh": "Làm mới Hồ sơ",
-    "quotaLeft": "Còn {{count}} lần"
+    "quotaLeft": "Còn {{count}} lần",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Nâng cấp lên ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Hội thoại AI không giới hạn",
     "featurePriorityLLM": "Phản hồi mô hình ưu tiên",
     "featurePersonalityRefresh": "Thêm lượt làm mới tính cách",
-    "featureTimeline": "Dòng thời gian phát triển 365 ngày"
+    "featureTimeline": "Dòng thời gian phát triển 365 ngày",
+    "trialBadge": "Đang dùng thử"
   },
   "reflect": {
     "moodReminder": "Hôm nay chưa check-in · Chạm để chọn biểu tượng cảm xúc",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Do AI tạo",
     "saveDraft": "Lưu Bản Suy ngẫm",
     "placeholder": "Nhập tin nhắn...",
-    "aiError": "[Lỗi: {{error}}]"
+    "aiError": "[Lỗi: {{error}}]",
+    "quotaTitle": "Đã đạt giới hạn hằng ngày",
+    "quotaMessage": "Bạn đã dùng hết tin nhắn miễn phí hôm nay. Nâng cấp lên Pro để trò chuyện không giới hạn, hoặc quay lại vào ngày mai.",
+    "quotaUpgrade": "Nâng cấp"
   },
   "profile": {
     "sectionAI": "AI & Ký ức",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Xóa Tài khoản",
     "deleteConfirmMessage": "Thao tác này sẽ xóa vĩnh viễn toàn bộ dữ liệu của bạn (hội thoại, ký ức, check-in, bản ghi phát triển, đăng ký) và không thể hoàn tác. Tiếp tục?",
     "deleteDone": "Đã xóa tài khoản",
+    "defaultName": "Khách",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

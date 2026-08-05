@@ -1,14 +1,24 @@
 """
-定时任务路由 (P0-F01/P0-F07)。
+定时任务路由 (P0-F01/P0-F03/P0-F07/P1-F01)。
 
 通过 Vercel Cron 每小时 GET 触发，QStash 分块分发。
 
 端点：
-    GET /api/v1/cron/daily-message   — 主动消息生成（按时区分组）
-    GET /api/v1/cron/daily-insight   — 每日洞察生成
-    GET /api/v1/cron/weekly-insight  — 周洞察生成
-    GET /api/v1/cron/health          — 保热端点
+    GET  /api/v1/cron/daily-message   — 主动消息生成（按时区分组）
+    POST /api/v1/cron/process-user    — QStash 回调：单用户主动消息处理（验签）
+    GET  /api/v1/cron/mood-reminder   — 签到轻提醒（偏好时间后 2 小时未签到则推送）
+    GET  /api/v1/cron/care-push       — 连续负面 3 天关心推送（P1-F01，特殊事件 ≤4 次/月）
+    GET  /api/v1/cron/trial-reminder  — 试用到期 24h 提醒（P1-F02）
+    GET  /api/v1/cron/daily-insight   — 每日洞察生成
+    GET  /api/v1/cron/weekly-insight  — 周洞察生成
+    GET  /api/v1/cron/weekly-drift    — 渐变漂移周检测（记忆层）
+    GET  /api/v1/cron/health          — 保热端点
 """
+import base64
+import hashlib
+import json
+
+import jwt
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +26,7 @@ from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
 from backend.core.response import success
 from backend.database import get_db
-from backend.repositories import user_repository
 from backend.services.cron_service import CronService, cron_service
-from backend.services.growth_service import growth_service
 
 router = APIRouter()
 
@@ -28,11 +36,36 @@ def get_cron_service() -> CronService:
 
 
 def verify_cron_secret(request: Request):
-    """验证 Cron Job 调用密钥。"""
+    """验证 Cron Job 调用密钥（fail-closed：未配置 CRON_SECRET 时拒绝所有调用）。"""
     secret = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if secret != settings.cron_secret and settings.cron_secret:
+    if not settings.cron_secret or secret != settings.cron_secret:
         raise AppException(ErrorCode.UNAUTHORIZED, "Unauthorized")
     return True
+
+
+async def verify_qstash_signature(request: Request) -> bytes:
+    """验证 Upstash QStash 回调签名（fail-closed），返回原始请求体。
+
+    Upstash 签名机制：Upstash-Signature 头为 HS256 JWT（用 Signing Key 签名），
+    payload.body 为请求体 SHA-256 的 base64url（无填充）编码；exp 由 jwt.decode 自动校验。
+    密钥轮换：current 验不过再试 next。
+    """
+    signature = request.headers.get("Upstash-Signature", "")
+    keys = [
+        k for k in (settings.qstash_current_signing_key, settings.qstash_next_signing_key) if k
+    ]
+    if not signature or not keys:
+        raise AppException(ErrorCode.UNAUTHORIZED, "Unauthorized")
+    body = await request.body()
+    digest = base64.urlsafe_b64encode(hashlib.sha256(body).digest()).rstrip(b"=").decode()
+    for key in keys:
+        try:
+            payload = jwt.decode(signature, key, algorithms=["HS256"])
+        except jwt.PyJWTError:
+            continue
+        if payload.get("body") == digest:
+            return body
+    raise AppException(ErrorCode.UNAUTHORIZED, "Unauthorized")
 
 
 @router.get("/cron/daily-message")
@@ -54,25 +87,87 @@ async def daily_message(
     return success(result)
 
 
+@router.post("/cron/process-user")
+async def process_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """QStash 回调：处理单个用户的主动消息任务。
+
+    验签（Upstash-Signature JWT）通过后按 body.user_id 处理；
+    处理异常返回 500，由 QStash 重试机制兜底。
+    """
+    body = await verify_qstash_signature(request)
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise AppException(ErrorCode.BAD_REQUEST, "Invalid JSON body")
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise AppException(ErrorCode.BAD_REQUEST, "user_id required")
+    status = await service.process_user_task(db, user_id)
+    return success({"user_id": user_id, "status": status})
+
+
+@router.get("/cron/mood-reminder")
+async def mood_reminder(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """签到轻提醒（PRD P0-F03 §7，Vercel Cron 每小时触发）。
+
+    对用户本地「push_time + 2 小时」仍未签到的用户推送轻提醒；
+    纯推送（非 LLM 内容），不写对话流、不计配额。
+    """
+    verify_cron_secret(request)
+    result = await service.dispatch_mood_reminders(db)
+    return success(result)
+
+
+@router.get("/cron/trial-reminder")
+async def trial_reminder(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """试用到期提醒（PRD P1-F02 §4，Vercel Cron 每日触发）。
+
+    对 24 小时内试用到期的用户推送提醒（按用户语言），每条订阅只提醒一次。
+    """
+    verify_cron_secret(request)
+    result = await service.dispatch_trial_reminders(db)
+    return success(result)
+
+
+@router.get("/cron/care-push")
+async def care_push(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """连续负面 3 天关心推送（PRD P1-F01 §6，Vercel Cron 每小时触发）。
+
+    对最近连续 3 天负面签到的用户在最佳发送小时推送关心文案；
+    属特殊事件，每用户每月 ≤4 次，超限静默跳过。
+    纯推送（非 LLM 内容），不写对话流、不计配额。
+    """
+    verify_cron_secret(request)
+    result = await service.dispatch_care_pushes(db)
+    return success(result)
+
+
 @router.get("/cron/daily-insight")
 async def daily_insight(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
 ):
-    """每日洞察生成（为所有活跃用户生成当日洞察）。"""
+    """每日洞察生成（P0-F07 §1）：仅为当日活跃用户（当日有签到或对话）生成，prompt 喂入当日对话。"""
     verify_cron_secret(request)
-    users = await user_repository.list_all(db)
-    processed = 0
-    for user in users:
-        # 合规：未同意 AI 数据共享的用户跳过（5.1.2(i)）
-        if not user.ai_consent:
-            continue
-        try:
-            await growth_service.generate_daily_insight(db, user.id, user.language or "en")
-            processed += 1
-        except Exception:  # noqa: BLE001
-            continue
-    return success({"users_processed": processed, "status": "completed"})
+    result = await service.generate_daily_insights(db)
+    return success(result)
 
 
 @router.get("/cron/weekly-insight")
@@ -84,6 +179,22 @@ async def weekly_insight(
     """周洞察生成（每周日凌晨触发）。"""
     verify_cron_secret(request)
     result = await service.generate_weekly_insights(db)
+    return success(result)
+
+
+@router.get("/cron/weekly-drift")
+async def weekly_drift(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """渐变漂移周检测（spec memory-layer §3，每周日凌晨触发）。
+
+    对每用户 current 且 conviction≥0.4 的记忆做近 7 天 vs 前 7 天消息
+    embedding 趋势分析，相似度下降 > 0.15 时写 drift_score 并生成 drift_alert。
+    """
+    verify_cron_secret(request)
+    result = await service.run_weekly_drift_detection(db)
     return success(result)
 
 

@@ -114,6 +114,25 @@ const memoryContext = memories.map(m => {
 }).join('\n');
 ```
 
+## Content Safety: Three-Layer Defense（三层防御，提审硬依赖）
+
+> 目标：防 AI 输出违规内容（仇恨/暴力/恐吓/政治宗教争议/NSFW）+ 识别自伤信号并关怀转介。
+> 合规依据：App Store 1.2.1(a) 未成年人保护 + 12+ 年龄分级（spec: app-store-compliance.md §1.2）。
+> 体验铁律：**用户发送路径零检测、零阻塞**（消息立即上屏+立即进 LLM，同微信体验）；检测全部在输出端与流式生成并行。
+> 输入端不做预检：人→AI 场景消息只有用户自己和 AI 可见，输入本身无展示风险；真正风险是 AI 被 jailbreak 后输出违规内容，防御重心在输出端。
+
+| 层 | 防御对象 | 机制 | 延迟/成本 |
+|----|---------|------|----------|
+| **L1 Prompt 防御** | jailbreak / 恶意引导 / 极端建议 | 所有面向用户的 LLM system prompt 必须含安全边界段落（后述）。对自伤/求助信号：主模型直接以关怀话术回应 + 转介专业求助资源，**不做单独检测调用** | 0 延迟，0 成本 |
+| **L2 Provider 原生审核** | 极端违法内容（CSAM/恐怖主义等） | DashScope / Gemini 自带内容审核，命中时 provider 返回空内容或错误 → 走现有 LLM 降级模板兜底，**不额外开发** | 0（provider 侧执行） |
+| **L3 输出后置过滤** | L1/L2 漏网的违规输出 | **输出检测唯一事实源：safety 检测模块**（同 quota_service 模式，业务代码不得复制判断逻辑）。流式：按句缓冲检测，与生成流水线并行，用户无感知；非流式（主动消息/签到解读）：全量检测后入库。命中 → 截断并替换安全话术；检测自身失败 → **fail-open 放行** + 记日志（L1/L2 已兜住主要风险），禁止因检测故障阻断对话 | 句级并行 ≈0 感知 |
+
+**禁止事项：**
+- ❌ iOS 端敏感词库（15 语言不可维护；词库打包进 App 可反编译泄露；解决不了 AI 输出端风险）
+- ❌ 用户输入发送前串行检测（制造 loading，违背体验铁律）
+- ❌ 对自伤信号用拒答模板（伦理红线：必须关怀 + 转介）
+- ❌ 输出检测 fail-closed（检测服务故障不得阻断主聊天流程）
+
 ## Cost Optimization Principles
 
 1. **Rule Engine first**: Always check if message can be template-generated before calling LLM

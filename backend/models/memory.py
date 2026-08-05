@@ -5,7 +5,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import HALFVEC
 
@@ -25,8 +25,8 @@ class Memory(Base):
     status: Mapped[str] = mapped_column(String(20), default="current")
     # 置信度 0.0 - 1.0
     conviction_score: Mapped[float] = mapped_column(Float, default=0.5)
-    # 来源: self_reflection | ai_inference | quoted_other
-    source: Mapped[str] = mapped_column(String(20), default="self_reflection")
+    # 来源: self | others | hypothetical（旧数据 self_reflection/ai_inference/quoted_other 保持可读）
+    source: Mapped[str] = mapped_column(String(20), default="self")
     # 向量嵌入（512 维 halfvec，DashScope text-embedding-v4；halfvec 存储/索引空间减半，Supabase 免费版性价比最优）
     embedding: Mapped[list[float] | None] = mapped_column(HALFVEC(512), nullable=True)
     # 渐变漂移分数
@@ -40,6 +40,8 @@ class Memory(Base):
     )
     reverted_from: Mapped[str | None] = mapped_column(String(36), nullable=True)
     transition_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 软删除标记（用户删除不物理删行，注销级联物理删除不受影响）
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

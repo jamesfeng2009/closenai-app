@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getPersonalityProfile } from '../services/api';
@@ -36,6 +36,14 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
     }
   };
 
+  // 未实现功能（本命星盘 / 性格名片）：提示敬请期待，避免导航到未注册路由红屏
+  const onComingSoon = () => {
+    Alert.alert(t('explore.comingSoon'));
+  };
+
+  // MBTI 名称按类型查 i18n 表（不依赖后端中文 label，多语言安全）
+  const mbtiLabel = profile?.mbti_type ? t(`mbti.${profile.mbti_type}`) : null;
+
   if (loading) {
     return (
       <View style={styles.loading}>
@@ -54,8 +62,10 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
         onPress={() => navigation.navigate('Personality')}
       >
         <Text style={styles.personalityIcon}>🧠</Text>
-        <Text style={styles.mbtiType}>{profile?.mbti_type || 'INTP'}</Text>
-        <Text style={styles.mbtiLabel}>{profile?.mbti_label || t('explore.logician')} · {t('explore.personalityLabel')}</Text>
+        <Text style={styles.mbtiType}>{profile?.mbti_type || '—'}</Text>
+        <Text style={styles.mbtiLabel}>
+          {mbtiLabel ? `${mbtiLabel} · ${t('explore.personalityLabel')}` : t('explore.personalityLabel')}
+        </Text>
         {(profile?.observations || []).map((obs, i) => (
           <Text key={i} style={styles.observation}>• {obs}</Text>
         ))}
@@ -83,7 +93,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
                 key={stageKey}
                 style={[
                   styles.stageText,
-                  profile.cold_start_stage === t(`explore.${stageKey}`) && styles.stageActive,
+                  profile.cold_start_stage === i && styles.stageActive,
                 ]}
               >
                 {i + 1} {t(`explore.${stageKey}`)}
@@ -99,7 +109,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
         <View style={styles.exploreGrid}>
           <TouchableOpacity
             style={styles.exploreTile}
-            onPress={() => navigation.navigate('Natal')}
+            onPress={onComingSoon}
           >
             <Text style={styles.tileIcon}>⭐</Text>
             <Text style={styles.tileName}>{t('explore.natal')}</Text>
@@ -107,7 +117,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.exploreTile}
-            onPress={() => navigation.navigate('PersonalityCard')}
+            onPress={onComingSoon}
           >
             <Text style={styles.tileIcon}>🃏</Text>
             <Text style={styles.tileName}>{t('explore.personCard')}</Text>

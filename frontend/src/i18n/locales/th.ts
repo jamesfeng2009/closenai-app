@@ -18,7 +18,14 @@ const resource = {
     "title": "จัดการความทรงจำ",
     "empty": "ยังไม่มีความทรงจำ",
     "deleteTitle": "ลบความทรงจำ",
-    "deleteConfirm": "ลบความทรงจำนี้หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้"
+    "deleteConfirm": "ลบความทรงจำนี้หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้",
+    "category": {
+      "values": "คุณค่า",
+      "preference": "ความชอบ",
+      "relationship": "ความสัมพันธ์",
+      "goal": "เป้าหมาย",
+      "factual": "ข้อเท็จจริง"
+    }
   },
   "consent": {
     "title": "ประกาศเกี่ยวกับข้อมูลการสนทนา AI",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "ข้อมูลเชิงลึกรายสัปดาห์",
     "yesterday": "บันทึกเมื่อวาน",
     "personality": "บุคลิกภาพ",
-    "personalityDesc": "ค้นพบใน 7 วัน"
+    "personalityDesc": "ค้นพบใน 7 วัน",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "สำรวจ",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "แผนผังดาวเกิด",
     "natalDesc": "ทำความเข้าใจดวงของคุณ",
     "personCard": "การ์ดบุคลิกภาพ",
-    "personCardDesc": "สร้างการ์ดสำหรับแชร์"
+    "personCardDesc": "สร้างการ์ดสำหรับแชร์",
+    "comingSoon": "เร็วๆ นี้"
   },
   "personality": {
     "observations": "การสังเกตของ AI",
     "uniqueTraits": "ลักษณะเฉพาะตัว",
     "refresh": "รีเฟรชโปรไฟล์",
-    "quotaLeft": "เหลือ {{count}} ครั้ง"
+    "quotaLeft": "เหลือ {{count}} ครั้ง",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "อัปเกรดเป็น ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "การสนทนา AI ไม่จำกัด",
     "featurePriorityLLM": "การตอบกลับจากโมเดลแบบมีลำดับความสำคัญ",
     "featurePersonalityRefresh": "รีเฟรชบุคลิกภาพได้มากขึ้น",
-    "featureTimeline": "ไทม์ไลน์การเติบโต 365 วัน"
+    "featureTimeline": "ไทม์ไลน์การเติบโต 365 วัน",
+    "trialBadge": "ทดลองใช้ฟรี"
   },
   "reflect": {
     "moodReminder": "ยังไม่ได้เช็คอินวันนี้ · แตะเพื่อเลือกอิโมจิ",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "สร้างโดย AI",
     "saveDraft": "บันทึกการสะท้อน",
     "placeholder": "พิมพ์ข้อความ...",
-    "aiError": "[ข้อผิดพลาด: {{error}}]"
+    "aiError": "[ข้อผิดพลาด: {{error}}]",
+    "quotaTitle": "ถึงขีดจำกัดประจำวันแล้ว",
+    "quotaMessage": "คุณใช้ข้อความฟรีของวันนี้หมดแล้ว อัปเกรดเป็น Pro เพื่อสนทนาไม่จำกัด หรือกลับมาใหม่พรุ่งนี้",
+    "quotaUpgrade": "อัปเกรด"
   },
   "profile": {
     "sectionAI": "AI และความทรงจำ",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "ลบบัญชี",
     "deleteConfirmMessage": "การดำเนินการนี้จะลบข้อมูลทั้งหมดของคุณอย่างถาวร (การสนทนา ความทรงจำ การเช็คอิน บันทึกการเติบโต การสมัครสมาชิก) และไม่สามารถย้อนกลับได้ ดำเนินการต่อหรือไม่?",
     "deleteDone": "ลบบัญชีแล้ว",
+    "defaultName": "ผู้ใช้",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

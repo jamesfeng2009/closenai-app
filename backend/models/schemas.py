@@ -4,10 +4,14 @@ Pydantic 数据模型定义。
 定义 API 请求/响应的数据结构。
 所有模型使用 Pydantic v2 语法。
 """
-from datetime import datetime
-from typing import Optional, List, Literal
+import re
+from datetime import date, datetime
+from typing import Optional, List, Literal, Dict
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from backend.config import settings
 
 
 # ═══ Chat (P0-F01) ═══
@@ -53,6 +57,8 @@ class MemoryResponse(BaseModel):
     created_at: datetime
     superseded_at: Optional[datetime] = None
     transition_reason: Optional[str] = None
+    similarity: Optional[float] = None  # 语义搜索命中时的相似度
+    regressed: bool = False  # 本次检索触发了回归识别（[回归信念] 标注）
 
 
 class MemorySearchRequest(BaseModel):
@@ -68,6 +74,7 @@ class MemoryVersionRequest(BaseModel):
     transition_type: Literal["gradual", "sudden", "revert"] = Field(..., description="转变类型")
     reason: Optional[str] = Field(None, description="转变原因")
     emotion_context: Optional[dict] = Field(None, description="情绪上下文")
+    new_content: Optional[str] = Field(None, description="演变后的新信念内容（gradual/sudden）；缺省沿用原内容")
 
 
 # ═══ Mood Check-in (P0-F03) ═══
@@ -86,6 +93,8 @@ class MoodCheckinResponse(BaseModel):
     ai_interpretation: str
     streak_updated: int
     created_at: datetime
+    # 深度解读（连续 3 天同情绪 / 连续 2 天负面时由 LLM 生成；未触发或生成失败为 None）
+    deep_interpretation: Optional[str] = None
 
 
 class MoodHistoryResponse(BaseModel):
@@ -118,6 +127,14 @@ class GrowthMetrics(BaseModel):
     goals_change: str
 
 
+class MilestoneItem(BaseModel):
+    """里程碑徽章（PRD P0-F05：连续 7/30/100/365 天）。"""
+    milestone_type: str        # streak_7 | streak_30 | streak_100 | streak_365
+    days: int                  # 达成所需连续天数
+    achieved: bool
+    achieved_at: Optional[datetime] = None
+
+
 class GrowthDashboardResponse(BaseModel):
     """成长仪表盘响应。"""
     date: str
@@ -133,12 +150,14 @@ class GrowthDashboardResponse(BaseModel):
     weekly_insight: Optional[str]
     yesterday_record: Optional[str]
     mbti_type: Optional[str] = None   # 性格画像入口展示
+    milestones: List[MilestoneItem] = []   # 里程碑徽章（含未达成占位）
+    streak_freeze_count: int = 0           # 剩余 Streak 冻结券
 
 
 class WeeklyInsightResponse(BaseModel):
     """本周洞察响应。"""
     level: str                 # L2 Pattern
-    content: str
+    content: Optional[str]     # 无已生成周报时为 None（GET 只读，不触发生成）
     period: str                # 本周日期范围
 
 
@@ -152,6 +171,7 @@ class ReflectionGenerateRequest(BaseModel):
 class ReflectionCreate(BaseModel):
     """保存 Reflection 请求。"""
     content: str = Field(..., description="Reflection 内容")
+    related_memory_ids: Optional[List[str]] = Field(None, description="关联的记忆 ID 列表（来自草稿）")
 
 
 class ReflectionResponse(BaseModel):
@@ -180,7 +200,9 @@ class PersonalityProfileResponse(BaseModel):
     version: int
     refresh_quota_remaining: int
     cold_start_progress: Optional[float]  # 0.0-1.0, 冷启动进度
-    cold_start_stage: Optional[str]      # 破冰 | 观察 | 探索 | 揭示 | 运用
+    cold_start_stage: Optional[int]       # 阶段下标 0-4（破冰|观察|探索|揭示|运用），前端按下标高亮，避免多语言文案比较
+    zodiac: Optional[str] = None          # 太阳星座 key（aries 等，由生日推导；前端按 i18n 翻译）
+    enneagram_type: Optional[str] = None  # 九型人格编号（1-9，用户主动输入）
     created_at: datetime
 
 
@@ -189,6 +211,55 @@ class PersonalityRefreshResponse(BaseModel):
     success: bool
     profile: Optional[PersonalityProfileResponse]
     message: str
+
+
+# ── 对话式评估（PRD P0-F06：8 题问答）──
+
+class AssessmentQuestion(BaseModel):
+    """评估题目（按用户语言下发）。"""
+    index: int                 # 0 起
+    total: int                 # 总题数
+    dimension: str             # EI | SN | TF | JP
+    text: str
+    options: Dict[str, str]    # {"a": ..., "b": ..., "neutral": ...}
+
+
+class AssessmentStateResponse(BaseModel):
+    """评估状态响应。"""
+    status: str                # not_started | in_progress | completed
+    current_index: int         # 下一题下标（= 已答题数）
+    total: int
+    question: Optional[AssessmentQuestion] = None
+
+
+class AssessmentAnswerRequest(BaseModel):
+    """评估答题请求：快捷选项（option）或自由输入（answer）二选一。"""
+    option: Optional[Literal["a", "b", "neutral"]] = None
+    answer: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _require_option_or_answer(self):
+        if not self.option and not (self.answer and self.answer.strip()):
+            raise ValueError("option 与 answer 至少提供一个")
+        return self
+
+
+class AssessmentAnswerResponse(BaseModel):
+    """评估答题响应。"""
+    completed: bool
+    next_question: Optional[AssessmentQuestion] = None
+    profile: Optional[PersonalityProfileResponse] = None  # 完成时返回生成的画像
+    message: str = ""
+
+
+class ComboReportResponse(BaseModel):
+    """Pro 组合报告响应（16 型人格 × 星座 × 九型交叉解读）。"""
+    content: str
+    cached: bool               # 本月已生成过则命中缓存
+    generated_at: datetime
+    personality_type: Optional[str] = None
+    zodiac: Optional[str] = None
+    enneagram_type: Optional[str] = None
 
 
 # ═══ User (P0-F04) ═══
@@ -206,6 +277,7 @@ class UserProfileResponse(BaseModel):
     daily_quota_used: int
     daily_quota_total: int
     ai_consent: bool = False  # AI 数据共享同意状态（合规 5.1.2(i)）
+    streak_freeze_count: int = 0  # 剩余 Streak 冻结券（PRD P0-F05）
 
 
 class AIConsentUpdate(BaseModel):
@@ -223,6 +295,67 @@ class UserSettingsUpdate(BaseModel):
     push_frequency: Optional[Literal["daily", "important", "off"]] = None  # 推送频率
     push_enabled: Optional[bool] = None  # 推送总开关
     mbti_type: Optional[str] = None  # 引导流程中用户已知的 MBTI 类型（P1-F05）
+    birthday: Optional[str] = None   # 生日 YYYY-MM-DD（P0-F06：推导太阳星座）
+    enneagram_type: Optional[str] = None  # 九型人格编号 1-9（P0-F06：用户主动输入）
+
+    @field_validator("birthday")
+    @classmethod
+    def _validate_birthday(cls, v: Optional[str]) -> Optional[str]:
+        """校验 YYYY-MM-DD 格式且为过去日期。"""
+        if v is None:
+            return v
+        try:
+            d = date.fromisoformat(v)
+        except ValueError:
+            raise ValueError(f"birthday 必须为 YYYY-MM-DD 格式: {v}")
+        if d >= date.today():
+            raise ValueError("birthday 必须是过去的日期")
+        return v
+
+    @field_validator("enneagram_type")
+    @classmethod
+    def _validate_enneagram(cls, v: Optional[str]) -> Optional[str]:
+        """校验九型人格编号为 1-9。"""
+        if v is None:
+            return v
+        if v not in {str(n) for n in range(1, 10)}:
+            raise ValueError(f"enneagram_type 必须为 1-9: {v}")
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: Optional[str]) -> Optional[str]:
+        """校验 IANA 时区名（对应错误码 INVALID_TIMEZONE 40004）。"""
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except Exception:
+            raise ValueError(f"无效的 IANA 时区名: {v}")
+        return v
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: Optional[str]) -> Optional[str]:
+        """校验语言码在 15 种支持语言集合内（对应错误码 INVALID_LANGUAGE 40003）。"""
+        if v is None:
+            return v
+        if v not in settings.supported_languages:
+            raise ValueError(f"不支持的语言码: {v}")
+        return v
+
+    @field_validator("push_time")
+    @classmethod
+    def _validate_push_time(cls, v: Optional[str]) -> Optional[str]:
+        """校验 HH:MM 格式且时分合法。"""
+        if v is None:
+            return v
+        if not re.fullmatch(r"\d{2}:\d{2}", v):
+            raise ValueError(f"push_time 必须为 HH:MM 格式: {v}")
+        hour, minute = int(v[:2]), int(v[3:])
+        if hour > 23 or minute > 59:
+            raise ValueError(f"push_time 时分越界: {v}")
+        return v
 
 
 class PushTokenRequest(BaseModel):
@@ -255,6 +388,7 @@ class ReceiptVerifyResponse(BaseModel):
     valid: bool
     tier: Optional[str] = None       # free | pro | pro_plus
     expires_at: Optional[datetime] = None
+    is_trial: bool = False           # 是否免费试用中（P1-F02 §4）
     message: str
 
 
@@ -265,3 +399,4 @@ class SubscriptionStatusResponse(BaseModel):
     expires_at: Optional[datetime]
     product_id: Optional[str]
     auto_renew: bool
+    is_trial: bool = False           # 是否免费试用中（到期前 24h 推送提醒）

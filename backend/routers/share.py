@@ -25,12 +25,13 @@ def get_share_service() -> ShareService:
 @router.get("/share/personality-card")
 async def personality_card(
     language: str = Query("en", description="语言"),
+    variant: str = Query("classic", description="名片变体：classic / minimal / combo(Pro)"),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
     service: ShareService = Depends(get_share_service),
 ):
     """导出性格名片（JSON 结构 + 分享文案），用于社交分享卡片。"""
-    return success(await service.export_personality_card(db, user_id, language))
+    return success(await service.export_personality_card(db, user_id, language, variant))
 
 
 @router.get("/share/report/{period}")

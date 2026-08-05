@@ -18,7 +18,14 @@ const resource = {
     "title": "기억 관리",
     "empty": "아직 기억이 없습니다",
     "deleteTitle": "기억 삭제",
-    "deleteConfirm": "이 기억을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다."
+    "deleteConfirm": "이 기억을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
+    "category": {
+      "values": "가치관",
+      "preference": "선호",
+      "relationship": "관계",
+      "goal": "목표",
+      "factual": "사실"
+    }
   },
   "consent": {
     "title": "AI 대화 데이터 안내",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "주간 인사이트",
     "yesterday": "어제 기록",
     "personality": "성격 분석",
-    "personalityDesc": "7일 동안 발견"
+    "personalityDesc": "7일 동안 발견",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "탐색",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "나탈 차트",
     "natalDesc": "당신의 별자리 이해하기",
     "personCard": "성격 명함",
-    "personCardDesc": "공유용 카드 생성"
+    "personCardDesc": "공유용 카드 생성",
+    "comingSoon": "곧 제공 예정"
   },
   "personality": {
     "observations": "AI 관찰",
     "uniqueTraits": "고유한 특성",
     "refresh": "프로필 새로고침",
-    "quotaLeft": "{{count}}회 남음"
+    "quotaLeft": "{{count}}회 남음",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "ClosenAI Pro로 업그레이드",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "무제한 AI 대화",
     "featurePriorityLLM": "우선 모델 응답",
     "featurePersonalityRefresh": "더 많은 성격 분석 새로고침",
-    "featureTimeline": "365일 성장 타임라인"
+    "featureTimeline": "365일 성장 타임라인",
+    "trialBadge": "무료 체험 중"
   },
   "reflect": {
     "moodReminder": "오늘 아직 체크인하지 않았어요 · 이모지를 선택하세요",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "AI 생성",
     "saveDraft": "반성 저장",
     "placeholder": "메시지 입력...",
-    "aiError": "[오류: {{error}}]"
+    "aiError": "[오류: {{error}}]",
+    "quotaTitle": "오늘 사용 횟수 초과",
+    "quotaMessage": "오늘의 무료 대화 횟수를 모두 사용했습니다. Pro로 업그레이드하면 무제한 대화가 가능합니다. 내일 다시 이용하셔도 됩니다.",
+    "quotaUpgrade": "업그레이드"
   },
   "profile": {
     "sectionAI": "AI와 기억",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "계정 삭제",
     "deleteConfirmMessage": "모든 데이터(대화, 기억, 체크인, 성장 기록, 구독)가 영구적으로 삭제되며 되돌릴 수 없습니다. 계속하시겠습니까?",
     "deleteDone": "계정이 삭제되었습니다",
+    "defaultName": "게스트",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

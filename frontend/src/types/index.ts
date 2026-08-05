@@ -53,6 +53,8 @@ export interface MoodCheckinResponse {
   ai_interpretation: string;
   streak_updated: number;
   created_at: string;
+  // 深度解读（连续 3 天同情绪 / 连续 2 天负面时由后端生成；未触发为 null/缺省）
+  deep_interpretation?: string | null;
 }
 
 export interface MoodTrendData {
@@ -78,6 +80,13 @@ export interface GrowthMetrics {
   goals_change: string;
 }
 
+export interface MilestoneItem {
+  milestone_type: string; // streak_7 | streak_30 | streak_100 | streak_365
+  days: number;
+  achieved: boolean;
+  achieved_at: string | null;
+}
+
 export interface GrowthDashboard {
   date: string;
   greeting: string;
@@ -92,6 +101,8 @@ export interface GrowthDashboard {
   weekly_insight: string | null;
   yesterday_record: string | null;
   mbti_type: string | null;
+  milestones: MilestoneItem[];
+  streak_freeze_count: number;
 }
 
 export interface WeeklyInsight {
@@ -134,7 +145,9 @@ export interface PersonalityProfile {
   version: number;
   refresh_quota_remaining: number;
   cold_start_progress: number | null;
-  cold_start_stage: string | null;
+  cold_start_stage: number | null; // 阶段下标 0-4，前端按下标高亮
+  zodiac: string | null;           // 太阳星座 key（aries 等，前端按 i18n 翻译）
+  enneagram_type: string | null;   // 九型人格编号（1-9）
   created_at: string;
 }
 
@@ -142,6 +155,39 @@ export interface PersonalityRefreshResult {
   success: boolean;
   profile: PersonalityProfile | null;
   message: string;
+}
+
+// ── 对话式评估（PRD P0-F06：8 题问答）──
+
+export interface AssessmentQuestion {
+  index: number;
+  total: number;
+  dimension: string; // EI | SN | TF | JP
+  text: string;
+  options: Record<string, string>; // { a, b, neutral }
+}
+
+export interface AssessmentState {
+  status: 'not_started' | 'in_progress' | 'completed';
+  current_index: number;
+  total: number;
+  question: AssessmentQuestion | null;
+}
+
+export interface AssessmentAnswerResult {
+  completed: boolean;
+  next_question: AssessmentQuestion | null;
+  profile: PersonalityProfile | null;
+  message: string;
+}
+
+export interface ComboReport {
+  content: string;
+  cached: boolean;
+  generated_at: string;
+  personality_type: string | null;
+  zodiac: string | null;
+  enneagram_type: string | null;
 }
 
 // ═══ User ═══
@@ -190,12 +236,14 @@ export interface SubscriptionStatus {
   expires_at: string | null;
   product_id: string | null;
   auto_renew: boolean;
+  is_trial: boolean;
 }
 
 export interface ReceiptVerifyResult {
   valid: boolean;
   tier: UserTier | null;
   expires_at: string | null;
+  is_trial: boolean;
   message: string;
 }
 

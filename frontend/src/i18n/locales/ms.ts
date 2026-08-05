@@ -18,7 +18,14 @@ const resource = {
     "title": "Pengurusan Memori",
     "empty": "Belum ada memori",
     "deleteTitle": "Padam Memori",
-    "deleteConfirm": "Padam memori ini? Tindakan ini tidak boleh dibatalkan."
+    "deleteConfirm": "Padam memori ini? Tindakan ini tidak boleh dibatalkan.",
+    "category": {
+      "values": "Nilai",
+      "preference": "Keutamaan",
+      "relationship": "Hubungan",
+      "goal": "Matlamat",
+      "factual": "Fakta"
+    }
   },
   "consent": {
     "title": "Notis Data Perbualan AI",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Wawasan Mingguan",
     "yesterday": "Rekod Semalam",
     "personality": "Personaliti",
-    "personalityDesc": "ditemui dalam 7 hari"
+    "personalityDesc": "ditemui dalam 7 hari",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Teroka",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Carta Natal",
     "natalDesc": "Fahami astrologi anda",
     "personCard": "Kad Personaliti",
-    "personCardDesc": "Hasilkan kad untuk dikongsi"
+    "personCardDesc": "Hasilkan kad untuk dikongsi",
+    "comingSoon": "Akan datang"
   },
   "personality": {
     "observations": "Pemerhatian AI",
     "uniqueTraits": "Sifat Unik",
     "refresh": "Segar Semula Profil",
-    "quotaLeft": "Baki {{count}}"
+    "quotaLeft": "Baki {{count}}",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Naik Taraf ke ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Perbualan AI tanpa had",
     "featurePriorityLLM": "Respons model keutamaan",
     "featurePersonalityRefresh": "Lebih banyak penyegaran personaliti",
-    "featureTimeline": "Garis masa pertumbuhan 365 hari"
+    "featureTimeline": "Garis masa pertumbuhan 365 hari",
+    "trialBadge": "Percubaan percuma"
   },
   "reflect": {
     "moodReminder": "Belum check-in hari ini · Ketik untuk pilih emoji",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Dijana oleh AI",
     "saveDraft": "Simpan Refleksi",
     "placeholder": "Taip mesej...",
-    "aiError": "[Ralat: {{error}}]"
+    "aiError": "[Ralat: {{error}}]",
+    "quotaTitle": "Had harian dicapai",
+    "quotaMessage": "Anda telah menggunakan semua mesej percuma hari ini. Naik taraf ke Pro untuk perbualan tanpa had, atau kembali esok.",
+    "quotaUpgrade": "Naik taraf"
   },
   "profile": {
     "sectionAI": "AI & Memori",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Padam Akaun",
     "deleteConfirmMessage": "Ini akan memadam semua data anda secara kekal (perbualan, memori, check-in, rekod pertumbuhan, langganan) dan tidak boleh dibatalkan. Teruskan?",
     "deleteDone": "Akaun dipadam",
+    "defaultName": "Tetamu",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

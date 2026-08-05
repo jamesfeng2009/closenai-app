@@ -63,7 +63,9 @@ def get_model(lite: bool = False) -> str:
     if provider == "dashscope":
         return settings.dashscope_lite_model if lite else settings.dashscope_model
     if provider == "doubao":
-        return settings.doubao_lite_model or settings.doubao_model if lite else settings.doubao_model
+        # 注意括号：`a or b if lite else b` 会解析为 `a or (b if lite else b)`，
+        # 导致非 lite 场景也返回 lite 模型
+        return (settings.doubao_lite_model or settings.doubao_model) if lite else settings.doubao_model
     if provider == "gemini":
         return settings.gemini_lite_model if lite else settings.gemini_model
     return settings.openai_lite_model if lite else settings.openai_model

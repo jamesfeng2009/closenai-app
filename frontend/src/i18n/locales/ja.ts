@@ -18,7 +18,14 @@ const resource = {
     "title": "記憶管理",
     "empty": "まだ記憶がありません",
     "deleteTitle": "記憶を削除",
-    "deleteConfirm": "この記憶を削除しますか？この操作は元に戻せません。"
+    "deleteConfirm": "この記憶を削除しますか？この操作は元に戻せません。",
+    "category": {
+      "values": "価値観",
+      "preference": "好み",
+      "relationship": "人間関係",
+      "goal": "目標",
+      "factual": "事実"
+    }
   },
   "consent": {
     "title": "AI会話データに関するお知らせ",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "週間インサイト",
     "yesterday": "昨日の記録",
     "personality": "性格分析",
-    "personalityDesc": "7日間で発見"
+    "personalityDesc": "7日間で発見",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "探索",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "ネイタルチャート",
     "natalDesc": "あなたの星占いを理解",
     "personCard": "性格カード",
-    "personCardDesc": "共有用カードを生成"
+    "personCardDesc": "共有用カードを生成",
+    "comingSoon": "近日公開"
   },
   "personality": {
     "observations": "AIの観察",
     "uniqueTraits": "あなた独自の特徴",
     "refresh": "プロフィールを更新",
-    "quotaLeft": "残り{{count}}回"
+    "quotaLeft": "残り{{count}}回",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "ClosenAI Proにアップグレード",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "無制限のAI会話",
     "featurePriorityLLM": "優先モデル応答",
     "featurePersonalityRefresh": "性格分析の更新回数アップ",
-    "featureTimeline": "365日の成長タイムライン"
+    "featureTimeline": "365日の成長タイムライン",
+    "trialBadge": "無料トライアル中"
   },
   "reflect": {
     "moodReminder": "今日はまだチェックインしていません · タップして絵文字を選択",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "AI生成",
     "saveDraft": "振り返りを保存",
     "placeholder": "メッセージを入力...",
-    "aiError": "[エラー: {{error}}]"
+    "aiError": "[エラー: {{error}}]",
+    "quotaTitle": "本日の利用上限に達しました",
+    "quotaMessage": "今日の無料メッセージをすべて使い切りました。Proにアップグレードすると無制限に会話できます。明日またご利用いただけます。",
+    "quotaUpgrade": "アップグレード"
   },
   "profile": {
     "sectionAI": "AIと記憶",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "アカウントを削除",
     "deleteConfirmMessage": "すべてのデータ（会話、記憶、チェックイン、成長記録、サブスクリプション）が完全に削除され、元に戻すことはできません。続行しますか？",
     "deleteDone": "アカウントが削除されました",
+    "defaultName": "ゲスト",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

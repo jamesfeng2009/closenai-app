@@ -46,11 +46,27 @@ description: "Parallel subagent-driven development for ClosenAI: decompose large
 - 可调用的领域技能（如 `closenai-backend`、`closenai-supabase`、`closenai-tdd`）
 - 验证标准（如何判断任务完成）
 
+#### 子任务描述五要素（强制）
+
+每个子任务描述**必须**包含以下五项，缺一项不派发：
+
+1. **必读清单**：完成任务必须读取的文件/文档路径（spec、prd、现有实现）。新旧实现并存（如 token.ts vs token_legacy.ts 式陷阱）时必须明确指定当前版本路径，禁止子代理自行甄别
+2. **禁区声明**：禁止改动的文件或文件区域。并行派发时即使同文件不冲突，也要按方法/行段划清各自区域（先例：message_generator.py 按方法分区）
+3. **项目约定**：事务单点 commit/rollback、LLM 失败降级、文案中英双表等本场任务涉及的工程规则（详见 project_memory「工程规则」）
+4. **验证命令**：必须实际运行的命令（pytest/tsc/compileall/import 冒烟），不接受"应该没问题"
+5. **报告格式**：每个实现项的文件+行号+改动摘要（evidence_ref）；schema 变更必须报告 alembic 迁移文件名
+
 ### 3. 结果收集与验证
 
 - 收集所有子代理的产出
 - 逐个验证是否符合 spec 和验证标准
 - 合并结果，处理冲突（如多个子代理修改了同一文件）
+
+#### 收集时强制动作
+
+1. **证据抽查**：不接受只有结论的摘要。从每个子代理报告中抽 1-2 处行号 Read 复核实际代码
+2. **交叉污染检查**：并行任务完成后，Grep 检查各禁区是否被其他任务触碰（先例：A 任务在 cron_service.py 写的代码缺 import，由 B 任务发现并报告）
+3. **全量验证**：所有子代理完成后跑标准验证套件（见 closenai-verify 的验证命令清单），而非仅各子代理自报验证
 
 ### 4. 适用限制
 

@@ -35,7 +35,9 @@ async def checkin(
     情绪签到。
 
     记录当日情绪，生成 AI 解读，更新 Streak。
-    今日已签到则返回 ALREADY_CHECKED_IN。
+    签到每日可多次：同一本地日重复签到走更新（不新增记录）；
+    AI 解读计入统一免费配额，超额返回 QUOTA_EXCEEDED。
+    连续 3 天同情绪 / 连续 2 天负面时响应附带 deep_interpretation。
     """
     return success(await service.checkin(db, user_id, request.emoji, request.note, language))
 
@@ -54,8 +56,9 @@ async def history(
 async def trend(
     days: int = 14,
     db: AsyncSession = Depends(get_db),
+    language: str = Depends(get_request_language),
     user_id: str = Depends(get_current_user),
     service: MoodService = Depends(get_mood_service),
 ):
     """查询情绪趋势。"""
-    return success(await service.get_trend(db, user_id, days))
+    return success(await service.get_trend(db, user_id, days, language))

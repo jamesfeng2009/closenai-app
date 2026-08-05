@@ -15,6 +15,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getGrowthDashboard, moodCheckin, ApiError } from '../services/api';
 import type { GrowthDashboard, MoodEmoji } from '../types';
@@ -32,24 +33,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      // 1. 先读缓存立即渲染（无缓存则保持 loading，由网络请求兜底）
-      try {
-        const cached = await AsyncStorage.getItem(DASHBOARD_CACHE_KEY);
-        if (cached) {
-          setDashboard(JSON.parse(cached));
-          setLoading(false);
-        }
-      } catch {
-        // 缓存损坏忽略，走网络
-      }
-      // 2. 后台拉最新数据覆盖
-      loadDashboard();
-    })();
-  }, []);
-
-  const loadDashboard = async () => {
+  const loadDashboard = React.useCallback(async () => {
     try {
       const data = await getGrowthDashboard();
       setDashboard(data);
@@ -59,7 +43,29 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // 首屏：先读缓存立即渲染（无缓存则保持 loading，由聚焦时的网络请求兜底）
+  useEffect(() => {
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem(DASHBOARD_CACHE_KEY);
+        if (cached) {
+          setDashboard(JSON.parse(cached));
+          setLoading(false);
+        }
+      } catch {
+        // 缓存损坏忽略，走网络
+      }
+    })();
+  }, []);
+
+  // Tab 常驻不卸载：每次聚焦都拉最新数据（mount 时也会触发一次）
+  useFocusEffect(
+    React.useCallback(() => {
+      loadDashboard();
+    }, [loadDashboard])
+  );
 
   const onMoodPress = async (emoji: MoodEmoji) => {
     if (checkingIn || dashboard?.today_mood) return; // 已签到或请求中则忽略
@@ -73,7 +79,10 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           : prev,
       );
       if (res.ai_interpretation) {
-        Alert.alert(`${res.mood_emoji} ${res.mood_label}`, res.ai_interpretation);
+        const text = res.deep_interpretation
+          ? `${res.ai_interpretation}\n\n${res.deep_interpretation}`
+          : res.ai_interpretation;
+        Alert.alert(`${res.mood_emoji} ${res.mood_label}`, text);
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : '签到失败，请稍后重试';
@@ -115,7 +124,30 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         </View>
         <View style={styles.divider} />
         <Text style={styles.chatCount}>💬 {dashboard?.chat_count || 0} {t('common.times')}</Text>
+        {/* Streak 冻结券（PRD P0-F05：断签日自动消耗 1 张保住连续记录） */}
+        {(dashboard?.streak_freeze_count ?? 0) > 0 && (
+          <>
+            <View style={styles.divider} />
+            <Text style={styles.freezeCount}>
+              🧊 {dashboard?.streak_freeze_count} {t('home.streakFreeze')}
+            </Text>
+          </>
+        )}
       </TouchableOpacity>
+
+      {/* 里程碑徽章（PRD P0-F05：连续 7/30/100/365 天） */}
+      {!!dashboard?.milestones?.length && (
+        <View style={styles.milestoneRow}>
+          {dashboard.milestones.map((m) => (
+            <View key={m.milestone_type} style={[styles.milestoneItem, !m.achieved && styles.milestoneLocked]}>
+              <Text style={styles.milestoneIcon}>{m.achieved ? '🏅' : '🔒'}</Text>
+              <Text style={[styles.milestoneDays, m.achieved && styles.milestoneDaysAchieved]}>
+                {t('home.milestoneStreak', { days: m.days })}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Today's Reflection */}
       <View style={styles.card}>
@@ -249,6 +281,19 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: Colors.gold400, borderRadius: 2 },
   divider: { width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.1)' },
   chatCount: { fontSize: FontSize.sm, color: Colors.textTertiary },
+  freezeCount: { fontSize: FontSize.sm, color: Colors.textTertiary },
+  milestoneRow: {
+    flexDirection: 'row', gap: 6, marginBottom: Spacing.md,
+  },
+  milestoneItem: {
+    flex: 1, alignItems: 'center', paddingVertical: 8,
+    backgroundColor: 'rgba(255,215,0,0.06)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
+    borderRadius: BorderRadius.md,
+  },
+  milestoneLocked: { opacity: 0.45, backgroundColor: 'rgba(255,255,255,0.02)', borderColor: Colors.borderLight },
+  milestoneIcon: { fontSize: 16 },
+  milestoneDays: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2 },
+  milestoneDaysAchieved: { color: Colors.gold400, fontWeight: '600' },
   card: {
     backgroundColor: 'rgba(255,215,0,0.06)',
     borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',

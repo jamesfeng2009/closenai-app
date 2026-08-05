@@ -18,7 +18,14 @@ const resource = {
     "title": "记忆管理",
     "empty": "暂无记忆",
     "deleteTitle": "删除记忆",
-    "deleteConfirm": "确定删除这条记忆吗？此操作不可撤销。"
+    "deleteConfirm": "确定删除这条记忆吗？此操作不可撤销。",
+    "category": {
+      "values": "价值观",
+      "preference": "偏好",
+      "relationship": "关系",
+      "goal": "目标",
+      "factual": "事实"
+    }
   },
   "consent": {
     "title": "AI 对话数据说明",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "本周洞察",
     "yesterday": "昨天记录",
     "personality": "性格画像",
-    "personalityDesc": "相处 7 天发现"
+    "personalityDesc": "相处 7 天发现",
+    "streakFreeze": "冻结券",
+    "milestoneStreak": "{{days}} 天"
   },
   "explore": {
     "title": "探索",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "本命星盘",
     "natalDesc": "了解你的星象",
     "personCard": "性格名片",
-    "personCardDesc": "生成分享卡片"
+    "personCardDesc": "生成分享卡片",
+    "comingSoon": "敬请期待"
   },
   "personality": {
     "observations": "AI 观察",
     "uniqueTraits": "独特特质",
     "refresh": "刷新画像",
-    "quotaLeft": "剩余 {{count}} 次"
+    "quotaLeft": "剩余 {{count}} 次",
+    "assessmentTitle": "对话式性格评估",
+    "assessmentDesc": "8 道情景题，没有标准答案——AI 会结合你的回答与近期对话生成画像",
+    "assessmentStart": "开始评估",
+    "assessmentResume": "继续评估（第 {{index}}/{{total}} 题）",
+    "assessmentProgress": "第 {{index}}/{{total}} 题",
+    "assessmentInputPlaceholder": "也可以用自己的话回答…",
+    "assessmentSend": "发送",
+    "zodiacLabel": "太阳星座",
+    "enneagramLabel": "九型人格",
+    "comboTitle": "组合报告",
+    "comboDesc": "16 型人格 × 星座 × 九型交叉解读（Pro 专属，每月 1 份）",
+    "comboGenerate": "生成组合报告"
+  },
+  "zodiac": {
+    "aries": "白羊座", "taurus": "金牛座", "gemini": "双子座", "cancer": "巨蟹座",
+    "leo": "狮子座", "virgo": "处女座", "libra": "天秤座", "scorpio": "天蝎座",
+    "sagittarius": "射手座", "capricorn": "摩羯座", "aquarius": "水瓶座", "pisces": "双鱼座"
+  },
+  "mbti": {
+    "INTP": "逻辑学家", "INTJ": "建筑师", "ENTP": "辩论家", "ENTJ": "指挥官",
+    "INFP": "调停者", "INFJ": "提倡者", "ENFP": "竞选者", "ENFJ": "主人公",
+    "ISTP": "鉴赏家", "ISFJ": "守卫者", "ESTP": "企业家", "ESFJ": "执政官",
+    "ISTJ": "物流师", "ISFP": "探险家", "ESTJ": "总经理", "ESFP": "表演者"
   },
   "paywall": {
     "title": "升级 ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "无限 AI 对话",
     "featurePriorityLLM": "高优先级模型响应",
     "featurePersonalityRefresh": "更多性格画像刷新次数",
-    "featureTimeline": "365 天成长时间线"
+    "featureTimeline": "365 天成长时间线",
+    "trialBadge": "免费试用中"
   },
   "reflect": {
     "moodReminder": "今天还没签到 · 点这里选个表情",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "AI 生成",
     "saveDraft": "保存 Reflection",
     "placeholder": "输入消息...",
-    "aiError": "[错误: {{error}}]"
+    "aiError": "[错误: {{error}}]",
+    "quotaTitle": "今日次数已用完",
+    "quotaMessage": "今天的免费对话次数已用完。升级 Pro 畅享无限对话，或明天再来。",
+    "quotaUpgrade": "升级"
   },
   "profile": {
     "sectionAI": "AI 与记忆",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "注销账号",
     "deleteConfirmMessage": "注销后将永久删除您的全部数据（对话、记忆、签到、成长记录、订阅），且不可恢复。确定继续吗？",
     "deleteDone": "账号已注销",
+    "defaultName": "用户",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

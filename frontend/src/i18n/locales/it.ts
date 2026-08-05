@@ -18,7 +18,14 @@ const resource = {
     "title": "Gestione memoria",
     "empty": "Nessun ricordo per ora",
     "deleteTitle": "Elimina ricordo",
-    "deleteConfirm": "Eliminare questo ricordo? L'azione non può essere annullata."
+    "deleteConfirm": "Eliminare questo ricordo? L'azione non può essere annullata.",
+    "category": {
+      "values": "Valori",
+      "preference": "Preferenza",
+      "relationship": "Relazione",
+      "goal": "Obiettivo",
+      "factual": "Fatto"
+    }
   },
   "consent": {
     "title": "Informativa sui dati delle conversazioni IA",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Insight settimanale",
     "yesterday": "Registro di ieri",
     "personality": "Personalità",
-    "personalityDesc": "scoperta in 7 giorni"
+    "personalityDesc": "scoperta in 7 giorni",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Esplora",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Tema natale",
     "natalDesc": "Comprendi la tua astrologia",
     "personCard": "Carta di personalità",
-    "personCardDesc": "Genera una carta da condividere"
+    "personCardDesc": "Genera una carta da condividere",
+    "comingSoon": "Prossimamente"
   },
   "personality": {
     "observations": "Osservazioni dell'IA",
     "uniqueTraits": "Tratti unici",
     "refresh": "Aggiorna profilo",
-    "quotaLeft": "Ne restano {{count}}"
+    "quotaLeft": "Ne restano {{count}}",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Passa a ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Conversazioni IA illimitate",
     "featurePriorityLLM": "Risposte prioritarie del modello",
     "featurePersonalityRefresh": "Più aggiornamenti della personalità",
-    "featureTimeline": "Timeline di crescita di 365 giorni"
+    "featureTimeline": "Timeline di crescita di 365 giorni",
+    "trialBadge": "Prova gratuita"
   },
   "reflect": {
     "moodReminder": "Non ancora registrato oggi · Tocca per scegliere un emoji",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Generato dall'IA",
     "saveDraft": "Salva riflessione",
     "placeholder": "Scrivi un messaggio...",
-    "aiError": "[Errore: {{error}}]"
+    "aiError": "[Errore: {{error}}]",
+    "quotaTitle": "Limite giornaliero raggiunto",
+    "quotaMessage": "Hai usato tutti i messaggi gratuiti di oggi. Passa a Pro per conversazioni illimitate, oppure torna domani.",
+    "quotaUpgrade": "Passa a Pro"
   },
   "profile": {
     "sectionAI": "IA e memoria",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Elimina account",
     "deleteConfirmMessage": "Questa operazione elimina definitivamente tutti i tuoi dati (conversazioni, ricordi, check-in, registri di crescita, abbonamento) e non può essere annullata. Continuare?",
     "deleteDone": "Account eliminato",
+    "defaultName": "Ospite",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

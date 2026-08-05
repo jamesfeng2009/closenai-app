@@ -18,7 +18,14 @@ const resource = {
     "title": "Memory Management",
     "empty": "No memories yet",
     "deleteTitle": "Delete Memory",
-    "deleteConfirm": "Delete this memory? This cannot be undone."
+    "deleteConfirm": "Delete this memory? This cannot be undone.",
+    "category": {
+      "values": "Values",
+      "preference": "Preference",
+      "relationship": "Relationship",
+      "goal": "Goal",
+      "factual": "Factual"
+    }
   },
   "consent": {
     "title": "AI Conversation Data Notice",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Weekly Insight",
     "yesterday": "Yesterday's Record",
     "personality": "Personality",
-    "personalityDesc": "discovered in 7 days"
+    "personalityDesc": "discovered in 7 days",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Explore",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Natal Chart",
     "natalDesc": "Understand your astrology",
     "personCard": "Personality Card",
-    "personCardDesc": "Generate a shareable card"
+    "personCardDesc": "Generate a shareable card",
+    "comingSoon": "Coming soon"
   },
   "personality": {
     "observations": "AI Observations",
     "uniqueTraits": "Unique Traits",
     "refresh": "Refresh Profile",
-    "quotaLeft": "{{count}} left"
+    "quotaLeft": "{{count}} left",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Upgrade to ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Unlimited AI conversations",
     "featurePriorityLLM": "Priority model responses",
     "featurePersonalityRefresh": "More personality refreshes",
-    "featureTimeline": "365-day growth timeline"
+    "featureTimeline": "365-day growth timeline",
+    "trialBadge": "Free trial"
   },
   "reflect": {
     "moodReminder": "Haven't checked in today · Tap to pick an emoji",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "AI-generated",
     "saveDraft": "Save Reflection",
     "placeholder": "Type a message...",
-    "aiError": "[Error: {{error}}]"
+    "aiError": "[Error: {{error}}]",
+    "quotaTitle": "Daily limit reached",
+    "quotaMessage": "You've used all of today's free messages. Upgrade to Pro for unlimited conversations, or come back tomorrow.",
+    "quotaUpgrade": "Upgrade"
   },
   "profile": {
     "sectionAI": "AI & Memory",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Delete Account",
     "deleteConfirmMessage": "This permanently deletes all your data (conversations, memories, check-ins, growth records, subscription) and cannot be undone. Continue?",
     "deleteDone": "Account deleted",
+    "defaultName": "Guest",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

@@ -14,6 +14,7 @@ from backend.models.memory import Memory
 from backend.models.mood import MoodCheckin
 from backend.models.personality import PersonalityProfile
 from backend.models.push import PushToken
+from backend.models.share import ShareExport
 from backend.models.subscription import Receipt, Subscription
 from backend.models.user import User
 
@@ -26,6 +27,7 @@ __all__ = [
     "PersonalityProfile",
     "PushToken",
     "Receipt",
+    "ShareExport",
     "Subscription",
     "User",
 ]

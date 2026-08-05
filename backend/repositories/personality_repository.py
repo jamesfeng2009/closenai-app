@@ -1,7 +1,7 @@
 """
 性格画像数据访问层（P0-F06）。
 
-职责：只与 personality_profiles 表交互，不含业务逻辑。
+职责：只与 personality_profiles / personality_assessments 表交互，不含业务逻辑。
 """
 from typing import List, Optional
 from uuid import uuid4
@@ -9,7 +9,8 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models.personality import PersonalityProfile
+from backend.core.time_utils import utc_now
+from backend.models.personality import PersonalityAssessment, PersonalityProfile
 
 
 class PersonalityRepository:
@@ -55,6 +56,48 @@ class PersonalityRepository:
         db.add(profile)
         await db.flush()
         return profile
+
+    # ── 对话式评估（P0-F06：8 题问答状态）──
+
+    async def get_in_progress_assessment(
+        self, db: AsyncSession, user_id: str
+    ) -> Optional[PersonalityAssessment]:
+        """获取用户进行中的评估（最新一条 in_progress）。"""
+        result = await db.execute(
+            select(PersonalityAssessment)
+            .where(
+                PersonalityAssessment.user_id == user_id,
+                PersonalityAssessment.status == "in_progress",
+            )
+            .order_by(PersonalityAssessment.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def create_assessment(
+        self, db: AsyncSession, user_id: str
+    ) -> PersonalityAssessment:
+        """开始一轮新评估。"""
+        assessment = PersonalityAssessment(
+            id=str(uuid4()), user_id=user_id, answers="[]", status="in_progress"
+        )
+        db.add(assessment)
+        await db.flush()
+        return assessment
+
+    async def save_assessment(
+        self,
+        db: AsyncSession,
+        assessment: PersonalityAssessment,
+        answers: str,
+        status: str,
+    ) -> PersonalityAssessment:
+        """保存评估答案与状态（显式刷新 updated_at，兼容不触发 onupdate 的方言）。"""
+        assessment.answers = answers
+        assessment.status = status
+        assessment.updated_at = utc_now()
+        await db.flush()
+        return assessment
 
 
 personality_repository = PersonalityRepository()

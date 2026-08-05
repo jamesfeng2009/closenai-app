@@ -22,6 +22,28 @@ description: "Pre-completion verification checklist for ClosenAI: 5-dimension ch
 - [ ] 无未处理的 TODO / FIXME 标记
 - [ ] 无 console.log / print 调试语句残留
 
+### 验证命令（必须实际运行，不接受"应该没问题"）
+
+所有验证命令**必须真实执行并贴出结果**，禁止凭推断声称通过。本项目标准验证套件：
+
+```bash
+# 1. 测试套件（0 失败）
+.venv/bin/python -m pytest backend/tests/ -q
+# 2. 后端编译
+python -m compileall -q backend
+# 3. 前端类型（0 错误）
+cd frontend && npx tsc --noEmit
+# 4. schema 变更时：alembic 必须单头
+cd backend && ../.venv/bin/python -m alembic heads
+# 5. 关键模块 import 冒烟（本次改动涉及的模块）
+.venv/bin/python -c "from backend.services import ...; print('ok')"
+```
+
+- [ ] 测试套件 0 失败
+- [ ] compileall / tsc 通过
+- [ ] schema 变更时 alembic 单头、迁移文件名已记录
+- [ ] i18n key 变更时 15 个语言文件已同步（zh/en 正式翻译，小语种可用英文）
+
 ### 功能完整性
 - [ ] 功能符合 brainstorming 产出的 spec 描述
 - [ ] 与 PRD 中的验收标准交叉验证（对照 `closenai.html` 对应章节）

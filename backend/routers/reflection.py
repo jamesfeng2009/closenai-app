@@ -18,6 +18,7 @@ from backend.models.schemas import (
     ReflectionGenerateRequest,
 )
 from backend.services.reflection_service import ReflectionService, reflection_service
+from backend.services.user_service import user_service
 
 router = APIRouter()
 
@@ -34,7 +35,13 @@ async def generate_draft(
     user_id: str = Depends(get_current_user),
     service: ReflectionService = Depends(get_reflection_service),
 ):
-    """生成今日 Reflection 草稿（基于情绪 + 记忆）。"""
+    """生成今日 Reflection 草稿（今日反思 + AI 观察，基于情绪 + 记忆）。
+
+    需 AI 数据共享同意（5.1.2(i)）；草稿生成消耗 1 次 LLM 调用，
+    计入统一免费配额，超额返回 QUOTA_EXCEEDED（40301）。
+    新用户（无记忆无签到历史）返回对话式引导文案而非模板草稿。
+    """
+    await user_service.require_ai_consent(db, user_id)
     return success(await service.generate_draft(db, user_id, language, request.context))
 
 
@@ -45,8 +52,10 @@ async def save_reflection(
     user_id: str = Depends(get_current_user),
     service: ReflectionService = Depends(get_reflection_service),
 ):
-    """保存 Reflection 为成长记录。"""
-    return success(await service.save(db, user_id, request.content))
+    """保存 Reflection 为成长记录（可携带草稿关联的 related_memory_ids）。"""
+    return success(
+        await service.save(db, user_id, request.content, request.related_memory_ids)
+    )
 
 
 @router.get("/reflections")

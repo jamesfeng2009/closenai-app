@@ -9,7 +9,7 @@
     POST   /api/v1/memories/version        — 信念演变记录
     DELETE /api/v1/memories/{memory_id}    — 删除记忆（合规：用户数据删除权）
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
@@ -31,7 +31,7 @@ def get_memory_service() -> MemoryService:
 
 @router.get("/memories")
 async def list_memories(
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=100),
     category: str = None,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
@@ -49,7 +49,7 @@ async def get_memory(
     service: MemoryService = Depends(get_memory_service),
 ):
     """获取单条记忆详情。"""
-    memory = await service.get_memory(db, memory_id)
+    memory = await service.get_memory(db, memory_id, user_id)
     if not memory:
         raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在")
     return success(memory)
@@ -112,7 +112,8 @@ async def version_memory(
     - revert: 回归到之前状态
     """
     await service.record_version(
-        db, user_id, str(request.memory_id), request.transition_type, request.reason, request.emotion_context
+        db, user_id, str(request.memory_id), request.transition_type, request.reason, request.emotion_context,
+        new_content=request.new_content,
     )
     return success({"memory_id": str(request.memory_id)})
 

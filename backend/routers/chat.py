@@ -8,20 +8,20 @@
 """
 import json
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import settings
 from backend.core.auth import get_current_user
 from backend.core.errors import ErrorCode
 from backend.core.language import get_request_language
 from backend.core.response import success
-from backend.core.time_utils import local_day_start_utc
 from backend.database import get_db
 from backend.models.schemas import ChatStreamRequest
-from backend.repositories import chat_repository, mood_repository, user_repository
+from backend.repositories import chat_repository, user_repository
+from backend.services.memory_service import memory_service
 from backend.services.message_generator import MessageGenerator, message_generator
+from backend.services.quota_service import quota_service
 from backend.services.user_service import user_service
 
 logger = logging.getLogger("closenai.chat")
@@ -56,22 +56,17 @@ async def stream_chat(
 
     async def event_stream():
         try:
-            user = await user_repository.get_or_create_user(db, user_id)
+            # 行锁串行化：配额校验与写消息在同一事务内完成，防并发超配额
+            user = await user_repository.get_or_create_user(db, user_id, for_update=True)
 
             # 配额检查：免费用户今日 LLM 消耗（对话 + 主动消息 + 签到解读）达上限则拒绝
-            if user.tier == "free":
-                day_start = local_day_start_utc(user.timezone)
-                chat_used = await chat_repository.count_today(db, user_id, role="user", start=day_start)
-                proactive_used = await chat_repository.count_today(
-                    db, user_id, role="assistant", message_type="proactive", start=day_start
-                )
-                mood_used = await mood_repository.count_since(db, user_id, day_start)
-                if chat_used + proactive_used + mood_used >= settings.free_daily_messages:
-                    yield f"data: {json.dumps({'type': 'error', 'code': int(ErrorCode.QUOTA_EXCEEDED), 'message': '今天的次数已经用完，请明天再来'})}\n\n"
-                    return
+            if await quota_service.is_daily_quota_exceeded(db, user):
+                yield f"data: {json.dumps({'type': 'error', 'code': int(ErrorCode.QUOTA_EXCEEDED), 'message': '今天的次数已经用完，请明天再来'})}\n\n"
+                return
 
-            # 保存用户消息
+            # 保存用户消息（并累计聊天次数，首页"聊天次数"展示）
             await chat_repository.create(db, user_id, "user", request.content, message_type=request.message_type)
+            await user_repository.increment_chat_count(db, user_id)
 
             # 记忆上下文注入
             memories = await generator.get_memory_context(db, user_id, request.content)
@@ -96,6 +91,10 @@ async def stream_chat(
                 await chat_repository.create(
                     db, user_id, "assistant", reply, message_type="reply", ai_generated=True
                 )
+
+            # 对话后自动提取记忆（P0-F02）：token 流已结束，不阻塞 SSE；
+            # 内部全程 try/except 降级，失败仅记日志
+            await memory_service.extract_and_store(db, user_id, request.content, language)
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
@@ -134,7 +133,7 @@ async def generate_proactive_message(
 
 @router.get("/chat/history")
 async def chat_history(
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
 ):

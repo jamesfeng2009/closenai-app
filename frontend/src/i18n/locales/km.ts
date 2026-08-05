@@ -18,7 +18,14 @@ const resource = {
     "title": "ការគ្រប់គ្រងអនុស្សាវរីយ៍",
     "empty": "មិនទាន់មានអនុស្សាវរីយ៍នៅឡើយទេ",
     "deleteTitle": "លុបអនុស្សាវរីយ៍",
-    "deleteConfirm": "លុបអនុស្សាវរីយ៍នេះមែនទេ? សកម្មភាពនេះមិនអាចត្រឡប់វិញបានទេ។"
+    "deleteConfirm": "លុបអនុស្សាវរីយ៍នេះមែនទេ? សកម្មភាពនេះមិនអាចត្រឡប់វិញបានទេ។",
+    "category": {
+      "values": "គុណតម្លៃ",
+      "preference": "ចំណូលចិត្ត",
+      "relationship": "ទំនាក់ទំនង",
+      "goal": "គោលដៅ",
+      "factual": "ការពិត"
+    }
   },
   "consent": {
     "title": "សេចក្តីជូនដំណឹងអំពីទិន្នន័យការសន្ទនា AI",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "ការយល់ដឹងប្រចាំសប្តាហ៍",
     "yesterday": "កំណត់ត្រាម្សិលមិញ",
     "personality": "បុគ្គលិកលក្ខណៈ",
-    "personalityDesc": "រកឃើញក្នុងរយៈពេល 7 ថ្ងៃ"
+    "personalityDesc": "រកឃើញក្នុងរយៈពេល 7 ថ្ងៃ",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "ស្វែងយល់",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "ចក្រកំណើត",
     "natalDesc": "យល់ដឹងអំពីហោរាសាស្ត្ររបស់អ្នក",
     "personCard": "កាតបុគ្គលិកលក្ខណៈ",
-    "personCardDesc": "បង្កើតកាតដែលអាចចែករំលែកបាន"
+    "personCardDesc": "បង្កើតកាតដែលអាចចែករំលែកបាន",
+    "comingSoon": "មកដល់ឆាប់ៗនេះ"
   },
   "personality": {
     "observations": "ការសង្កេតរបស់ AI",
     "uniqueTraits": "លក្ខណៈពិសេសផ្ទាល់ខ្លួន",
     "refresh": "ធ្វើប្រវត្តិរូបឡើងវិញ",
-    "quotaLeft": "នៅសល់ {{count}} ដង"
+    "quotaLeft": "នៅសល់ {{count}} ដង",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "ដំឡើងកំណែទៅ ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "ការសន្ទនា AI គ្មានដែនកំណត់",
     "featurePriorityLLM": "ការឆ្លើយតបពីម៉ូដែលអាទិភាព",
     "featurePersonalityRefresh": "ធ្វើបុគ្គលិកលក្ខណៈឡើងវិញបានកាន់តែច្រើន",
-    "featureTimeline": "បន្ទាត់ពេលវេលានៃការលូតលាស់ 365 ថ្ងៃ"
+    "featureTimeline": "បន្ទាត់ពេលវេលានៃការលូតលាស់ 365 ថ្ងៃ",
+    "trialBadge": "សាកល្បងឥតគិតថ្លៃ"
   },
   "reflect": {
     "moodReminder": "មិនទាន់បានកត់ត្រាអារម្មណ៍ថ្ងៃនេះទេ · ចុចដើម្បីជ្រើសរើសអ៊ីម៉ូជី",
@@ -133,6 +167,7 @@ const resource = {
     "deleteConfirmTitle": "លុបគណនី",
     "deleteConfirmMessage": "សកម្មភាពនេះនឹងលុបទិន្នន័យទាំងអស់របស់អ្នកជាអចិន្ត្រៃយ៍ (ការសន្ទនា អនុស្សាវរីយ៍ ការកត់ត្រាអារម្មណ៍ កំណត់ត្រាការលូតលាស់ ការជាវ) ហើយមិនអាចត្រឡប់វិញបានទេ។ បន្តមែនទេ?",
     "deleteDone": "បានលុបគណនីហើយ",
+    "defaultName": "ភ្ញៀវ",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

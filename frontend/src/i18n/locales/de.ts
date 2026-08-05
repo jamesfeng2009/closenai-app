@@ -18,7 +18,14 @@ const resource = {
     "title": "Erinnerungsverwaltung",
     "empty": "Noch keine Erinnerungen",
     "deleteTitle": "Erinnerung löschen",
-    "deleteConfirm": "Diese Erinnerung löschen? Dies kann nicht rückgängig gemacht werden."
+    "deleteConfirm": "Diese Erinnerung löschen? Dies kann nicht rückgängig gemacht werden.",
+    "category": {
+      "values": "Werte",
+      "preference": "Präferenz",
+      "relationship": "Beziehung",
+      "goal": "Ziel",
+      "factual": "Fakt"
+    }
   },
   "consent": {
     "title": "Hinweis zu KI-Gesprächsdaten",
@@ -47,7 +54,9 @@ const resource = {
     "weeklyInsight": "Wöchentlicher Einblick",
     "yesterday": "Gestern aufgezeichnet",
     "personality": "Persönlichkeit",
-    "personalityDesc": "in 7 Tagen entdeckt"
+    "personalityDesc": "in 7 Tagen entdeckt",
+    "streakFreeze": "freezes",
+    "milestoneStreak": "{{days}}d"
   },
   "explore": {
     "title": "Entdecken",
@@ -65,13 +74,37 @@ const resource = {
     "natal": "Geburtshoroskop",
     "natalDesc": "Verstehe deine Astrologie",
     "personCard": "Persönlichkeitskarte",
-    "personCardDesc": "Karte zum Teilen erstellen"
+    "personCardDesc": "Karte zum Teilen erstellen",
+    "comingSoon": "Demnächst"
   },
   "personality": {
     "observations": "KI-Beobachtungen",
     "uniqueTraits": "Einzigartige Merkmale",
     "refresh": "Profil aktualisieren",
-    "quotaLeft": "Noch {{count}}"
+    "quotaLeft": "Noch {{count}}",
+    "assessmentTitle": "Conversational Assessment",
+    "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
+    "assessmentStart": "Start Assessment",
+    "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "assessmentProgress": "Question {{index}} of {{total}}",
+    "assessmentInputPlaceholder": "Or answer in your own words…",
+    "assessmentSend": "Send",
+    "zodiacLabel": "Sun sign",
+    "enneagramLabel": "Enneagram",
+    "comboTitle": "Combo Report",
+    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboGenerate": "Generate Combo Report"
+  },
+  "zodiac": {
+    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
+    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
+    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "mbti": {
+    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
+    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
+    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
     "title": "Upgrade auf ClosenAI Pro",
@@ -90,7 +123,8 @@ const resource = {
     "featureUnlimitedChat": "Unbegrenzte KI-Gespräche",
     "featurePriorityLLM": "Priorisierte Modellantworten",
     "featurePersonalityRefresh": "Mehr Persönlichkeits-Aktualisierungen",
-    "featureTimeline": "365-Tage-Wachstums-Timeline"
+    "featureTimeline": "365-Tage-Wachstums-Timeline",
+    "trialBadge": "Kostenlose Testphase"
   },
   "reflect": {
     "moodReminder": "Heute noch nicht eingetragen · Tippen, um ein Emoji zu wählen",
@@ -100,7 +134,10 @@ const resource = {
     "aiTag": "Von KI erstellt",
     "saveDraft": "Reflexion speichern",
     "placeholder": "Nachricht eingeben...",
-    "aiError": "[Fehler: {{error}}]"
+    "aiError": "[Fehler: {{error}}]",
+    "quotaTitle": "Tageslimit erreicht",
+    "quotaMessage": "Du hast alle kostenlosen Nachrichten für heute verbraucht. Upgrade auf Pro für unbegrenzte Unterhaltungen, oder komm morgen wieder.",
+    "quotaUpgrade": "Upgraden"
   },
   "profile": {
     "sectionAI": "KI & Erinnerung",
@@ -133,6 +170,7 @@ const resource = {
     "deleteConfirmTitle": "Konto löschen",
     "deleteConfirmMessage": "Dadurch werden alle Ihre Daten (Gespräche, Erinnerungen, Check-ins, Wachstumsaufzeichnungen, Abonnement) endgültig gelöscht und können nicht wiederhergestellt werden. Fortfahren?",
     "deleteDone": "Konto gelöscht",
+    "defaultName": "Gast",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
   },
   "language": {

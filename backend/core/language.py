@@ -9,9 +9,11 @@
 与 `X-User-Id` 透传模式一致：header 优先，数据库兜底。
 """
 from fastapi import Request, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core.auth import get_current_user
+from backend.database import get_db
 from backend.services.user_service import user_service
 
 
@@ -34,6 +36,7 @@ def resolve_request_language(request: Request) -> str | None:
 async def get_request_language(
     request: Request,
     user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> str:
     """
     FastAPI 依赖：解析当前请求语言。
@@ -47,7 +50,7 @@ async def get_request_language(
 
     # 2. 数据库偏好兜底
     try:
-        db_lang = await user_service.get_language(user_id)
+        db_lang = await user_service.get_language(db, user_id)
         if db_lang in settings.supported_languages:
             return db_lang
     except Exception:  # noqa: BLE001  读库失败不影响请求
