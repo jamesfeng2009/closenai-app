@@ -278,6 +278,7 @@ class UserProfileResponse(BaseModel):
     daily_quota_total: int
     ai_consent: bool = False  # AI 数据共享同意状态（合规 5.1.2(i)）
     streak_freeze_count: int = 0  # 剩余 Streak 冻结券（PRD P0-F05）
+    push_time: Optional[str] = None  # 主动消息时间 HH:MM（None 时后端按 09:00 调度）
 
 
 class AIConsentUpdate(BaseModel):

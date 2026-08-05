@@ -9,10 +9,11 @@
  * - 关于 AI（合规：免责声明、模型来源、数据共享）
  * - 退出登录
  */
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, FlatList, Alert,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import {
   getUserProfile, updateUserSettings, setAiConsent, clearPushToken, deleteAccount, ApiError,
@@ -31,13 +32,15 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [aboutVisible, setAboutVisible] = useState(false);
   const [consentVisible, setConsentVisible] = useState(false);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  // Tab 常驻不卸载：每次聚焦都刷新（配额用量/订阅状态与服务器对齐；mount 时也会触发一次）
+  useFocusEffect(
+    React.useCallback(() => {
+      loadProfile();
+    }, [])
+  );
 
   const loadProfile = async () => {
     try {
-      setLoading(true);
       const data = await getUserProfile();
       setProfile(data);
     } catch (e) {
@@ -64,7 +67,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       await setAiConsent(consent);
       setProfile((prev) => (prev ? { ...prev, ai_consent: consent } : prev));
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'save failed';
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), msg);
     }
     setConsentVisible(false);
@@ -108,7 +111,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
               await deleteAccount();
               await resetSession();
             } catch (e) {
-              const msg = e instanceof ApiError ? e.message : 'delete failed';
+              const msg = e instanceof ApiError ? e.message : t('errors.deleteFailed');
               Alert.alert(t('common.error'), msg);
             }
           },
@@ -154,7 +157,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         <TouchableOpacity style={styles.settingItem}>
           <Text style={styles.settingIcon}>🔔</Text>
           <Text style={styles.settingLabel}>{t('profile.activeTime')}</Text>
-          <Text style={styles.settingValue}>09:00</Text>
+          <Text style={styles.settingValue}>{profile?.push_time || '09:00'}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
       </View>

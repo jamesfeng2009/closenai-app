@@ -55,7 +55,7 @@ export default function MemoriesScreen() {
               await deleteMemory(item.id);
               setMemories((prev) => prev.filter((m) => m.id !== item.id));
             } catch (e) {
-              const msg = e instanceof ApiError ? e.message : 'delete failed';
+              const msg = e instanceof ApiError ? e.message : t('errors.deleteFailed');
               Alert.alert(t('common.error'), msg);
             }
           },

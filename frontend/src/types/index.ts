@@ -206,6 +206,7 @@ export interface UserProfile {
   daily_quota_used: number;
   daily_quota_total: number;
   ai_consent: boolean;
+  push_time?: string | null;
 }
 
 export interface UserSettings {
@@ -226,6 +227,48 @@ export interface DailyDiscovery {
   content: string | null;
   comparison_type: string | null;
   generated_at: string;
+}
+
+// ═══ Share (P1-F04) ═══
+
+export type ShareCardVariant = 'classic' | 'minimal' | 'combo';
+export type SharePeriod = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+
+export interface PersonalityCard {
+  card_type: string;
+  variant: ShareCardVariant;
+  layout: 'full' | 'compact' | 'combo';
+  user_name: string;
+  mbti_type: string | null;
+  mbti_label: string | null;
+  tagline: string;
+  unique_traits: string | null;
+  streak_count: number;
+  relationship_level: string;
+  share_url: string;
+  exported_at: string;
+  share_text: string;
+  observations?: string[];
+  dimensions?: { mbti: string | null; zodiac: string | null; enneagram: string | null };
+  combo_insight?: string | null;
+}
+
+export interface ShareReport {
+  period: string;
+  period_label: string;
+  range: string;
+  insight_level: string;
+  mood_distribution: Record<string, number>;
+  mood_trend: string;
+  content: string;
+  chat_count?: number;
+  share_url?: string;
+}
+
+// ═══ Growth Report / Pattern (P1-F03) ═══
+
+export interface PatternDiscovery {
+  content: string;
 }
 
 // ═══ IAP ═══

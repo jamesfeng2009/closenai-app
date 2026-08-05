@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     app_name: str = "ClosenAI"
     app_tagline: str = "记录你的人生 · 理解你的模式 · 陪你一起成长"
     debug: bool = False
+    # 运行环境：development（默认，允许 X-User-Id 设备身份透传）/ production（强制 JWT Bearer 鉴权）
+    environment: str = "development"
 
     # API 配置
     api_v1_prefix: str = "/api/v1"
@@ -50,15 +52,18 @@ class Settings(BaseSettings):
     doubao_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     doubao_model: str = ""
     doubao_lite_model: str = ""
+    doubao_embedding_model: str = ""  # 火山方舟 embedding 端点 id/模型名（切换 doubao 时必填）
     # Gemini（保留）
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     gemini_lite_model: str = "gemini-2.5-flash-lite"
+    gemini_embedding_model: str = "text-embedding-004"
     # OpenAI 兼容自定义
     openai_api_key: str = ""
     openai_base_url: str = ""
     openai_model: str = ""
     openai_lite_model: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
 
     # 支持语言（多语言，15 种：13 种首发 + vi 越南语 + km 高棉语）
     supported_languages: List[str] = [

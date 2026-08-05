@@ -11,6 +11,7 @@ from datetime import timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.time_utils import (
     local_day_start_utc,
@@ -32,9 +33,14 @@ from backend.repositories import (
     user_repository,
 )
 from backend.services.safety_service import safety_service
+from backend.services.quota_service import FREE_TIER
 from backend.services.user_service import user_service
 
 logger = logging.getLogger("closenai.growth")
+
+# 报告周期白名单（非法 period → 400）；月/季/年报为 Pro 权益（PRD P1-F02 §3），与 share_service 同口径
+REPORT_PERIODS = ("weekly", "monthly", "quarterly", "yearly")
+PRO_REPORT_PERIODS = ("monthly", "quarterly", "yearly")
 
 
 def _is_zh(language: str | None) -> bool:
@@ -472,11 +478,13 @@ class GrowthService:
 
     PERIOD_LABELS = {
         "zh": {
+            "weekly": "每周洞察",
             "monthly": "月度报告",
             "quarterly": "季度深度报告",
             "yearly": "年度人生报告",
         },
         "en": {
+            "weekly": "Weekly Insight",
             "monthly": "Monthly Report",
             "quarterly": "Quarterly Deep-Dive Report",
             "yearly": "Yearly Life Report",
@@ -494,9 +502,16 @@ class GrowthService:
         - 对话统计（chat_messages）
         - 成长记录（growth_records）
         - 记忆（memories）
+
+        门控：period 白名单校验（400）；月/季/年报为 Pro 权益（40302），
+        与 share_service.export_report 同一口径，防止绕过分享端点的 Pro 门。
         """
-        await user_repository.get_or_create_user(db, user_id)
-        days = {"monthly": 30, "quarterly": 90, "yearly": 365}.get(period, 30)
+        if period not in REPORT_PERIODS:
+            raise AppException(ErrorCode.INVALID_PARAMS, f"无效的报告周期: {period}")
+        user = await user_repository.get_or_create_user(db, user_id)
+        if period in PRO_REPORT_PERIODS and user.tier == FREE_TIER:
+            raise AppException(ErrorCode.PRO_REQUIRED, "该周期报告为 Pro 订阅权益")
+        days = {"weekly": 7, "monthly": 30, "quarterly": 90, "yearly": 365}[period]
         start = utc_now() - timedelta(days=days)
 
         # 情绪签到分布

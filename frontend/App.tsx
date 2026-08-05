@@ -15,6 +15,8 @@ import OnboardingScreen from './src/screens/OnboardingScreen';
 import PersonalityScreen from './src/screens/PersonalityScreen';
 import PaywallScreen from './src/screens/PaywallScreen';
 import MemoriesScreen from './src/screens/MemoriesScreen';
+import ShareCardScreen from './src/screens/ShareCardScreen';
+import InsightsScreen from './src/screens/InsightsScreen';
 import { Colors } from './src/theme/colors';
 import { initI18n, default as i18n } from './src/i18n';
 import { initApiUser, updateUserSettings } from './src/services/api';
@@ -34,6 +36,8 @@ export type RootStackParamList = {
   Personality: undefined;
   Paywall: undefined;
   Memories: undefined;
+  ShareCard: undefined;
+  Insights: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -130,6 +134,16 @@ export default function App() {
             <Stack.Screen
               name="Memories"
               component={MemoriesScreen}
+              options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+            />
+            <Stack.Screen
+              name="ShareCard"
+              component={ShareCardScreen}
+              options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+            />
+            <Stack.Screen
+              name="Insights"
+              component={InsightsScreen}
               options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
             />
           </Stack.Navigator>

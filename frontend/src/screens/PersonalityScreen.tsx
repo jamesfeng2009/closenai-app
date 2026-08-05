@@ -15,6 +15,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
   TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import {
   getPersonalityProfile, refreshPersonality,
@@ -28,6 +29,7 @@ const STAGE_KEYS = ['stageIntro', 'stageObserve', 'stageExplore', 'stageReveal',
 
 export default function PersonalityScreen() {
   const { t } = useTranslation();
+  const navigation = useNavigation<any>();
   const [profile, setProfile] = useState<PersonalityProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,7 +69,7 @@ export default function PersonalityScreen() {
         Alert.alert(t('common.error'), res.message);
       }
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'refresh failed';
+      const msg = e instanceof ApiError ? e.message : t('errors.refreshFailed');
       Alert.alert(t('common.error'), msg);
     } finally {
       setRefreshing(false);
@@ -82,7 +84,7 @@ export default function PersonalityScreen() {
       setAnswering(true);
       setAssessment(await startAssessment());
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'start failed';
+      const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
       Alert.alert(t('common.error'), msg);
     } finally {
       setAnswering(false);
@@ -109,7 +111,7 @@ export default function PersonalityScreen() {
         );
       }
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'submit failed';
+      const msg = e instanceof ApiError ? e.message : t('errors.submitFailed');
       Alert.alert(t('common.error'), msg);
     } finally {
       setAnswering(false);
@@ -124,7 +126,7 @@ export default function PersonalityScreen() {
       setComboLoading(true);
       setCombo(await generateComboReport());
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'generate failed';
+      const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
       Alert.alert(t('common.error'), msg);
     } finally {
       setComboLoading(false);
@@ -175,6 +177,13 @@ export default function PersonalityScreen() {
           )}
         </View>
 
+        {/* 性格名片入口（P1-F04：画像给自己看 / 名片给别人看） */}
+        {!!profile?.mbti_type && (
+          <TouchableOpacity style={styles.shareCardEntry} onPress={() => navigation.navigate('ShareCard')}>
+            <Text style={styles.shareCardEntryText}>🃏 {t('share.cardEntry')}</Text>
+            <Text style={styles.shareCardArrow}>›</Text>
+          </TouchableOpacity>
+        )}
         {/* 冷启动进度 */}
         {inColdStart && (
           <View style={styles.card}>
@@ -374,6 +383,13 @@ const styles = StyleSheet.create({
   version: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 8 },
   dimensionRow: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.sm, flexWrap: 'wrap', justifyContent: 'center' },
   dimensionText: { fontSize: FontSize.sm, color: Colors.textSecondary },
+  shareCardEntry: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: 'rgba(255,215,0,0.06)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
+    borderRadius: BorderRadius.xl, padding: Spacing.lg, marginBottom: Spacing.md,
+  },
+  shareCardEntryText: { fontSize: FontSize.title, fontWeight: '600', color: Colors.gold400 },
+  shareCardArrow: { fontSize: 20, color: Colors.gold400 },
   card: {
     backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: Colors.borderLight,
     borderRadius: BorderRadius.xl, padding: Spacing.lg, marginBottom: Spacing.md,

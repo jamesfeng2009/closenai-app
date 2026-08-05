@@ -14,6 +14,18 @@ const resource = {
     "cancel": "បោះបង់",
     "delete": "លុប"
   },
+  "errors": {
+    "network": "Network error. Please check your connection and try again.",
+    "timeout": "Request timed out. Please try again later.",
+    "unknown": "Unknown error",
+    "requestFailed": "Request failed",
+    "httpFailed": "Request failed (HTTP {{status}})",
+    "checkinFailed": "Check-in failed. Please try again later.",
+    "saveFailed": "Save failed. Please try again later.",
+    "deleteFailed": "Delete failed. Please try again later.",
+    "refreshFailed": "Refresh failed. Please try again later.",
+    "submitFailed": "Submit failed. Please try again later."
+  },
   "memories": {
     "title": "ការគ្រប់គ្រងអនុស្សាវរីយ៍",
     "empty": "មិនទាន់មានអនុស្សាវរីយ៍នៅឡើយទេ",
@@ -134,7 +146,10 @@ const resource = {
     "aiTag": "បង្កើតដោយ AI",
     "saveDraft": "រក្សាទុកការឆ្លុះបញ្ចាំង",
     "placeholder": "វាយបញ្ចូលសារ...",
-    "aiError": "[កំហុស: {{error}}]"
+    "aiError": "[កំហុស: {{error}}]",
+    "quotaTitle": "Daily limit reached",
+    "quotaMessage": "You've used all free conversations for today. Upgrade to Pro for unlimited chats, or come back tomorrow.",
+    "quotaUpgrade": "Upgrade"
   },
   "profile": {
     "sectionAI": "AI និងអនុស្សាវរីយ៍",
@@ -205,6 +220,38 @@ const resource = {
     "step2Confirm": "បញ្ជាក់",
     "step2SkipCta": "រំលង",
     "mbtiSelected": "បានជ្រើសរើស: {{type}}"
+  },
+  "share": {
+    "cardTitle": "Personality Card",
+    "cardEntry": "Create Personality Card",
+    "classic": "Classic",
+    "minimal": "Minimal",
+    "combo": "Combo",
+    "shareBtn": "Share Card",
+    "streak": "{{count}}-day streak",
+    "proGateTitle": "Pro Card",
+    "proGateMessage": "The combo card is a Pro benefit. Upgrade to unlock it.",
+    "upgrade": "Upgrade"
+  },
+  "insights": {
+    "weeklyTitle": "Weekly Insight",
+    "weeklyEmpty": "Record a few days of moods and chats — your weekly insight arrives by the weekend.",
+    "dailyTitle": "Today's Discovery",
+    "dailyEmpty": "No new discovery today.",
+    "patternTitle": "Pattern Discovery",
+    "patternDesc": "AI finds cross-dimensional patterns from your last 90 days of real data.",
+    "patternGenerate": "Analyze",
+    "reportTitle": "Reports",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "quarterly": "Quarterly",
+    "yearly": "Yearly",
+    "proTitle": "Pro Reports",
+    "proMessage": "Monthly, quarterly and yearly reports are Pro benefits. Upgrade to unlock.",
+    "upgrade": "Upgrade",
+    "chatCount": "{{count}} conversations",
+    "shareReport": "Share Report",
+    "timelineTitle": "Year Heatmap"
   }
 };
 

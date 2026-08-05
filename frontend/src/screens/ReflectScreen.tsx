@@ -206,7 +206,7 @@ export default function ReflectScreen() {
         showQuotaAlert();
         return;
       }
-      const msg = e instanceof ApiError ? e.message : 'checkin failed';
+      const msg = e instanceof ApiError ? e.message : t('errors.checkinFailed');
       Alert.alert(t('common.error'), msg);
     }
   };
@@ -218,7 +218,7 @@ export default function ReflectScreen() {
         prev.map((m) => (m.id === msg.id ? { ...m, draftSaved: true } : m))
       );
     } catch (e) {
-      const text = e instanceof ApiError ? e.message : 'save failed';
+      const text = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), text);
     }
   };

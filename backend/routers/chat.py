@@ -3,8 +3,10 @@
 
 端点：
     POST /api/v1/chat/stream     — SSE 流式对话
-    POST /api/v1/chat/proactive  — 主动消息生成（内部）
     GET  /api/v1/chat/history    — 对话历史
+
+注：主动消息生成仅供 cron 内部链路调用（services/message_generator），
+不暴露 HTTP 端点——避免绕过 ai_consent / 配额校验被脚本化刷 LLM 成本。
 """
 import json
 import logging
@@ -112,23 +114,6 @@ async def stream_chat(
             "X-Accel-Buffering": "no",
         },
     )
-
-
-@router.post("/chat/proactive")
-async def generate_proactive_message(
-    db: AsyncSession = Depends(get_db),
-    language: str = Depends(get_request_language),
-    user_id: str = Depends(get_current_user),
-    generator: MessageGenerator = Depends(get_message_generator),
-):
-    """
-    生成主动消息（Cron Job 内部调用）。
-
-    四层公式：
-    ① 引用记忆 ② 发现模式 ③ 情绪关联 ④ 互动
-    """
-    msg = await generator.generate_proactive_message(db, user_id, language)
-    return success({"message": msg})
 
 
 @router.get("/chat/history")

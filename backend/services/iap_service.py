@@ -30,6 +30,27 @@ logger = logging.getLogger("closenai.iap")
 VERIFY_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt"
 VERIFY_SANDBOX_URL = "https://sandbox.itunes.apple.com/verifyReceipt"
 
+# Apple 官方根证书（锚定用，DER 的 base64）。
+# 来源：https://www.apple.com/certificateauthority/AppleRootCA-G3.cer
+# SHA-256 指纹：63:34:3A:BF:B8:9A:6A:03:EB:B5:7E:9B:3F:5F:A7:BE:7C:4F:5C:75:6F:30:17:B3:A8:C4:88:C3:65:3E:91:79
+# App Store Server API / Notifications V2 的 JWS x5c 链终止于此根。
+_APPLE_ROOT_CA_G3_B64 = (
+    "MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9v"
+    "dCBDQSAtIEczMSYwJAYDVQQLDB1BcHBsZSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTETMBEGA1UE"
+    "CgwKQXBwbGUgSW5jLjELMAkGA1UEBhMCVVMwHhcNMTQwNDMwMTgxOTA2WhcNMzkwNDMwMTgxOTA2"
+    "WjBnMRswGQYDVQQDDBJBcHBsZSBSb290IENBIC0gRzMxJjAkBgNVBAsMHUFwcGxlIENlcnRpZmlj"
+    "YXRpb24gQXV0aG9yaXR5MRMwEQYDVQQKDApBcHBsZSBJbmMuMQswCQYDVQQGEwJVUzB2MBAGByqG"
+    "SM49AgEGBSuBBAAiA2IABJjpLz1AcqTtkyJygRMc3RCV8cWjTnHcFBbZDuWmBSp3ZHtfTjjTuxxE"
+    "tX/1H7YyYl3J6YRbTzBPEVoA/VhYDKX1DyxNB0cTddqXl5dvMVztK517IDvYuVTZXpmkOlEKMaNC"
+    "MEAwHQYDVR0OBBYEFLuw3qFYM4iapIqZ3r6966/ayySrMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0P"
+    "AQH/BAQDAgEGMAoGCCqGSM49BAMDA2gAMGUCMQCD6cHEFl4aXTQY2e3v9GwOAEZLuN+yRhHFD/3m"
+    "eoyhpmvOwgPUnPWTxnS4at+qIxUCMG1mihDK1A3UT82NQz60imOlM27jbdoXt2QfyFMm+YhidDkL"
+    "F1vLUagM6BgD56KyKA=="
+)
+
+# 可信 Apple 根证书 DER 集合（字节级锚定；Apple 换根时需在此追加）
+_TRUSTED_APPLE_ROOTS_DER = {base64.b64decode(_APPLE_ROOT_CA_G3_B64)}
+
 # 升级回退处理：同样的收据在沙盒/生产间切换时重试
 APPLE_21007 = 21007  # 沙盒收据打到生产端点
 APPLE_21008 = 21008  # 生产收据打到沙盒端点
@@ -65,7 +86,7 @@ def decode_apple_jws(token: str) -> Dict[str, Any]:
 
     验证链：
     1. header.x5c 证书链：每个证书由下一个证书签发（ECDSA/RSA 自适应）
-    2. 根证书 subject 必须含 "Apple Root CA"
+    2. 根证书与 Apple 官方根（Apple Root CA - G3）字节级比对（证书钉扎，防私有 CA 伪造链）
     3. 叶子证书在有效期内
     4. 用叶子证书公钥验签 JWS（ES256）
 
@@ -74,6 +95,7 @@ def decode_apple_jws(token: str) -> Dict[str, Any]:
     try:
         from cryptography import x509
         from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
     except ImportError as exc:  # cryptography 缺失时 fail-closed
         raise AppException(ErrorCode.IAP_VERIFY_FAILED, "服务器缺少 JWS 验签依赖") from exc
@@ -85,7 +107,8 @@ def decode_apple_jws(token: str) -> Dict[str, Any]:
     try:
         header = json.loads(_b64url_decode(parts[0]))
         chain_b64 = header.get("x5c") or []
-        certs = [x509.load_der_x509_certificate(base64.b64decode(c)) for c in chain_b64]
+        chain_der = [base64.b64decode(c) for c in chain_b64]
+        certs = [x509.load_der_x509_certificate(der) for der in chain_der]
     except Exception as exc:
         raise AppException(ErrorCode.IAP_VERIFY_FAILED, "JWS 证书链解析失败") from exc
 
@@ -105,11 +128,11 @@ def decode_apple_jws(token: str) -> Dict[str, Any]:
         # 链内签发关系：leaf ← intermediate ← root
         for i in range(len(certs) - 1):
             _verify_cert(certs[i], certs[i + 1])
-        # 根必须自签且为 Apple Root CA
-        root = certs[-1]
-        if "Apple Root CA" not in root.subject.rfc4514_string():
-            raise InvalidSignature("根证书非 Apple Root CA")
-        _verify_cert(root, root)
+        # 根证书锚定：x5c 链完全来自请求方，仅验证链内自洽不够——
+        # 攻击者可自签 subject 含 "Apple Root CA" 的私有 CA 伪造全链。
+        # 必须字节级比对 Apple 官方发布的根证书（证书钉扎）。
+        if chain_der[-1] not in _TRUSTED_APPLE_ROOTS_DER:
+            raise InvalidSignature("根证书非 Apple 官方根（锚定失败）")
         # 叶子证书有效期
         leaf = certs[0]
         now = datetime.now(timezone.utc)
@@ -119,7 +142,7 @@ def decode_apple_jws(token: str) -> Dict[str, Any]:
         leaf.public_key().verify(
             _b64url_decode(parts[2]),
             f"{parts[0]}.{parts[1]}".encode(),
-            ec.ECDSA(ec.SHA256()),
+            ec.ECDSA(hashes.SHA256()),
         )
     except InvalidSignature as exc:
         raise AppException(ErrorCode.IAP_VERIFY_FAILED, "JWS 验签失败") from exc

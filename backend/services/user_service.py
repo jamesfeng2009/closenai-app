@@ -18,6 +18,7 @@ from backend.models.mood import MoodCheckin
 from backend.models.personality import PersonalityAssessment, PersonalityProfile
 from backend.models.schemas import MilestoneItem, UserProfileResponse, UserSettingsUpdate
 from backend.models.push import PushToken
+from backend.models.share import ShareExport
 from backend.models.subscription import Receipt, Subscription
 from backend.models.user import User
 from backend.repositories import milestone_repository, user_repository
@@ -70,6 +71,7 @@ class UserService:
             daily_quota_used=quota_used,
             daily_quota_total=settings.free_daily_messages,
             ai_consent=user.ai_consent,
+            push_time=user.push_time,
         )
 
     async def set_ai_consent(self, db: AsyncSession, user_id: str, consent: bool) -> bool:
@@ -258,7 +260,7 @@ class UserService:
         """注销账号：级联删除用户全部数据（合规：数据删除权，不可恢复）。
 
         覆盖全部用户数据表，确保无残留：
-        对话 / 情绪签到 / 记忆 / 性格画像 / 性格评估 / 成长记录 / 里程碑徽章 / 推送令牌 / 订阅与收据 / 用户本体。
+        对话 / 情绪签到 / 记忆 / 性格画像 / 性格评估 / 成长记录 / 里程碑徽章 / 推送令牌 / 分享导出 / 订阅与收据 / 用户本体。
         """
         counts: dict = {}
         for table, key in (
@@ -270,6 +272,7 @@ class UserService:
             (GrowthRecord, "growth_records"),
             (UserMilestone, "user_milestones"),
             (PushToken, "push_tokens"),
+            (ShareExport, "share_exports"),
             (Receipt, "receipts"),
             (Subscription, "subscriptions"),
             (User, "users"),

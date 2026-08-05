@@ -14,6 +14,18 @@ const resource = {
     "cancel": "キャンセル",
     "delete": "削除"
   },
+  "errors": {
+    "network": "Network error. Please check your connection and try again.",
+    "timeout": "Request timed out. Please try again later.",
+    "unknown": "Unknown error",
+    "requestFailed": "Request failed",
+    "httpFailed": "Request failed (HTTP {{status}})",
+    "checkinFailed": "Check-in failed. Please try again later.",
+    "saveFailed": "Save failed. Please try again later.",
+    "deleteFailed": "Delete failed. Please try again later.",
+    "refreshFailed": "Refresh failed. Please try again later.",
+    "submitFailed": "Submit failed. Please try again later."
+  },
   "memories": {
     "title": "記憶管理",
     "empty": "まだ記憶がありません",
@@ -208,6 +220,38 @@ const resource = {
     "step2Confirm": "確認",
     "step2SkipCta": "スキップ",
     "mbtiSelected": "選択中: {{type}}"
+  },
+  "share": {
+    "cardTitle": "Personality Card",
+    "cardEntry": "Create Personality Card",
+    "classic": "Classic",
+    "minimal": "Minimal",
+    "combo": "Combo",
+    "shareBtn": "Share Card",
+    "streak": "{{count}}-day streak",
+    "proGateTitle": "Pro Card",
+    "proGateMessage": "The combo card is a Pro benefit. Upgrade to unlock it.",
+    "upgrade": "Upgrade"
+  },
+  "insights": {
+    "weeklyTitle": "Weekly Insight",
+    "weeklyEmpty": "Record a few days of moods and chats — your weekly insight arrives by the weekend.",
+    "dailyTitle": "Today's Discovery",
+    "dailyEmpty": "No new discovery today.",
+    "patternTitle": "Pattern Discovery",
+    "patternDesc": "AI finds cross-dimensional patterns from your last 90 days of real data.",
+    "patternGenerate": "Analyze",
+    "reportTitle": "Reports",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "quarterly": "Quarterly",
+    "yearly": "Yearly",
+    "proTitle": "Pro Reports",
+    "proMessage": "Monthly, quarterly and yearly reports are Pro benefits. Upgrade to unlock.",
+    "upgrade": "Upgrade",
+    "chatCount": "{{count}} conversations",
+    "shareReport": "Share Report",
+    "timelineTitle": "Year Heatmap"
   }
 };
 

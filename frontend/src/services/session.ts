@@ -10,6 +10,12 @@ import { resetApiUser } from './api';
 
 const ONBOARDED_KEY = '@closenai/onboarded';
 
+// 用户级缓存（重置会话时必须清除，否则新身份首屏 SWR 会渲染上一账号数据）
+const USER_CACHE_KEYS = [
+  ONBOARDED_KEY,
+  '@closenai/dashboard_cache', // HomeScreen 仪表盘缓存（streak/等级/昨日反思）
+];
+
 const listeners = new Set<() => void>();
 
 /** 订阅会话重置事件（App 根组件挂载时订阅，返回取消函数）。 */
@@ -20,11 +26,11 @@ export function onSessionReset(fn: () => void): () => void {
   };
 }
 
-/** 重置会话：清除本地身份与引导标记，并通知订阅者（回到引导页）。 */
+/** 重置会话：清除本地身份、引导标记与用户级缓存，并通知订阅者（回到引导页）。 */
 export async function resetSession(): Promise<void> {
   await resetApiUser();
   try {
-    await AsyncStorage.removeItem(ONBOARDED_KEY);
+    await AsyncStorage.multiRemove(USER_CACHE_KEYS);
   } catch {
     // ignore
   }

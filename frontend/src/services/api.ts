@@ -17,6 +17,7 @@ import type {
   AssessmentState, AssessmentAnswerResult, ComboReport,
   UserProfile, UserSettings,
   DailyDiscovery,
+  PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
   SubscriptionStatus, ReceiptVerifyResult,
   ReflectionDraft, ReflectionItem,
   Memory,
@@ -122,7 +123,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       headers: { ...getHeaders(), ...(options.headers as Record<string, string> | undefined) },
     });
   } catch {
-    throw new ApiError(-1, '网络连接失败，请检查网络后重试');
+    throw new ApiError(-1, i18n.t('errors.network'));
   }
 
   let body: unknown = null;
@@ -136,14 +137,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const msg =
       isEnvelope(body) && typeof body.message === 'string'
         ? body.message
-        : `请求失败（HTTP ${res.status}）`;
+        : i18n.t('errors.httpFailed', { status: res.status });
     const code = isEnvelope(body) ? body.code : res.status;
     throw new ApiError(code, msg);
   }
 
   if (isEnvelope(body)) {
     if (body.code !== 200) {
-      throw new ApiError(body.code, body.message || '请求失败');
+      throw new ApiError(body.code, body.message || i18n.t('errors.requestFailed'));
     }
     return body.data as T;
   }
@@ -201,7 +202,7 @@ export function streamChat(
         finish(onDone);
         break;
       case 'error':
-        finish(() => onError(event.message || '未知错误', event.code));
+        finish(() => onError(event.message || i18n.t('errors.unknown'), event.code));
         break;
     }
   };
@@ -218,7 +219,7 @@ export function streamChat(
   xhr.onload = () => {
     // 非 2xx（如 403 AI_CONSENT_REQUIRED）：响应为 JSON 信封而非 SSE 流，按错误处理
     if (xhr.status < 200 || xhr.status >= 300) {
-      let message = `请求失败（HTTP ${xhr.status}）`;
+      let message = i18n.t('errors.httpFailed', { status: xhr.status });
       let code: number = xhr.status;
       try {
         const body = JSON.parse(xhr.responseText);
@@ -235,8 +236,8 @@ export function streamChat(
     // 流正常结束但未收到 done 事件时，兜底完成
     finish(onDone);
   };
-  xhr.onerror = () => finish(() => onError('网络连接失败，请检查网络后重试'));
-  xhr.ontimeout = () => finish(() => onError('请求超时，请稍后再试'));
+  xhr.onerror = () => finish(() => onError(i18n.t('errors.network')));
+  xhr.ontimeout = () => finish(() => onError(i18n.t('errors.timeout')));
   xhr.timeout = 60000;
 
   xhr.send(JSON.stringify(requestBody));
@@ -385,6 +386,30 @@ export async function deleteMemory(memoryId: string): Promise<void> {
 
 export async function getDailyDiscovery(): Promise<DailyDiscovery> {
   return request<DailyDiscovery>('/discovery/daily');
+}
+
+// ═══ Share (P1-F04) ═══
+
+// 后端 share 端点 language 为显式 Query 参数（默认 en），必须按当前 UI 语言透传
+function langParam(): string {
+  return (i18n.language || 'en').slice(0, 2);
+}
+
+/** 导出性格名片（classic/minimal 免费，combo 为 Pro 权益 40302）。 */
+export async function getPersonalityCard(variant: ShareCardVariant): Promise<PersonalityCard> {
+  return request<PersonalityCard>(`/share/personality-card?variant=${variant}&language=${langParam()}`);
+}
+
+/** 导出周期报告（weekly 免费；monthly/quarterly/yearly 为 Pro 权益 40302；同周期后端缓存）。 */
+export async function getShareReport(period: SharePeriod): Promise<ShareReport> {
+  return request<ShareReport>(`/share/report/${period}?language=${langParam()}`);
+}
+
+// ═══ Advanced Insights (P1-F03) ═══
+
+/** 跨维度模式发现（LLM 实时生成，点击触发，勿自动轮询）。 */
+export async function getPatternDiscovery(): Promise<PatternDiscovery> {
+  return request<PatternDiscovery>('/growth/patterns');
 }
 
 // ═══ IAP (P1-F02) ═══

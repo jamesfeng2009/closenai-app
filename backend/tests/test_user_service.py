@@ -126,3 +126,33 @@ async def test_milestones_achieved_idempotent(db, make_user):
         "streak_100": False,
         "streak_365": False,
     }
+
+
+async def test_get_profile_returns_push_time(db, make_user):
+    """B10 回归：画像响应必须透传 push_time（前端展示真实主动消息时间，非假数据）。"""
+    await make_user("u-push", push_time="21:30")
+    profile = await user_service.get_profile(db, "u-push")
+    assert profile.push_time == "21:30"
+
+    # 未设置时透传 None（前端按后端调度默认 09:00 展示）
+    await make_user("u-default")
+    profile = await user_service.get_profile(db, "u-default")
+    assert profile.push_time is None
+
+
+async def test_delete_account_cascades_share_exports(db, make_user):
+    """B5 回归：注销必须级联删除 share_exports（含敏感成长报告 payload）。"""
+    from sqlalchemy import select
+
+    from backend.models.share import ShareExport
+    from backend.repositories import share_repository
+
+    await make_user("u1")
+    await share_repository.save(db, "u1", "week", "2026-W32", '{"report": "sensitive"}')
+    await db.flush()
+
+    counts = await user_service.delete_account(db, "u1")
+    assert counts["share_exports"] == 1
+
+    remaining = await db.execute(select(ShareExport).where(ShareExport.user_id == "u1"))
+    assert remaining.scalars().all() == []

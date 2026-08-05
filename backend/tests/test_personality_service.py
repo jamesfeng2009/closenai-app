@@ -45,3 +45,42 @@ async def test_refresh_no_new_data_within_7_days_does_not_consume_quota(
     assert mock_llm.calls["complete"] == []
     versions = await personality_repository.list(db, "u1")
     assert len(versions) == 1
+
+
+async def test_assessment_first_profile_does_not_consume_refresh_quota(db, make_user):
+    """B6 回归：评估完成生成的首画像免费，免费用户剩余配额仍为 3。"""
+    await make_user("u1", language="en", tier="free")
+    # 模拟一次已完成评估（完成时生成一版画像）
+    assessment = await personality_repository.create_assessment(db, "u1")
+    await personality_repository.save_assessment(db, assessment, "[]", "completed")
+    await personality_repository.create(db, "u1", "INTP", '["观察"]', "独特", 1)
+
+    remaining = await personality_service._refresh_quota_remaining(db, "u1")
+    assert remaining == 3
+
+
+async def test_manual_refresh_consumes_quota_after_assessment(db, make_user):
+    """B6 回归：评估之外的版本才计刷新消耗（1 评估版 + 1 刷新版 → 剩 2）。"""
+    await make_user("u1", language="en", tier="free")
+    assessment = await personality_repository.create_assessment(db, "u1")
+    await personality_repository.save_assessment(db, assessment, "[]", "completed")
+    await personality_repository.create(db, "u1", "INTP", '["观察"]', "独特", 1)
+    await personality_repository.create(db, "u1", "INTJ", '["观察2"]', "独特2", 2)
+
+    remaining = await personality_service._refresh_quota_remaining(db, "u1")
+    assert remaining == 2
+
+
+async def test_pro_monthly_quota_excludes_assessment_version(db, make_user, time_travel):
+    """B6 回归：Pro 月度配额同样剔除当月评估版（1 评估版 + 1 刷新版 → 剩 4）。"""
+    from datetime import datetime, timezone
+
+    time_travel.set(datetime(2026, 8, 5, 12, tzinfo=timezone.utc))
+    await make_user("u1", language="en", tier="pro", timezone="UTC")
+    assessment = await personality_repository.create_assessment(db, "u1")
+    await personality_repository.save_assessment(db, assessment, "[]", "completed")
+    await personality_repository.create(db, "u1", "INTP", '["观察"]', "独特", 1)
+    await personality_repository.create(db, "u1", "INTJ", '["观察2"]', "独特2", 2)
+
+    remaining = await personality_service._refresh_quota_remaining(db, "u1")
+    assert remaining == 4

@@ -85,7 +85,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         Alert.alert(`${res.mood_emoji} ${res.mood_label}`, text);
       }
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : '签到失败，请稍后重试';
+      const msg = e instanceof ApiError ? e.message : t('errors.checkinFailed');
       Alert.alert(t('common.error'), msg);
     } finally {
       setCheckingIn(false);
@@ -117,7 +117,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         </View>
         <View style={styles.divider} />
         <View style={styles.streakItem}>
-          <Text style={styles.levelLabel}>{dashboard?.relationship_level || '初识 L1'}</Text>
+          <Text style={styles.levelLabel}>{dashboard?.relationship_level || ''}</Text>
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${(dashboard?.level_progress || 0) * 100}%` }]} />
           </View>
@@ -178,8 +178,8 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         </View>
       </View>
 
-      {/* Growth This Week */}
-      <TouchableOpacity style={styles.card}>
+      {/* Growth This Week（点击进入高级洞察页 P1-F03） */}
+      <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Insights')}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitlePurple}>📈 {t('home.growthThisWeek')}</Text>
           <Text style={styles.detailArrow}>{t('home.details')} →</Text>
@@ -220,12 +220,12 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         </Text>
       </TouchableOpacity>
 
-      {/* 本周 Insight */}
+      {/* 本周 Insight（点击进入高级洞察页；等级徽章由洞察页展示真实 level） */}
       {dashboard?.weekly_insight && (
-        <TouchableOpacity style={styles.card}>
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Insights')}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitlePurple}>📈 {t('home.weeklyInsight')}</Text>
-            <Text style={styles.insightBadge}>L2 Pattern</Text>
+            <Text style={styles.detailArrow}>{t('home.details')} →</Text>
           </View>
           <Text style={styles.insightText}>{dashboard.weekly_insight}</Text>
         </TouchableOpacity>
@@ -322,10 +322,6 @@ const styles = StyleSheet.create({
   miniTimeline: { flexDirection: 'row', gap: 2, height: 20, marginTop: 10 },
   timelineDot: { flex: 1, borderRadius: 2 },
   timelineHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 4 },
-  insightBadge: {
-    fontSize: FontSize.xs, fontWeight: '600', color: '#A78BFA',
-    backgroundColor: 'rgba(99,102,241,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
-  },
   insightText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.5 },
   yesterdayCard: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

@@ -71,6 +71,23 @@ def get_model(lite: bool = False) -> str:
     return settings.openai_lite_model if lite else settings.openai_model
 
 
+def get_embedding_model() -> str:
+    """返回当前 provider 的 embedding 模型名（与 get_model 同口径按 provider 切换）。
+
+    注意：向量空间跨模型不兼容，切换 provider/模型后存量向量需重嵌入。
+    """
+    provider = settings.llm_provider
+    if provider == "dashscope":
+        return settings.dashscope_embedding_model
+    if provider == "gemini":
+        return settings.gemini_embedding_model
+    if provider == "doubao":
+        if not settings.doubao_embedding_model:
+            raise RuntimeError("provider 'doubao' 未配置 DOUBAO_EMBEDDING_MODEL")
+        return settings.doubao_embedding_model
+    return settings.openai_embedding_model
+
+
 def _build_system_prompt(base_prompt: str, language: str) -> str:
     """注入语言跟随指令。"""
     return (
@@ -144,7 +161,7 @@ async def embed(
     """
     client = _get_client()
     provider = settings.llm_provider
-    model = settings.dashscope_embedding_model
+    model = get_embedding_model()
     extra: dict = {}
     if dim is not None:
         extra["dimensions"] = dim
@@ -163,4 +180,5 @@ llm = type("LLM", (), {
     "stream": staticmethod(stream),
     "embed": staticmethod(embed),
     "get_model": staticmethod(get_model),
+    "get_embedding_model": staticmethod(get_embedding_model),
 })()

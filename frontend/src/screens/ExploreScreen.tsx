@@ -6,10 +6,11 @@
  * - 冷启动进度条（新用户 Day 1-6）
  * - 更多探索（本命星盘、性格名片）
  */
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getPersonalityProfile } from '../services/api';
 import type { PersonalityProfile } from '../types';
@@ -20,13 +21,15 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
   const [profile, setProfile] = useState<PersonalityProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
+  // Tab 常驻不卸载：每次聚焦都刷新画像（评估/刷新后返回不过期；mount 时也会触发一次）
+  useFocusEffect(
+    React.useCallback(() => {
+      loadProfile();
+    }, [])
+  );
 
   const loadProfile = async () => {
     try {
-      setLoading(true);
       const data = await getPersonalityProfile();
       setProfile(data);
     } catch (e) {
@@ -77,7 +80,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
         <View style={styles.coldStartCard}>
           <View style={styles.coldStartHeader}>
             <Text style={styles.coldStartIcon}>🧠</Text>
-            <View style={{ flex: 1 }}>
+            <View style={styles.flex1}>
               <Text style={styles.coldStartTitle}>{t('explore.coldStartTitle')}</Text>
               <Text style={styles.coldStartStatus}>
                 {t('explore.coldStartStatus', { day: Math.ceil(profile.cold_start_progress * 7) })}
@@ -117,7 +120,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.exploreTile}
-            onPress={onComingSoon}
+            onPress={() => navigation.navigate('ShareCard')}
           >
             <Text style={styles.tileIcon}>🃏</Text>
             <Text style={styles.tileName}>{t('explore.personCard')}</Text>
@@ -131,6 +134,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  flex1: { flex: 1 },
   content: { padding: Spacing.lg, paddingBottom: 80 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary },
   title: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.md },

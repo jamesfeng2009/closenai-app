@@ -19,6 +19,7 @@ def _row_from_memory(m, similarity: float) -> dict:
         "superseded_at": m.superseded_at,
         "transition_reason": m.transition_reason,
         "superseded_by": m.superseded_by,
+        "emotion_context": m.emotion_context,
         "similarity": similarity,
     }
 
@@ -130,3 +131,49 @@ async def test_get_memory_idor_returns_none(db, make_user, stub_semantic_search)
     memory = await memory_service.create_memory(db, "u1", content="私密记忆")
     assert await memory_service.get_memory(db, memory.id, "other-user") is None
     assert await memory_service.get_memory(db, memory.id, "u1") is not None
+
+
+async def test_pending_mark_cleared_on_calm_day_reaffirm(db, make_user, stub_semantic_search):
+    """B13 回归：冷静日重申同一信念（≥0.85）→ 解除 pending_high_emotion 悬置标记。"""
+    from backend.services.memory_service import EMOTION_CONTEXT_PENDING
+
+    await make_user("u1")
+    first = await memory_service.create_memory(
+        db, "u1", content="我喜欢独处", category="preference", source="self", conviction=0.5
+    )
+    # 模拟：此前高情绪日检测到矛盾，旧信念被悬置标记
+    await memory_repository.update_emotion_context(db, first.id, "u1", EMOTION_CONTEXT_PENDING)
+    orm_first = await memory_repository.get(db, first.id, "u1")
+    stub_semantic_search["rows"] = [_row_from_memory(orm_first, 0.92)]
+
+    await memory_service.create_memory(
+        db, "u1", content="独处让我最放松", category="preference", source="self", conviction=0.5
+    )
+    after = await memory_repository.get(db, first.id, "u1")
+    assert after.emotion_context is None  # 标记已消解
+    assert after.status == "current"  # 信念重申成功，不被取代
+
+
+async def test_pending_mark_kept_on_high_negative_day(
+    db, make_user, stub_semantic_search, monkeypatch
+):
+    """B13 回归：高情绪日重申仅加固 conviction，不消解 pending 标记（情绪过滤仍生效）。"""
+    from backend.services.memory_service import EMOTION_CONTEXT_PENDING
+
+    await make_user("u1")
+    first = await memory_service.create_memory(
+        db, "u1", content="我喜欢独处", category="preference", source="self", conviction=0.5
+    )
+    await memory_repository.update_emotion_context(db, first.id, "u1", EMOTION_CONTEXT_PENDING)
+    orm_first = await memory_repository.get(db, first.id, "u1")
+    stub_semantic_search["rows"] = [_row_from_memory(orm_first, 0.92)]
+
+    async def _high_negative(db, user_id):
+        return True
+
+    monkeypatch.setattr(memory_service, "_is_high_negative_today", _high_negative)
+    await memory_service.create_memory(
+        db, "u1", content="独处让我最放松", category="preference", source="self", conviction=0.5
+    )
+    after = await memory_repository.get(db, first.id, "u1")
+    assert after.emotion_context == EMOTION_CONTEXT_PENDING

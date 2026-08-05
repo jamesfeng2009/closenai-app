@@ -17,7 +17,7 @@ import {
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getSubscriptionStatus, ApiError } from '../services/api';
 import {
-  DEFAULT_SKU, getProducts, isUserCancelled, purchaseSubscription, restorePurchases,
+  DEFAULT_SKU, getProducts, initIAP, isUserCancelled, purchaseSubscription, restorePurchases,
 } from '../services/iap';
 import type { SubscriptionStatus } from '../types';
 import { useTranslation } from 'react-i18next';
@@ -35,6 +35,8 @@ export default function PaywallScreen() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [price, setPrice] = useState<string | null>(null);
+  // IAP 环境不可用（Expo Go 无原生模块）时展示持久提示，而非仅静默禁用按钮
+  const [iapUnavailable, setIapUnavailable] = useState(false);
 
   useEffect(() => {
     loadStatus();
@@ -52,8 +54,12 @@ export default function PaywallScreen() {
     }
   };
 
-  // 拉取本地化价格（App Store 要求购买前展示价格）；环境不可用时静默降级
+  // 拉取本地化价格（App Store 要求购买前展示价格）；环境不可用时展示提示而非静默降级
   const loadPrice = async () => {
+    if (!(await initIAP())) {
+      setIapUnavailable(true);
+      return;
+    }
     const products = await getProducts();
     const product = products.find((p) => p.productId === DEFAULT_SKU) ?? products[0];
     const localized =
@@ -173,6 +179,13 @@ export default function PaywallScreen() {
         </TouchableOpacity>
       )}
 
+      {/* IAP 环境不可用提示（Expo Go 等）：持久展示原因，避免按钮静默禁用 */}
+      {iapUnavailable && !isPro && (
+        <View style={styles.unavailableBox}>
+          <Text style={styles.unavailableText}>{t('paywall.unavailable')}</Text>
+        </View>
+      )}
+
       {/* 恢复购买（App Store 合规必需） */}
       <TouchableOpacity style={styles.restoreBtn} onPress={onRestore} disabled={busy}>
         <Text style={styles.restoreText}>{t('paywall.restore')}</Text>
@@ -229,6 +242,12 @@ const styles = StyleSheet.create({
   subscribeBtnDisabled: { opacity: 0.6 },
   priceText: { fontSize: FontSize.md, color: Colors.bgPrimary, marginTop: 2, opacity: 0.85 },
   restoreBtn: { marginTop: Spacing.lg, paddingVertical: 10 },
+  unavailableBox: {
+    alignSelf: 'stretch', marginTop: Spacing.md, padding: Spacing.md,
+    backgroundColor: 'rgba(255,159,67,0.08)', borderWidth: 1, borderColor: 'rgba(255,159,67,0.25)',
+    borderRadius: BorderRadius.lg,
+  },
+  unavailableText: { fontSize: FontSize.md, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
   restoreText: { fontSize: FontSize.md, color: Colors.textTertiary, textDecorationLine: 'underline' },
   legalRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.md },
   legalLink: { fontSize: FontSize.md, color: Colors.textTertiary, textDecorationLine: 'underline' },

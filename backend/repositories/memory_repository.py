@@ -244,9 +244,9 @@ class MemoryRepository:
         await db.flush()
 
     async def update_emotion_context(
-        self, db: AsyncSession, memory_id: str, user_id: str, emotion_context: str
+        self, db: AsyncSession, memory_id: str, user_id: str, emotion_context: Optional[str]
     ) -> None:
-        """更新情绪上下文标记（情绪过滤：pending_high_emotion，强制归属校验）。"""
+        """更新情绪上下文标记（情绪过滤：pending_high_emotion；None = 解除标记，强制归属校验）。"""
         await db.execute(
             update(Memory)
             .where(Memory.id == memory_id, Memory.user_id == user_id)

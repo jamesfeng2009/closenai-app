@@ -14,6 +14,18 @@ const resource = {
     "cancel": "取消",
     "delete": "删除"
   },
+  "errors": {
+    "network": "网络连接失败，请检查网络后重试",
+    "timeout": "请求超时，请稍后再试",
+    "unknown": "未知错误",
+    "requestFailed": "请求失败",
+    "httpFailed": "请求失败（HTTP {{status}}）",
+    "checkinFailed": "签到失败，请稍后重试",
+    "saveFailed": "保存失败，请稍后重试",
+    "deleteFailed": "删除失败，请稍后重试",
+    "refreshFailed": "刷新失败，请稍后重试",
+    "submitFailed": "提交失败，请稍后重试"
+  },
   "memories": {
     "title": "记忆管理",
     "empty": "暂无记忆",
@@ -208,6 +220,38 @@ const resource = {
     "step2Confirm": "确认",
     "step2SkipCta": "跳过",
     "mbtiSelected": "已选择：{{type}}"
+  },
+  "share": {
+    "cardTitle": "性格名片",
+    "cardEntry": "生成性格名片",
+    "classic": "完整",
+    "minimal": "极简",
+    "combo": "组合",
+    "shareBtn": "分享名片",
+    "streak": "连续 {{count}} 天",
+    "proGateTitle": "Pro 专属名片",
+    "proGateMessage": "三维度组合名片为 Pro 订阅权益，升级后解锁。",
+    "upgrade": "升级"
+  },
+  "insights": {
+    "weeklyTitle": "每周洞察",
+    "weeklyEmpty": "记录几天的情绪与对话后，周报会在周末生成。",
+    "dailyTitle": "今日发现",
+    "dailyEmpty": "今日暂无新发现。",
+    "patternTitle": "模式发现",
+    "patternDesc": "AI 基于你近 90 天的真实数据，发现跨维度的行为模式。",
+    "patternGenerate": "开始分析",
+    "reportTitle": "周期报告",
+    "weekly": "周报",
+    "monthly": "月报",
+    "quarterly": "季报",
+    "yearly": "年报",
+    "proTitle": "Pro 专属报告",
+    "proMessage": "月报、季报、年报为 Pro 订阅权益，升级后解锁。",
+    "upgrade": "升级",
+    "chatCount": "对话 {{count}} 轮",
+    "shareReport": "分享报告",
+    "timelineTitle": "年度热力图"
   }
 };
 

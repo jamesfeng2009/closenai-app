@@ -35,7 +35,11 @@ from backend.repositories import (
     share_repository,
     user_repository,
 )
-from backend.services.growth_service import growth_service
+from backend.services.growth_service import (
+    PRO_REPORT_PERIODS,
+    REPORT_PERIODS,
+    growth_service,
+)
 from backend.services.personality_service import personality_service
 from backend.services.quota_service import FREE_TIER
 
@@ -48,10 +52,10 @@ try:
 except Exception:  # noqa: BLE001
     _CJK_FONT = "Helvetica"
 
-# 导出周期白名单（非法 period → 400）
-ALLOWED_PERIODS = ("weekly", "monthly", "quarterly", "yearly")
-# Pro 权益周期（PRD P1-F02 §3：月报/季报/年报为 Pro 核心付费价值；weekly 免费）
-PRO_PERIODS = ("monthly", "quarterly", "yearly")
+# 导出周期白名单（非法 period → 400）与 Pro 权益周期（PRD P1-F02 §3）统一定义在 growth_service，
+# 这里取别名保持原有引用不变，避免两处定义漂移
+ALLOWED_PERIODS = REPORT_PERIODS
+PRO_PERIODS = PRO_REPORT_PERIODS
 
 # 名片变体（PRD P1-F04 §6）：classic 完整 / minimal 轻量 / combo Pro 三维度组合
 CARD_VARIANTS = ("classic", "minimal", "combo")

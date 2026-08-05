@@ -580,23 +580,31 @@ class PersonalityService:
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
     async def _refresh_quota_remaining(self, db: AsyncSession, user_id: str) -> int:
-        """计算剩余刷新配额（免费 3 次总计，Pro 每月 5 次）。"""
+        """计算剩余刷新配额（免费 3 次总计，Pro 每月 5 次）。
+
+        评估完成生成的画像版本"免费"（见 answer_assessment），按已完成评估数剔除，
+        剩余版本才计入手动刷新消耗。
+        """
         user = await user_repository.get_user(db, user_id)
         tier = user.tier if user else "free"
         versions = await personality_repository.list(db, user_id)
+        assessments = await personality_repository.list_completed_assessments(db, user_id)
         if tier in ("pro", "pro_plus"):
             # 本月已刷新次数（按用户本地月份，created_at 统一换算到用户时区）
             now = local_now(user.timezone if user else None)
-            month_recent = []
-            for v in versions:
-                aware = v.created_at if v.created_at.tzinfo else v.created_at.replace(tzinfo=timezone.utc)
+
+            def _in_local_month(dt) -> bool:
+                aware = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
                 local_dt = aware.astimezone(now.tzinfo)
-                if local_dt.year == now.year and local_dt.month == now.month:
-                    month_recent.append(v)
+                return local_dt.year == now.year and local_dt.month == now.month
+
+            month_versions = sum(1 for v in versions if _in_local_month(v.created_at))
+            month_assessments = sum(1 for a in assessments if _in_local_month(a.updated_at))
             quota = settings.pro_personality_refreshes if tier == "pro" else 999
-            return max(0, quota - len(month_recent))
+            return max(0, quota - max(0, month_versions - month_assessments))
         # free：总计 3 次
-        return max(0, settings.free_personality_refreshes - len(versions))
+        used = max(0, len(versions) - len(assessments))
+        return max(0, settings.free_personality_refreshes - used)
 
     async def _cold_start(self, db: AsyncSession, user_id: str) -> tuple:
         """计算冷启动进度 (0.0-1.0) 与阶段。"""

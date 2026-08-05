@@ -1,8 +1,9 @@
-"""growth_service：_insight_level 晋升阈值、仪表盘周报时效过滤、规则打标。"""
+"""growth_service：_insight_level 晋升阈值、仪表盘周报时效过滤、规则打标、报告门控。"""
 from datetime import datetime, timezone
 
 import pytest
 
+from backend.core.errors import AppException
 from backend.repositories import growth_repository
 from backend.services.growth_service import growth_service, tag_record_content
 
@@ -55,3 +56,28 @@ def test_tag_record_content_keyword_rules():
     assert "目标" not in tags
 
     assert tag_record_content("plain text with no keywords at all") == []
+
+
+async def test_generate_report_rejects_invalid_period(db, make_user):
+    """报告周期白名单：非法 period → 400 INVALID_PARAMS。"""
+    await make_user("u1")
+    with pytest.raises(AppException) as exc:
+        await growth_service.generate_report(db, "u1", "daily")
+    assert exc.value.code == 40001
+
+
+@pytest.mark.parametrize("period", ["monthly", "quarterly", "yearly"])
+async def test_generate_report_pro_gate(db, make_user, period):
+    """月/季/年报为 Pro 权益：免费用户 → 40302，防止绕过 share 端点的 Pro 门。"""
+    await make_user("u1", tier="free")
+    with pytest.raises(AppException) as exc:
+        await growth_service.generate_report(db, "u1", period)
+    assert exc.value.code == 40302
+
+
+async def test_generate_report_weekly_free_allowed(db, make_user):
+    """周报对免费用户开放（PRD P1-F02 §3：weekly 免费）。"""
+    await make_user("u1", tier="free")
+    report = await growth_service.generate_report(db, "u1", "weekly")
+    assert report["period"] == "weekly"
+    assert report["content"]

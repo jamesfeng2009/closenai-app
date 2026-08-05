@@ -190,6 +190,10 @@ class MemoryService:
             if (top.get("similarity") or 0) >= DEDUP_SIMILARITY_THRESHOLD:
                 new_conviction = min(1.0, (top["conviction_score"] or 0.5) + CONVICTION_REINFORCE_STEP)
                 await memory_repository.update_conviction(db, top["id"], user_id, new_conviction)
+                # pending 消解：冷静日重申同一信念 → 此前高情绪下的"矛盾"属情绪噪声，解除悬置标记
+                # （另一消解路径：冷静日矛盾再现 → 走 ② 正常 version_out，标记随 supersede 失效）
+                if top.get("emotion_context") == EMOTION_CONTEXT_PENDING and not await self._is_high_negative_today(db, user_id):
+                    await memory_repository.update_emotion_context(db, top["id"], user_id, None)
                 row = dict(top)
                 row["conviction_score"] = new_conviction
                 return _to_response_from_row(row)

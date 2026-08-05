@@ -74,6 +74,18 @@ class PersonalityRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_completed_assessments(
+        self, db: AsyncSession, user_id: str
+    ) -> List[PersonalityAssessment]:
+        """全部已完成评估（每次完成生成一版画像；刷新配额需剔除这部分"免费"版本）。"""
+        result = await db.execute(
+            select(PersonalityAssessment).where(
+                PersonalityAssessment.user_id == user_id,
+                PersonalityAssessment.status == "completed",
+            )
+        )
+        return list(result.scalars().all())
+
     async def create_assessment(
         self, db: AsyncSession, user_id: str
     ) -> PersonalityAssessment:
