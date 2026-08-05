@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -204,20 +204,30 @@ class UserRepository:
         )
         await db.flush()
 
-    async def increment_special_push(self, db: AsyncSession, user_id: str, month: str) -> None:
-        """特殊事件推送月度计数 +1（month 为用户本地 "YYYY-MM"，跨月重置为 1）。"""
-        user = await self.get_user(db, user_id)
-        count = (
-            (user.special_push_count or 0) + 1
-            if user is not None and user.special_push_month == month
-            else 1
-        )
-        await db.execute(
+    async def increment_special_push(self, db: AsyncSession, user_id: str, month: str) -> int:
+        """特殊事件推送月度计数 +1（month 为用户本地 "YYYY-MM"，跨月重置为 1）。
+
+        原子 UPDATE：用 SQL CASE 表达式在单条 UPDATE 内完成「同月 +1 / 跨月重置为 1」，
+        避免读-改-写竞态——两个并发调用同时读到相同计数、各自 +1 写回，导致超月度上限。
+        special_push_count 列为 NOT NULL（server_default=0），故 `+ 1` 无需 coalesce。
+        RETURNING 直接返回更新后的计数，省去二次 SELECT。
+        调用方的 pre-check（_special_push_allowed）仅为乐观过滤，真正的上限约束由本
+        原子操作保证；调用方亦可对返回值二次校验是否超 SPECIAL_PUSH_MONTHLY_LIMIT。
+        """
+        stmt = (
             update(User)
             .where(User.id == user_id)
-            .values(special_push_count=count, special_push_month=month)
+            .values(
+                special_push_count=case(
+                    (User.special_push_month == month, User.special_push_count + 1),
+                    else_=1,
+                ),
+                special_push_month=month,
+            )
+            .returning(User.special_push_count)
         )
-        await db.flush()
+        result = await db.execute(stmt)
+        return int(result.scalar_one())
 
 
 user_repository = UserRepository()

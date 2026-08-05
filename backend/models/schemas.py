@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.config import settings
+from backend.core.time_utils import local_today
 
 
 # ═══ Chat (P0-F01) ═══
@@ -302,15 +303,13 @@ class UserSettingsUpdate(BaseModel):
     @field_validator("birthday")
     @classmethod
     def _validate_birthday(cls, v: Optional[str]) -> Optional[str]:
-        """校验 YYYY-MM-DD 格式且为过去日期。"""
+        """校验 YYYY-MM-DD 格式（日期范围校验在 _validate_birthday_past 中按用户时区进行）。"""
         if v is None:
             return v
         try:
-            d = date.fromisoformat(v)
+            date.fromisoformat(v)
         except ValueError:
             raise ValueError(f"birthday 必须为 YYYY-MM-DD 格式: {v}")
-        if d >= date.today():
-            raise ValueError("birthday 必须是过去的日期")
         return v
 
     @field_validator("enneagram_type")
@@ -357,6 +356,19 @@ class UserSettingsUpdate(BaseModel):
         if hour > 23 or minute > 59:
             raise ValueError(f"push_time 时分越界: {v}")
         return v
+
+    @model_validator(mode="after")
+    def _validate_birthday_past(self):
+        """生日必须为过去日期（按用户本地时区判定「今日」，禁 naive date.today()）。
+
+        timezone 缺省时 local_today 回退 UTC（保守安全）；同请求带 timezone 时按用户本地日。
+        """
+        if self.birthday is None:
+            return self
+        d = date.fromisoformat(self.birthday)
+        if d >= local_today(self.timezone):
+            raise ValueError("birthday 必须是过去的日期")
+        return self
 
 
 class PushTokenRequest(BaseModel):

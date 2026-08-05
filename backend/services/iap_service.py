@@ -12,6 +12,7 @@ IAP 订阅服务 (P1-F02)。
 - debug=True 时返回模拟成功，便于本地联调
 - 生产环境缺失密钥则拒收并抛出清晰错误
 """
+import asyncio
 import base64
 import json
 import logging
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
@@ -54,6 +56,11 @@ _TRUSTED_APPLE_ROOTS_DER = {base64.b64decode(_APPLE_ROOT_CA_G3_B64)}
 # 升级回退处理：同样的收据在沙盒/生产间切换时重试
 APPLE_21007 = 21007  # 沙盒收据打到生产端点
 APPLE_21008 = 21008  # 生产收据打到沙盒端点
+
+# B7：应用级超时兜底。httpx 自身 timeout=15 在极端网络条件下可能被
+# 代理/连接池拖久，叠加 wait_for(10s) 兜底确保 verifyReceipt 不阻塞
+# IAP 链路过久，超时返回 IAP_VERIFY_TIMEOUT 而非挂死客户端。
+APP_STORE_VERIFY_APP_TIMEOUT = 10  # 秒
 
 # 产品 → 档位映射（与现有 tier 体系 free/pro/pro_plus 对齐）
 # 支持 P1-F02 四层体系中的 Pro/Premium/Life Archive 映射到现有档位
@@ -209,8 +216,19 @@ class IAPService:
         }
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(url, json=payload)
+                # B7：应用级超时兜底（10s），httpx 15s 兜底之外再加一层，
+                # 防止代理/连接池拖久导致 IAP 链路挂死。
+                resp = await asyncio.wait_for(
+                    client.post(url, json=payload),
+                    timeout=APP_STORE_VERIFY_APP_TIMEOUT,
+                )
                 data = resp.json()
+        except asyncio.TimeoutError as exc:
+            logger.error("App Store 校验应用级超时（>%ss）", APP_STORE_VERIFY_APP_TIMEOUT)
+            raise AppException(
+                ErrorCode.IAP_VERIFY_TIMEOUT,
+                "App Store 校验超时，请稍后再试",
+            ) from exc
         except httpx.HTTPError as exc:
             logger.error("App Store 校验请求失败: %s", exc)
             return {"valid": False, "message": "App Store 校验服务不可用"}
@@ -222,9 +240,20 @@ class IAPService:
             alt_url = VERIFY_PROD_URL if is_sandbox else VERIFY_SANDBOX_URL
             try:
                 async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.post(alt_url, json=payload)
+                    resp = await asyncio.wait_for(
+                        client.post(alt_url, json=payload),
+                        timeout=APP_STORE_VERIFY_APP_TIMEOUT,
+                    )
                     data = resp.json()
                 status = data.get("status")
+            except asyncio.TimeoutError as exc:
+                logger.error(
+                    "App Store 校验重试应用级超时（>%ss）", APP_STORE_VERIFY_APP_TIMEOUT
+                )
+                raise AppException(
+                    ErrorCode.IAP_VERIFY_TIMEOUT,
+                    "App Store 校验超时，请稍后再试",
+                ) from exc
             except httpx.HTTPError:
                 return {"valid": False, "message": "App Store 校验服务不可用"}
 
@@ -248,6 +277,10 @@ class IAPService:
         tier = _map_tier(receipt_product_id)
 
         # 收据跨账号复用检查：同一原始交易已绑定其他账号时拒绝（防一收据多账号白嫖）
+        # 注意：此处检查与下方 upsert 之间存在竞态窗口——两个并发请求可能同时
+        # 通过检查后各自尝试写入同一 original_transaction_id。DB 层 partial
+        # unique index（ix_subscriptions_original_tx_unique，见迁移
+        # 69b435ebef56）兜底，后到者触发 IntegrityError，由下方 SAVEPOINT 捕获后重查。
         if original_tx:
             existing = await subscription_repository.get_by_original_transaction(db, original_tx)
             if existing and existing.user_id != user_id:
@@ -258,9 +291,8 @@ class IAPService:
 
         # 写入订阅 + 收据 + 下发权益
         await user_repository.get_or_create_user(db, user_id)
-        await subscription_repository.upsert(
-            db,
-            user_id,
+        upsert_kwargs = dict(
+            user_id=user_id,
             product_id=receipt_product_id,
             tier=tier,
             expires_at=expires_at,
@@ -268,6 +300,25 @@ class IAPService:
             is_active=True,
             is_trial=is_trial,
         )
+        if original_tx:
+            # B3：SAVEPOINT 内 upsert，IntegrityError 时回退重查——
+            # 已绑定他账号 → 抛 SUBSCRIPTION_ALREADY_EXISTS；
+            # 已绑定本账号（同账号并发抢写）→ 幂等再 upsert（命中 existing 分支更新）。
+            try:
+                async with db.begin_nested():
+                    await subscription_repository.upsert(db, **upsert_kwargs)
+            except IntegrityError:
+                existing = await subscription_repository.get_by_original_transaction(
+                    db, original_tx
+                )
+                if existing and existing.user_id != user_id:
+                    raise AppException(
+                        ErrorCode.SUBSCRIPTION_ALREADY_EXISTS,
+                        "该收据已绑定其他账号",
+                    )
+                await subscription_repository.upsert(db, **upsert_kwargs)
+        else:
+            await subscription_repository.upsert(db, **upsert_kwargs)
         await subscription_repository.create_receipt(
             db,
             user_id,

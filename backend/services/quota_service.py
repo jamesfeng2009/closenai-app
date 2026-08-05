@@ -8,12 +8,16 @@
 tier 语义：free 受上述每日上限约束；pro / pro_plus 走高限（≈不限，
 保留上限仅作异常调用的成本熔断，见 config 注释）。
 
-调用点说明：
-- is_daily_quota_exceeded 被 chat.py / mood_service / reflection_service 共用
-  （调用方不可按场景拆参），语义为「任一池耗尽」——对话入口实际受对话轮数
-  约束，签到/反思入口实际受统一池约束。
+调用点说明（双口径独立，B2 修复）：
+- 对话入口（chat/stream）走 is_chat_quota_exceeded（仅对话轮数口径），
+  统一池耗尽不再阻断对话。
+- 签到/反思入口（mood_service / reflection_service）走
+  is_proactive_quota_exceeded（仅统一池口径）。
 - cron 主动消息走 is_proactive_quota_exceeded（纯统一池口径）。
 - 主页配额展示走 daily_usage（统一池口径，对应"5 条主动消息额度"）。
+- is_daily_quota_exceeded 保留为「任一池耗尽」的合集判定，仅用于兼容历史
+  调用方；新代码应按入口类型选择 is_chat_quota_exceeded /
+  is_proactive_quota_exceeded。
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,15 +68,31 @@ class QuotaService:
             db, user.id, role="user", start=day_start
         )
 
+    async def is_chat_quota_exceeded(self, db: AsyncSession, user: User) -> bool:
+        """对话入口配额判定（chat/stream）：仅对话轮数口径。
+
+        统一池（主动消息 + 签到解读）耗尽不阻断对话——对话入口只受
+        chat_rounds_today >= chat_round_limit 约束（B2 修复）。
+        """
+        return await self.chat_rounds_today(db, user) >= self._chat_round_limit(user.tier)
+
+    async def is_proactive_quota_exceeded(self, db: AsyncSession, user: User) -> bool:
+        """统一池（主动消息 / 签到解读 / 反思草稿）是否已耗尽。
+
+        签到/反思入口配额判定；cron 主动消息也走此口径。
+        """
+        return await self.daily_usage(db, user) >= self._unified_limit(user.tier)
+
     async def is_daily_quota_exceeded(self, db: AsyncSession, user: User) -> bool:
-        """共用入口配额判定（chat / 签到解读 / 反思草稿）：任一池耗尽即拒绝。"""
+        """[已弃用，新代码按入口选择 is_chat_quota_exceeded /
+        is_proactive_quota_exceeded] 合集判定：任一池耗尽即返回 True。
+
+        历史调用方（chat / mood / reflection）共用此函数导致统一池耗尽时
+        对话入口也被阻断（B2 缺陷）。保留仅为兼容，行为不变。
+        """
         if await self.chat_rounds_today(db, user) >= self._chat_round_limit(user.tier):
             return True
         return await self.is_proactive_quota_exceeded(db, user)
-
-    async def is_proactive_quota_exceeded(self, db: AsyncSession, user: User) -> bool:
-        """统一池（主动消息 / 签到解读）是否已耗尽（cron 主动消息调用点）。"""
-        return await self.daily_usage(db, user) >= self._unified_limit(user.tier)
 
 
 quota_service = QuotaService()

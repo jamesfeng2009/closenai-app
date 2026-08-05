@@ -29,38 +29,58 @@ const PRO_FEATURES = [
   'paywall.featureTimeline',
 ] as const;
 
+// Tier 显示名映射（品牌名，不走 i18n）。避免 toUpperCase() 把 pro_plus 显示成 PRO_PLUS。
+const TIER_DISPLAY: Record<string, string> = {
+  free: 'Free',
+  pro: 'Pro',
+  pro_plus: 'Pro+',
+};
+
 export default function PaywallScreen() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [price, setPrice] = useState<string | null>(null);
-  // IAP 环境不可用（Expo Go 无原生模块）时展示持久提示，而非仅静默禁用按钮
+  // IAP 环境不可用（Expo Go 无原生模块）或商品列表为空时展示持久提示，
+  // 而非仅静默禁用按钮。unavailableMsgKey 区分两种原因的文案。
   const [iapUnavailable, setIapUnavailable] = useState(false);
+  const [unavailableMsgKey, setUnavailableMsgKey] = useState('paywall.unavailable');
 
   useEffect(() => {
     loadStatus();
     loadPrice();
   }, []);
 
-  const loadStatus = async () => {
+  // silent=true 时为后台刷新（购买/恢复成功后刷新状态），不触发全屏 loading 闪烁。
+  // 仅首次 mount 用 loading 展示全屏 ActivityIndicator；后续刷新复用已有数据。
+  const loadStatus = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setStatus(await getSubscriptionStatus());
     } catch (e) {
       console.warn('Failed to load subscription:', e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  // 拉取本地化价格（App Store 要求购买前展示价格）；环境不可用时展示提示而非静默降级
+  // 拉取本地化价格（App Store 要求购买前展示价格）；环境不可用或商品列表为空时
+  // 展示持久提示，避免按钮静默禁用让用户困惑。
   const loadPrice = async () => {
     if (!(await initIAP())) {
+      setUnavailableMsgKey('paywall.unavailable');
       setIapUnavailable(true);
       return;
     }
     const products = await getProducts();
+    // getProducts 返回空数组（StoreKit 配置缺失 / 网络/环境异常）时同样视为不可用，
+    // 让用户看到"暂不可用"提示而非无价格的灰色按钮。
+    if (products.length === 0) {
+      setUnavailableMsgKey('paywall.productsUnavailable');
+      setIapUnavailable(true);
+      return;
+    }
     const product = products.find((p) => p.productId === DEFAULT_SKU) ?? products[0];
     const localized =
       (product as { localizedPrice?: string } | undefined)?.localizedPrice ??
@@ -74,9 +94,16 @@ export default function PaywallScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      await purchaseSubscription();
+      const result = await purchaseSubscription();
+      // 超时但交易可能仍在处理：全局 listener 会接管后续送达的交易，
+      // 提示用户稍后查看，不视为成功（避免误报订阅已激活）也不视为失败（避免扣费却报错）。
+      if (result && typeof result === 'object' && 'status' in result && result.status === 'timeout_pending') {
+        Alert.alert(t('paywall.processing'), t('paywall.timeoutPending'));
+        await loadStatus(true);
+        return;
+      }
       Alert.alert(t('common.done'), t('paywall.purchaseSuccess'));
-      await loadStatus();
+      await loadStatus(true);
     } catch (e) {
       if (isUserCancelled(e)) {
         // 用户主动取消，不提示
@@ -101,7 +128,7 @@ export default function PaywallScreen() {
         t('common.done'),
         restored ? t('paywall.restoreSuccess') : t('paywall.restoreNone'),
       );
-      if (restored) await loadStatus();
+      if (restored) await loadStatus(true);
     } catch (e) {
       if (e instanceof Error && e.message === 'iap_unavailable') {
         Alert.alert(t('common.error'), t('paywall.unavailable'));
@@ -114,7 +141,8 @@ export default function PaywallScreen() {
     }
   };
 
-  if (loading) {
+  // 全屏 loading 仅在首次加载（loading 且尚无数据）时展示，避免后台刷新闪烁。
+  if (loading && !status) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator color={Colors.gold400} />
@@ -135,7 +163,7 @@ export default function PaywallScreen() {
         <View style={styles.statusCard}>
           <View style={styles.statusRow}>
             <Text style={styles.statusText}>
-              {t('paywall.currentPlan')}: {status?.tier?.toUpperCase()}
+              {t('paywall.currentPlan')}: {TIER_DISPLAY[status?.tier || 'free'] || status?.tier}
             </Text>
             {status?.is_trial && (
               <View style={styles.trialBadge}>
@@ -182,7 +210,7 @@ export default function PaywallScreen() {
       {/* IAP 环境不可用提示（Expo Go 等）：持久展示原因，避免按钮静默禁用 */}
       {iapUnavailable && !isPro && (
         <View style={styles.unavailableBox}>
-          <Text style={styles.unavailableText}>{t('paywall.unavailable')}</Text>
+          <Text style={styles.unavailableText}>{t(unavailableMsgKey)}</Text>
         </View>
       )}
 

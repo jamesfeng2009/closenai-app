@@ -66,11 +66,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
     try {
       await setAiConsent(consent);
       setProfile((prev) => (prev ? { ...prev, ai_consent: consent } : prev));
+      // 仅成功时关闭 Modal；失败时保持打开以便用户重试
+      setConsentVisible(false);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), msg);
     }
-    setConsentVisible(false);
   };
 
   // 退出登录：清除推送 Token + 重置设备身份（回到引导页）
@@ -149,12 +150,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={styles.settingLabel}>{t('profile.memoryManagement')}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem}>
+        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
           <Text style={styles.settingIcon}>💬</Text>
           <Text style={styles.settingLabel}>{t('profile.chatStyle')}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem}>
+        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
           <Text style={styles.settingIcon}>🔔</Text>
           <Text style={styles.settingLabel}>{t('profile.activeTime')}</Text>
           <Text style={styles.settingValue}>{profile?.push_time || '09:00'}</Text>
@@ -193,12 +194,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={styles.settingValue}>{t(`language.${currentLang}`)}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem}>
+        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
           <Text style={styles.settingIcon}>🔒</Text>
           <Text style={styles.settingLabel}>{t('profile.privacy')}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem}>
+        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
           <Text style={styles.settingIcon}>❓</Text>
           <Text style={styles.settingLabel}>{t('profile.help')}</Text>
           <Text style={styles.arrow}>›</Text>

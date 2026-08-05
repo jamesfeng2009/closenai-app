@@ -72,8 +72,8 @@ class ReflectionService:
         """生成今日 Reflection 草稿（今日反思 + AI 观察两段结构）。"""
         user = await user_repository.get_or_create_user(db, user_id)
 
-        # 配额：草稿生成消耗 1 次 LLM 调用，前置统一免费配额校验（超额 40301）
-        if await quota_service.is_daily_quota_exceeded(db, user):
+        # 配额（B2）：反思草稿走统一池口径（仅主动消息 + 签到解读），不叠加对话轮数
+        if await quota_service.is_proactive_quota_exceeded(db, user):
             raise AppException(ErrorCode.QUOTA_EXCEEDED, "今天的次数已经用完，请明天再来")
 
         zh = (language or "").startswith("zh")

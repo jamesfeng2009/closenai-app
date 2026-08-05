@@ -10,7 +10,7 @@
  * - 昨天记录延续
  * - 性格画像入口
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
@@ -27,11 +27,16 @@ const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'
 // 仪表盘本地缓存（SWR：先渲染缓存秒开首屏，后台刷新覆盖）
 const DASHBOARD_CACHE_KEY = '@closenai/dashboard_cache';
 
+// 与后端 ErrorCode.QUOTA_EXCEEDED 对齐（免费配额耗尽 → 引导付费）
+const CODE_QUOTA_EXCEEDED = 40301;
+
 export default function HomeScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const [dashboard, setDashboard] = useState<GrowthDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
+  // 标记网络请求是否已完成，防止缓存 setDashboard 覆盖网络新数据（F8 竞态修复）
+  const networkLoaded = useRef(false);
 
   const loadDashboard = React.useCallback(async () => {
     try {
@@ -41,16 +46,18 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     } catch (e) {
       console.warn('Failed to load dashboard:', e);
     } finally {
+      networkLoaded.current = true;
       setLoading(false);
     }
   }, []);
 
   // 首屏：先读缓存立即渲染（无缓存则保持 loading，由聚焦时的网络请求兜底）
+  // 竞态防护：若网络请求已先完成则跳过缓存写入，避免过期缓存覆盖新数据
   useEffect(() => {
     (async () => {
       try {
         const cached = await AsyncStorage.getItem(DASHBOARD_CACHE_KEY);
-        if (cached) {
+        if (cached && !networkLoaded.current) {
           setDashboard(JSON.parse(cached));
           setLoading(false);
         }
@@ -85,6 +92,18 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         Alert.alert(`${res.mood_emoji} ${res.mood_label}`, text);
       }
     } catch (e) {
+      // 配额耗尽（40301）：引导付费，与 ReflectScreen 行为一致
+      if (e instanceof ApiError && e.code === CODE_QUOTA_EXCEEDED) {
+        Alert.alert(
+          t('reflect.quotaTitle'),
+          t('reflect.quotaMessage'),
+          [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('reflect.quotaUpgrade'), onPress: () => navigation.navigate('Paywall') },
+          ],
+        );
+        return;
+      }
       const msg = e instanceof ApiError ? e.message : t('errors.checkinFailed');
       Alert.alert(t('common.error'), msg);
     } finally {
@@ -249,7 +268,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           <Text style={styles.arrow}>→</Text>
         </View>
         <Text style={styles.profileDesc}>
-          {dashboard?.mbti_type || 'INTP'} · {t('home.personalityDesc')}
+          {dashboard?.mbti_type || '—'} · {t('home.personalityDesc')}
         </Text>
       </TouchableOpacity>
     </ScrollView>

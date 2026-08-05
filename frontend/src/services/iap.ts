@@ -27,6 +27,17 @@ export const PRODUCT_SKUS = [
 /** 默认购买产品（Paywall 主按钮）。 */
 export const DEFAULT_SKU = 'closenai_pro_monthly';
 
+/**
+ * 购买超时但交易可能仍在处理中（StoreKit 事件延迟送达）。
+ *
+ * 超时后流程内 listener 已移除、purchaseFlowActive 复位，全局启动期 listener
+ * 会接管后续送达的交易（verify + finish）。调用方应展示"处理中"提示，
+ * 让用户稍后重启 App 查看订阅状态，而非视为失败或成功。
+ */
+export interface PurchaseTimeoutPending {
+  status: 'timeout_pending';
+}
+
 /** 购买/恢复流程超时兜底（避免 StoreKit 事件丢失导致 Promise 永不 settle、busy 卡死）。 */
 const IAP_TIMEOUT_MS = 30_000;
 
@@ -116,18 +127,23 @@ export async function getProducts(): Promise<RNIap.Subscription[]> {
  *
  * 用户取消时 reject 携带 code 'E_USER_CANCELLED'。
  */
-export async function purchaseSubscription(sku: string = DEFAULT_SKU): Promise<ReceiptVerifyResult> {
+export async function purchaseSubscription(
+  sku: string = DEFAULT_SKU,
+): Promise<ReceiptVerifyResult | PurchaseTimeoutPending> {
   if (!(await initIAP())) {
     throw new Error('iap_unavailable');
   }
-  return new Promise<ReceiptVerifyResult>((resolve, reject) => {
+  return new Promise<ReceiptVerifyResult | PurchaseTimeoutPending>((resolve, reject) => {
     let purchaseSub: { remove: () => void } | null = null;
     let errorSub: { remove: () => void } | null = null;
     purchaseFlowActive = true;
-    // 超时兜底：StoreKit 事件丢失时保证 reject，调用方 busy 状态可复位
+    // 超时兜底：StoreKit 事件可能延迟送达，此时不视为失败。cleanup 复位
+    // purchaseFlowActive，让全局启动期 listener 接管后续送达的交易（verify +
+    // finish）。resolve timeout_pending 让调用方展示"处理中"提示，避免用户看到
+    // 错误但实际已被扣费。
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error('iap_timeout'));
+      resolve({ status: 'timeout_pending' });
     }, IAP_TIMEOUT_MS);
     const cleanup = () => {
       clearTimeout(timer);

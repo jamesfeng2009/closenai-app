@@ -65,6 +65,7 @@ class ErrorCode(IntEnum):
     DATABASE_ERROR = 50003
     PUSH_FAILED = 50004
     IAP_VERIFY_FAILED = 50005
+    IAP_VERIFY_TIMEOUT = 50006  # B7：App Store 校验应用级超时（asyncio.wait_for 兜底）
 
 
 class AppException(Exception):

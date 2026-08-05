@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "Risposte prioritarie del modello",
     "featurePersonalityRefresh": "Più aggiornamenti della personalità",
     "featureTimeline": "Timeline di crescita di 365 giorni",
-    "trialBadge": "Prova gratuita"
+    "trialBadge": "Prova gratuita",
+    "timeoutPending": "L'acquisto è scaduto ma potrebbe essere ancora in elaborazione. Se sei stato addebitato, tocca Ripristina acquisti.",
+    "productsUnavailable": "Nessun prodotto disponibile. Riprova più tardi."
   },
   "reflect": {
     "moodReminder": "Non ancora registrato oggi · Tocca per scegliere un emoji",

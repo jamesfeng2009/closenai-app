@@ -5,7 +5,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, DateTime, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -36,6 +36,18 @@ class Subscription(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # B3：original_transaction_id 唯一约束（partial unique index）。
+    # 防止并发请求双写同一收据到不同账号（多账号白嫖）；
+    # 仅在非 NULL 时生效，多 NULL 不冲突（未走收据校验的旧数据兼容）。
+    __table_args__ = (
+        Index(
+            "ix_subscriptions_original_tx_unique",
+            "original_transaction_id",
+            unique=True,
+            postgresql_where=text("original_transaction_id IS NOT NULL"),
+        ),
     )
 
 

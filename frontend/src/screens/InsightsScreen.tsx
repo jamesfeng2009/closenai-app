@@ -51,6 +51,7 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [reportPeriod, setReportPeriod] = useState<SharePeriod | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
+  // 首屏并行加载 4 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
   useEffect(() => {
     (async () => {
       try {
@@ -100,6 +101,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     }
   };
 
+  // 选中周期报告：双口径 Pro 门控——先按本地 tier 前端拦截（省一次请求），
+  // 请求仍返回 40302 时兜底再弹一次（防 tier 未同步/后端为唯一事实源）
   const onSelectPeriod = async (period: SharePeriod) => {
     if (reportLoading) return;
     if (PRO_PERIODS.includes(period) && !isPro) {
@@ -112,6 +115,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
       setReport(await getShareReport(period));
     } catch (e) {
       if (e instanceof ApiError && e.code === CODE_PRO_REQUIRED) {
+        // 40302 后回滚 reportPeriod，避免按钮高亮但无报告内容
+        setReportPeriod(null);
         showProAlert();
         return;
       }

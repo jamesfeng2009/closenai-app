@@ -126,6 +126,18 @@ export default function PersonalityScreen() {
       setComboLoading(true);
       setCombo(await generateComboReport());
     } catch (e) {
+      // 组合报告为 Pro 权益（40302）：引导跳转 Paywall
+      if (e instanceof ApiError && e.code === 40302) {
+        Alert.alert(
+          t('share.proGateTitle'),
+          t('share.proGateMessage'),
+          [
+            { text: t('common.cancel'), style: 'cancel' },
+            { text: t('share.upgrade'), onPress: () => navigation.navigate('Paywall') },
+          ],
+        );
+        return;
+      }
       const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
       Alert.alert(t('common.error'), msg);
     } finally {

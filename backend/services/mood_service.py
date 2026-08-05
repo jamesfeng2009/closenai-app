@@ -103,8 +103,8 @@ class MoodService:
         user = await user_repository.get_or_create_user(db, user_id, for_update=True)
         day_start = local_day_start_utc(user.timezone)
 
-        # 1. 配额：AI 解读计入统一免费配额（PRD §9；超额拒绝，签到不入库）
-        if await quota_service.is_daily_quota_exceeded(db, user):
+        # 1. 配额（B2）：签到解读走统一池口径（仅主动消息 + 签到解读），不叠加对话轮数
+        if await quota_service.is_proactive_quota_exceeded(db, user):
             raise AppException(ErrorCode.QUOTA_EXCEEDED, "今天的次数已经用完，请明天再来")
 
         # 2. 更新 Streak（同日重复签到幂等，不重复累加）

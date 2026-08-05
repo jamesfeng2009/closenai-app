@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "Phản hồi mô hình ưu tiên",
     "featurePersonalityRefresh": "Thêm lượt làm mới tính cách",
     "featureTimeline": "Dòng thời gian phát triển 365 ngày",
-    "trialBadge": "Đang dùng thử"
+    "trialBadge": "Đang dùng thử",
+    "timeoutPending": "Mua hàng đã hết thời gian nhưng có thể vẫn đang được xử lý. Nếu bạn đã bị tính phí, hãy nhấn Khôi phục mua hàng.",
+    "productsUnavailable": "Không có sản phẩm nào. Vui lòng thử lại sau."
   },
   "reflect": {
     "moodReminder": "Hôm nay chưa check-in · Chạm để chọn biểu tượng cảm xúc",

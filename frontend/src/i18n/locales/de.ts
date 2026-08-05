@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "Priorisierte Modellantworten",
     "featurePersonalityRefresh": "Mehr Persönlichkeits-Aktualisierungen",
     "featureTimeline": "365-Tage-Wachstums-Timeline",
-    "trialBadge": "Kostenlose Testphase"
+    "trialBadge": "Kostenlose Testphase",
+    "timeoutPending": "Der Kauf hat ein Zeitlimit überschritten, wird aber möglicherweise noch verarbeitet. Wenn Ihnen Kosten berechnet wurden, tippen Sie auf Käufe wiederherstellen.",
+    "productsUnavailable": "Keine Produkte verfügbar. Bitte versuchen Sie es später erneut."
   },
   "reflect": {
     "moodReminder": "Heute noch nicht eingetragen · Tippen, um ein Emoji zu wählen",

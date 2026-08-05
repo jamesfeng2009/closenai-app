@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "高优先级模型响应",
     "featurePersonalityRefresh": "更多性格画像刷新次数",
     "featureTimeline": "365 天成长时间线",
-    "trialBadge": "免费试用中"
+    "trialBadge": "免费试用中",
+    "timeoutPending": "购买请求超时，交易可能仍在处理中。如已扣款，请点击恢复购买。",
+    "productsUnavailable": "暂无可用商品，请稍后再试"
   },
   "reflect": {
     "moodReminder": "今天还没签到 · 点这里选个表情",

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, StyleSheet, ActivityIndicator } from 'react-native';
+import { SafeAreaView, StyleSheet, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -70,6 +70,17 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(false);
 
   useEffect(() => {
+    // 时区上报为非关键路径：fire-and-forget，不阻塞启动
+    // （出海规范：后端按用户本地时区计算配额重置/streak/主动消息时间）
+    const reportTimezone = () => {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (tz) updateUserSettings({ timezone: tz }).catch(() => {});
+      } catch {
+        // ignore
+      }
+    };
+
     (async () => {
       // 冷启动关键路径：i18n / 设备身份 / 引导标记三者无依赖，并行加载（串行会拉长启动）
       // 顺序保证：initApiUser 必须先于任何 API 调用完成（请求头依赖 cachedUserId），
@@ -81,17 +92,24 @@ export default function App() {
       ]);
       setOnboarded(stored === '1');
       setReady(true);
-      // 时区上报为非关键路径：首帧渲染之后 fire-and-forget，不阻塞启动
-      // （出海规范：后端按用户本地时区计算配额重置/streak/主动消息时间）
-      try {
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        if (tz) updateUserSettings({ timezone: tz }).catch(() => {});
-      } catch {
-        // ignore
-      }
+      // 首帧渲染之后上报时区
+      reportTimezone();
     })();
+
+    // App 从后台回到前台时重新检测时区（跨时区旅行场景：streak 重置/push 时间需按新时区）
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        reportTimezone();
+      }
+    });
+
     // 退出登录/注销后：回到引导页（新设备身份）
-    return onSessionReset(() => setOnboarded(false));
+    const sessionCleanup = onSessionReset(() => setOnboarded(false));
+
+    return () => {
+      subscription.remove();
+      sessionCleanup();
+    };
   }, []);
 
   if (!ready) {

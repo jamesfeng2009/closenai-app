@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "우선 모델 응답",
     "featurePersonalityRefresh": "더 많은 성격 분석 새로고침",
     "featureTimeline": "365일 성장 타임라인",
-    "trialBadge": "무료 체험 중"
+    "trialBadge": "무료 체험 중",
+    "timeoutPending": "구매 시간이 초과되었지만 여전히 처리 중일 수 있습니다. 결제되었다면 구매 복원을 탭하세요.",
+    "productsUnavailable": "사용 가능한 상품이 없습니다. 나중에 다시 시도해 주세요."
   },
   "reflect": {
     "moodReminder": "오늘 아직 체크인하지 않았어요 · 이모지를 선택하세요",

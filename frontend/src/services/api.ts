@@ -421,14 +421,15 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
 export async function verifyReceipt(
   receiptData: string,
   productId: string,
-  isSandbox: boolean = __DEV__,
 ): Promise<ReceiptVerifyResult> {
+  // 不再传 is_sandbox：前端无法可靠判断环境（TestFlight 为 release 构建但走沙箱）。
+  // 后端 iap_service.verify 的 is_sandbox 默认 False，并依据 App Store 状态码
+  // 21007/21008 自动切换沙箱/生产端点重试，可正确覆盖 TestFlight 与生产。
   return request<ReceiptVerifyResult>('/iap/verify', {
     method: 'POST',
     body: JSON.stringify({
       receipt_data: receiptData,
       product_id: productId,
-      is_sandbox: isSandbox,
     }),
   });
 }

@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "Respons model keutamaan",
     "featurePersonalityRefresh": "Lebih banyak penyegaran personaliti",
     "featureTimeline": "Garis masa pertumbuhan 365 hari",
-    "trialBadge": "Percubaan percuma"
+    "trialBadge": "Percubaan percuma",
+    "timeoutPending": "Pembelian tamat masa tetapi mungkin masih diproses. Jika anda dikenakan bayaran, ketik Pulihkan Pembelian.",
+    "productsUnavailable": "Tiada produk tersedia. Sila cuba lagi kemudian."
   },
   "reflect": {
     "moodReminder": "Belum check-in hari ini · Ketik untuk pilih emoji",

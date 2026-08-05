@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "優先モデル応答",
     "featurePersonalityRefresh": "性格分析の更新回数アップ",
     "featureTimeline": "365日の成長タイムライン",
-    "trialBadge": "無料トライアル中"
+    "trialBadge": "無料トライアル中",
+    "timeoutPending": "購入がタイムアウトしましたが、まだ処理中の可能性があります。課金されている場合は購入を復元をタップしてください。",
+    "productsUnavailable": "利用可能な商品がありません。後でもう一度お試しください。"
   },
   "reflect": {
     "moodReminder": "今日はまだチェックインしていません · タップして絵文字を選択",

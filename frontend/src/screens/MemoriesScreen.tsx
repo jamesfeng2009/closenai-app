@@ -87,7 +87,7 @@ export default function MemoriesScreen() {
             <View style={styles.body}>
               <Text style={styles.text}>{item.content}</Text>
               <Text style={styles.meta}>
-                {t(`memories.category.${item.category}`)} · {item.created_at?.slice(0, 10)}
+                {t(`memories.category.${item.category}`)}{item.created_at ? ` · ${new Date(item.created_at).toLocaleDateString()}` : ''}
               </Text>
             </View>
             <TouchableOpacity style={styles.deleteBtn} onPress={() => onDelete(item)}>

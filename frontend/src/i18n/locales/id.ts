@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "Respons model prioritas",
     "featurePersonalityRefresh": "Lebih banyak pembaruan kepribadian",
     "featureTimeline": "Garis waktu pertumbuhan 365 hari",
-    "trialBadge": "Uji coba gratis"
+    "trialBadge": "Uji coba gratis",
+    "timeoutPending": "Pembelian habis waktu tetapi mungkin masih diproses. Jika Anda dikenakan biaya, ketuk Pulihkan Pembelian.",
+    "productsUnavailable": "Tidak ada produk tersedia. Coba lagi nanti."
   },
   "reflect": {
     "moodReminder": "Belum check-in hari ini · Ketuk untuk memilih emoji",

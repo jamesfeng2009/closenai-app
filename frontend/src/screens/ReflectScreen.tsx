@@ -64,27 +64,30 @@ export default function ReflectScreen() {
   const loadInitial = async () => {
     try {
       setLoading(true);
+      // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
       const [dashboard, history, profile] = await Promise.all([
-        getGrowthDashboard(),
-        getChatHistory(20),
-        getUserProfile(),
+        getGrowthDashboard().catch(() => null),
+        getChatHistory(20).catch(() => null),
+        getUserProfile().catch(() => null),
       ]);
       // 合规 5.1.2(i)：未同意 AI 数据共享时先弹说明弹窗
-      if (!profile.ai_consent) {
+      if (profile && !profile.ai_consent) {
         setConsentVisible(true);
       }
-      setStreak(dashboard.streak_count);
-      setLevelLabel(dashboard.relationship_level || dashboard.level_label || '');
-      setMoodCheckedIn(!!dashboard.today_mood);
+      if (dashboard) {
+        setStreak(dashboard.streak_count);
+        setLevelLabel(dashboard.relationship_level || dashboard.level_label || '');
+        setMoodCheckedIn(!!dashboard.today_mood);
+      }
 
-      const msgs: Message[] = history.map((h) => ({
+      const msgs: Message[] = (history || []).map((h) => ({
         id: h.id,
         role: h.role,
         content: h.content,
       }));
 
       // 无历史对话且已同意数据共享时，预填今日 Reflection 草稿（P0-F04）
-      if (msgs.length === 0 && profile.ai_consent) {
+      if (msgs.length === 0 && profile?.ai_consent) {
         try {
           const draft = await generateReflectionDraft();
           if (draft.draft) {
@@ -248,8 +251,12 @@ export default function ReflectScreen() {
         </View>
         <Text style={styles.headerTitle}>ClosenAI</Text>
         <View style={styles.headerRight}>
-          <Text style={styles.iconBtn}>🔔</Text>
-          <Text style={styles.iconBtn}>⚙️</Text>
+          <TouchableOpacity onPress={() => Alert.alert(t('explore.comingSoon'))}>
+            <Text style={styles.iconBtn}>🔔</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => Alert.alert(t('explore.comingSoon'))}>
+            <Text style={styles.iconBtn}>⚙️</Text>
+          </TouchableOpacity>
         </View>
       </View>
 

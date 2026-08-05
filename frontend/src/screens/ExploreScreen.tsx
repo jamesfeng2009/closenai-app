@@ -83,7 +83,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
             <View style={styles.flex1}>
               <Text style={styles.coldStartTitle}>{t('explore.coldStartTitle')}</Text>
               <Text style={styles.coldStartStatus}>
-                {t('explore.coldStartStatus', { day: Math.ceil(profile.cold_start_progress * 7) })}
+                {t('explore.coldStartStatus', { day: Math.ceil(profile.cold_start_progress * 7) || 1 })}
               </Text>
             </View>
           </View>

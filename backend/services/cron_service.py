@@ -359,8 +359,12 @@ class CronService:
         """为单个用户生成并下发主动消息（事务边界由调用方控制）。
 
         返回 "sent" / "already_sent" / "skipped"。
+
+        行锁串行化：加载用户时即对用户行加 FOR UPDATE，确保「今日已发去重检查」
+        与「消息写入」在同一事务内串行完成，防止 QStash 回调超时重试时两个事务
+        同时通过去重检查导致重复发送。
         """
-        user = await user_repository.get_user(db, uid)
+        user = await user_repository.get_user(db, uid, for_update=True)
         if user is None:
             return "skipped"
         # 合规：未同意 AI 数据共享的用户不生成/推送 AI 内容（5.1.2(i)）

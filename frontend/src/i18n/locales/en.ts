@@ -136,7 +136,9 @@ const resource = {
     "featurePriorityLLM": "Priority model responses",
     "featurePersonalityRefresh": "More personality refreshes",
     "featureTimeline": "365-day growth timeline",
-    "trialBadge": "Free trial"
+    "trialBadge": "Free trial",
+    "timeoutPending": "The purchase timed out but may still be processing. If you were charged, tap Restore Purchases.",
+    "productsUnavailable": "No products available. Please try again later."
   },
   "reflect": {
     "moodReminder": "Haven't checked in today · Tap to pick an emoji",

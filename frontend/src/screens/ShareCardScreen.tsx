@@ -26,32 +26,35 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
   const [card, setCard] = useState<PersonalityCard | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // variant 变化时发起新请求；用 stale 闭包标志防止竞态（旧请求结果覆盖新状态）
   useEffect(() => {
-    loadCard(variant);
-  }, [variant]);
-
-  const loadCard = async (v: ShareCardVariant) => {
-    try {
-      setLoading(true);
-      setCard(await getPersonalityCard(v));
-    } catch (e) {
-      if (e instanceof ApiError && e.code === CODE_PRO_REQUIRED) {
-        Alert.alert(
-          t('share.proGateTitle'),
-          t('share.proGateMessage'),
-          [
-            { text: t('common.cancel'), style: 'cancel', onPress: () => setVariant('classic') },
-            { text: t('share.upgrade'), onPress: () => navigation.navigate('Paywall') },
-          ],
-        );
-        return;
+    let stale = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await getPersonalityCard(variant);
+        if (!stale) setCard(data);
+      } catch (e) {
+        if (stale) return;
+        if (e instanceof ApiError && e.code === CODE_PRO_REQUIRED) {
+          Alert.alert(
+            t('share.proGateTitle'),
+            t('share.proGateMessage'),
+            [
+              { text: t('common.cancel'), style: 'cancel', onPress: () => setVariant('classic') },
+              { text: t('share.upgrade'), onPress: () => navigation.navigate('Paywall') },
+            ],
+          );
+          return;
+        }
+        const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
+        Alert.alert(t('common.error'), msg);
+      } finally {
+        if (!stale) setLoading(false);
       }
-      const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
-      Alert.alert(t('common.error'), msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
+    return () => { stale = true; };
+  }, [variant]);
 
   // 系统分享（分享文案由后端按语言生成，含 App Store 落地链接）
   const onShare = async () => {
