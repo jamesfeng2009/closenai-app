@@ -79,7 +79,7 @@ async def stream_chat(
     #   轮数是合理语义；原「整事务回滚」会因持锁期间过长阻塞同用户并发，故拆分）。
     async with SessionLocal() as prep_session:
         try:
-            user = await user_repository.get_or_create_user(
+            user = await user_repository.require_user(
                 prep_session, user_id, for_update=True
             )
             # 配额检查（B2）：对话入口只受对话轮数约束，统一池耗尽不阻断对话

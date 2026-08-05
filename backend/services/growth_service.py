@@ -126,7 +126,7 @@ class GrowthService:
 
     async def get_dashboard(self, db: AsyncSession, user_id: str) -> GrowthDashboardResponse:
         """成长仪表盘（真实聚合）。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         chat_count = await chat_repository.count_total(db, user_id)
 
         # 今日情绪（按用户本地时区的日历日判断）
@@ -195,7 +195,7 @@ class GrowthService:
 
         无周报时返回 content=None，由前端展示空状态，避免 GET 产生写副作用。
         """
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         weekly = await growth_repository.get_latest(db, user_id, "weekly_summary")
         # Insight Level 按用户实际累计对话量晋升（P1-F03 §1，不再硬编码）
         chat_count = await chat_repository.count_total(db, user_id)
@@ -235,7 +235,7 @@ class GrowthService:
 
     async def get_timeline(self, db: AsyncSession, user_id: str, days: int = 365) -> dict:
         """365 天成长热力图：按天返回 (date, 情绪值, 颜色)（按用户本地日历日）。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         rows = await mood_repository.count_by_day(db, user_id, days, tz=user.timezone)
         day_map: dict = {}
         for day, emoji in rows:
@@ -259,7 +259,7 @@ class GrowthService:
         洞察基于当日对话内容，非模板生成）。写入时规则打标（§6），生成的记录经
         get_recent_insights_context 回流对话上下文，构成"反哺摘要"沉淀。
         """
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         day_start = local_day_start_utc(user.timezone)
         today_mood = await mood_repository.get_today(db, user_id, day_start)
         mood_desc = f"今日情绪：{today_mood.mood_emoji} {today_mood.mood_label or ''}（{today_mood.ai_interpretation or ''}）" if today_mood else "今日暂无情绪签到。"
@@ -292,7 +292,7 @@ class GrowthService:
         同步沉淀：Insight Level（按累计对话晋升）、结构化摘要 metadata_json
         （mood_distribution/top_topics/forecast，P1-F03 §1）、记录标签。
         """
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         records = await growth_repository.list_recent(db, user_id, days=7, limit=20)
         rec_desc = "\n".join(f"- {r.content}" for r in records) or "本周暂无成长记录。"
         prompt = (
@@ -377,7 +377,7 @@ class GrowthService:
         tag: str | None = None,
     ) -> list[dict]:
         """成长记录列表（成长记录页）：按时间倒序，支持按标签筛选。"""
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         records = await growth_repository.list_recent(db, user_id, days=days, limit=100)
         items = []
         for r in records:
@@ -402,7 +402,7 @@ class GrowthService:
 
         规则实现，零 LLM 成本：聚合近期记录的高频标签，映射为话题方向。
         """
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         records = await growth_repository.list_recent(db, user_id, days=days, limit=100)
         counts: dict = {}
         for r in records:
@@ -422,7 +422,7 @@ class GrowthService:
         卡片正文由 LLM lite 生成（失败回退模板）；当日无任何数据时 has_data=False，
         不生成正文，由前端展示空状态。
         """
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         target = local_today(user.timezone) - timedelta(days=days_ago)
         start = local_day_start_utc(user.timezone, target)
         end = local_day_start_utc(user.timezone, target + timedelta(days=1))
@@ -508,7 +508,7 @@ class GrowthService:
         """
         if period not in REPORT_PERIODS:
             raise AppException(ErrorCode.INVALID_PARAMS, f"无效的报告周期: {period}")
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         if period in PRO_REPORT_PERIODS and user.tier == FREE_TIER:
             raise AppException(ErrorCode.PRO_REQUIRED, "该周期报告为 Pro 订阅权益")
         days = {"weekly": 7, "monthly": 30, "quarterly": 90, "yearly": 365}[period]
@@ -570,7 +570,7 @@ class GrowthService:
         self, db: AsyncSession, user_id: str, language: str = "en"
     ) -> str:
         """跨维度模式发现（P1-F03）：AI 基于情绪 + 记忆 + 对话发现关联模式。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         checkins = await mood_repository.get_history(db, user_id, days=90)
         memories = await memory_repository.list(db, user_id, limit=20)
         chats = await chat_repository.get_history(db, user_id, limit=30)

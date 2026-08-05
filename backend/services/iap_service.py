@@ -193,7 +193,7 @@ class IAPService:
         if not settings.app_store_shared_secret:
             if settings.debug:
                 result = self._dev_success(user_id, product_id, is_sandbox)
-                await user_repository.get_or_create_user(db, user_id)
+                await user_repository.require_user(db, user_id)
                 await subscription_repository.upsert(
                     db,
                     user_id,
@@ -290,7 +290,7 @@ class IAPService:
                 )
 
         # 写入订阅 + 收据 + 下发权益
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         upsert_kwargs = dict(
             user_id=user_id,
             product_id=receipt_product_id,
@@ -339,7 +339,7 @@ class IAPService:
 
     async def get_status(self, db, user_id: str) -> Dict[str, Any]:
         """查询订阅状态（从 subscriptions 表读取真实数据）。"""
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         sub = await subscription_repository.get_active(db, user_id)
         now = datetime.now(timezone.utc)
 

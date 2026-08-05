@@ -100,7 +100,7 @@ class MoodService:
 
         # 0. 确保用户存在（后续时区/配额判断依赖 user 记录）；
         #    行锁串行化：同一用户的并发签到在本地日判重前排队，防双击双记
-        user = await user_repository.get_or_create_user(db, user_id, for_update=True)
+        user = await user_repository.require_user(db, user_id, for_update=True)
         day_start = local_day_start_utc(user.timezone)
 
         # 1. 配额（B2）：签到解读走统一池口径（仅主动消息 + 签到解读），不叠加对话轮数

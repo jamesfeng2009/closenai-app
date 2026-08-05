@@ -17,6 +17,7 @@ from backend.core.auth import get_current_user
 from backend.core.response import success
 from backend.database import get_db
 from backend.models.schemas import AIConsentUpdate, UserSettingsUpdate, PushTokenRequest
+from backend.services.auth_service import AuthService, auth_service
 from backend.services.user_service import UserService, user_service
 
 router = APIRouter()
@@ -24,6 +25,10 @@ router = APIRouter()
 
 def get_user_service() -> UserService:
     return user_service
+
+
+def get_auth_service() -> AuthService:
+    return auth_service
 
 
 @router.get("/user/profile")
@@ -97,8 +102,12 @@ async def clear_push_token(
 async def delete_account(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
-    service: UserService = Depends(get_user_service),
+    auth_svc: AuthService = Depends(get_auth_service),
 ):
-    """注销账号：级联删除全部用户数据（不可恢复）。"""
-    counts = await service.delete_account(db, user_id)
-    return success({"deleted": True, "counts": counts})
+    """注销账号：软删除即时失效 + QStash 异步物理删除（不可恢复）。
+
+    即时返回（毫秒级）：status=deleted + 吊销 refresh + 清 push token；
+    物理删除由 QStash 回调 /cron/purge-user 异步执行。
+    """
+    result = await auth_svc.delete_account(db, user_id)
+    return success(result)

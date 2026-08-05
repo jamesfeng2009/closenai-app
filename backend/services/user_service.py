@@ -20,10 +20,15 @@ from backend.models.schemas import MilestoneItem, UserProfileResponse, UserSetti
 from backend.models.push import PushToken
 from backend.models.share import ShareExport
 from backend.models.subscription import Receipt, Subscription
+from backend.core.errors import AppException, ErrorCode
+from backend.core.logging import get_logger
+from backend.models.auth import RefreshToken
 from backend.models.user import User
-from backend.repositories import milestone_repository, user_repository
+from backend.repositories import auth_repository, milestone_repository, user_repository
 from backend.services.quota_service import quota_service
 from backend.config import settings
+
+logger = get_logger("closenai.user")
 
 # 前端平台 → 推送通道映射（PushService 按 apns/fcm 分发）
 PLATFORM_MAP = {"ios": "apns", "android": "fcm", "apns": "apns", "fcm": "fcm"}
@@ -31,6 +36,16 @@ PLATFORM_MAP = {"ios": "apns", "android": "fcm", "apns": "apns", "fcm": "fcm"}
 
 class UserService:
     """用户管理服务。"""
+
+    async def _require_user(
+        self, db: AsyncSession, user_id: str, *, for_update: bool = False
+    ) -> User:
+        """获取用户，不存在/已注销抛 404 USER_NOT_FOUND。
+
+        复用 user_repository.require_user（get_user + 抛错），与业务路径
+        27 处 require_user 调用点统一口径，不再按需建匿名用户。
+        """
+        return await user_repository.require_user(db, user_id, for_update=for_update)
 
     # 关系等级定义（PRD P0-F05：名称形容 AI 对用户的理解深度，无恋爱含义）
     RELATIONSHIP_LEVELS = {
@@ -55,12 +70,13 @@ class UserService:
         配额实时计算（无需每日重置任务）：统一走 quota_service 口径——
         用户本地今日 user 消息数 + 主动消息数 + 情绪签到解读数。
         """
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await self._require_user(db, user_id)
         await self.ensure_freeze_grant(db, user)
         quota_used = await quota_service.daily_usage(db, user)
         return UserProfileResponse(
             id=user.id,
             name=user.name,
+            username=user.username,
             mbti_type=user.mbti_type,
             language=user.language,
             streak_count=user.streak_count,
@@ -76,7 +92,7 @@ class UserService:
 
     async def set_ai_consent(self, db: AsyncSession, user_id: str, consent: bool) -> bool:
         """设置 AI 数据共享同意状态（5.1.2(i)：同意后可使用 AI 功能，撤回后立即停用）。"""
-        await user_repository.get_or_create_user(db, user_id)
+        await self._require_user(db, user_id)
         await user_repository.set_ai_consent(db, user_id, consent)
         return consent
 
@@ -84,7 +100,7 @@ class UserService:
         """校验 AI 数据共享同意；未同意则抛 403 AI_CONSENT_REQUIRED（合规 5.1.2(i)）。"""
         from backend.core.errors import AppException, ErrorCode
 
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await self._require_user(db, user_id)
         if not user.ai_consent:
             raise AppException(
                 ErrorCode.AI_CONSENT_REQUIRED,
@@ -113,7 +129,7 @@ class UserService:
             enneagram_type=settings_update.enneagram_type,
         )
         if not user:
-            user = await user_repository.get_or_create_user(db, user_id)
+            user = await self._require_user(db, user_id)
         return await self.get_profile(db, user_id)
 
     async def get_language(self, db: AsyncSession, user_id: str) -> str:
@@ -128,7 +144,7 @@ class UserService:
 
         前端传 ios/android，统一映射为推送通道 apns/fcm 存储。
         """
-        await user_repository.get_or_create_user(db, user_id)
+        await self._require_user(db, user_id)
         channel = PLATFORM_MAP.get((platform or "").lower())
         if not channel:
             return  # 未知平台不落库，避免产生永不送达的脏数据
@@ -163,7 +179,7 @@ class UserService:
         - 断签：每缺 1 天自动消耗 1 张冻结券（PRD P0-F05：中断当天自动使用）；
           冻结券足够覆盖缺勤天数则 streak 延续 +1，否则重置为 1
         """
-        user = await user_repository.get_or_create_user(db, user_id, for_update=True)
+        user = await self._require_user(db, user_id, for_update=True)
         # 月度冻结券发放（新月首次活跃时重置配额，先于断签消耗判定）
         await self.ensure_freeze_grant(db, user)
         # Streak 按用户本地时区的日历日计算（PRD：每日 00:00 用户本地重置）
@@ -237,7 +253,7 @@ class UserService:
 
     async def get_milestones(self, db: AsyncSession, user_id: str) -> list:
         """里程碑徽章列表（4 枚，含未达成占位）；先按当前 streak 幂等补齐。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await self._require_user(db, user_id)
         await self.sync_milestones(db, user_id, user.streak_count)
         records = await milestone_repository.list_for_user(db, user_id)
         achieved_map = {m.milestone_type: m.achieved_at for m in records}
@@ -256,11 +272,28 @@ class UserService:
         await db.execute(delete(PushToken).where(PushToken.user_id == user_id))
         await db.flush()
 
-    async def delete_account(self, db: AsyncSession, user_id: str) -> dict:
-        """注销账号：级联删除用户全部数据（合规：数据删除权，不可恢复）。
+    async def soft_delete_account(self, db: AsyncSession, user_id: str) -> dict:
+        """注销账号（第一步）：软删除即时失效 + 吊销全部 refresh + 清推送 token。
+
+        - users.status='deleted', deleted_at=now（get_user 立即过滤，业务路径抛 USER_NOT_FOUND）
+        - revoke_all_for_user：吊销全部未吊销 refresh token（防 30 分钟窗口期内刷新 access）
+        - clear_push_tokens：清推送 token（防注销后继续收到推送）
+
+        物理删除由 auth_service 编排 QStash 异步任务调 purge_user 完成。
+        幂等：重复调用对已 deleted 用户无副作用（soft_delete 返回 0）。
+        """
+        await self._require_user(db, user_id)  # 确认存在且 active（deleted 抛 USER_NOT_FOUND）
+        await user_repository.soft_delete(db, user_id)
+        await auth_repository.revoke_all_for_user(db, user_id)
+        await self.clear_push_tokens(db, user_id)
+        return {"deleted": True}
+
+    async def purge_user(self, db: AsyncSession, user_id: str) -> dict:
+        """注销账号（第二步）：物理删除用户全部数据（QStash 异步回调，幂等）。
 
         覆盖全部用户数据表，确保无残留：
         对话 / 情绪签到 / 记忆 / 性格画像 / 性格评估 / 成长记录 / 里程碑徽章 / 推送令牌 / 分享导出 / 订阅与收据 / 用户本体。
+        已删除的表 rowcount=0，天然幂等（QStash 重试安全）。
         """
         counts: dict = {}
         for table, key in (
@@ -275,6 +308,7 @@ class UserService:
             (ShareExport, "share_exports"),
             (Receipt, "receipts"),
             (Subscription, "subscriptions"),
+            (RefreshToken, "refresh_tokens"),
             (User, "users"),
         ):
             result = await db.execute(delete(table).where(table.user_id == user_id)
@@ -282,6 +316,24 @@ class UserService:
             counts[key] = result.rowcount or 0
         await db.flush()
         return counts
+
+    async def purge_deleted_users(self, db: AsyncSession, stale_hours: int = 1) -> list[dict]:
+        """cron 兜底：批量物理删除软删除超 stale_hours 的用户。
+
+        QStash 投递失败/未配置时，软删除记录会残留；此方法供
+        /cron/purge-deleted-users 定时扫描兜底（逐用户独立 SAVEPOINT，
+        单用户失败不影响批次）。
+        """
+        stale_users = await user_repository.list_deleted_stale(db, stale_hours=stale_hours)
+        results: list[dict] = []
+        for user in stale_users:
+            try:
+                async with db.begin_nested():
+                    counts = await self.purge_user(db, user.id)
+                results.append({"user_id": user.id, "counts": counts})
+            except Exception as exc:  # noqa: BLE001  单用户失败不连锁
+                logger.warning("purge_deleted_users 失败 user=%s: %s", user.id, exc)
+        return results
 
     def get_relationship_level(self, active_days: int) -> tuple:
         """根据累计活跃天数计算关系等级（PRD P0-F05）。"""

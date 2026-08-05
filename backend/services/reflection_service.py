@@ -70,7 +70,7 @@ class ReflectionService:
         context: Optional[str] = None,
     ) -> ReflectionDraftResponse:
         """生成今日 Reflection 草稿（今日反思 + AI 观察两段结构）。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
 
         # 配额（B2）：反思草稿走统一池口径（仅主动消息 + 签到解读），不叠加对话轮数
         if await quota_service.is_proactive_quota_exceeded(db, user):
@@ -134,7 +134,7 @@ class ReflectionService:
         related_memory_ids: Optional[List[str]] = None,
     ) -> ReflectionResponse:
         """保存 Reflection 为成长记录（透传关联记忆 ID 列表）。"""
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         record = await growth_repository.create(
             db, user_id, "reflection", content, related_memory_ids
         )

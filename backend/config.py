@@ -33,10 +33,18 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_key: str = ""
 
-    # JWT
+    # JWT（access + refresh 共用 secret，仅有效期不同）
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
-    jwt_expire_days: int = 7
+    jwt_access_expire_minutes: int = 30
+    jwt_refresh_expire_days: int = 30
+
+    # 邮件（Resend，邮箱验证码 / 密码重置）
+    resend_api_key: str = ""
+    email_from: str = "ClosenAI <noreply@closenai.app>"
+
+    # Apple 登录（验 identityToken 的 audience；App Store Connect → Services ID）
+    apple_client_id: str = ""
 
     # LLM（多 Provider）
     # 可切换：dashscope / doubao / gemini / openai

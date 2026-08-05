@@ -5,21 +5,67 @@ ClosenAI FastAPI 应用入口。
 启动命令：
     uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 """
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share
+from backend.routers import auth, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share
 from backend.config import settings
-from backend.core.logging import setup_logging
+from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
 
 # 初始化日志系统（统一格式：trace_id / user_id 透传）
 setup_logging("DEBUG" if settings.debug else "INFO")
+logger = get_logger("closenai.main")
+
+
+def _validate_startup_config() -> None:
+    """启动配置校验。
+
+    production 环境：JWT_SECRET / CRON_SECRET 缺失或 DATABASE_URL 仍为 sqlite 默认
+    → fail-fast（启动即报错，避免带病上线后认证/定时任务静默失效）。
+    development 环境仅告警，不阻断开发。
+    推荐配置（Redis / QStash / Resend / Apple）缺失任何环境均仅告警（功能降级可用）。
+    """
+    prod = settings.environment.lower() in ("production", "prod")
+    missing_required: list[str] = []
+    if not settings.jwt_secret:
+        missing_required.append("JWT_SECRET")
+    if not settings.cron_secret:
+        missing_required.append("CRON_SECRET")
+    if settings.database_url.startswith("sqlite"):
+        missing_required.append("DATABASE_URL(生产禁止 sqlite 默认库)")
+
+    recommended = {
+        "REDIS_URL/REDIS_TOKEN": bool(settings.redis_url and settings.redis_token),
+        "QSTASH_TOKEN": bool(settings.qstash_token),
+        "QSTASH_CURRENT_SIGNING_KEY": bool(settings.qstash_current_signing_key),
+        "RESEND_API_KEY": bool(settings.resend_api_key),
+        "APPLE_CLIENT_ID": bool(settings.apple_client_id),
+    }
+    for name, configured in recommended.items():
+        if not configured:
+            logger.warning("启动配置校验：%s 未配置，对应功能降级/不可用", name)
+
+    if missing_required:
+        msg = f"启动配置校验失败，缺失必需配置: {', '.join(missing_required)}"
+        if prod:
+            raise RuntimeError(msg)
+        logger.warning("%s（development 仅告警）", msg)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    _validate_startup_config()
+    yield
+
 
 app = FastAPI(
     title=settings.app_name,
     description=settings.app_tagline,
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS 配置
@@ -39,6 +85,7 @@ app.add_middleware(TraceIdMiddleware)
 register_exception_handlers(app)
 
 # 注册路由
+app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(memories.router, prefix="/api/v1", tags=["memories"])
 app.include_router(mood.router, prefix="/api/v1", tags=["mood"])

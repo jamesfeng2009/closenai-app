@@ -38,10 +38,16 @@ class ErrorCode(IntEnum):
     INVALID_EMOJI = 40002
     INVALID_LANGUAGE = 40003
     INVALID_TIMEZONE = 40004
+    VERIFICATION_CODE_INVALID = 40005  # 邮箱验证码不正确
+    VERIFICATION_CODE_EXPIRED = 40006  # 邮箱验证码已过期
+    PASSWORD_TOO_WEAK = 40007  # 密码强度不足（≥8 位含字母+数字）
     # 认证
     TOKEN_EXPIRED = 40101
     TOKEN_INVALID = 40102
     MISSING_TOKEN = 40103
+    INVALID_CREDENTIALS = 40104  # 用户名/邮箱或密码错误
+    REFRESH_TOKEN_INVALID = 40105  # refresh token 无效/已吊销/已过期
+    APPLE_AUTH_FAILED = 40106  # Apple identityToken 验签失败
     # 权限
     QUOTA_EXCEEDED = 40301
     PRO_REQUIRED = 40302
@@ -50,11 +56,15 @@ class ErrorCode(IntEnum):
     USER_NOT_FOUND = 40401
     RESOURCE_NOT_FOUND = 40402
     MEMORY_NOT_FOUND = 40403
+    EMAIL_NOT_REGISTERED = 40404  # 邮箱未注册（reset 内部使用，对外不泄露）
     # 冲突
     ALREADY_CHECKED_IN = 40901
     SUBSCRIPTION_ALREADY_EXISTS = 40902
+    EMAIL_ALREADY_USED = 40903  # 邮箱已被注册
+    USERNAME_ALREADY_USED = 40904  # 用户名已被占用
     # 限流
     LLM_RATE_LIMITED = 42901
+    EMAIL_SEND_RATE_LIMITED = 42902  # 验证码发送频率超限（60s 冷却 / 日上限）
 
     # ── 5xx 服务端 ──
     INTERNAL_ERROR = 500

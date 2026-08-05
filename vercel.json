@@ -26,6 +26,22 @@
     {
       "path": "/api/v1/cron/weekly-insight",
       "schedule": "0 0 * * 0"
+    },
+    {
+      "path": "/api/v1/cron/weekly-drift",
+      "schedule": "0 2 * * 0"
+    },
+    {
+      "path": "/api/v1/cron/trial-reminder",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/v1/cron/purge-deleted-users",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/v1/cron/cleanup-tokens",
+      "schedule": "0 3 * * *"
     }
   ]
 }

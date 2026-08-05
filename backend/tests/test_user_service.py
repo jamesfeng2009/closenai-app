@@ -151,7 +151,8 @@ async def test_delete_account_cascades_share_exports(db, make_user):
     await share_repository.save(db, "u1", "week", "2026-W32", '{"report": "sensitive"}')
     await db.flush()
 
-    counts = await user_service.delete_account(db, "u1")
+    # purge_user 为注销第二步（物理删除，原 delete_account 逻辑）
+    counts = await user_service.purge_user(db, "u1")
     assert counts["share_exports"] == 1
 
     remaining = await db.execute(select(ShareExport).where(ShareExport.user_id == "u1"))

@@ -269,6 +269,7 @@ class UserProfileResponse(BaseModel):
     """用户信息响应。"""
     id: str
     name: Optional[str]
+    username: Optional[str] = None  # 登录用户名（账号安全页展示）
     mbti_type: Optional[str]
     language: Optional[str] = None
     streak_count: int
@@ -413,3 +414,90 @@ class SubscriptionStatusResponse(BaseModel):
     product_id: Optional[str]
     auto_renew: bool
     is_trial: bool = False           # 是否免费试用中（到期前 24h 推送提醒）
+
+
+# ═══ Auth ═══
+
+_EMAIL_RE = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+_USERNAME_RE = r"^[A-Za-z0-9_.-]+$"
+
+
+class RegisterRequest(BaseModel):
+    """邮箱 + 用户名 + 密码注册。"""
+    email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
+    username: str = Field(..., min_length=3, max_length=50, pattern=_USERNAME_RE)
+    password: str = Field(..., min_length=8, max_length=128)
+    language: str = "en"
+
+
+class LoginRequest(BaseModel):
+    """用户名/邮箱 + 密码登录。"""
+    identifier: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=1)
+
+
+class SendCodeRequest(BaseModel):
+    """发送邮箱验证码。purpose: register|login|reset。"""
+    email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
+    purpose: Literal["register", "login", "reset"]
+    language: str = "en"
+
+
+class LoginCodeRequest(BaseModel):
+    """邮箱验证码登录（未注册自动建账号）。"""
+    email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
+    code: str = Field(..., min_length=4, max_length=8)
+    language: str = "en"
+
+
+class AppleLoginRequest(BaseModel):
+    """Apple 登录（Sign in with Apple）。"""
+    identity_token: str = Field(..., min_length=1)
+    auth_code: Optional[str] = None
+    language: str = "en"
+
+
+class RefreshRequest(BaseModel):
+    """刷新 token。"""
+    refresh_token: str = Field(..., min_length=1)
+
+
+class ForgotPasswordRequest(BaseModel):
+    """忘记密码（发重置验证码；防枚举，统一返回成功）。"""
+    email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
+    language: str = "en"
+
+
+class ResetPasswordRequest(BaseModel):
+    """重置密码（验证码 + 新密码）。"""
+    email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
+    code: str = Field(..., min_length=4, max_length=8)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class ChangePasswordRequest(BaseModel):
+    """修改密码（旧 + 新；改密后吊销全部 refresh，强制重新登录）。"""
+    old_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class UpdateUsernameRequest(BaseModel):
+    """修改用户名。"""
+    username: str = Field(..., min_length=3, max_length=50, pattern=_USERNAME_RE)
+
+
+class AuthUserResponse(BaseModel):
+    """认证返回的用户摘要。"""
+    id: str
+    email: Optional[str] = None
+    username: Optional[str] = None
+    name: Optional[str] = None
+    tier: str = "free"
+    email_verified: bool = False
+
+
+class AuthResponse(BaseModel):
+    """登录/注册/刷新成功响应。"""
+    access_token: str
+    refresh_token: str
+    user: AuthUserResponse

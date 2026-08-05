@@ -12,6 +12,9 @@
     GET  /api/v1/cron/daily-insight   — 每日洞察生成
     GET  /api/v1/cron/weekly-insight  — 周洞察生成
     GET  /api/v1/cron/weekly-drift    — 渐变漂移周检测（记忆层）
+    POST /api/v1/cron/purge-user      — QStash 回调：注销用户物理删除（验签，幂等）
+    GET  /api/v1/cron/purge-deleted-users — 兜底清理：软删除超 1h 用户批量物理删除
+    GET  /api/v1/cron/cleanup-tokens  — 清理过期 refresh token（防表无限增长）
     GET  /api/v1/cron/health          — 保热端点
 """
 import base64
@@ -26,13 +29,19 @@ from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
 from backend.core.response import success
 from backend.database import get_db
+from backend.repositories import auth_repository
 from backend.services.cron_service import CronService, cron_service
+from backend.services.user_service import UserService, user_service
 
 router = APIRouter()
 
 
 def get_cron_service() -> CronService:
     return cron_service
+
+
+def get_user_service() -> UserService:
+    return user_service
 
 
 def verify_cron_secret(request: Request):
@@ -196,6 +205,61 @@ async def weekly_drift(
     verify_cron_secret(request)
     result = await service.run_weekly_drift_detection(db)
     return success(result)
+
+
+@router.post("/cron/purge-user")
+async def purge_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: UserService = Depends(get_user_service),
+):
+    """QStash 回调：物理删除已软删除用户的全量数据（幂等）。
+
+    verify_qstash_signature 验签通过后按 body.user_id 物理删 13 表；
+    已删表 rowcount=0，天然幂等（QStash 重试安全）。
+    异常返回 500 由 QStash 重试机制兜底。
+    """
+    body = await verify_qstash_signature(request)
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise AppException(ErrorCode.BAD_REQUEST, "Invalid JSON body")
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise AppException(ErrorCode.BAD_REQUEST, "user_id required")
+    counts = await service.purge_user(db, user_id)
+    return success({"user_id": user_id, "counts": counts})
+
+
+@router.get("/cron/purge-deleted-users")
+async def purge_deleted_users(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: UserService = Depends(get_user_service),
+):
+    """兜底清理：物理删除软删除超 1 小时的用户（QStash 投递失败/未配置时）。
+
+    Vercel Cron 定时触发（建议每小时）；逐用户独立 SAVEPOINT，单用户失败不影响批次。
+    stale_hours=1 给 QStash 正常重试留窗口，避免与异步任务重复删除。
+    """
+    verify_cron_secret(request)
+    results = await service.purge_deleted_users(db, stale_hours=1)
+    return success({"purged": len(results), "users": results})
+
+
+@router.get("/cron/cleanup-tokens")
+async def cleanup_tokens(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """清理过期 refresh token（Vercel Cron 每日触发）。
+
+    过期 token 已无认证价值，物理删除防 refresh_tokens 表无限增长；
+    已吊销未过期 token 保留（重放检测依赖吊销记录）。
+    """
+    verify_cron_secret(request)
+    deleted = await auth_repository.delete_expired(db)
+    return success({"deleted": deleted})
 
 
 @router.get("/cron/health")

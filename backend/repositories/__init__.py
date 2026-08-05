@@ -29,6 +29,7 @@ from backend.repositories.subscription_repository import (
     SubscriptionRepository,
     subscription_repository,
 )
+from backend.repositories.auth_repository import AuthRepository, auth_repository
 from backend.repositories.user_repository import UserRepository, user_repository
 
 __all__ = [
@@ -48,6 +49,8 @@ __all__ = [
     "push_token_repository",
     "ShareRepository",
     "share_repository",
+    "AuthRepository",
+    "auth_repository",
     "UserRepository",
     "user_repository",
     "SubscriptionRepository",

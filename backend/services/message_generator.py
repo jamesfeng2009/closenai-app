@@ -128,7 +128,7 @@ class MessageGenerator:
         ③ 情绪关联：最近情绪签到
         ④ 互动/对话跟进：引用最近的对话主题
         """
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         user = await user_repository.get_user(db, user_id)
         tier = user.tier if user else "free"
 

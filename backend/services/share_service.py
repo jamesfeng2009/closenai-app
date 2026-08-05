@@ -112,7 +112,7 @@ class ShareService:
         """
         if variant not in CARD_VARIANTS:
             raise AppException(ErrorCode.INVALID_PARAMS, f"无效的名片变体: {variant}")
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         # Pro 权益门（40302）
         if variant in PRO_CARD_VARIANTS and user.tier == FREE_TIER:
             raise AppException(ErrorCode.PRO_REQUIRED, "三维度组合名片为 Pro 订阅权益")
@@ -157,7 +157,7 @@ class ShareService:
         """
         if period not in ALLOWED_PERIODS:
             raise AppException(ErrorCode.INVALID_PARAMS, f"无效的导出周期: {period}")
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         if period in PRO_PERIODS and user.tier == FREE_TIER:
             raise AppException(ErrorCode.PRO_REQUIRED, "该周期报告为 Pro 订阅权益")
 

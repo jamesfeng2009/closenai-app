@@ -24,7 +24,7 @@ class DiscoveryService:
         self, db: AsyncSession, user_id: str, language: str = "en"
     ) -> DailyDiscoveryResponse:
         """获取每日发现（真实数据对比；文案按语言）。"""
-        await user_repository.get_or_create_user(db, user_id)
+        await user_repository.require_user(db, user_id)
         now = utc_now()
         this_week = await mood_repository.get_history(db, user_id, days=7)
         last_week = await mood_repository.get_history(db, user_id, days=14)

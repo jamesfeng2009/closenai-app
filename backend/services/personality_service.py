@@ -200,7 +200,7 @@ class PersonalityService:
 
     async def get_profile(self, db: AsyncSession, user_id: str) -> PersonalityProfileResponse:
         """获取性格画像（含冷启动进度，无画像时返回冷启动占位；mbti_label 按用户语言）。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         profile = await personality_repository.get_latest(db, user_id)
         quota_remaining = await self._refresh_quota_remaining(db, user_id)
         progress, stage = await self._cold_start(db, user_id)
@@ -243,7 +243,7 @@ class PersonalityService:
     async def refresh(self, db: AsyncSession, user_id: str) -> PersonalityRefreshResponse:
         """刷新性格画像（配额校验 + 无新数据免扣次数 + LLM 生成）。"""
         # 行锁串行化：配额校验与画像版本写入在同一事务内完成，防并发超配额
-        await user_repository.get_or_create_user(db, user_id, for_update=True)
+        await user_repository.require_user(db, user_id, for_update=True)
         quota_remaining = await self._refresh_quota_remaining(db, user_id)
         if quota_remaining <= 0:
             raise AppException(ErrorCode.QUOTA_EXCEEDED, "性格画像刷新次数已用完")
@@ -304,7 +304,7 @@ class PersonalityService:
 
     async def get_assessment(self, db: AsyncSession, user_id: str) -> AssessmentStateResponse:
         """查询评估状态（无进行中评估返回 not_started，question 为 None）。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         assessment = await personality_repository.get_in_progress_assessment(db, user_id)
         if not assessment:
             return AssessmentStateResponse(
@@ -314,7 +314,7 @@ class PersonalityService:
 
     async def start_assessment(self, db: AsyncSession, user_id: str) -> AssessmentStateResponse:
         """开始评估：有进行中评估则续答，否则新建一轮，返回第 1 题。"""
-        user = await user_repository.get_or_create_user(db, user_id)
+        user = await user_repository.require_user(db, user_id)
         assessment = await personality_repository.get_in_progress_assessment(db, user_id)
         if not assessment:
             assessment = await personality_repository.create_assessment(db, user_id)
@@ -327,7 +327,7 @@ class PersonalityService:
 
         答满 8 题后按 4 维度计分推断类型，并结合近期记忆/情绪生成画像（首次画像免费，不扣刷新配额）。
         """
-        user = await user_repository.get_or_create_user(db, user_id, for_update=True)
+        user = await user_repository.require_user(db, user_id, for_update=True)
         assessment = await personality_repository.get_in_progress_assessment(db, user_id)
         if not assessment:
             raise AppException(ErrorCode.BAD_REQUEST, "请先开始性格评估")
@@ -499,7 +499,7 @@ class PersonalityService:
 
     async def generate_combo_report(self, db: AsyncSession, user_id: str) -> ComboReportResponse:
         """生成 Pro 组合报告（每月 1 份，按用户本地月缓存控成本；LLM lite，失败回退模板）。"""
-        user = await user_repository.get_or_create_user(db, user_id, for_update=True)
+        user = await user_repository.require_user(db, user_id, for_update=True)
         if (user.tier or "free") not in ("pro", "pro_plus"):
             raise AppException(ErrorCode.PRO_REQUIRED, "组合报告为 Pro 专属功能，升级后可用")
         profile = await personality_repository.get_latest(db, user_id)

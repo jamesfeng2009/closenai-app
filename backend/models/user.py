@@ -53,6 +53,26 @@ class User(Base):
     daily_quota_used: Mapped[int] = mapped_column(Integer, default=0)
     tier: Mapped[str] = mapped_column(String(20), default="free")
 
+    # ── 认证（三种登录方式：Apple / 邮箱验证码 / 用户名密码；字段集互补，均 nullable）──
+    # 邮箱（密码登录与验证码登录共用；唯一，partial index 仅约束非 NULL 行）
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 用户名（密码登录标识符之一；唯一，partial index）
+    username: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # argon2 密码哈希（仅密码登录用户有值；明文永不存储）
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Apple 账号 sub（Sign in with Apple；唯一，partial index）
+    apple_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 邮箱验证时间（验证码登录/注册即视为已验证；None 表示未验证）
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # ── 账号生命周期（软删除：注销即时失效，QStash 异步物理删除）──
+    # status='active' 正常；'deleted' 已注销（get_user 过滤掉，业务路径抛 USER_NOT_FOUND）
+    # partial unique index 加 deleted_at IS NULL 条件，软删除记录不占唯一约束位 → 同 email/apple_id 可重新注册
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
