@@ -1,0 +1,3 @@
+[submodule "closenai-prd"]
+	path = closenai-prd
+	url = https://gitee.com/globalization/closenai-prd.git
