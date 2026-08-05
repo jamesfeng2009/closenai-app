@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getGrowthDashboard, moodCheckin, ApiError } from '../services/api';
+import { useAuth, useRequireAuth } from '../context/AuthContext';
 import type { GrowthDashboard, MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -32,6 +33,8 @@ const CODE_QUOTA_EXCEEDED = 40301;
 
 export default function HomeScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
+  const { isLoggedIn } = useAuth();
+  const requireAuth = useRequireAuth();
   const [dashboard, setDashboard] = useState<GrowthDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -68,13 +71,20 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   }, []);
 
   // Tab 常驻不卸载：每次聚焦都拉最新数据（mount 时也会触发一次）
+  // 游客态跳过请求（401 噪声），显示空仪表盘
   useFocusEffect(
     React.useCallback(() => {
-      loadDashboard();
-    }, [loadDashboard])
+      if (isLoggedIn) {
+        loadDashboard();
+      } else {
+        setDashboard(null);
+        setLoading(false);
+      }
+    }, [loadDashboard, isLoggedIn])
   );
 
   const onMoodPress = async (emoji: MoodEmoji) => {
+    if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     if (checkingIn || dashboard?.today_mood) return; // 已签到或请求中则忽略
     try {
       setCheckingIn(true);

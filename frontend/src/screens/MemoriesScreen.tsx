@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { listMemories, deleteMemory, ApiError } from '../services/api';
+import { useAuth, useRequireAuth } from '../context/AuthContext';
 import type { Memory } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -23,12 +24,19 @@ const CATEGORY_ICONS: Record<Memory['category'], string> = {
 
 export default function MemoriesScreen() {
   const { t } = useTranslation();
+  const { isLoggedIn } = useAuth();
+  const requireAuth = useRequireAuth();
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    load();
-  }, []);
+    if (isLoggedIn) {
+      load();
+    } else {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn]);
 
   const load = async () => {
     try {
@@ -42,6 +50,7 @@ export default function MemoriesScreen() {
   };
 
   const onDelete = (item: Memory) => {
+    if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     Alert.alert(
       t('memories.deleteTitle'),
       t('memories.deleteConfirm'),

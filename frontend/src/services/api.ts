@@ -4,10 +4,11 @@
  * 封装所有后端 API 调用：
  * - 统一解包后端响应信封 {code, message, data, trace_id, user_id}
  * - 统一错误处理（ApiError 携带业务错误码）
+ * - JWT 鉴权：access_token 注入 Authorization，401 自动用 refresh_token 刷新重试
  * - SSE 流式对话基于 XMLHttpRequest（React Native fetch 不支持流式 body）
  */
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import i18n from '../i18n';
 import type {
   ChatStreamRequest, ChatHistoryItem, SSEEvent,
@@ -21,6 +22,7 @@ import type {
   SubscriptionStatus, ReceiptVerifyResult,
   ReflectionDraft, ReflectionItem,
   Memory,
+  AuthResponse, AuthUser, CodePurpose,
 } from '../types';
 
 // 开发环境 API 地址
@@ -30,52 +32,94 @@ const API_BASE = Platform.select({
   default: 'http://localhost:8000/api/v1',
 });
 
-// ═══ 设备级用户标识（P0 阶段：X-User-Id 透传，正式鉴权上线后替换为 JWT）═══
+// ═══ 认证态：access/refresh token 存 SecureStore（iOS Keychain）═══
 
-const USER_ID_KEY = '@closenai/device_user_id';
-let cachedUserId: string | null = null;
+const ACCESS_TOKEN_KEY = '@closenai/access_token';
+const REFRESH_TOKEN_KEY = '@closenai/refresh_token';
+const USER_KEY = '@closenai/auth_user';
 
-function generateUuid(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
+let accessToken: string | null = null;
+let refreshToken: string | null = null;
+let authUser: AuthUser | null = null;
 
-/** 初始化/获取设备级用户 ID（App 启动时调用，保证数据按设备隔离）。 */
-export async function initApiUser(): Promise<string> {
-  if (cachedUserId) return cachedUserId;
-  let id: string | null = null;
+/** 启动时加载持久化的登录态（App.tsx 冷启动关键路径调用）。 */
+export async function loadSession(): Promise<void> {
   try {
-    id = await AsyncStorage.getItem(USER_ID_KEY);
+    accessToken = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+    refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    const userJson = await SecureStore.getItemAsync(USER_KEY);
+    authUser = userJson ? (JSON.parse(userJson) as AuthUser) : null;
   } catch {
     // ignore
   }
-  if (!id) {
-    id = generateUuid();
-    try {
-      await AsyncStorage.setItem(USER_ID_KEY, id);
-    } catch {
-      // ignore
-    }
-  }
-  cachedUserId = id;
-  return id;
 }
 
-/** 重置设备身份（退出登录/注销后调用）：清除本地用户 ID 并生成新身份。 */
-export async function resetApiUser(): Promise<void> {
-  cachedUserId = null;
+export function isLoggedIn(): boolean {
+  return !!accessToken;
+}
+
+export function getAuthUser(): AuthUser | null {
+  return authUser;
+}
+
+/** 更新内存 + SecureStore 中的用户摘要（getMe 刷新后调用，token 不变）。 */
+export async function updateAuthUser(user: AuthUser): Promise<void> {
+  authUser = user;
   try {
-    await AsyncStorage.removeItem(USER_ID_KEY);
+    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
   } catch {
     // ignore
   }
-  await initApiUser();
 }
 
-// ═══ 统一请求封装（信封解包 + 错误处理）═══
+export function getRefreshToken(): string | null {
+  return refreshToken;
+}
+
+async function setAuth(resp: AuthResponse): Promise<void> {
+  accessToken = resp.access_token;
+  refreshToken = resp.refresh_token;
+  authUser = resp.user;
+  try {
+    await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, resp.access_token);
+    await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, resp.refresh_token);
+    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(resp.user));
+  } catch {
+    // ignore
+  }
+}
+
+/** 清除本机登录态（退出登录 / 注销 / refresh 失效时调用）。 */
+export async function clearAuth(): Promise<void> {
+  accessToken = null;
+  refreshToken = null;
+  authUser = null;
+  try {
+    await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(USER_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+// ═══ 会话重置通知（401 刷新失败 / 退出登录 / 注销 → 回登录页）═══
+
+const sessionListeners = new Set<() => void>();
+
+/** 订阅会话重置事件（App 根组件挂载时订阅，返回取消函数）。 */
+export function onSessionReset(fn: () => void): () => void {
+  sessionListeners.add(fn);
+  return () => {
+    sessionListeners.delete(fn);
+  };
+}
+
+export function notifySessionReset(): void {
+  sessionListeners.forEach((fn) => fn());
+}
+
+// ═══ 统一请求封装（信封解包 + 错误处理 + 401 自动刷新）═══
 
 export class ApiError extends Error {
   code: number;
@@ -86,15 +130,15 @@ export class ApiError extends Error {
   }
 }
 
-// 动态请求头：Content-Type + 语言透传（X-Language）+ 用户标识（X-User-Id）
+// 动态请求头：Content-Type + 语言透传（X-Language）+ 鉴权（Authorization Bearer）
 // 后端按「X-Language header → users.language → en」优先级解析 LLM 回复语言
 function getHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Language': (i18n.language || 'en').slice(0, 2),
   };
-  if (cachedUserId) {
-    headers['X-User-Id'] = cachedUserId;
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
   }
   return headers;
 }
@@ -115,15 +159,61 @@ function isEnvelope(body: unknown): body is Envelope<unknown> {
   );
 }
 
+// refresh 单飞：并发 401 只触发一次刷新，共享结果
+let refreshing: Promise<boolean> | null = null;
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    if (!refreshToken) return false;
+    try {
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) return false;
+      const body = await res.json();
+      if (body?.code !== 200 || !body.data) return false;
+      await setAuth(body.data as AuthResponse);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, {
+  const doRequest = (): Promise<Response> =>
+    fetch(`${API_BASE}${path}`, {
       ...options,
       headers: { ...getHeaders(), ...(options.headers as Record<string, string> | undefined) },
     });
+
+  let res: Response;
+  try {
+    res = await doRequest();
   } catch {
     throw new ApiError(-1, i18n.t('errors.network'));
+  }
+
+  // 401 → 用 refresh_token 刷新一次后重试；refresh 也失败则清除登录态并回登录页
+  if (res.status === 401 && accessToken) {
+    const ok = await refreshAccessToken();
+    if (ok) {
+      try {
+        res = await doRequest();
+      } catch {
+        throw new ApiError(-1, i18n.t('errors.network'));
+      }
+    } else {
+      await clearAuth();
+      notifySessionReset();
+      throw new ApiError(40103, i18n.t('errors.sessionExpired'));
+    }
   }
 
   let body: unknown = null;
@@ -131,6 +221,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     body = await res.json();
   } catch {
     // 非 JSON 响应
+  }
+
+  // USER_NOT_FOUND(40401) 在已登录态下意味着账号已注销（软删除）→ 清登录态回登录页。
+  // 注销后 30 分钟 access_token 窗口期内，业务请求 get_user 过滤 deleted → 抛此码；
+  // 游客态（无 accessToken）不拦截，避免误伤游客的正常 404。
+  if (isEnvelope(body) && body.code === 40401 && accessToken) {
+    await clearAuth();
+    notifySessionReset();
+    throw new ApiError(40401, i18n.t('errors.sessionExpired'));
   }
 
   if (!res.ok) {
@@ -159,6 +258,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
  * React Native 的 fetch 不支持流式响应体（response.body 为 null），
  * 这里用 XMLHttpRequest 的 onprogress 增量读取 responseText 实现 SSE 解析。
  *
+ * 401 处理与 request() 对齐：access token 过期时自动 refresh 并重开流一次；
+ * refresh 失败则清登录态并通知回登录页。
+ *
  * @returns 取消函数（调用可中断流）
  */
 export function streamChat(
@@ -168,13 +270,8 @@ export function streamChat(
   onError: (error: string, code?: number) => void,
   onMemoryContext?: (memories: SSEEvent['memories']) => void,
 ): () => void {
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', `${API_BASE}/chat/stream`);
-  const headers = getHeaders();
-  Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-
-  let processed = 0; // 已处理的 responseText 长度
-  let buffer = '';
+  let xhr: XMLHttpRequest | null = null;
+  let cancelled = false;
   let settled = false;
 
   const finish = (fn: () => void) => {
@@ -183,65 +280,96 @@ export function streamChat(
     fn();
   };
 
-  const handleLine = (line: string) => {
-    if (!line.startsWith('data: ')) return;
-    let event: SSEEvent;
-    try {
-      event = JSON.parse(line.slice(6));
-    } catch {
-      return;
-    }
-    switch (event.type) {
-      case 'token':
-        onToken(event.content || '');
-        break;
-      case 'memory_context':
-        onMemoryContext?.(event.memories);
-        break;
-      case 'done':
-        finish(onDone);
-        break;
-      case 'error':
-        finish(() => onError(event.message || i18n.t('errors.unknown'), event.code));
-        break;
-    }
-  };
+  const startAttempt = (isRetry: boolean) => {
+    const attempt = new XMLHttpRequest();
+    xhr = attempt;
+    attempt.open('POST', `${API_BASE}/chat/stream`);
+    const headers = getHeaders();
+    Object.entries(headers).forEach(([k, v]) => attempt.setRequestHeader(k, v));
 
-  const pump = () => {
-    buffer += xhr.responseText.slice(processed);
-    processed = xhr.responseText.length;
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    lines.forEach(handleLine);
-  };
+    let processed = 0; // 已处理的 responseText 长度
+    let buffer = '';
 
-  xhr.onprogress = pump;
-  xhr.onload = () => {
-    // 非 2xx（如 403 AI_CONSENT_REQUIRED）：响应为 JSON 信封而非 SSE 流，按错误处理
-    if (xhr.status < 200 || xhr.status >= 300) {
-      let message = i18n.t('errors.httpFailed', { status: xhr.status });
-      let code: number = xhr.status;
+    const handleLine = (line: string) => {
+      if (!line.startsWith('data: ')) return;
+      let event: SSEEvent;
       try {
-        const body = JSON.parse(xhr.responseText);
-        if (typeof body?.message === 'string') message = body.message;
-        if (typeof body?.code === 'number') code = body.code;
+        event = JSON.parse(line.slice(6));
       } catch {
-        // 非 JSON 响应，保留默认错误
+        return;
       }
-      finish(() => onError(message, code));
-      return;
-    }
-    pump();
-    if (buffer.trim()) handleLine(buffer.trim());
-    // 流正常结束但未收到 done 事件时，兜底完成
-    finish(onDone);
-  };
-  xhr.onerror = () => finish(() => onError(i18n.t('errors.network')));
-  xhr.ontimeout = () => finish(() => onError(i18n.t('errors.timeout')));
-  xhr.timeout = 60000;
+      switch (event.type) {
+        case 'token':
+          onToken(event.content || '');
+          break;
+        case 'memory_context':
+          onMemoryContext?.(event.memories);
+          break;
+        case 'done':
+          finish(onDone);
+          break;
+        case 'error':
+          finish(() => onError(event.message || i18n.t('errors.unknown'), event.code));
+          break;
+      }
+    };
 
-  xhr.send(JSON.stringify(requestBody));
-  return () => xhr.abort();
+    const pump = () => {
+      buffer += attempt.responseText.slice(processed);
+      processed = attempt.responseText.length;
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      lines.forEach(handleLine);
+    };
+
+    attempt.onprogress = pump;
+    attempt.onload = () => {
+      // 401：access token 过期 → refresh 后重开流一次（非 2xx 响应为 JSON 信封，不会被 pump 误解析）
+      if (attempt.status === 401 && !isRetry && !cancelled) {
+        void (async () => {
+          const ok = accessToken ? await refreshAccessToken() : false;
+          if (cancelled || settled) return;
+          if (ok) {
+            startAttempt(true);
+          } else {
+            await clearAuth();
+            notifySessionReset();
+            finish(() => onError(i18n.t('errors.sessionExpired'), 40103));
+          }
+        })();
+        return;
+      }
+      // 非 2xx（如 403 AI_CONSENT_REQUIRED / 401 重试后仍失败）：响应为 JSON 信封而非 SSE 流，按错误处理
+      if (attempt.status < 200 || attempt.status >= 300) {
+        let message = i18n.t('errors.httpFailed', { status: attempt.status });
+        let code: number = attempt.status;
+        try {
+          const body = JSON.parse(attempt.responseText);
+          if (typeof body?.message === 'string') message = body.message;
+          if (typeof body?.code === 'number') code = body.code;
+        } catch {
+          // 非 JSON 响应，保留默认错误
+        }
+        finish(() => onError(message, code));
+        return;
+      }
+      pump();
+      if (buffer.trim()) handleLine(buffer.trim());
+      // 流正常结束但未收到 done 事件时，兜底完成
+      finish(onDone);
+    };
+    attempt.onerror = () => finish(() => onError(i18n.t('errors.network')));
+    attempt.ontimeout = () => finish(() => onError(i18n.t('errors.timeout')));
+    attempt.timeout = 60000;
+
+    attempt.send(JSON.stringify(requestBody));
+  };
+
+  startAttempt(false);
+  return () => {
+    cancelled = true;
+    xhr?.abort();
+  };
 }
 
 export async function getChatHistory(limit: number = 20): Promise<ChatHistoryItem[]> {
@@ -432,4 +560,121 @@ export async function verifyReceipt(
       product_id: productId,
     }),
   });
+}
+
+// ═══ Auth ═══
+// 认证端点。登录/注册/验证码登录/Apple 登录成功后自动持久化 token。
+// 公开端点不触发 401 刷新（登录态为空时 request 不走刷新分支）。
+
+/** 邮箱 + 用户名 + 密码注册。 */
+export async function register(
+  email: string,
+  username: string,
+  password: string,
+  language: string = 'en',
+): Promise<AuthResponse> {
+  const resp = await request<AuthResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, username, password, language }),
+  });
+  await setAuth(resp);
+  return resp;
+}
+
+/** 用户名/邮箱 + 密码登录。 */
+export async function login(identifier: string, password: string): Promise<AuthResponse> {
+  const resp = await request<AuthResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ identifier, password }),
+  });
+  await setAuth(resp);
+  return resp;
+}
+
+/** 发送邮箱验证码（purpose: register|login|reset）。 */
+export async function sendEmailCode(
+  email: string,
+  purpose: CodePurpose,
+  language: string = 'en',
+): Promise<void> {
+  await request<{ status: string }>('/auth/send-code', {
+    method: 'POST',
+    body: JSON.stringify({ email, purpose, language }),
+  });
+}
+
+/** 邮箱验证码登录（未注册自动建账号）。 */
+export async function loginWithEmailCode(
+  email: string,
+  code: string,
+  language: string = 'en',
+): Promise<AuthResponse> {
+  const resp = await request<AuthResponse>('/auth/login-code', {
+    method: 'POST',
+    body: JSON.stringify({ email, code, language }),
+  });
+  await setAuth(resp);
+  return resp;
+}
+
+/** Apple 登录（Sign in with Apple）：传 identityToken 到后端验签。 */
+export async function appleLoginApi(
+  identityToken: string,
+  language: string = 'en',
+): Promise<AuthResponse> {
+  const resp = await request<AuthResponse>('/auth/apple', {
+    method: 'POST',
+    body: JSON.stringify({ identity_token: identityToken, language }),
+  });
+  await setAuth(resp);
+  return resp;
+}
+
+/** 登出：吊销当前 refresh token（需传 refresh_token；登出后本地清态由 logout() 组合）。 */
+export async function logoutApi(refreshToken: string): Promise<void> {
+  await request<{ status: string }>('/auth/logout', {
+    method: 'POST',
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+}
+
+/** 忘记密码：发送重置验证码（防枚举，统一返回成功）。 */
+export async function forgotPassword(email: string, language: string = 'en'): Promise<void> {
+  await request<{ status: string }>('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, language }),
+  });
+}
+
+/** 重置密码：验证码 + 新密码。 */
+export async function resetPassword(
+  email: string,
+  code: string,
+  newPassword: string,
+): Promise<void> {
+  await request<{ status: string }>('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, code, new_password: newPassword }),
+  });
+}
+
+/** 修改密码（旧 + 新；改密后吊销全部 refresh，需重新登录）。 */
+export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  await request<{ status: string }>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  });
+}
+
+/** 修改用户名。 */
+export async function updateUsername(username: string): Promise<void> {
+  await request<{ status: string }>('/auth/username', {
+    method: 'PATCH',
+    body: JSON.stringify({ username }),
+  });
+}
+
+/** 当前用户信息（校验 token 有效性 + 拉取最新资料）。 */
+export async function getMe(): Promise<AuthUser> {
+  return request<AuthUser>('/auth/me');
 }

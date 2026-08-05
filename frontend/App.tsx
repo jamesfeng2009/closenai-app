@@ -12,6 +12,8 @@ import ExploreScreen from './src/screens/ExploreScreen';
 import ReflectScreen from './src/screens/ReflectScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+import AuthScreen from './src/screens/AuthScreen';
+import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import PersonalityScreen from './src/screens/PersonalityScreen';
 import PaywallScreen from './src/screens/PaywallScreen';
 import MemoriesScreen from './src/screens/MemoriesScreen';
@@ -19,8 +21,9 @@ import ShareCardScreen from './src/screens/ShareCardScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import { Colors } from './src/theme/colors';
 import { initI18n, default as i18n } from './src/i18n';
-import { initApiUser, updateUserSettings } from './src/services/api';
+import { loadSession, updateUserSettings, isLoggedIn } from './src/services/api';
 import { onSessionReset } from './src/services/session';
+import { AuthProvider } from './src/context/AuthContext';
 
 const ONBOARDED_KEY = '@closenai/onboarded';
 
@@ -33,6 +36,8 @@ export type RootTabParamList = {
 
 export type RootStackParamList = {
   Tabs: undefined;
+  Auth: undefined;
+  ForgotPassword: undefined;
   Personality: undefined;
   Paywall: undefined;
   Memories: undefined;
@@ -72,8 +77,11 @@ export default function App() {
   useEffect(() => {
     // 时区上报为非关键路径：fire-and-forget，不阻塞启动
     // （出海规范：后端按用户本地时区计算配额重置/streak/主动消息时间）
+    // 游客守卫：未登录不上报——production 无 Bearer 必 401、development 匿名身份必 40401，
+    // 纯噪音请求；登录成功后由 AuthContext.login 补报一次
     const reportTimezone = () => {
       try {
+        if (!isLoggedIn()) return;
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (tz) updateUserSettings({ timezone: tz }).catch(() => {});
       } catch {
@@ -82,17 +90,16 @@ export default function App() {
     };
 
     (async () => {
-      // 冷启动关键路径：i18n / 设备身份 / 引导标记三者无依赖，并行加载（串行会拉长启动）
-      // 顺序保证：initApiUser 必须先于任何 API 调用完成（请求头依赖 cachedUserId），
-      // 因此所有首屏网络请求只能在 ready 之后由屏幕组件发起。
+      // 冷启动关键路径：i18n / 登录态恢复 / 引导标记 三者无依赖，并行加载
+      // loadSession 从 SecureStore 读 access/refresh token（替代旧 initApiUser 设备身份）
       const [, , stored] = await Promise.all([
         initI18n(),
-        initApiUser(),
+        loadSession(),
         AsyncStorage.getItem(ONBOARDED_KEY).catch(() => null),
       ]);
       setOnboarded(stored === '1');
       setReady(true);
-      // 首帧渲染之后上报时区
+      // 首帧渲染之后上报时区（仅已登录用户；游客被守卫跳过）
       reportTimezone();
     })();
 
@@ -103,8 +110,14 @@ export default function App() {
       }
     });
 
-    // 退出登录/注销后：回到引导页（新设备身份）
-    const sessionCleanup = onSessionReset(() => setOnboarded(false));
+    // 会话重置（登出 / token 失效 / 注销）：重读引导标记
+    // - 登出 / token 失效：引导标记保留（游客可继续浏览 Tabs）
+    // - 注销账号：引导标记已清（resetSessionFull），回到引导页
+    const sessionCleanup = onSessionReset(() => {
+      AsyncStorage.getItem(ONBOARDED_KEY)
+        .then((stored) => setOnboarded(stored === '1'))
+        .catch(() => setOnboarded(false));
+    });
 
     return () => {
       subscription.remove();
@@ -136,36 +149,48 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       <I18nextProvider i18n={i18n}>
-        <NavigationContainer>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="Tabs" component={TabNavigator} />
-            <Stack.Screen
-              name="Personality"
-              component={PersonalityScreen}
-              options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
-            />
-            <Stack.Screen
-              name="Paywall"
-              component={PaywallScreen}
-              options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '', presentation: 'modal' }}
-            />
-            <Stack.Screen
-              name="Memories"
-              component={MemoriesScreen}
-              options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
-            />
-            <Stack.Screen
-              name="ShareCard"
-              component={ShareCardScreen}
-              options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
-            />
-            <Stack.Screen
-              name="Insights"
-              component={InsightsScreen}
-              options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
-            />
-          </Stack.Navigator>
-        </NavigationContainer>
+        <AuthProvider>
+          <NavigationContainer>
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="Tabs" component={TabNavigator} />
+              <Stack.Screen
+                name="Auth"
+                component={AuthScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="ForgotPassword"
+                component={ForgotPasswordScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="Personality"
+                component={PersonalityScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="Paywall"
+                component={PaywallScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '', presentation: 'modal' }}
+              />
+              <Stack.Screen
+                name="Memories"
+                component={MemoriesScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="ShareCard"
+                component={ShareCardScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="Insights"
+                component={InsightsScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+            </Stack.Navigator>
+          </NavigationContainer>
+        </AuthProvider>
       </I18nextProvider>
     </SafeAreaView>
   );

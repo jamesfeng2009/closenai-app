@@ -21,6 +21,7 @@ import {
   generateReflectionDraft, saveReflection, getUserProfile, setAiConsent, ApiError,
 } from '../services/api';
 import AIConsentModal from '../components/AIConsentModal';
+import { useAuth, useRequireAuth } from '../context/AuthContext';
 import type { MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -44,6 +45,8 @@ const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'
 export default function ReflectScreen() {
   const { t } = useTranslation();
   const navigation = useNavigation<any>();
+  const { isLoggedIn } = useAuth();
+  const requireAuth = useRequireAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showMoodPanel, setShowMoodPanel] = useState(false);
@@ -57,9 +60,11 @@ export default function ReflectScreen() {
   const cancelStreamRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    loadInitial();
+    if (isLoggedIn) loadInitial();
+    else setLoading(false);
     return () => cancelStreamRef.current?.();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn]);
 
   const loadInitial = async () => {
     try {
@@ -145,6 +150,7 @@ export default function ReflectScreen() {
   };
 
   const sendMessage = () => {
+    if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     const text = input.trim();
     if (!text || isStreaming) return;
 
@@ -190,6 +196,7 @@ export default function ReflectScreen() {
   };
 
   const quickMoodCheckin = async (emoji: MoodEmoji) => {
+    if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     try {
       const result = await moodCheckin(emoji);
       setMessages((prev) => [
@@ -215,6 +222,7 @@ export default function ReflectScreen() {
   };
 
   const onSaveDraft = async (msg: Message) => {
+    if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     try {
       await saveReflection(msg.content, msg.relatedMemoryIds);
       setMessages((prev) =>

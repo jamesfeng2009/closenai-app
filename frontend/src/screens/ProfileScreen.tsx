@@ -6,37 +6,48 @@
  * - AI 与记忆（记忆管理、对话风格、主动消息时间）
  * - 订阅（升级 Pro、使用情况）
  * - 其他设置（语言、隐私、帮助）
+ * - 账号安全（修改用户名、修改密码）
  * - 关于 AI（合规：免责声明、模型来源、数据共享）
- * - 退出登录
+ * - 退出登录 / 注销账号
+ *
+ * 游客态（未登录）：展示登录引导 CTA，不加载用户资料。
  */
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, FlatList, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, FlatList, Alert, TextInput,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import {
-  getUserProfile, updateUserSettings, setAiConsent, clearPushToken, deleteAccount, ApiError,
+  getUserProfile, updateUserSettings, setAiConsent, ApiError,
+  changePassword, updateUsername,
 } from '../services/api';
-import { resetSession } from '../services/session';
+import { useAuth } from '../context/AuthContext';
 import AIConsentModal from '../components/AIConsentModal';
-import type { UserProfile } from '../types';
-import { useTranslation } from 'react-i18next';
 import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n';
+import type { UserProfile } from '../types';
 
 export default function ProfileScreen({ navigation }: { navigation: any }) {
   const { t, i18n } = useTranslation();
+  const { isLoggedIn, logout, deleteMyAccount } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [langVisible, setLangVisible] = useState(false);
   const [aboutVisible, setAboutVisible] = useState(false);
   const [consentVisible, setConsentVisible] = useState(false);
+  const [pwdVisible, setPwdVisible] = useState(false);
+  const [usernameVisible, setUsernameVisible] = useState(false);
 
-  // Tab 常驻不卸载：每次聚焦都刷新（配额用量/订阅状态与服务器对齐；mount 时也会触发一次）
+  // Tab 常驻不卸载：每次聚焦都刷新（仅登录态；游客跳过请求避免 401 噪声）
   useFocusEffect(
     React.useCallback(() => {
-      loadProfile();
-    }, [])
+      if (isLoggedIn) {
+        loadProfile();
+      } else {
+        setLoading(false);
+      }
+    }, [isLoggedIn])
   );
 
   const loadProfile = async () => {
@@ -74,7 +85,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
     }
   };
 
-  // 退出登录：清除推送 Token + 重置设备身份（回到引导页）
+  // 退出登录：吊销 refresh + 清本机态（保留引导，游客可继续浏览）
   const onLogout = () => {
     Alert.alert(
       t('profile.logoutConfirmTitle'),
@@ -86,18 +97,18 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await clearPushToken();
+              await logout();
             } catch (e) {
-              console.warn('Failed to clear push token:', e);
+              console.warn('Logout failed:', e);
+              // 即使后端吊销失败，本地仍需清态（logout 内部已处理 resetSession）
             }
-            await resetSession();
           },
         },
       ],
     );
   };
 
-  // 注销账号：级联删除全部数据（不可恢复），随后重置本地会话
+  // 注销账号：级联删除全部数据（不可恢复），随后全量重置回引导页
   const onDeleteAccount = () => {
     Alert.alert(
       t('profile.deleteConfirmTitle'),
@@ -109,10 +120,9 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteAccount();
-              await resetSession();
+              await deleteMyAccount();
             } catch (e) {
-              const msg = e instanceof ApiError ? e.message : t('errors.deleteFailed');
+              const msg = e instanceof Error ? e.message : t('errors.deleteFailed');
               Alert.alert(t('common.error'), msg);
             }
           },
@@ -120,6 +130,20 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       ],
     );
   };
+
+  // ── 游客态：登录引导 CTA ──
+  if (!isLoggedIn) {
+    return (
+      <View style={styles.guestContainer}>
+        <Text style={styles.guestAvatar}>🧑</Text>
+        <Text style={styles.guestTitle}>{t('auth.guestTitle')}</Text>
+        <Text style={styles.guestDesc}>{t('auth.guestDesc')}</Text>
+        <TouchableOpacity style={styles.primaryBtn} onPress={() => navigation.navigate('Auth')}>
+          <Text style={styles.primaryBtnText}>{t('auth.login')}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (loading) {
     return (
@@ -159,6 +183,21 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={styles.settingIcon}>🔔</Text>
           <Text style={styles.settingLabel}>{t('profile.activeTime')}</Text>
           <Text style={styles.settingValue}>{profile?.push_time || '09:00'}</Text>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 账号安全 */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{t('profile.sectionAccount')}</Text>
+        <TouchableOpacity style={styles.settingItem} onPress={() => setUsernameVisible(true)}>
+          <Text style={styles.settingIcon}>👤</Text>
+          <Text style={styles.settingLabel}>{t('auth.changeUsername')}</Text>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.settingItem} onPress={() => setPwdVisible(true)}>
+          <Text style={styles.settingIcon}>🔑</Text>
+          <Text style={styles.settingLabel}>{t('auth.changePassword')}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
       </View>
@@ -300,7 +339,178 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         onAgree={() => onConsentChange(true)}
         onDecline={() => onConsentChange(false)}
       />
+
+      {/* 修改密码 */}
+      <ChangePasswordModal visible={pwdVisible} onClose={() => setPwdVisible(false)} />
+
+      {/* 修改用户名 */}
+      <ChangeUsernameModal
+        visible={usernameVisible}
+        onClose={() => setUsernameVisible(false)}
+        currentUsername={profile?.username || ''}
+        onUpdated={() => loadProfile()}
+      />
     </ScrollView>
+  );
+}
+
+// ═══ 修改密码 Modal ═══
+function ChangePasswordModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
+  const { logout } = useAuth();
+  const [oldPwd, setOldPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const reset = () => {
+    setOldPwd('');
+    setNewPwd('');
+    setConfirmPwd('');
+  };
+
+  const onSubmit = async () => {
+    if (!oldPwd || !newPwd) {
+      Alert.alert(t('common.error'), t('auth.fillAllFields'));
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      Alert.alert(t('common.error'), t('auth.passwordMismatch'));
+      return;
+    }
+    try {
+      setLoading(true);
+      await changePassword(oldPwd, newPwd);
+      reset();
+      onClose();
+      // 改密后后端吊销全部 refresh，需重新登录
+      Alert.alert(t('auth.passwordChangedTitle'), t('auth.passwordChangedMessage'), [
+        { text: t('auth.login'), onPress: () => logout() },
+      ]);
+    } catch (e) {
+      Alert.alert(t('common.error'), e instanceof ApiError ? e.message : t('errors.requestFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>{t('auth.changePassword')}</Text>
+          <TextInput
+            style={styles.modalInput}
+            placeholder={t('auth.oldPassword')}
+            placeholderTextColor={Colors.textTertiary}
+            value={oldPwd}
+            onChangeText={setOldPwd}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TextInput
+            style={styles.modalInput}
+            placeholder={t('auth.passwordPlaceholder')}
+            placeholderTextColor={Colors.textTertiary}
+            value={newPwd}
+            onChangeText={setNewPwd}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TextInput
+            style={styles.modalInput}
+            placeholder={t('auth.confirmPassword')}
+            placeholderTextColor={Colors.textTertiary}
+            value={confirmPwd}
+            onChangeText={setConfirmPwd}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { reset(); onClose(); }}>
+              <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalConfirmBtn, loading && styles.primaryBtnDisabled]}
+              disabled={loading}
+              onPress={onSubmit}
+            >
+              <Text style={styles.modalConfirmText}>
+                {loading ? t('common.loading') : t('common.done')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ═══ 修改用户名 Modal ═══
+function ChangeUsernameModal({
+  visible, onClose, currentUsername, onUpdated,
+}: {
+  visible: boolean; onClose: () => void; currentUsername: string; onUpdated: () => void;
+}) {
+  const { t } = useTranslation();
+  const [newName, setNewName] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const onSubmit = async () => {
+    if (!newName.trim()) {
+      Alert.alert(t('common.error'), t('auth.fillAllFields'));
+      return;
+    }
+    try {
+      setLoading(true);
+      await updateUsername(newName.trim());
+      setNewName('');
+      onClose();
+      onUpdated();
+    } catch (e) {
+      Alert.alert(t('common.error'), e instanceof ApiError ? e.message : t('errors.requestFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>{t('auth.changeUsername')}</Text>
+          <Text style={styles.modalHint}>
+            {t('auth.currentUsername')}: {currentUsername || '-'}
+          </Text>
+          <TextInput
+            style={styles.modalInput}
+            placeholder={t('auth.newUsername')}
+            placeholderTextColor={Colors.textTertiary}
+            value={newName}
+            onChangeText={setNewName}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { setNewName(''); onClose(); }}>
+              <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalConfirmBtn, loading && styles.primaryBtnDisabled]}
+              disabled={loading}
+              onPress={onSubmit}
+            >
+              <Text style={styles.modalConfirmText}>
+                {loading ? t('common.loading') : t('auth.save')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -308,6 +518,16 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
   content: { padding: Spacing.lg, paddingBottom: 80 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary },
+  guestContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary, padding: Spacing.xl },
+  guestAvatar: { fontSize: 64, marginBottom: Spacing.lg },
+  guestTitle: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm },
+  guestDesc: { fontSize: FontSize.lg, color: Colors.textSecondary, textAlign: 'center', marginBottom: Spacing.xl, lineHeight: 1.6 },
+  primaryBtn: {
+    backgroundColor: Colors.gold400, borderRadius: BorderRadius.pill,
+    paddingVertical: 14, paddingHorizontal: 48, alignItems: 'center',
+  },
+  primaryBtnText: { fontSize: FontSize.xl, fontWeight: '700', color: '#050508' },
+  primaryBtnDisabled: { opacity: 0.5 },
   profileHeader: { alignItems: 'center', paddingVertical: Spacing.xl },
   avatar: { fontSize: 48, marginBottom: Spacing.md },
   name: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.textPrimary },
@@ -344,10 +564,27 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: Spacing.lg,
   },
   modalCard: {
-    backgroundColor: Colors.bgPrimary, borderRadius: BorderRadius.xl, padding: Spacing.lg,
+    backgroundColor: Colors.bgSecondary, borderRadius: BorderRadius.xl, padding: Spacing.lg,
     maxHeight: '70%',
   },
   modalTitle: { fontSize: FontSize.xl, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.md },
+  modalHint: { fontSize: FontSize.md, color: Colors.textTertiary, marginBottom: Spacing.md },
+  modalInput: {
+    borderWidth: 1, borderColor: Colors.borderLight, borderRadius: BorderRadius.lg,
+    paddingVertical: 12, paddingHorizontal: Spacing.md, marginBottom: Spacing.md,
+    color: Colors.textPrimary, fontSize: FontSize.title,
+  },
+  modalActions: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.sm },
+  modalCancelBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 12,
+    borderWidth: 1, borderColor: Colors.borderLight, borderRadius: BorderRadius.lg,
+  },
+  modalCancelText: { fontSize: FontSize.title, color: Colors.textSecondary },
+  modalConfirmBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 12,
+    backgroundColor: Colors.gold400, borderRadius: BorderRadius.lg,
+  },
+  modalConfirmText: { fontSize: FontSize.title, fontWeight: '700', color: '#050508' },
   langRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,

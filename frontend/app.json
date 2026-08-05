@@ -11,7 +11,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.closenai.app"
+      "bundleIdentifier": "com.closenai.app",
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.closenai.app"
@@ -21,7 +22,8 @@
       "output": "static"
     },
     "plugins": [
-      "react-native-iap"
+      "react-native-iap",
+      "expo-apple-authentication"
     ]
   }
 }

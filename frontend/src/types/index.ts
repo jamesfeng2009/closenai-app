@@ -197,6 +197,7 @@ export type UserTier = 'free' | 'pro' | 'pro_plus';
 export interface UserProfile {
   id: string;
   name: string | null;
+  username?: string | null; // 登录用户名（账号安全页展示）
   mbti_type: string | null;
   language: string | null;
   streak_count: number;
@@ -288,6 +289,25 @@ export interface ReceiptVerifyResult {
   expires_at: string | null;
   is_trial: boolean;
   message: string;
+}
+
+// ═══ Auth ═══
+
+export type CodePurpose = 'register' | 'login' | 'reset';
+
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  username: string | null;
+  name: string | null;
+  tier: UserTier;
+  email_verified: boolean;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  refresh_token: string;
+  user: AuthUser;
 }
 
 // ═══ Navigation ═══
