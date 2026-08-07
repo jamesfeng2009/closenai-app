@@ -540,6 +540,26 @@ export async function getPatternDiscovery(): Promise<PatternDiscovery> {
   return request<PatternDiscovery>('/growth/patterns');
 }
 
+// ═══ Analytics (分析事件队列批量上送) ═══
+
+export interface AnalyticsBatchPayload {
+  events: Array<{
+    event: string;
+    properties?: Record<string, unknown> | null;
+    occurred_at: string;
+  }>;
+}
+
+/** 批量上送前端本地分析事件队列（后端校验 consent + 匿名化后转发 PostHog）。 */
+export async function postAnalyticsBatch(
+  events: AnalyticsBatchPayload['events'],
+): Promise<{ relayed: number; dropped: number }> {
+  return request<{ relayed: number; dropped: number }>('/analytics/batch', {
+    method: 'POST',
+    body: JSON.stringify({ events } satisfies AnalyticsBatchPayload),
+  });
+}
+
 // ═══ IAP (P1-F02) ═══
 
 export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {

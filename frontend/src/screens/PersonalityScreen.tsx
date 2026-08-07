@@ -23,9 +23,46 @@ import {
   ApiError,
 } from '../services/api';
 import type { AssessmentState, ComboReport, PersonalityProfile } from '../types';
+import { personalityAssessmentRepo } from '../services/db/personalityAssessmentRepository';
+import { personalityProfileRepo } from '../services/db/personalityProfileRepository';
+import { track } from '../services/analytics';
 import { useTranslation } from 'react-i18next';
 
 const STAGE_KEYS = ['stageIntro', 'stageObserve', 'stageExplore', 'stageReveal', 'stageApply'];
+
+/** 本地画像快照 → 前端 Profile（缺省字段用安全默认值，其余待远端补齐）。 */
+function profileRowToState(row: {
+  id: string; mbti: string | null; zodiac_sign: string | null; enneagram: string | null; created_at: string;
+}): PersonalityProfile {
+  return {
+    id: row.id,
+    mbti_type: row.mbti,
+    mbti_label: null,
+    zodiac: row.zodiac_sign,
+    enneagram_type: row.enneagram,
+    observations: [],
+    unique_traits: null,
+    version: 1,
+    refresh_quota_remaining: 0,
+    cold_start_progress: null,
+    cold_start_stage: null,
+    created_at: row.created_at,
+  };
+}
+
+/** 前端 Profile → 本地画像快照（Tier 2 只缓存展示所需字段）。 */
+function profileStateToRow(p: PersonalityProfile) {
+  return {
+    id: p.id,
+    mbti: p.mbti_type,
+    zodiac_sign: p.zodiac,
+    enneagram: p.enneagram_type,
+    summary: null,
+    refreshed_at: new Date().toISOString(),
+    created_at: p.created_at,
+    updated_at: new Date().toISOString(),
+  };
+}
 
 export default function PersonalityScreen() {
   const { t } = useTranslation();
@@ -40,22 +77,56 @@ export default function PersonalityScreen() {
   const [comboLoading, setComboLoading] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const [p, a] = await Promise.all([
-          getPersonalityProfile(),
-          getAssessment().catch(() => null),
-        ]);
-        setProfile(p);
-        setAssessment(a);
-      } catch (e) {
-        console.warn('Failed to load personality:', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadInitial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const loadInitial = async () => {
+    // 首屏秒开：先读本地画像缓存 + 评估进度（Tier 2 展示缓存 + Tier 1 离线续答）
+    setLoading(true);
+    const [cachedProfile, cachedAssessment] = await Promise.all([
+      personalityProfileRepo.getLatest().catch(() => null),
+      personalityAssessmentRepo.getCurrent().catch(() => null),
+    ]);
+    if (cachedProfile) setProfile(profileRowToState(cachedProfile));
+    if (cachedAssessment && cachedAssessment.status !== 'not_started') {
+      setAssessment({
+        status: cachedAssessment.status,
+        current_index: cachedAssessment.current_index,
+        total: cachedAssessment.total_questions,
+        question: null, // 题目内容由远端提供，离线时暂缺，进入答题后再拉取
+      });
+    }
+    setLoading(false);
+
+    try {
+      // 后台拉取远端最新，合并刷新（Tier 2 远端为准，覆盖本地缓存）
+      const [p, a] = await Promise.all([
+        getPersonalityProfile().catch(() => null),
+        getAssessment().catch(() => null),
+      ]);
+      if (p) {
+        setProfile(p);
+        personalityProfileRepo.cache(profileStateToRow(p)).catch(() => {});
+      }
+      if (a) {
+        setAssessment(a);
+        // 持久化评估进度（Tier 1 本地拥有，离线断点续答）
+        personalityAssessmentRepo
+          .save({
+            id: 'current',
+            status: a.status,
+            current_index: a.current_index,
+            total_questions: a.total,
+            answers: null,
+            updated_at: new Date().toISOString(),
+          })
+          .catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Failed to load personality:', e);
+    }
+  };
 
   const onRefresh = async () => {
     if (refreshing) return;
@@ -64,6 +135,10 @@ export default function PersonalityScreen() {
       const res = await refreshPersonality();
       if (res.success && res.profile) {
         setProfile(res.profile);
+        // 缓存最新画像快照（Tier 2 展示缓存）
+        personalityProfileRepo.cache(profileStateToRow(res.profile)).catch(() => {});
+        // 行为事件：刷新画像（仅行为元数据，无内容）
+        track('personality_refreshed', { feature: 'personality', action: 'refresh' });
       }
       if (res.message) {
         Alert.alert(t('common.error'), res.message);
@@ -82,7 +157,19 @@ export default function PersonalityScreen() {
     if (answering) return;
     try {
       setAnswering(true);
-      setAssessment(await startAssessment());
+      const a = await startAssessment();
+      setAssessment(a);
+      // 持久化评估进度（Tier 1 离线断点续答）
+      personalityAssessmentRepo
+        .save({
+          id: 'current',
+          status: a.status,
+          current_index: a.current_index,
+          total_questions: a.total,
+          answers: null,
+          updated_at: new Date().toISOString(),
+        })
+        .catch(() => {});
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
       Alert.alert(t('common.error'), msg);
@@ -102,6 +189,20 @@ export default function PersonalityScreen() {
         setAssessment((prev) =>
           prev ? { ...prev, status: 'completed', question: null } : prev,
         );
+        // 完成：本地标记完成并缓存最新画像（Tier 1 + Tier 2）
+        personalityAssessmentRepo
+          .save({
+            id: 'current',
+            status: 'completed',
+            current_index: res.next_question?.index ?? 0,
+            total_questions: assessment?.total ?? 8,
+            answers: null,
+            updated_at: new Date().toISOString(),
+          })
+          .catch(() => {});
+        if (res.profile) {
+          personalityProfileRepo.cache(profileStateToRow(res.profile)).catch(() => {});
+        }
         if (res.message) Alert.alert(t('common.error'), res.message);
       } else if (res.next_question) {
         setAssessment((prev) =>
@@ -109,6 +210,17 @@ export default function PersonalityScreen() {
             ? { ...prev, current_index: res.next_question!.index, question: res.next_question }
             : prev,
         );
+        // 持久化进度，支持离线续答
+        personalityAssessmentRepo
+          .save({
+            id: 'current',
+            status: 'in_progress',
+            current_index: res.next_question!.index,
+            total_questions: res.next_question!.total,
+            answers: null,
+            updated_at: new Date().toISOString(),
+          })
+          .catch(() => {});
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.submitFailed');

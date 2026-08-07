@@ -20,6 +20,7 @@ import {
 import type {
   DailyDiscovery, GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
+import { dailyDiscoveryRepo } from '../services/db/dailyDiscoveryRepository';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode 对齐
@@ -56,6 +57,17 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     (async () => {
       try {
         setLoading(true);
+        // 首屏秒开：先读本地每日发现缓存（Tier 2 展示缓存）
+        const cachedDiscovery = await dailyDiscoveryRepo
+          .getByDate(new Date().toISOString().slice(0, 10))
+          .catch(() => null);
+        if (cachedDiscovery) {
+          try {
+            setDiscovery(JSON.parse(cachedDiscovery.content) as DailyDiscovery);
+          } catch {
+            // 缓存损坏则忽略，交由远端刷新
+          }
+        }
         const [w, d, tl, p] = await Promise.all([
           getWeeklyInsight().catch(() => null),
           getDailyDiscovery().catch(() => null),
@@ -63,7 +75,18 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
           getUserProfile().catch(() => null),
         ]);
         setWeekly(w);
-        setDiscovery(d);
+        if (d) {
+          setDiscovery(d);
+          // 缓存每日发现（Tier 2 只读缓存，远端为准）
+          dailyDiscoveryRepo
+            .cache({
+              id: `discovery-${new Date().toISOString().slice(0, 10)}`,
+              date: new Date().toISOString().slice(0, 10),
+              content: JSON.stringify(d),
+              created_at: new Date().toISOString(),
+            })
+            .catch(() => {});
+        }
         setTimeline(tl);
         setProfile(p);
       } finally {

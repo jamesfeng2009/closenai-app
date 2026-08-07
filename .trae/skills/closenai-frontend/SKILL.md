@@ -20,6 +20,9 @@ React Native + Expo iOS App 前端开发规范。目标平台：iOS（App Store 
 | IAP | react-native-iap |
 | Styling | StyleSheet.create() (inline at bottom of each component file) |
 | Splash | expo-splash-screen |
+| Local DB | expo-sqlite（本地分层缓存，秒开 + 离线） |
+| Crash/Monitor | @sentry/react-native（仅 App 端崩溃） |
+| Analytics | 本地 analytics_events 队列 → 后端 /analytics/batch → PostHog（客户端不装 PostHog SDK） |
 
 ## 🔴 文件位置约束（必须遵守）
 
@@ -55,6 +58,9 @@ frontend/
 │   │   └── ColdStartProgress.tsx # 冷启动进度条
 │   ├── services/                 # 业务逻辑
 │   │   ├── api.ts                # 后端 API 调用
+│   │   ├── database.ts           # expo-sqlite 单例 + 迁移（V2）
+│   │   ├── db/                   # 本地 Repository + SyncService（分层模型）
+│   │   ├── analytics.ts          # 本地分析事件队列封装
 │   │   ├── iap.ts                # IAP 封装
 │   │   └── push.ts               # 推送通知封装
 │   ├── theme/                    # 设计系统
@@ -70,6 +76,9 @@ frontend/
 | 页面级组件 | `frontend/src/screens/` |
 | 可复用 UI 组件（Button/Card/Modal） | `frontend/src/components/` |
 | API 调用、推送、IAP 逻辑 | `frontend/src/services/` |
+| 本地数据库单例/迁移（expo-sqlite） | `frontend/src/services/database.ts` |
+| 本地 Repository / SyncService | `frontend/src/services/db/` |
+| 分析事件队列 | `frontend/src/services/analytics.ts` |
 | 主题/颜色/字体常量 | `frontend/src/theme/` |
 | TypeScript 类型/接口定义 | `frontend/src/types/` |
 | 测试文件 | `frontend/__tests__/` |
@@ -378,6 +387,37 @@ purchaseErrorListener((error) => {
   }
 });
 ```
+
+## 本地数据库（Local-First 分层模型）
+
+前端用 `expo-sqlite` 做本地数据层，首屏秒开 + 离线可用。完整 schema 见 `.trellis/spec/frontend-sqlite-schema.md`（V2 迁移，16 张表）。核心分层（不是所有数据都 local-first）：
+
+| 层 | 本地角色 | 代表表 |
+|----|---------|--------|
+| **Tier 1 用户原创** | 真 Local-First（本地读写 + 离线 + 双向同步） | mood_checkins, daily_reflections, chat_history, user_profile, personality_assessment, memory_snapshots |
+| **Tier 2 AI 计算** | 缓存（读秒开，真相源服务端，不可离线生成） | growth_dimensions, weekly_insights, personality_profile, combo_report, daily_discovery |
+| **Tier 3 钱/权限** | 只存展示副本，永远实时回源 | subscription_status |
+| 分析队列 | 本地只写，批量上送后端 | analytics_events |
+
+- 依赖：`npx expo install expo-sqlite`
+- 单例 + 迁移：`src/services/database.ts`（`PRAGMA user_version` + `runMigrations`，V2）
+- Repository：`src/services/db/*.repository.ts`（复用 `BaseRepository`）
+- Sync：`src/services/db/syncService.ts`（last-write-wins；Screens 读本地 → 渲染 → 后台刷新覆盖）
+- **红线**：绝不用本地 `subscription_status` 做付费/权益 gate，必须实时回服务端验证
+
+## 监控与分析（Sentry + 分析事件队列）
+
+### 崩溃监控（Sentry RN，仅 App 端）
+- 依赖：`@sentry/react-native`
+- `App.tsx` 初始化 `Sentry.init` 并包裹导航
+- 后端**不接** Sentry（后端错误走 PostHog，见 closenai-backend SKILL）
+
+### 分析事件队列（本地 → 后端中继 → PostHog）
+- 客户端**不装 PostHog SDK、不直连第三方**，PostHog token 不进客户端
+- 事件写入本地 `analytics_events` 表（**仅行为元数据，禁止任何敏感内容**：反思文本 / 记忆 / 对话 / 情绪具体值），带 `occurred_at` 真实时间戳（离线延迟上报口径仍准确）
+- 在线/同步时批量 POST 到后端 `/api/v1/analytics/batch`，成功后标记 `synced=1` 并清理
+- 统一封装 `src/services/analytics.ts`（track / identify / reset / optOut），业务代码不直接写表
+- **consent 门控**：`analytics_consent` 未同意则 `track()` 直接 no-op
 
 ## UX Principles
 

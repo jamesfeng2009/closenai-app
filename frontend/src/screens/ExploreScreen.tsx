@@ -14,7 +14,41 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getPersonalityProfile } from '../services/api';
 import type { PersonalityProfile } from '../types';
+import { personalityProfileRepo } from '../services/db/personalityProfileRepository';
 import { useTranslation } from 'react-i18next';
+
+/** 本地画像快照 → 前端 Profile（缺省字段用安全默认值，其余待远端补齐）。 */
+function profileRowToState(row: {
+  id: string; mbti: string | null; zodiac_sign: string | null; enneagram: string | null; created_at: string;
+}): PersonalityProfile {
+  return {
+    id: row.id,
+    mbti_type: row.mbti,
+    mbti_label: null,
+    zodiac: row.zodiac_sign,
+    enneagram_type: row.enneagram,
+    observations: [],
+    unique_traits: null,
+    version: 1,
+    refresh_quota_remaining: 0,
+    cold_start_progress: null,
+    cold_start_stage: null,
+    created_at: row.created_at,
+  };
+}
+
+function profileStateToRow(p: PersonalityProfile) {
+  return {
+    id: p.id,
+    mbti: p.mbti_type,
+    zodiac_sign: p.zodiac,
+    enneagram: p.enneagram_type,
+    summary: null,
+    refreshed_at: new Date().toISOString(),
+    created_at: p.created_at,
+    updated_at: new Date().toISOString(),
+  };
+}
 
 export default function ExploreScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
@@ -29,13 +63,18 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
   );
 
   const loadProfile = async () => {
+    // 首屏秒开：先读本地画像缓存（Tier 2 展示缓存）
+    const cached = await personalityProfileRepo.getLatest().catch(() => null);
+    if (cached) setProfile(profileRowToState(cached));
+    setLoading(false);
+
     try {
+      // 后台拉取远端最新，覆盖本地缓存并刷新 UI
       const data = await getPersonalityProfile();
       setProfile(data);
+      personalityProfileRepo.cache(profileStateToRow(data)).catch(() => {});
     } catch (e) {
       console.warn('Failed to load profile:', e);
-    } finally {
-      setLoading(false);
     }
   };
 

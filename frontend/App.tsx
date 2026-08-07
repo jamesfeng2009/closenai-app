@@ -22,6 +22,7 @@ import InsightsScreen from './src/screens/InsightsScreen';
 import { Colors } from './src/theme/colors';
 import { initI18n, default as i18n } from './src/i18n';
 import { loadSession, updateUserSettings, isLoggedIn } from './src/services/api';
+import { flushAnalytics } from './src/services/analytics';
 import { onSessionReset } from './src/services/session';
 import { AuthProvider } from './src/context/AuthContext';
 
@@ -101,12 +102,16 @@ export default function App() {
       setReady(true);
       // 首帧渲染之后上报时区（仅已登录用户；游客被守卫跳过）
       reportTimezone();
+      // 首帧后上送本地分析事件队列（仅已登录；后端校验 consent + 匿名化转发 PostHog）
+      if (isLoggedIn()) flushAnalytics().catch(() => {});
     })();
 
     // App 从后台回到前台时重新检测时区（跨时区旅行场景：streak 重置/push 时间需按新时区）
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
         reportTimezone();
+        // 回到前台时上送累积的分析事件（离线期间的事件延迟批量上送，口径按 occurred_at）
+        if (isLoggedIn()) flushAnalytics().catch(() => {});
       }
     });
 

@@ -8,6 +8,20 @@
 
 ## 1. 设计原则
 
+### 1.0 数据分层模型（核心原则）
+
+> 不是所有数据都适合 local-first。按「谁才是真相源」分三层，决定本地 SQLite 的角色。
+
+| 层级 | 判断依据 | 本地 SQLite 角色 | 代表数据 |
+|------|---------|-----------------|---------|
+| **Tier 1 用户原创** | 用户亲手产生，离线也要能用，本地拥有 | **真 Local-First**：本地读写，离线可用 | 情绪签到、反思正文、对话、评估进度、记忆 |
+| **Tier 2 AI 计算** | 由后端 LLM/DB 生成的聚合结果 | **Cache-First**：本地只做读取缓存，真相源在服务端，不可离线生成 | 成长维度、周洞察、性格画像、组合报告、每日发现、AI 摘要 |
+| **Tier 3 服务端权威** | 涉及扣费/额度/推送，必须服务端裁决 | **不落库或只存展示副本**，永远回源 | 订阅状态、IAP、额度判断、AI 主动消息、认证 |
+
+**核心原则：输入 offline-first，计算输出 cache-first，钱/权限 server-authoritative。**
+
+**红线：绝不能用本地缓存做付费/权益（gate）判断。** 订阅状态等 Tier 3 数据本地只做展示，任何 paywall / 权益 / 配额判断必须实时回服务端验证，避免过期本地数据导致错误放行或误判。
+
 ### 1.1 离线优先
 
 用户打开 App 时先读本地 DB（即时渲染），后台异步拉取远端最新数据。所有列表页 / Dashboard 页的首屏数据必须来自本地 DB，远端数据返回后通过 React state 刷新。
@@ -22,12 +36,15 @@ App 启动
 
 ### 1.2 缓存边界
 
-| 缓存策略 | 适用数据 | 原因 |
-|----------|---------|------|
-| 只缓存摘要 + 远端引用 | Reflection Card 正文、AI 主动消息全文 | LLM 长文本体积大（500-2000 字），全文缓存浪费存储，用户极少回看 |
-| 缓存预览（前 200 字） | chat_history、ai_messages | 满足列表页展示，点击展开时按需从远端拉取 |
-| 缓存最近 N 条 | memory_snapshots（最近 5 条）、chat_history（最近 7 天） | 用户只需要最近上下文，历史数据从远端加载 |
-| 不缓存 | Auth Token（JWT）、用户密码 | 敏感数据存 Keychain（expo-secure-store），不落 SQLite |
+| 层级 | 缓存策略 | 适用数据 | 原因 |
+|------|---------|---------|------|
+| **Tier 1 用户原创** | **全文本地化** | daily_reflections 正文、chat_history 用户消息、mood_checkins、personality_assessment、memory_snapshots | 用户自己写的数据，本地拥有，离线可用；Serverless 下秒开，不每次回源 |
+| **Tier 2 AI 计算** | **缓存计算结果**（生成即缓存，服务端为准） | growth_dimensions、weekly_insights、personality_profile、combo_report、daily_discovery、AI 摘要/解读 | LLM/DB 计算产物，缓存避免重复回源重算；但真相源在服务端，不可离线生成 |
+| **Tier 3 服务端权威** | **不落库或只存展示副本（永远回源）** | subscription_status、IAP、额度、ai_messages、认证 | 扣费/权益/推送必须服务端裁决，本地缓存不可作为判断依据 |
+| **不缓存** | Auth Token（JWT）、用户密码 | 敏感数据存 Keychain（expo-secure-store），不落 SQLite | — |
+
+> Tier 2 缓存注意：后端刷新后（如周洞察重新生成）应以服务端覆盖本地，本地不写入生成逻辑。
+> Tier 3 展示副本仅用于「上次看到的界面」，任何 gate 判断必须实时请求。
 
 ### 1.3 数据冲突策略
 
@@ -330,7 +347,103 @@ INSERT OR IGNORE INTO sync_metadata (table_name, last_synced_at, record_count) V
   ('growth_dimensions',  NULL, 0),
   ('weekly_insights',    NULL, 0),
   ('memory_snapshots',   NULL, 0),
-  ('chat_history',       NULL, 0);
+  ('chat_history',       NULL, 0),
+  ('personality_assessment', NULL, 0),
+  ('personality_profile',    NULL, 0),
+  ('combo_report',           NULL, 0),
+  ('daily_discovery',        NULL, 0);
+```
+
+> 注：`subscription_status`（Tier 3 展示副本）与 `analytics_events`（仅上送队列）不进 sync_metadata——前者永远实时回源，后者走批量上送、按 `synced` 清理。
+
+---
+
+### 2.11 personality_assessment（Tier 1）
+
+对话式性格评估进度，支持离线断点续答。单行表。
+
+```sql
+CREATE TABLE IF NOT EXISTS personality_assessment (
+  id              TEXT PRIMARY KEY NOT NULL,           -- 单行 key 'current'
+  status          TEXT NOT NULL DEFAULT 'not_started', -- 'not_started' | 'in_progress' | 'completed'
+  current_index   INTEGER NOT NULL DEFAULT 0,          -- 当前题目下标（0 起）
+  total_questions INTEGER NOT NULL DEFAULT 8,
+  answers         TEXT,                                -- JSON 数组 [{question_id, option|answer}]
+  updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+```
+
+### 2.12 personality_profile（Tier 2）
+
+性格画像完整结果缓存（对应后端 `/personality/profile`）。真相源在服务端，本地只做展示缓存。
+
+```sql
+CREATE TABLE IF NOT EXISTS personality_profile (
+  id           TEXT PRIMARY KEY NOT NULL,              -- 后端 user UUID，单行
+  mbti         TEXT,
+  zodiac_sign  TEXT,
+  enneagram    TEXT,
+  summary      TEXT,                                   -- AI 生成的画像摘要
+  refreshed_at TEXT,                                   -- 最近一次后端刷新时间
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+  updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+```
+
+### 2.13 combo_report（Tier 2）
+
+Pro 组合报告缓存（16 型人格 × 星座 × 九型）。后端每月 1 份缓存，本地只存最新一份。
+
+```sql
+CREATE TABLE IF NOT EXISTS combo_report (
+  id           TEXT PRIMARY KEY NOT NULL,              -- 后端报告 UUID
+  period       TEXT NOT NULL DEFAULT 'monthly',
+  report       TEXT NOT NULL,                          -- JSON（完整报告）
+  generated_at TEXT,
+  updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+```
+
+### 2.14 daily_discovery（Tier 2）
+
+每日发现内容缓存。只保留最近 N 天。
+
+```sql
+CREATE TABLE IF NOT EXISTS daily_discovery (
+  id         TEXT PRIMARY KEY NOT NULL,
+  date       TEXT NOT NULL,                            -- 'YYYY-MM-DD'
+  content    TEXT NOT NULL,                            -- JSON（发现卡片内容）
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+```
+
+### 2.15 subscription_status（Tier 3）
+
+订阅状态**展示副本**。⚠️ 仅用于「上次看到的界面」，**任何 paywall / 权益 / 配额 gate 判断必须实时回服务端**，本地不可作为判断依据。
+
+```sql
+CREATE TABLE IF NOT EXISTS subscription_status (
+  id         TEXT PRIMARY KEY NOT NULL,                -- 单行 'current'
+  plan       TEXT,                                     -- 'free' | 'pro' | 'pro_plus'
+  expires_at TEXT,
+  is_active  INTEGER NOT NULL DEFAULT 0,               -- 0/1
+  cached_at  TEXT,                                     -- 缓存时间（仅展示用）
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+```
+
+### 2.16 analytics_events（分析事件队列，仅上送）
+
+本地记录行为事件（**仅行为元数据**，不落任何敏感内容），在线/同步时批量上送后端 `/analytics/batch`，由后端校验 consent + 匿名化后转发 PostHog。`occurred_at` 记录真实发生时间，离线事件延迟上送也能保证口径准确。
+
+```sql
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  event       TEXT NOT NULL,                           -- 事件名，如 closenai_mood_checkin
+  props_json  TEXT,                                    -- 行为元数据 JSON（仅行为，无敏感内容）
+  occurred_at TEXT NOT NULL,                           -- 真实发生时间（ISO 8601 UTC）
+  synced      INTEGER NOT NULL DEFAULT 0               -- 0 未上送, 1 已上送
+);
 ```
 
 ---
@@ -379,6 +492,16 @@ CREATE INDEX IF NOT EXISTS idx_memory_snapshots_updated
 CREATE INDEX IF NOT EXISTS idx_chat_history_created
   ON chat_history(created_at DESC);
 
+-- personality_assessment / personality_profile / combo_report / subscription_status：单行或极少记录，主键已索引
+
+-- daily_discovery：按日期查询
+CREATE INDEX IF NOT EXISTS idx_daily_discovery_date
+  ON daily_discovery(date DESC);
+
+-- analytics_events：按 synced 筛选待上送事件
+CREATE INDEX IF NOT EXISTS idx_analytics_events_synced
+  ON analytics_events(synced);
+
 -- app_settings / sync_metadata：主键已索引，无需额外索引
 ```
 
@@ -399,11 +522,13 @@ CREATE INDEX IF NOT EXISTS idx_chat_history_created
 
 ### 4.1 同步方向分类
 
-| 类型 | 说明 | 适用表 |
-|------|------|--------|
-| **读写双向** | 本地可写，远端也可写，需要冲突解决 | mood_checkins, daily_reflections, chat_history, user_profile |
-| **只读缓存** | 本地只读不写，数据来源于远端，远端覆盖本地 | ai_messages, growth_dimensions, weekly_insights, memory_snapshots |
-| **仅本地** | 不同步到远端，纯本地配置 | app_settings, sync_metadata |
+| 类型 | 说明 | 适用表 | 对应分层 |
+|------|------|--------|---------|
+| **读写双向** | 本地可写，远端也可写，需要冲突解决 | mood_checkins, daily_reflections, chat_history, user_profile, personality_assessment, memory_snapshots | Tier 1 用户原创 |
+| **只读缓存** | 本地只读不写，数据来源于远端，远端覆盖本地 | ai_messages, growth_dimensions, weekly_insights, personality_profile, combo_report, daily_discovery | Tier 2 AI 计算 |
+| **服务端权威** | 本地只存展示副本，永远实时回源 | subscription_status | Tier 3 钱/权限 |
+| **仅上送（分析队列）** | 本地只写，批量上送后端转发 PostHog，按 synced 清理 | analytics_events | 分析事件队列 |
+| **仅本地** | 不同步到远端，纯本地配置 | app_settings, sync_metadata | — |
 
 ### 4.2 同步频率
 
@@ -433,7 +558,9 @@ function resolveConflict(localRecord, remoteRecord) {
 **特殊情况：**
 - `app_settings`：仅本地，无冲突
 - `sync_metadata`：仅本地，无冲突
-- `ai_messages` / `growth_dimensions` / `weekly_insights` / `memory_snapshots`：只读缓存，远端数据总是覆盖本地（无本地写入，无冲突）
+- Tier 2 只读缓存（`ai_messages` / `growth_dimensions` / `weekly_insights` / `personality_profile` / `combo_report` / `daily_discovery`）：远端数据总是覆盖本地（无本地写入，无冲突）
+- `subscription_status`：服务端权威，本地仅为展示副本，任何 gate 判断实时回源
+- `analytics_events`：仅上送，不同步拉取，按 `synced` 批量上送后清理
 
 ### 4.4 数据清理策略
 
@@ -491,6 +618,25 @@ function cleanupOldData(db: SQLiteDatabase): void {
        LIMIT 5
      )`
   );
+
+  // daily_discovery：保留最近 7 天
+  db.runSync(
+    `DELETE FROM daily_discovery WHERE date < ?`,
+    daysAgoDate(now, 7)
+  );
+
+  // combo_report：只保留最新 1 份（每月 1 份缓存）
+  db.runSync(
+    `DELETE FROM combo_report WHERE id NOT IN (
+       SELECT id FROM combo_report ORDER BY updated_at DESC LIMIT 1
+     )`
+  );
+
+  // analytics_events：已上送（synced=1）且超过 7 天的删除，控制队列体积
+  db.runSync(
+    `DELETE FROM analytics_events WHERE synced = 1 AND occurred_at < ?`,
+    daysAgoTimestamp(now, 7)
+  );
 }
 ```
 
@@ -506,6 +652,12 @@ function cleanupOldData(db: SQLiteDatabase): void {
 | `weekly_insights` | 只读缓存 | 每日定时 | 12 周 | 远端覆盖本地 |
 | `memory_snapshots` | 只读缓存 | 进入 App 时 | 最近 5 条 | 远端覆盖本地 |
 | `chat_history` | 读写双向 | 进入 App 时 + 对话后实时 | 7 天 | last-write-wins (created_at) |
+| `personality_assessment` | 读写双向 | 实时（答题即同步）+ 进入 App 时 | 永久（完成后可清） | last-write-wins (updated_at) |
+| `personality_profile` | 只读缓存 | 进入 App 时 + 刷新后 | 永久 | 远端覆盖本地 |
+| `combo_report` | 只读缓存 | 生成后 | 最新 1 份 | 远端覆盖本地 |
+| `daily_discovery` | 只读缓存 | 进入 App 时 | 最近 7 天 | 远端覆盖本地 |
+| `subscription_status` | 服务端权威 | 付费页实时回源 | 展示副本（最新 1 条） | 实时回源（不 gate） |
+| `analytics_events` | 仅上送 | 在线批量上送 | 上送后清理 | N/A |
 | `app_settings` | 仅本地 | 不同步 | 永久 | N/A |
 | `sync_metadata` | 仅本地 | 每次同步后更新 | 永久 | N/A |
 
@@ -538,7 +690,7 @@ PRAGMA user_version = 2;
  * 4. 迁移完成后更新 PRAGMA user_version
  */
 
-const CURRENT_DB_VERSION = 1;
+const CURRENT_DB_VERSION = 2;
 
 /** V1: 初始建表 */
 function migrateV1(db: SQLiteDatabase): void {
@@ -692,19 +844,86 @@ function migrateV1(db: SQLiteDatabase): void {
   `);
 }
 
-/** V2: 示例 -- 新增 relationship_level 字段（未来迁移） */
-// function migrateV2(db: SQLiteDatabase): void {
-//   db.execSync(`
-//     ALTER TABLE user_profile ADD COLUMN relationship_level TEXT DEFAULT 'L1';
-//     CREATE INDEX IF NOT EXISTS idx_user_profile_relationship
-//       ON user_profile(relationship_level);
-//   `);
-// }
+/** V2: 分层模型扩展表（personality_assessment / personality_profile / combo_report / daily_discovery / subscription_status / analytics_events） */
+function migrateV2(db: SQLiteDatabase): void {
+  db.execSync(`
+    -- personality_assessment (Tier 1)：评估进度，离线断点续答
+    CREATE TABLE IF NOT EXISTS personality_assessment (
+      id              TEXT PRIMARY KEY NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'not_started',
+      current_index   INTEGER NOT NULL DEFAULT 0,
+      total_questions INTEGER NOT NULL DEFAULT 8,
+      answers         TEXT,
+      updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+
+    -- personality_profile (Tier 2)：画像结果缓存
+    CREATE TABLE IF NOT EXISTS personality_profile (
+      id           TEXT PRIMARY KEY NOT NULL,
+      mbti         TEXT,
+      zodiac_sign  TEXT,
+      enneagram    TEXT,
+      summary      TEXT,
+      refreshed_at TEXT,
+      created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+      updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+
+    -- combo_report (Tier 2)：组合报告缓存
+    CREATE TABLE IF NOT EXISTS combo_report (
+      id           TEXT PRIMARY KEY NOT NULL,
+      period       TEXT NOT NULL DEFAULT 'monthly',
+      report       TEXT NOT NULL,
+      generated_at TEXT,
+      updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+
+    -- daily_discovery (Tier 2)：每日发现缓存
+    CREATE TABLE IF NOT EXISTS daily_discovery (
+      id         TEXT PRIMARY KEY NOT NULL,
+      date       TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+
+    -- subscription_status (Tier 3)：订阅展示副本，不用于 gate 判断
+    CREATE TABLE IF NOT EXISTS subscription_status (
+      id         TEXT PRIMARY KEY NOT NULL,
+      plan       TEXT,
+      expires_at TEXT,
+      is_active  INTEGER NOT NULL DEFAULT 0,
+      cached_at  TEXT,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+
+    -- analytics_events：分析事件队列（仅行为元数据，不落敏感内容）
+    CREATE TABLE IF NOT EXISTS analytics_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      event       TEXT NOT NULL,
+      props_json  TEXT,
+      occurred_at TEXT NOT NULL,
+      synced      INTEGER NOT NULL DEFAULT 0
+    );
+
+    -- 索引
+    CREATE INDEX IF NOT EXISTS idx_daily_discovery_date
+      ON daily_discovery(date DESC);
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_synced
+      ON analytics_events(synced);
+
+    -- sync_metadata 预置新增同步表
+    INSERT OR IGNORE INTO sync_metadata (table_name, last_synced_at, record_count) VALUES
+      ('personality_assessment', NULL, 0),
+      ('personality_profile',    NULL, 0),
+      ('combo_report',           NULL, 0),
+      ('daily_discovery',        NULL, 0);
+  `);
+}
 
 /** 迁移函数注册表 */
 const MIGRATIONS: Record<number, (db: SQLiteDatabase) => void> = {
   1: migrateV1,
-  // 2: migrateV2,
+  2: migrateV2,
 };
 
 /**

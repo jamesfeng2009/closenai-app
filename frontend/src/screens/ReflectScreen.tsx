@@ -22,6 +22,8 @@ import {
 } from '../services/api';
 import AIConsentModal from '../components/AIConsentModal';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
+import { chatRepo } from '../services/db/chatRepository';
+import { track } from '../services/analytics';
 import type { MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -41,6 +43,14 @@ interface Message {
 }
 
 const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'];
+
+/** 合并本地与远端消息：按 id 去重，远端覆盖本地（同 id 以远端为准）。 */
+function mergeMessages(remote: Message[], local: Message[]): Message[] {
+  const map = new Map<string, Message>();
+  local.forEach((m) => map.set(m.id, m));
+  remote.forEach((m) => map.set(m.id, m));
+  return Array.from(map.values());
+}
 
 export default function ReflectScreen() {
   const { t } = useTranslation();
@@ -67,9 +77,18 @@ export default function ReflectScreen() {
   }, [isLoggedIn]);
 
   const loadInitial = async () => {
+    // 首屏秒开：先读本地对话历史（Tier 1 本地拥有，离线可用）
+    setLoading(true);
+    const local = await chatRepo.getRecent(20).catch(() => []);
+    let msgs: Message[] = local.map((h) => ({
+      id: h.id,
+      role: h.role === 'assistant' ? 'ai' : 'user',
+      content: h.content_preview,
+    }));
+    setMessages(msgs);
+
     try {
-      setLoading(true);
-      // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
+      // 后台拉取远端最新数据，合并刷新（Tier 1 双向同步）
       const [dashboard, history, profile] = await Promise.all([
         getGrowthDashboard().catch(() => null),
         getChatHistory(20).catch(() => null),
@@ -85,11 +104,29 @@ export default function ReflectScreen() {
         setMoodCheckedIn(!!dashboard.today_mood);
       }
 
-      const msgs: Message[] = (history || []).map((h) => ({
+      const remote: Message[] = (history || []).map((h) => ({
         id: h.id,
         role: h.role,
         content: h.content,
       }));
+      // 本地与远端按 id 去重合并；远端为真相源（覆盖本地旧内容，写入本地缓存）
+      const merged = mergeMessages(remote, local.map((h) => ({
+        id: h.id,
+        role: h.role === 'assistant' ? 'ai' : 'user',
+        content: h.content_preview,
+      })));
+      msgs = merged;
+      if (merged.length > 0) {
+        await chatRepo.addAll(
+          remote.map((m) => ({
+            id: m.id,
+            role: m.role === 'ai' ? 'assistant' : 'user',
+            content_preview: m.content,
+            full_content_url: null,
+            created_at: new Date().toISOString(),
+          })),
+        );
+      }
 
       // 无历史对话且已同意数据共享时，预填今日 Reflection 草稿（P0-F04）
       if (msgs.length === 0 && profile?.ai_consent) {
@@ -157,10 +194,22 @@ export default function ReflectScreen() {
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
+    // 立即写入本地对话历史（Tier 1 本地拥有，离线不丢失，在线后同步远端）
+    chatRepo
+      .add({
+        id: userMsg.id,
+        role: 'user',
+        content_preview: text,
+        full_content_url: null,
+        created_at: new Date().toISOString(),
+      })
+      .catch(() => {});
 
     const aiMsgId = `ai-${Date.now()}`;
     setMessages((prev) => [...prev, { id: aiMsgId, role: 'ai', content: '' }]);
     setIsStreaming(true);
+    // 行为事件：用户发送对话（仅行为元数据，无内容）
+    track('chat_message_sent', { feature: 'chat', action: 'send' });
 
     cancelStreamRef.current = streamChat(
       { content: text, message_type: 'reply' },

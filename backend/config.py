@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     cron_secret: str = ""
     health_check_interval: int = 5       # /health 保热间隔（分钟）
 
+    # PostHog（行为分析 + 错误追踪，Cloud·EU；生产才启用，key 为空则服务内 no-op）
+    posthog_api_key: str = ""
+    posthog_host: str = "https://eu.i.posthog.com"
+
     model_config = {
         "env_file": BASE_DIR / ".env",
         "env_file_encoding": "utf-8",

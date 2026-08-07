@@ -5,7 +5,7 @@
 """
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Integer, String, func
+from sqlalchemy import Boolean, Date, DateTime, Integer, String, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -36,6 +36,8 @@ class User(Base):
     mbti_type: Mapped[str | None] = mapped_column(String(4), nullable=True)
     # AI 数据共享同意（合规 5.1.2(i)）：未同意时 AI 对话接口返回 403 AI_CONSENT_REQUIRED
     ai_consent: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 分析数据共享同意（独立弹窗，GDPR/5.1.2(i)）：未同意时 /analytics/batch 丢弃事件
+    analytics_consent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     streak_count: Mapped[int] = mapped_column(Integer, default=0)
     # Streak 冻结券剩余数（PRD P0-F05：免费每月 1 张 / Pro 每月 3 张，断签日自动消耗）
     streak_freeze_count: Mapped[int] = mapped_column(Integer, default=0)

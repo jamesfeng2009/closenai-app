@@ -501,3 +501,22 @@ class AuthResponse(BaseModel):
     access_token: str
     refresh_token: str
     user: AuthUserResponse
+
+
+# ═══ Analytics (PostHog 中继) ═══
+
+class AnalyticsEvent(BaseModel):
+    """前端上报的单条分析事件。
+
+    - event: 事件名（如 screen_view / checkin / chat_sent）
+    - properties: 行为属性（后端按白名单匿名化，剔除内容字段）
+    - occurred_at: 真实发生时间（UTC，离线延迟事件用此时间保证口径准确）
+    """
+    event: str
+    properties: Optional[Dict] = None
+    occurred_at: datetime
+
+
+class AnalyticsBatchRequest(BaseModel):
+    """前端本地 analytics_events 队列批量上报请求。"""
+    events: List[AnalyticsEvent]

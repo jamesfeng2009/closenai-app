@@ -14,10 +14,10 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getGrowthDashboard, moodCheckin, ApiError } from '../services/api';
+import { settingsRepo } from '../services/db/settingsRepository';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import type { GrowthDashboard, MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
@@ -25,7 +25,8 @@ import { useTranslation } from 'react-i18next';
 // 与后端 MOOD_MAP 严格一致（schemas.py: emoji 字段契约）
 const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'];
 
-// 仪表盘本地缓存（SWR：先渲染缓存秒开首屏，后台刷新覆盖）
+// 仪表盘本地缓存（SWR：先渲染 SQLite 缓存秒开首屏，后台刷新覆盖）
+// 数据走本地 app_settings（Tier 2 AI 计算缓存），见 src/services/db/settingsRepository.ts
 const DASHBOARD_CACHE_KEY = '@closenai/dashboard_cache';
 
 // 与后端 ErrorCode.QUOTA_EXCEEDED 对齐（免费配额耗尽 → 引导付费）
@@ -45,7 +46,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     try {
       const data = await getGrowthDashboard();
       setDashboard(data);
-      AsyncStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data)).catch(() => {});
+      settingsRepo.setJson(DASHBOARD_CACHE_KEY, data).catch(() => {});
     } catch (e) {
       console.warn('Failed to load dashboard:', e);
     } finally {
@@ -59,9 +60,9 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   useEffect(() => {
     (async () => {
       try {
-        const cached = await AsyncStorage.getItem(DASHBOARD_CACHE_KEY);
+        const cached = await settingsRepo.getJson<GrowthDashboard>(DASHBOARD_CACHE_KEY);
         if (cached && !networkLoaded.current) {
-          setDashboard(JSON.parse(cached));
+          setDashboard(cached);
           setLoading(false);
         }
       } catch {

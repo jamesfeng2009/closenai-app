@@ -18,7 +18,7 @@ ClosenAI 后端开发规范：FastAPI (async) + Vercel Serverless + Supabase Pos
 | Cron Jobs | Vercel Cron (hourly GET) + QStash dispatch | Reuse daily_fortune_cron pattern |
 | Cache | Upstash Redis | Mood check-in cache, etc. |
 | Push | Self-built APNs/FCM provider | push/service.py |
-| Monitoring | Axiom + Sentry | Existing, reuse |
+| Monitoring | PostHog（行为分析 + Error Tracking）+ Vercel logs | `posthog` Python SDK；Sentry 仅用于 App 端崩溃（见 closenai-frontend SKILL）；已移除 Axiom |
 
 ## 🔴 文件位置约束（必须遵守）
 
@@ -276,6 +276,42 @@ user_id 来源（按优先级）：
 - `X-Language` 归一化：`zh-CN → zh`（取 `-` 前段小写），仅接受 `supported_languages` 内的码
 - 该 `language` 必须传给 LLM 调用（`llm.stream(..., language=language)`），保证 AI 用用户语言回复
 - 前端所有请求带 `X-Language` header（取当前 i18n 语言），见 `frontend/src/services/api.ts` 的 `getHeaders()`
+
+## 监控与分析（PostHog）
+
+后端统一使用 **PostHog**（Cloud·EU 区域）做行为分析与错误追踪；**Sentry 仅用于 App 端崩溃**（见 closenai-frontend SKILL）；短期原始日志用 **Vercel Runtime Log**（当天排障）。**已移除 Axiom**。
+
+### 依赖与配置
+
+- 依赖：`posthog`（Python SDK），同时写入 `pyproject.toml` + `backend/requirements.txt`
+- 配置（config.py）：生产才启用，配置为空则跳过初始化
+  - `POSTHOG_API_KEY`
+  - `POSTHOG_HOST=https://eu.i.posthog.com`
+
+### 服务端行为事件
+
+- 关键业务事件由后端上报（订阅、配额、AI 用量等），**仅行为元数据，禁止携带任何敏感内容**（反思文本 / 记忆 / 对话原文 / 情绪具体值）
+- 统一经 `backend/services/analytics_service.py` 封装，业务代码不直接依赖 PostHog SDK
+
+### `/analytics/batch` 端点（接收前端本地事件队列）
+
+前端把本地 `analytics_events` 队列批量 POST 到 `/api/v1/analytics/batch`。后端处理顺序：
+
+1. 校验用户 `analytics_consent`（未同意则丢弃）
+2. **匿名化**：仅保留行为属性，剔除任何内容字段
+3. 用事件携带的 **`occurred_at`（真实发生时间）** 上报 PostHog —— 保证离线延迟事件的口径准确
+4. 成功后返回，前端将事件标记 `synced=1` 并清理
+
+> 前端**不装 PostHog SDK、不直连第三方**，PostHog token 不进客户端；交接方只依赖自家后端契约，分析后台保持私有。
+
+### 错误追踪
+
+- 后端异常/错误上报 **PostHog Error Tracking**（免费 100K 异常/月），与行为分析同账号统一管理
+
+### 红线
+
+- **绝不用本地缓存的 `subscription_status` 做权益 / 配额 gate 判断**，必须实时回服务端验证
+- 分析数据不写入业务数据库（Postgres），避免污染与删除流程冲突；`analytics_consent` 除外（存 `users` 表，见 closenai-supabase SKILL）
 
 ## Performance Targets
 
