@@ -3,6 +3,7 @@
  *
  * 按 UI 原型 screen-paywall 实现：
  * - 当前订阅状态（/iap/status）
+ * - Pro / Pro+ 档位 × 月付/年付周期 SKU 选择器（年付首选，带省钱锚点）
  * - Pro / Pro+ 权益对比
  * - StoreKit 购买（react-native-iap → /iap/verify 服务端校验）
  * - 恢复购买入口（App Store 合规必需）
@@ -14,19 +15,43 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Linking,
 } from 'react-native';
+import type { Subscription } from 'react-native-iap';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { PRIVACY_POLICY_URL, TERMS_URL } from '../config/links';
 import { getSubscriptionStatus, ApiError } from '../services/api';
 import {
-  DEFAULT_SKU, getProducts, initIAP, isUserCancelled, purchaseSubscription, restorePurchases,
+  getProducts, initIAP, isUserCancelled, purchaseSubscription, restorePurchases,
 } from '../services/iap';
-import type { SubscriptionStatus } from '../types';
+import type { SubscriptionStatus, UserTier } from '../types';
 import { useTranslation } from 'react-i18next';
+
+type PaidTier = 'pro' | 'pro_plus';
+type BillingPeriod = 'monthly' | 'yearly';
+
+/** 档位 × 周期 → SKU（与 App Store Connect 配置一致，同一订阅组支持升降级）。 */
+const SKU_MAP: Record<PaidTier, Record<BillingPeriod, string>> = {
+  pro: { monthly: 'closenai_pro_monthly', yearly: 'closenai_pro_yearly' },
+  pro_plus: { monthly: 'closenai_pro_plus_monthly', yearly: 'closenai_pro_plus_yearly' },
+};
+
+/** 档位高低排序（free < pro < pro_plus），用于升级/降级语义判断。 */
+const TIER_ORDER: Record<UserTier, number> = { free: 0, pro: 1, pro_plus: 2 };
 
 const PRO_FEATURES = [
   'paywall.featureUnlimitedChat',
   'paywall.featurePriorityLLM',
   'paywall.featurePersonalityRefresh',
   'paywall.featureTimeline',
+] as const;
+
+// Pro+ 权益口径见 monetization-plan §2.1：Pro 全部权益 + 对话 100 条/日 +
+// 画像刷新不限 + 每日多条主动消息。
+const PRO_PLUS_FEATURES = [
+  'paywall.plusFeatureAllPro',
+  'paywall.plusFeatureChat',
+  'paywall.plusFeatureRefresh',
+  'paywall.plusFeatureProactive',
 ] as const;
 
 // Tier 显示名映射（品牌名，不走 i18n）。避免 toUpperCase() 把 pro_plus 显示成 PRO_PLUS。
@@ -36,12 +61,17 @@ const TIER_DISPLAY: Record<string, string> = {
   pro_plus: 'Pro+',
 };
 
+type BadgeTone = 'current' | 'upgrade' | 'downgrade';
+
 export default function PaywallScreen() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [price, setPrice] = useState<string | null>(null);
+  const [products, setProducts] = useState<Subscription[]>([]);
+  const [selectedTier, setSelectedTier] = useState<PaidTier>('pro');
+  // 年付为首选策略（monetization-plan §2.2）：默认选中年付。
+  const [selectedPeriod, setSelectedPeriod] = useState<BillingPeriod>('yearly');
   // IAP 环境不可用（Expo Go 无原生模块）或商品列表为空时展示持久提示，
   // 而非仅静默禁用按钮。unavailableMsgKey 区分两种原因的文案。
   const [iapUnavailable, setIapUnavailable] = useState(false);
@@ -49,7 +79,7 @@ export default function PaywallScreen() {
 
   useEffect(() => {
     loadStatus();
-    loadPrice();
+    loadProducts();
   }, []);
 
   // silent=true 时为后台刷新（购买/恢复成功后刷新状态），不触发全屏 loading 闪烁。
@@ -65,36 +95,79 @@ export default function PaywallScreen() {
     }
   };
 
-  // 拉取本地化价格（App Store 要求购买前展示价格）；环境不可用或商品列表为空时
-  // 展示持久提示，避免按钮静默禁用让用户困惑。
-  const loadPrice = async () => {
+  // 拉取全部 4 个 SKU 的本地化价格（App Store 要求购买前展示价格）；
+  // 环境不可用或商品列表为空时展示持久提示，避免按钮静默禁用让用户困惑。
+  const loadProducts = async () => {
     if (!(await initIAP())) {
       setUnavailableMsgKey('paywall.unavailable');
       setIapUnavailable(true);
       return;
     }
-    const products = await getProducts();
+    const list = await getProducts();
     // getProducts 返回空数组（StoreKit 配置缺失 / 网络/环境异常）时同样视为不可用，
     // 让用户看到"暂不可用"提示而非无价格的灰色按钮。
-    if (products.length === 0) {
+    if (list.length === 0) {
       setUnavailableMsgKey('paywall.productsUnavailable');
       setIapUnavailable(true);
       return;
     }
-    const product = products.find((p) => p.productId === DEFAULT_SKU) ?? products[0];
-    const localized =
-      (product as { localizedPrice?: string } | undefined)?.localizedPrice ??
-      (product as { price?: string } | undefined)?.price ??
-      null;
-    if (localized) setPrice(localized);
+    setProducts(list);
   };
+
+  const findProduct = (sku: string): Subscription | undefined =>
+    products.find((p) => p.productId === sku);
+
+  // iOS 字段（Android 的 SubscriptionAndroid 无顶层 price，经可选链收窄后兜底 null）。
+  const priceField = (sku: string, field: 'localizedPrice' | 'price'): string | null =>
+    (findProduct(sku) as { localizedPrice?: string; price?: string } | undefined)?.[field] || null;
+
+  // 展示用本地化价格（如 $4.99）。拉不到返回 null，对应卡片置灰、购买按钮禁用。
+  const localizedPrice = (sku: string): string | null =>
+    priceField(sku, 'localizedPrice') ?? priceField(sku, 'price');
+
+  // price 为本币数字字符串；同档月/年 SKU 同币种，可直接比价。
+  const numericPrice = (sku: string): number | null => {
+    const n = parseFloat(priceField(sku, 'price') ?? '');
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  // 年付省钱锚点：月付价 ×12 对比年付价动态计算。
+  // 任一价格拉不到或年付并无优惠（pct <= 0）时不显示角标。
+  const savePercent = (tier: PaidTier): number | null => {
+    const monthly = numericPrice(SKU_MAP[tier].monthly);
+    const yearly = numericPrice(SKU_MAP[tier].yearly);
+    if (monthly === null || yearly === null) return null;
+    const pct = Math.round((1 - yearly / (monthly * 12)) * 100);
+    return pct > 0 ? pct : null;
+  };
+
+  const isPro = status?.is_active && status.tier !== 'free';
+  const currentTier: UserTier = isPro && status ? status.tier : 'free';
+
+  // 卡片角标语义（App Store 同订阅组规则，文案简化）：
+  // 当前档位 →「当前」；更高档 →「升级」；更低档 →「降级」；免费用户不显示。
+  const badgeFor = (tier: PaidTier): { key: string; tone: BadgeTone } | null => {
+    if (currentTier === 'free') return null;
+    if (currentTier === tier) return { key: 'paywall.currentPlan', tone: 'current' };
+    if (TIER_ORDER[tier] > TIER_ORDER[currentTier]) {
+      return { key: 'paywall.planUpgrade', tone: 'upgrade' };
+    }
+    return { key: 'paywall.planDowngrade', tone: 'downgrade' };
+  };
+
+  const selectedSku = SKU_MAP[selectedTier][selectedPeriod];
+  const selectedPrice = localizedPrice(selectedSku);
+  // 已订阅且选中的正是当前生效 SKU：按钮置为"当前方案"并禁用（重复购买无意义）。
+  const isCurrentPlan = !!status?.is_active && status.product_id === selectedSku;
+  // 价格缺失（该 SKU 拉价失败）时禁用购买，防止无价格购买（App Store 合规）。
+  const canPurchase = !busy && !!selectedPrice && !iapUnavailable && !isCurrentPlan;
 
   // 订阅：StoreKit 购买 → 收据回传后端校验 → 权益生效
   const onSubscribe = async () => {
-    if (busy) return;
+    if (!canPurchase) return;
     setBusy(true);
     try {
-      const result = await purchaseSubscription();
+      const result = await purchaseSubscription(selectedSku);
       // 超时但交易可能仍在处理：全局 listener 会接管后续送达的交易，
       // 提示用户稍后查看，不视为成功（避免误报订阅已激活）也不视为失败（避免扣费却报错）。
       if (result && typeof result === 'object' && 'status' in result && result.status === 'timeout_pending') {
@@ -150,7 +223,8 @@ export default function PaywallScreen() {
     );
   }
 
-  const isPro = status?.is_active && status.tier !== 'free';
+  const features = selectedTier === 'pro' ? PRO_FEATURES : PRO_PLUS_FEATURES;
+  const yearlySave = savePercent(selectedTier);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -179,9 +253,105 @@ export default function PaywallScreen() {
         </View>
       )}
 
-      {/* 权益列表 */}
+      {/* 周期选择（年付首选：带「省 ~X%」锚点角标，按拉到的价格动态计算） */}
+      <View style={styles.periodRow}>
+        {(['monthly', 'yearly'] as const).map((period) => {
+          const active = selectedPeriod === period;
+          return (
+            <TouchableOpacity
+              key={period}
+              style={[styles.periodOption, active && styles.periodOptionActive]}
+              onPress={() => setSelectedPeriod(period)}
+            >
+              <Text style={[styles.periodText, active && styles.periodTextActive]}>
+                {t(period === 'monthly' ? 'paywall.periodMonthly' : 'paywall.periodYearly')}
+              </Text>
+              {period === 'yearly' && yearlySave !== null && (
+                <View style={styles.saveBadge}>
+                  <Text style={styles.saveBadgeText}>
+                    {t('paywall.saveBadge', { percent: yearlySave })}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* 档位卡片（SKU 拉价失败时对应卡片置灰显示「—」，不崩溃） */}
+      <View style={styles.tierRow}>
+        {(['pro', 'pro_plus'] as const).map((tier) => {
+          const active = selectedTier === tier;
+          const price = localizedPrice(SKU_MAP[tier][selectedPeriod]);
+          const badge = badgeFor(tier);
+          const cardContent = (
+            <>
+              <Text style={styles.tierName}>
+                {t(tier === 'pro' ? 'paywall.planPro' : 'paywall.planProPlus')}
+              </Text>
+              <Text style={styles.tierPrice}>{price ?? '—'}</Text>
+              <Text style={styles.tierPeriod}>
+                {t(selectedPeriod === 'monthly' ? 'paywall.periodMonthly' : 'paywall.periodYearly')}
+              </Text>
+              {badge && (
+                <View
+                  style={[
+                    styles.tierBadge,
+                    badge.tone === 'current' && styles.tierBadgeCurrent,
+                    badge.tone === 'upgrade' && styles.tierBadgeUpgrade,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.tierBadgeText,
+                      badge.tone === 'current' && styles.tierBadgeTextCurrent,
+                      badge.tone === 'upgrade' && styles.tierBadgeTextUpgrade,
+                    ]}
+                  >
+                    {t(badge.key)}
+                  </Text>
+                </View>
+              )}
+            </>
+          );
+          // Pro+ 卡片：渐变边框凸显高档位（未选中霓虹紫 gradNeon / 选中金 gradGold）
+          if (tier === 'pro_plus') {
+            return (
+              <LinearGradient
+                key={tier}
+                colors={active ? Colors.gradGold : Colors.gradNeon}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.tierCardGradient, !price && styles.tierCardUnavailable]}
+              >
+                <TouchableOpacity
+                  style={[styles.tierCardInner, active && styles.tierCardInnerActive]}
+                  onPress={() => setSelectedTier(tier)}
+                >
+                  {cardContent}
+                </TouchableOpacity>
+              </LinearGradient>
+            );
+          }
+          return (
+            <TouchableOpacity
+              key={tier}
+              style={[
+                styles.tierCard,
+                active && styles.tierCardActive,
+                !price && styles.tierCardUnavailable,
+              ]}
+              onPress={() => setSelectedTier(tier)}
+            >
+              {cardContent}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* 权益列表（随选中档位切换） */}
       <View style={styles.card}>
-        {PRO_FEATURES.map((key) => (
+        {features.map((key) => (
           <View key={key} style={styles.featureRow}>
             <Text style={styles.featureCheck}>✓</Text>
             <Text style={styles.featureText}>{t(key)}</Text>
@@ -190,25 +360,27 @@ export default function PaywallScreen() {
       </View>
 
       {/* 订阅按钮（购买前展示本地化价格，App Store 合规；价格缺失时禁用，防止无价格购买） */}
-      {!isPro && (
-        <TouchableOpacity
-          style={[styles.subscribeBtn, (busy || !price) && styles.subscribeBtnDisabled]}
-          onPress={onSubscribe}
-          disabled={busy || !price}
-        >
-          {busy ? (
-            <ActivityIndicator color={Colors.bgPrimary} />
-          ) : (
-            <>
-              <Text style={styles.subscribeText}>{t('paywall.subscribe')}</Text>
-              {!!price && <Text style={styles.priceText}>{price}</Text>}
-            </>
-          )}
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={[styles.subscribeBtn, !canPurchase && styles.subscribeBtnDisabled]}
+        onPress={onSubscribe}
+        disabled={!canPurchase}
+      >
+        {busy ? (
+          <ActivityIndicator color={Colors.bgPrimary} />
+        ) : (
+          <>
+            <Text style={styles.subscribeText}>
+              {isCurrentPlan ? t('paywall.currentPlan') : t('paywall.subscribe')}
+            </Text>
+            {!!selectedPrice && !isCurrentPlan && (
+              <Text style={styles.priceText}>{selectedPrice}</Text>
+            )}
+          </>
+        )}
+      </TouchableOpacity>
 
       {/* IAP 环境不可用提示（Expo Go 等）：持久展示原因，避免按钮静默禁用 */}
-      {iapUnavailable && !isPro && (
+      {iapUnavailable && (
         <View style={styles.unavailableBox}>
           <Text style={styles.unavailableText}>{t(unavailableMsgKey)}</Text>
         </View>
@@ -221,11 +393,11 @@ export default function PaywallScreen() {
 
       {/* 条款链接（App Store 审核 3.1.2：自动续期订阅必须展示 ToS / Privacy） */}
       <View style={styles.legalRow}>
-        <TouchableOpacity onPress={() => Linking.openURL('https://closenai.app/terms')}>
+        <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
           <Text style={styles.legalLink}>{t('paywall.terms')}</Text>
         </TouchableOpacity>
         <Text style={styles.legalSep}>·</Text>
-        <TouchableOpacity onPress={() => Linking.openURL('https://closenai.app/privacy')}>
+        <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
           <Text style={styles.legalLink}>{t('paywall.privacy')}</Text>
         </TouchableOpacity>
       </View>
@@ -253,8 +425,51 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 2,
   },
   trialBadgeText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.gold400 },
+  periodRow: {
+    flexDirection: 'row', alignSelf: 'stretch', marginTop: Spacing.xl, gap: Spacing.sm,
+  },
+  periodOption: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 12, borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.bgTertiary, borderWidth: 1, borderColor: 'transparent',
+  },
+  periodOptionActive: { borderColor: Colors.gold400, backgroundColor: 'rgba(255,215,0,0.08)' },
+  periodText: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textSecondary },
+  periodTextActive: { color: Colors.gold400 },
+  saveBadge: {
+    backgroundColor: 'rgba(255,215,0,0.15)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.4)',
+    borderRadius: BorderRadius.sm, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  saveBadgeText: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.gold400 },
+  tierRow: { flexDirection: 'row', alignSelf: 'stretch', marginTop: Spacing.md, gap: Spacing.sm },
+  tierCard: {
+    flex: 1, alignItems: 'center', padding: Spacing.md,
+    backgroundColor: Colors.bgTertiary, borderWidth: 1, borderColor: 'transparent',
+    borderRadius: BorderRadius.lg,
+  },
+  tierCardActive: { borderColor: Colors.gold400, backgroundColor: 'rgba(255,215,0,0.08)' },
+  // Pro+ 渐变边框卡片：外层 1px 渐变边 + 内层深色内容底
+  tierCardGradient: { flex: 1, borderRadius: BorderRadius.lg, padding: 1 },
+  tierCardInner: {
+    flex: 1, alignItems: 'center', padding: Spacing.md,
+    backgroundColor: Colors.bgTertiary, borderRadius: BorderRadius.lg - 1,
+  },
+  tierCardInnerActive: { backgroundColor: 'rgba(255,215,0,0.08)' },
+  tierCardUnavailable: { opacity: 0.45 },
+  tierName: { fontSize: FontSize.title, fontWeight: '700', color: Colors.textPrimary },
+  tierPrice: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.gold400, marginTop: 4 },
+  tierPeriod: { fontSize: FontSize.md, color: Colors.textTertiary, marginTop: 2 },
+  tierBadge: {
+    marginTop: 8, borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 2,
+    backgroundColor: Colors.bgSecondary, borderWidth: 1, borderColor: Colors.textMuted,
+  },
+  tierBadgeCurrent: { backgroundColor: 'rgba(16,185,129,0.12)', borderColor: 'rgba(16,185,129,0.4)' },
+  tierBadgeUpgrade: { backgroundColor: 'rgba(255,215,0,0.15)', borderColor: 'rgba(255,215,0,0.4)' },
+  tierBadgeText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textTertiary },
+  tierBadgeTextCurrent: { color: Colors.success },
+  tierBadgeTextUpgrade: { color: Colors.gold400 },
   card: {
-    alignSelf: 'stretch', marginTop: Spacing.xl, padding: Spacing.lg,
+    alignSelf: 'stretch', marginTop: Spacing.lg, padding: Spacing.lg,
     backgroundColor: 'rgba(255,215,0,0.05)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
     borderRadius: BorderRadius.xl,
   },

@@ -22,6 +22,7 @@ import type {
   SubscriptionStatus, ReceiptVerifyResult,
   ReflectionDraft, ReflectionItem,
   Memory,
+  NatalChart, NatalChartInput, NatalChartDaily,
   AuthResponse, AuthUser, CodePurpose,
 } from '../types';
 
@@ -538,6 +539,26 @@ export async function getShareReport(period: SharePeriod): Promise<ShareReport> 
 /** 跨维度模式发现（LLM 实时生成，点击触发，勿自动轮询）。 */
 export async function getPatternDiscovery(): Promise<PatternDiscovery> {
   return request<PatternDiscovery>('/growth/patterns');
+}
+
+// ═══ Natal Chart (P0 本命星盘) ═══
+
+/** 创建/重算本命星盘（解读语言由 X-Language 请求头透传）。 */
+export async function createNatalChart(input: NatalChartInput): Promise<NatalChart> {
+  return request<NatalChart>('/natal-chart', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** 读取本命星盘；未创建时后端返回 data=null。 */
+export async function getNatalChart(): Promise<NatalChart | null> {
+  return request<NatalChart | null>('/natal-chart');
+}
+
+/** 今日参考（综合/事业/财运 + 幸运项）；无星盘时返回 null。 */
+export async function getNatalChartDaily(): Promise<NatalChartDaily | null> {
+  return request<NatalChartDaily | null>('/natal-chart/daily');
 }
 
 // ═══ Analytics (分析事件队列批量上送) ═══

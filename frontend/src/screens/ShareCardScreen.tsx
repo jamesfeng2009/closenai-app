@@ -10,6 +10,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getPersonalityCard, ApiError } from '../services/api';
 import type { PersonalityCard, ShareCardVariant } from '../types';
@@ -88,8 +89,13 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
         <ActivityIndicator color={Colors.gold400} style={styles.loading} />
       ) : (
         <>
-          {/* 名片预览（布局随 variant：full / compact / combo） */}
-          <View style={[styles.card, card.layout === 'compact' && styles.cardCompact]}>
+          {/* 名片预览（布局随 variant：full / compact / combo；宇宙渐变底 + 金边） */}
+          <LinearGradient
+            colors={Colors.gradCosmic}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={[styles.card, card.layout === 'compact' && styles.cardCompact]}
+          >
             <Text style={styles.cardEmoji}>🧬</Text>
             <Text style={styles.cardName}>{card.user_name}</Text>
             {!!card.mbti_type && (
@@ -119,7 +125,7 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
               </Text>
               <Text style={styles.cardWatermark}>ClosenAI</Text>
             </View>
-          </View>
+          </LinearGradient>
 
           {/* 系统分享 */}
           <TouchableOpacity style={styles.shareBtn} onPress={onShare}>
@@ -149,7 +155,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,215,0,0.15)', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4,
   },
   card: {
-    backgroundColor: 'rgba(255,215,0,0.06)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.2)',
+    borderWidth: 1, borderColor: 'rgba(255,215,0,0.2)',
     borderRadius: BorderRadius.xl, padding: Spacing.xl, alignItems: 'center', marginBottom: Spacing.lg,
   },
   cardCompact: { paddingVertical: Spacing.lg },

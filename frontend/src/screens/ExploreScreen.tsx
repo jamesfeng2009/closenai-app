@@ -8,13 +8,14 @@
  */
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getPersonalityProfile } from '../services/api';
 import type { PersonalityProfile } from '../types';
 import { personalityProfileRepo } from '../services/db/personalityProfileRepository';
+import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 
 /** 本地画像快照 → 前端 Profile（缺省字段用安全默认值，其余待远端补齐）。 */
@@ -52,14 +53,22 @@ function profileStateToRow(p: PersonalityProfile) {
 
 export default function ExploreScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
+  const { isLoggedIn } = useAuth();
+  const requireAuth = useRequireAuth();
   const [profile, setProfile] = useState<PersonalityProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Tab 常驻不卸载：每次聚焦都刷新画像（评估/刷新后返回不过期；mount 时也会触发一次）
+  // 游客态跳过请求（401 噪声），展示空画像
   useFocusEffect(
     React.useCallback(() => {
-      loadProfile();
-    }, [])
+      if (isLoggedIn) {
+        loadProfile();
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
+    }, [isLoggedIn])
   );
 
   const loadProfile = async () => {
@@ -78,9 +87,10 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
     }
   };
 
-  // 未实现功能（本命星盘 / 性格名片）：提示敬请期待，避免导航到未注册路由红屏
-  const onComingSoon = () => {
-    Alert.alert(t('explore.comingSoon'));
+  // 本命星盘入口：游客拦截 → 跳登录；已登录进详情页（视觉层级保持次要卡片）
+  const onNatalPress = () => {
+    if (!requireAuth()) return;
+    navigation.navigate('NatalChart');
   };
 
   // MBTI 名称按类型查 i18n 表（不依赖后端中文 label，多语言安全）
@@ -151,7 +161,7 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
         <View style={styles.exploreGrid}>
           <TouchableOpacity
             style={styles.exploreTile}
-            onPress={onComingSoon}
+            onPress={onNatalPress}
           >
             <Text style={styles.tileIcon}>⭐</Text>
             <Text style={styles.tileName}>{t('explore.natal')}</Text>

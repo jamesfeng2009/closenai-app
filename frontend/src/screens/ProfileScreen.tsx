@@ -23,14 +23,20 @@ import {
   getUserProfile, updateUserSettings, setAiConsent, ApiError,
   changePassword, updateUsername,
 } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, useRequireAuth } from '../context/AuthContext';
 import AIConsentModal from '../components/AIConsentModal';
 import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n';
-import type { UserProfile } from '../types';
+import type { ConversationStyle, UserProfile } from '../types';
+
+// 主动消息时间：00:00–23:00 整点（不引入 datetimepicker 依赖）
+const PUSH_HOURS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
+// 对话风格三枚举（与后端 CONVERSATION_STYLES 一致，展示顺序即默认排序）
+const CONVERSATION_STYLES: ConversationStyle[] = ['warm', 'rational', 'philosophical'];
 
 export default function ProfileScreen({ navigation }: { navigation: any }) {
   const { t, i18n } = useTranslation();
   const { isLoggedIn, logout, deleteMyAccount } = useAuth();
+  const requireAuth = useRequireAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [langVisible, setLangVisible] = useState(false);
@@ -38,6 +44,8 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [consentVisible, setConsentVisible] = useState(false);
   const [pwdVisible, setPwdVisible] = useState(false);
   const [usernameVisible, setUsernameVisible] = useState(false);
+  const [timeVisible, setTimeVisible] = useState(false);
+  const [styleVisible, setStyleVisible] = useState(false);
 
   // Tab 常驻不卸载：每次聚焦都刷新（仅登录态；游客跳过请求避免 401 噪声）
   useFocusEffect(
@@ -85,6 +93,30 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
     }
   };
 
+  // 主动消息时间：整点选择 → PATCH /user/settings → 用响应刷新本地展示
+  const onSelectPushTime = async (time: string) => {
+    try {
+      const updated = await updateUserSettings({ push_time: time });
+      setProfile(updated);
+      setTimeVisible(false);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    }
+  };
+
+  // 对话风格：三枚举选择 → PATCH /user/settings → 用响应刷新本地展示
+  const onSelectStyle = async (style: ConversationStyle) => {
+    try {
+      const updated = await updateUserSettings({ conversation_style: style });
+      setProfile(updated);
+      setStyleVisible(false);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    }
+  };
+
   // 退出登录：吊销 refresh + 清本机态（保留引导，游客可继续浏览）
   const onLogout = () => {
     Alert.alert(
@@ -122,7 +154,8 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
             try {
               await deleteMyAccount();
             } catch (e) {
-              const msg = e instanceof Error ? e.message : t('errors.deleteFailed');
+              // ApiError 透传服务端文案；其余（网络异常、非 Error 等）走 i18n 通用兜底
+              const msg = e instanceof ApiError && e.message ? e.message : t('errors.deleteFailed');
               Alert.alert(t('common.error'), msg);
             }
           },
@@ -174,12 +207,21 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={styles.settingLabel}>{t('profile.memoryManagement')}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={() => { if (requireAuth()) setStyleVisible(true); }}
+        >
           <Text style={styles.settingIcon}>💬</Text>
           <Text style={styles.settingLabel}>{t('profile.chatStyle')}</Text>
+          <Text style={styles.settingValueSmall}>
+            {t(`profile.style.${profile?.conversation_style || 'warm'}`)}
+          </Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={() => { if (requireAuth()) setTimeVisible(true); }}
+        >
           <Text style={styles.settingIcon}>🔔</Text>
           <Text style={styles.settingLabel}>{t('profile.activeTime')}</Text>
           <Text style={styles.settingValue}>{profile?.push_time || '09:00'}</Text>
@@ -233,12 +275,12 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={styles.settingValue}>{t(`language.${currentLang}`)}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
+        <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('PrivacySecurity')}>
           <Text style={styles.settingIcon}>🔒</Text>
           <Text style={styles.settingLabel}>{t('profile.privacy')}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem} onPress={() => Alert.alert(t('explore.comingSoon'))}>
+        <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('HelpFeedback')}>
           <Text style={styles.settingIcon}>❓</Text>
           <Text style={styles.settingLabel}>{t('profile.help')}</Text>
           <Text style={styles.arrow}>›</Text>
@@ -350,6 +392,71 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         currentUsername={profile?.username || ''}
         onUpdated={() => loadProfile()}
       />
+
+      {/* 主动消息时间选择（00:00–23:00 整点） */}
+      <Modal
+        visible={timeVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTimeVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('profile.pushTimeTitle')}</Text>
+            <FlatList
+              data={PUSH_HOURS}
+              keyExtractor={(item) => item}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.langRow, item === (profile?.push_time || '09:00') && styles.langRowActive]}
+                  onPress={() => onSelectPushTime(item)}
+                >
+                  <Text style={styles.langName}>
+                    {t('profile.hourOption', { hour: item.slice(0, 2) })}
+                  </Text>
+                  {item === (profile?.push_time || '09:00') && <Text style={styles.langCheck}>✓</Text>}
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setTimeVisible(false)}>
+              <Text style={styles.cancelText}>{t('common.done')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 对话风格选择（warm / rational / philosophical） */}
+      <Modal
+        visible={styleVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setStyleVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('profile.chatStyle')}</Text>
+            {CONVERSATION_STYLES.map((s) => {
+              const active = s === (profile?.conversation_style || 'warm');
+              return (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.langRow, active && styles.langRowActive]}
+                  onPress={() => onSelectStyle(s)}
+                >
+                  <View style={styles.styleOptionText}>
+                    <Text style={styles.langName}>{t(`profile.style.${s}`)}</Text>
+                    <Text style={styles.styleDesc}>{t(`profile.style.${s}Desc`)}</Text>
+                  </View>
+                  {active && <Text style={styles.langCheck}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setStyleVisible(false)}>
+              <Text style={styles.cancelText}>{t('common.done')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -592,6 +699,8 @@ const styles = StyleSheet.create({
   langRowActive: { backgroundColor: 'rgba(255,215,0,0.06)' },
   langName: { fontSize: FontSize.title, color: Colors.textPrimary },
   langCheck: { fontSize: FontSize.title, color: Colors.gold400 },
+  styleOptionText: { flex: 1, marginRight: Spacing.md },
+  styleDesc: { fontSize: FontSize.md, color: Colors.textTertiary, marginTop: 2 },
   cancelBtn: { alignItems: 'center', paddingVertical: 14, marginTop: Spacing.xs },
   cancelText: { fontSize: FontSize.title, color: Colors.gold400, fontWeight: '600' },
 });

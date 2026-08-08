@@ -17,12 +17,17 @@ import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import PersonalityScreen from './src/screens/PersonalityScreen';
 import PaywallScreen from './src/screens/PaywallScreen';
 import MemoriesScreen from './src/screens/MemoriesScreen';
+import NatalChartScreen from './src/screens/NatalChartScreen';
 import ShareCardScreen from './src/screens/ShareCardScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
+import MessagesScreen from './src/screens/MessagesScreen';
+import PrivacySecurityScreen from './src/screens/PrivacySecurityScreen';
+import HelpFeedbackScreen from './src/screens/HelpFeedbackScreen';
 import { Colors } from './src/theme/colors';
 import { initI18n, default as i18n } from './src/i18n';
 import { loadSession, updateUserSettings, isLoggedIn } from './src/services/api';
 import { flushAnalytics } from './src/services/analytics';
+import { registerForPushNotifications, subscribePushTokenChanges } from './src/services/push';
 import { onSessionReset } from './src/services/session';
 import { AuthProvider } from './src/context/AuthContext';
 
@@ -42,8 +47,12 @@ export type RootStackParamList = {
   Personality: undefined;
   Paywall: undefined;
   Memories: undefined;
+  NatalChart: undefined;
   ShareCard: undefined;
   Insights: undefined;
+  Messages: undefined;
+  PrivacySecurity: undefined;
+  HelpFeedback: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -102,6 +111,9 @@ export default function App() {
       setReady(true);
       // 首帧渲染之后上报时区（仅已登录用户；游客被守卫跳过）
       reportTimezone();
+      // 首帧后注册推送 token（fire-and-forget，不阻塞 ready 门闸；
+      // 游客/模拟器/权限被拒由 push.ts 内静默跳过；登录成功后由 AuthContext.login 补报）
+      registerForPushNotifications().catch(() => {});
       // 首帧后上送本地分析事件队列（仅已登录；后端校验 consent + 匿名化转发 PostHog）
       if (isLoggedIn()) flushAnalytics().catch(() => {});
     })();
@@ -124,9 +136,13 @@ export default function App() {
         .catch(() => setOnboarded(false));
     });
 
+    // APNs/FCM device token 轮换时重新上报后端（游客态在 push.ts 内守卫）
+    const pushTokenCleanup = subscribePushTokenChanges();
+
     return () => {
       subscription.remove();
       sessionCleanup();
+      pushTokenCleanup();
     };
   }, []);
 
@@ -184,6 +200,11 @@ export default function App() {
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen
+                name="NatalChart"
+                component={NatalChartScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
                 name="ShareCard"
                 component={ShareCardScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
@@ -191,6 +212,21 @@ export default function App() {
               <Stack.Screen
                 name="Insights"
                 component={InsightsScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="Messages"
+                component={MessagesScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="PrivacySecurity"
+                component={PrivacySecurityScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="HelpFeedback"
+                component={HelpFeedbackScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
             </Stack.Navigator>

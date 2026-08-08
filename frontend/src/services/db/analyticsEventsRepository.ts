@@ -43,12 +43,26 @@ export class AnalyticsEventsRepository {
       'SELECT * FROM analytics_events WHERE synced = 0 ORDER BY occurred_at ASC LIMIT ?',
       [limit]
     );
-    return rows.map((r) => ({
-      id: r.id,
-      event: r.event,
-      properties: r.props_json ? (JSON.parse(r.props_json) as Record<string, unknown>) : null,
-      occurred_at: r.occurred_at,
-    }));
+    const pending: PendingAnalyticsEvent[] = [];
+    for (const r of rows) {
+      let properties: Record<string, unknown> | null = null;
+      if (r.props_json) {
+        try {
+          properties = JSON.parse(r.props_json) as Record<string, unknown>;
+        } catch {
+          // 坏行不再重试：直接标记 synced=1 并跳过，避免一行脏数据永久阻塞 flush 队列
+          this.db.runSync('UPDATE analytics_events SET synced = 1 WHERE id = ?', [r.id]);
+          continue;
+        }
+      }
+      pending.push({
+        id: r.id,
+        event: r.event,
+        properties,
+        occurred_at: r.occurred_at,
+      });
+    }
+    return pending;
   }
 
   /** 批量标记已上送。 */

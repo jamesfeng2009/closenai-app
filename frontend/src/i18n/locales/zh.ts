@@ -26,7 +26,8 @@ const resource = {
     "refreshFailed": "刷新失败，请稍后重试",
     "submitFailed": "提交失败，请稍后重试",
     "sessionExpired": "登录已过期，请重新登录。",
-    "sendCodeFailed": "验证码发送失败，请稍后重试。"
+    "sendCodeFailed": "验证码发送失败，请稍后重试。",
+    "appleFailed": "Apple 登录失败，请重试"
   },
   "memories": {
     "title": "记忆管理",
@@ -40,6 +41,10 @@ const resource = {
       "goal": "目标",
       "factual": "事实"
     }
+  },
+  "messages": {
+    "title": "消息中心",
+    "empty": "暂无消息"
   },
   "consent": {
     "title": "AI 对话数据说明",
@@ -100,6 +105,7 @@ const resource = {
     "assessmentDesc": "8 道情景题，没有标准答案——AI 会结合你的回答与近期对话生成画像",
     "assessmentStart": "开始评估",
     "assessmentResume": "继续评估（第 {{index}}/{{total}} 题）",
+    "resumeHint": "你有未完成的评估，点击继续从上次的位置作答。",
     "assessmentProgress": "第 {{index}}/{{total}} 题",
     "assessmentInputPlaceholder": "也可以用自己的话回答…",
     "assessmentSend": "发送",
@@ -113,6 +119,48 @@ const resource = {
     "aries": "白羊座", "taurus": "金牛座", "gemini": "双子座", "cancer": "巨蟹座",
     "leo": "狮子座", "virgo": "处女座", "libra": "天秤座", "scorpio": "天蝎座",
     "sagittarius": "射手座", "capricorn": "摩羯座", "aquarius": "水瓶座", "pisces": "双鱼座"
+  },
+  "natal": {
+    "title": "本命星盘",
+    "formTitle": "填写出生信息",
+    "formSubtitle": "用于计算你的本命星盘，提交后可在页内随时重新填写",
+    "birthDate": "出生日期",
+    "selectDate": "选择出生日期",
+    "birthTime": "出生时间（可选）",
+    "selectTime": "选择出生时间",
+    "timeUnknown": "不知道",
+    "birthPlace": "出生地点",
+    "birthPlacePlaceholder": "中英文城市名均可，如「上海」或 Shanghai",
+    "confirm": "确定",
+    "submit": "生成我的星盘",
+    "fillRequired": "请填写出生日期和出生地点",
+    "refill": "重新填写出生信息",
+    "sunSign": "太阳星座",
+    "moonSign": "月亮星座",
+    "risingSign": "上升星座",
+    "sunDesc": "核心自我与人生方向",
+    "moonDesc": "内在情绪与安全感",
+    "risingDesc": "你给世界的初见印象",
+    "unknown": "未知",
+    "risingUnknownNote": "未提供出生时间，无法计算上升星座。",
+    "tzFallback": "出生地点未识别，已按你当前时区计算，结果可能有偏差。",
+    "planetsTitle": "行星位置",
+    "planet": {
+      "mercury": "水星",
+      "venus": "金星",
+      "mars": "火星",
+      "jupiter": "木星",
+      "saturn": "土星"
+    },
+    "interpretationTitle": "AI 解读",
+    "dailyTitle": "今日参考",
+    "overall": "综合",
+    "career": "事业",
+    "wealth": "财运",
+    "luckyColor": "幸运色",
+    "luckyNumber": "幸运数字",
+    "luckyTime": "幸运时刻",
+    "dailyEmpty": "今日参考暂未生成，稍后再来看看。"
   },
   "mbti": {
     "INTP": "逻辑学家", "INTJ": "建筑师", "ENTP": "辩论家", "ENTJ": "指挥官",
@@ -140,7 +188,20 @@ const resource = {
     "featureTimeline": "365 天成长时间线",
     "trialBadge": "免费试用中",
     "timeoutPending": "购买请求超时，交易可能仍在处理中。如已扣款，请点击恢复购买。",
-    "productsUnavailable": "暂无可用商品，请稍后再试"
+    "productsUnavailable": "暂无可用商品，请稍后再试",
+    "planPro": "Pro",
+    "planProPlus": "Pro+",
+    "periodMonthly": "按月",
+    "periodYearly": "按年",
+    "saveBadge": "省约 {{percent}}%",
+    "planUpgrade": "升级",
+    "planDowngrade": "降级",
+    "plusFeatureAllPro": "包含 Pro 全部权益",
+    "plusFeatureChat": "每日 100 次 AI 对话",
+    "plusFeatureRefresh": "性格画像刷新不限次数",
+    "plusFeatureProactive": "每日多条深度主动消息",
+    "terms": "服务条款",
+    "privacy": "隐私政策"
   },
   "reflect": {
     "moodReminder": "今天还没签到 · 点这里选个表情",
@@ -160,6 +221,16 @@ const resource = {
     "memoryManagement": "记忆管理",
     "chatStyle": "对话风格",
     "activeTime": "主动消息时间",
+    "pushTimeTitle": "选择主动消息时间",
+    "hourOption": "{{hour}}:00",
+    "style": {
+      "warm": "温暖知心",
+      "warmDesc": "温柔共情，先接住你的情绪，再一起聊问题",
+      "rational": "理性分析",
+      "rationalDesc": "冷静清晰，帮你拆解问题、看清背后的逻辑",
+      "philosophical": "哲学思辨",
+      "philosophicalDesc": "苏格拉底式提问，陪你探索更深层的意义"
+    },
         "sectionAccount": "账号安全",
     "sectionSubscription": "订阅",
     "upgradePro": "升级 Pro",
@@ -189,6 +260,11 @@ const resource = {
     "deleteDone": "账号已注销",
     "defaultName": "用户",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
+  },
+  "push": {
+    "permissionTitle": "开启通知",
+    "permissionMessage": "开启通知后，ClosenAI 才能在你设定的时间送上主动消息。请前往系统设置允许通知。",
+    "openSettings": "前往设置"
   },
   "language": {
     "title": "选择语言",
@@ -302,6 +378,34 @@ const resource = {
     "save": "保存",
     "passwordChangedTitle": "密码已修改",
     "passwordChangedMessage": "为保障安全，已退出登录，请使用新密码重新登录。"
+  },
+  "privacy": {
+    "sectionLegal": "法律条款",
+    "policy": "隐私政策",
+    "terms": "用户协议",
+    "openFailed": "无法打开链接，请稍后重试。",
+    "sectionData": "你的数据",
+    "consentStatus": "AI 数据共享同意",
+    "consentReadonlyHint": "如需变更选择，请前往「我的 → 数据共享设置」。",
+    "deletionTitle": "数据删除",
+    "deletionDesc": "你可以随时在「我的 → 注销账号」永久删除账号及全部数据（对话、记忆、签到、成长记录），删除后不可恢复。"
+  },
+  "help": {
+    "sectionFaq": "常见问题",
+    "faqCheckinQ": "如何签到？",
+    "faqCheckinA": "在「成长」页的「今日 Reflection」中点选一个情绪 emoji，3 秒即可完成；也可以在 Reflect 页的签到提醒条中完成。",
+    "faqQuotaQ": "AI 对话次数有限制吗？",
+    "faqQuotaA": "免费账号每日有一定的对话次数，按你所在时区的零点重置。升级 Pro 可享无限对话。",
+    "faqSubscriptionQ": "Pro 订阅包含哪些权益？",
+    "faqSubscriptionA": "Pro 解锁无限 AI 对话、优先模型响应、更多性格画像刷新次数和 365 天成长时间轴。可在「我的 → 升级 Pro」中管理或恢复订阅。",
+    "faqDataQ": "我的数据安全吗？",
+    "faqDataA": "对话内容加密存储在 ClosenAI 数据库，仅为生成回复发送给 AI 服务方（Google Gemini）。你可以随时在「我的 → 记忆管理」查看并删除 AI 记忆。",
+    "faqDeleteQ": "如何注销账号？",
+    "faqDeleteA": "前往「我的 → 注销账号」。注销将永久删除你的全部数据（对话、记忆、签到、成长记录、订阅），且不可恢复。",
+    "faqContactQ": "如何反馈问题或建议？",
+    "faqContactA": "欢迎随时发送邮件到下方邮箱联系我们，我们通常会在 2 个工作日内回复。",
+    "contact": "联系反馈",
+    "mailFailed": "无法打开邮件应用，请手动发送邮件至 {{email}}。"
   }
 };
 

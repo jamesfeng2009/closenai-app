@@ -65,6 +65,27 @@ export class PersonalityAssessmentRepository {
     );
   }
 
+  /**
+   * 更新评估进度（状态/题号/总题数），保留本地已记录的 answers。
+   * 远端状态同步专用：answers 是离线作答凭证，仅「远端保存成功（评估完成）」才可清除，
+   * 进度同步不允许用 answers: null 覆盖抹除。
+   */
+  async saveProgress(progress: {
+    status: AssessmentStatus;
+    current_index: number;
+    total_questions: number;
+  }): Promise<void> {
+    const current = await this.getCurrent();
+    await this.save({
+      id: 'current',
+      status: progress.status,
+      current_index: progress.current_index,
+      total_questions: progress.total_questions,
+      answers: current?.answers ?? null,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
   /** 记录一题作答（追加到 answers，前移 current_index，标记进行中）。 */
   async recordAnswer(questionId: string, answer: string, totalQuestions: number): Promise<void> {
     const current = await this.getCurrent();
@@ -75,7 +96,7 @@ export class PersonalityAssessmentRepository {
     } else {
       answers.push({ question_id: questionId, answer });
     }
-    const currentIndex = Math.min(current?.current_index ?? 0 + 1, totalQuestions);
+    const currentIndex = Math.min((current?.current_index ?? 0) + 1, totalQuestions);
     await this.save({
       id: 'current',
       status: 'in_progress',

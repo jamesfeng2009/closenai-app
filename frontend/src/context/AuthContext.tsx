@@ -10,22 +10,26 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
-  getAuthUser, getRefreshToken, clearPushToken, deleteAccount, logoutApi,
+  getAuthUser, getRefreshToken, deleteAccount, logoutApi,
   getMe, updateAuthUser, updateUserSettings,
-  ApiError,
 } from '../services/api';
+import { registerForPushNotifications } from '../services/push';
 import { resetSession, resetSessionFull } from '../services/session';
 import { onSessionReset } from '../services/api';
 import type { AuthResponse, AuthUser } from '../types';
+
+// 引导期游客选择的 MBTI 暂存 key（与 OnboardingScreen 共用）
+const PENDING_MBTI_KEY = '@closenai/pending_mbti';
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoggedIn: boolean;
   /** 登录/注册/验码登录/Apple 登录成功后写入登录态（token 已由 api.ts 持久化）。 */
   login: (resp: AuthResponse) => void;
-  /** 登出：清推送 token + 吊销 refresh + 清本机态，保留引导（游客浏览）。 */
+  /** 登出：吊销 refresh + 清本机态，保留引导（游客浏览）。推送 token 不注销（后端 APNs 410 自清）。 */
   logout: () => Promise<void>;
   /** 注销账号：级联删除全部数据 + 全量重置，回到引导页。 */
   deleteMyAccount: () => Promise<void>;
@@ -55,16 +59,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
+    // 登录成功后补报推送 token（fire-and-forget；权限/模拟器/失败在 push.ts 内静默处理）
+    registerForPushNotifications().catch(() => {});
+    // 引导期游客暂存的 MBTI：登录/注册成功后补写后端并清除暂存
+    // （fire-and-forget + try/catch，不阻断登录主流程；失败保留暂存待下次登录重试）
+    void (async () => {
+      try {
+        const pending = await AsyncStorage.getItem(PENDING_MBTI_KEY);
+        if (!pending) return;
+        await updateUserSettings({ mbti_type: pending });
+        await AsyncStorage.removeItem(PENDING_MBTI_KEY);
+      } catch {
+        // ignore
+      }
+    })();
   }, []);
 
   const logout = useCallback(async () => {
     const rt = getRefreshToken();
-    // 顺序：先清推送（token 仍有效）→ 吊销 refresh → 清本机态
-    try {
-      await clearPushToken();
-    } catch {
-      // 推送清理失败不阻断登出
-    }
+    // 顺序：吊销 refresh → 清本机态
+    // 推送 token 登出不注销（后端 APNs 410 自清；保留 token 使重新登录前也能收到主动消息）
     if (rt) {
       try {
         await logoutApi(rt);
@@ -77,12 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteMyAccount = useCallback(async () => {
-    try {
-      await deleteAccount();
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : undefined;
-      throw new Error(msg);
-    }
+    // 删除失败时原样上抛（保留 ApiError 的服务端文案），由调用方（ProfileScreen）兜底提示
+    await deleteAccount();
     await resetSessionFull();
     setUser(null);
   }, []);

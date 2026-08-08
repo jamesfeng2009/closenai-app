@@ -26,7 +26,8 @@ const resource = {
     "refreshFailed": "Refresh failed. Please try again later.",
     "submitFailed": "Submit failed. Please try again later.",
     "sessionExpired": "Session expired. Please log in again.",
-    "sendCodeFailed": "Failed to send verification code. Please try again."
+    "sendCodeFailed": "Failed to send verification code. Please try again.",
+    "appleFailed": "Apple sign-in failed. Please try again"
   },
   "memories": {
     "title": "Gestion de la mémoire",
@@ -40,6 +41,10 @@ const resource = {
       "goal": "Objectif",
       "factual": "Fait"
     }
+  },
+  "messages": {
+    "title": "Messages",
+    "empty": "No messages yet"
   },
   "consent": {
     "title": "Informations sur les données des conversations IA",
@@ -100,6 +105,7 @@ const resource = {
     "assessmentDesc": "8 scenario questions with no right answers — the AI combines your answers with recent conversations to build your profile",
     "assessmentStart": "Start Assessment",
     "assessmentResume": "Continue (Q{{index}}/{{total}})",
+    "resumeHint": "You have an unfinished assessment — continue where you left off.",
     "assessmentProgress": "Question {{index}} of {{total}}",
     "assessmentInputPlaceholder": "Or answer in your own words…",
     "assessmentSend": "Send",
@@ -113,6 +119,48 @@ const resource = {
     "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
     "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
     "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
+  },
+  "natal": {
+    "title": "Natal Chart",
+    "formTitle": "Your Birth Details",
+    "formSubtitle": "Used to calculate your natal chart. You can edit it anytime from the chart page.",
+    "birthDate": "Date of Birth",
+    "selectDate": "Select birth date",
+    "birthTime": "Time of Birth (optional)",
+    "selectTime": "Select birth time",
+    "timeUnknown": "I don't know",
+    "birthPlace": "Place of Birth",
+    "birthPlacePlaceholder": "City name in any language, e.g. Shanghai or 上海",
+    "confirm": "Confirm",
+    "submit": "Generate My Chart",
+    "fillRequired": "Please fill in your birth date and place",
+    "refill": "Edit birth details",
+    "sunSign": "Sun Sign",
+    "moonSign": "Moon Sign",
+    "risingSign": "Rising Sign",
+    "sunDesc": "Your core self and life direction",
+    "moonDesc": "Your inner emotions and security",
+    "risingDesc": "The first impression you give",
+    "unknown": "Unknown",
+    "risingUnknownNote": "Birth time not provided, so your rising sign can't be calculated.",
+    "tzFallback": "Birth place not recognized. Calculated with your current timezone; results may be approximate.",
+    "planetsTitle": "Planet Positions",
+    "planet": {
+      "mercury": "Mercury",
+      "venus": "Venus",
+      "mars": "Mars",
+      "jupiter": "Jupiter",
+      "saturn": "Saturn"
+    },
+    "interpretationTitle": "AI Reading",
+    "dailyTitle": "Today",
+    "overall": "Overall",
+    "career": "Career",
+    "wealth": "Wealth",
+    "luckyColor": "Lucky color",
+    "luckyNumber": "Lucky number",
+    "luckyTime": "Lucky time",
+    "dailyEmpty": "Today's reading isn't ready yet. Check back later."
   },
   "mbti": {
     "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
@@ -140,7 +188,20 @@ const resource = {
     "featureTimeline": "Chronologie de croissance sur 365 jours",
     "trialBadge": "Essai gratuit",
     "timeoutPending": "L'achat a expiré mais peut être en cours de traitement. Si vous avez été facturé, appuyez sur Restaurer les achats.",
-    "productsUnavailable": "Aucun produit disponible. Veuillez réessayer plus tard."
+    "productsUnavailable": "Aucun produit disponible. Veuillez réessayer plus tard.",
+    "planPro": "Pro",
+    "planProPlus": "Pro+",
+    "periodMonthly": "Monthly",
+    "periodYearly": "Yearly",
+    "saveBadge": "Save ~{{percent}}%",
+    "planUpgrade": "Upgrade",
+    "planDowngrade": "Downgrade",
+    "plusFeatureAllPro": "Everything in Pro",
+    "plusFeatureChat": "100 AI conversations per day",
+    "plusFeatureRefresh": "Unlimited personality refreshes",
+    "plusFeatureProactive": "Multiple proactive messages per day",
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy"
   },
   "reflect": {
     "moodReminder": "Pas encore enregistré aujourd'hui · Touchez pour choisir un emoji",
@@ -160,6 +221,16 @@ const resource = {
     "memoryManagement": "Gestion de la mémoire",
     "chatStyle": "Style de discussion",
     "activeTime": "Heure du message actif",
+    "pushTimeTitle": "Choose Active Message Time",
+    "hourOption": "{{hour}}:00",
+    "style": {
+      "warm": "Warm & Caring",
+      "warmDesc": "Empathetic and gentle — holds your feelings first, then talks it through",
+      "rational": "Rational",
+      "rationalDesc": "Calm and clear — helps you break problems down and see the logic",
+      "philosophical": "Philosophical",
+      "philosophicalDesc": "Thought-provoking — explores deeper meaning through questions"
+    },
         "sectionAccount": "Account Security",
     "sectionSubscription": "Abonnement",
     "upgradePro": "Passer à Pro",
@@ -189,6 +260,11 @@ const resource = {
     "deleteDone": "Compte supprimé",
     "defaultName": "Invité",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
+  },
+  "push": {
+    "permissionTitle": "Enable Notifications",
+    "permissionMessage": "ClosenAI needs notification permission to reach you at your chosen time. Please allow notifications in Settings.",
+    "openSettings": "Open Settings"
   },
   "language": {
     "title": "Choisir la langue",
@@ -302,6 +378,34 @@ const resource = {
     "save": "Save",
     "passwordChangedTitle": "Password Changed",
     "passwordChangedMessage": "For security, you have been logged out. Please log in with your new password."
+  },
+  "privacy": {
+    "sectionLegal": "Legal",
+    "policy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "openFailed": "Unable to open the link. Please try again later.",
+    "sectionData": "Your Data",
+    "consentStatus": "AI Data Sharing Consent",
+    "consentReadonlyHint": "To change your choice, go to Profile → Data Sharing Settings.",
+    "deletionTitle": "Data Deletion",
+    "deletionDesc": "You can permanently delete your account and all data (conversations, memories, check-ins, growth records) anytime in Profile → Delete Account. This cannot be undone."
+  },
+  "help": {
+    "sectionFaq": "FAQ",
+    "faqCheckinQ": "How do I check in my mood?",
+    "faqCheckinA": "On the Growth tab, tap an emoji in \"Today's Reflection\" — it takes 3 seconds. You can also check in from the reminder bar on the Reflect tab.",
+    "faqQuotaQ": "How many AI conversations do I get?",
+    "faqQuotaA": "Free accounts include a daily message quota that resets at midnight in your timezone. Upgrade to Pro for unlimited conversations.",
+    "faqSubscriptionQ": "What does Pro include?",
+    "faqSubscriptionA": "Pro unlocks unlimited AI conversations, priority model responses, more personality refreshes, and the 365-day growth timeline. Manage or restore your subscription in Profile → Upgrade to Pro.",
+    "faqDataQ": "Is my data safe?",
+    "faqDataA": "Conversations are encrypted and stored in the ClosenAI database, and are only sent to the AI provider (Google Gemini) to generate replies. You can view and delete AI memories anytime in Profile → Memory Management.",
+    "faqDeleteQ": "How do I delete my account?",
+    "faqDeleteA": "Go to Profile → Delete Account. This permanently deletes all your data (conversations, memories, check-ins, growth records, subscription) and cannot be undone.",
+    "faqContactQ": "How do I report a problem or give feedback?",
+    "faqContactA": "Email us anytime at the address below. We usually reply within 2 business days.",
+    "contact": "Contact Us",
+    "mailFailed": "Unable to open the mail app. Please email us at {{email}}."
   }
 };
 

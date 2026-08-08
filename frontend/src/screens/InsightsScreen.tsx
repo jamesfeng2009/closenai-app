@@ -21,6 +21,7 @@ import type {
   DailyDiscovery, GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
 import { dailyDiscoveryRepo } from '../services/db/dailyDiscoveryRepository';
+import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode 对齐
@@ -39,8 +40,17 @@ const HEAT_COLORS: Record<number, string> = {
   5: '#66BB6A',
 };
 
+/** 本地时区日期 YYYY-MM-DD（toISOString 是 UTC 日期，UTC+8 用户 0-8 点会读错一天）。 */
+function localDateKey(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function InsightsScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
+  const { isLoggedIn } = useAuth();
   const [weekly, setWeekly] = useState<WeeklyInsight | null>(null);
   const [discovery, setDiscovery] = useState<DailyDiscovery | null>(null);
   const [timeline, setTimeline] = useState<GrowthTimeline | null>(null);
@@ -53,13 +63,18 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [reportLoading, setReportLoading] = useState(false);
 
   // 首屏并行加载 4 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
+  // 游客态跳过请求（4 个接口均需登录，游客必 401），展示空态
   useEffect(() => {
+    if (!isLoggedIn) {
+      setLoading(false);
+      return;
+    }
     (async () => {
       try {
         setLoading(true);
-        // 首屏秒开：先读本地每日发现缓存（Tier 2 展示缓存）
+        // 首屏秒开：先读本地每日发现缓存（Tier 2 展示缓存，按本地时区日期取）
         const cachedDiscovery = await dailyDiscoveryRepo
-          .getByDate(new Date().toISOString().slice(0, 10))
+          .getByDate(localDateKey())
           .catch(() => null);
         if (cachedDiscovery) {
           try {
@@ -77,11 +92,11 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         setWeekly(w);
         if (d) {
           setDiscovery(d);
-          // 缓存每日发现（Tier 2 只读缓存，远端为准）
+          // 缓存每日发现（Tier 2 只读缓存，远端为准；date 用本地时区）
           dailyDiscoveryRepo
             .cache({
-              id: `discovery-${new Date().toISOString().slice(0, 10)}`,
-              date: new Date().toISOString().slice(0, 10),
+              id: `discovery-${localDateKey()}`,
+              date: localDateKey(),
               content: JSON.stringify(d),
               created_at: new Date().toISOString(),
             })
@@ -93,7 +108,7 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [isLoggedIn]);
 
   const isPro = !!profile && profile.tier !== 'free';
 

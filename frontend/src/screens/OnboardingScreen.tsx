@@ -16,9 +16,10 @@ import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { updateUserSettings } from '../services/api';
 
 const ONBOARDED_KEY = '@closenai/onboarded';
+// 游客期选择的 MBTI 暂存 key（与 AuthContext 登录后补写逻辑共用）
+const PENDING_MBTI_KEY = '@closenai/pending_mbti';
 
 // 16 型 MBTI
 const MBTI_TYPES = [
@@ -40,10 +41,11 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
     } catch {
       // ignore
     }
-    // 若用户选择了已知性格类型，同步到后端（作为画像种子）
+    // 若用户选择了已知性格类型，先暂存本地（引导阶段必为游客，无 token 调 API 必失败）；
+    // 登录/注册成功后由 AuthContext 读取该 key 补调 updateUserSettings 并清除
     if (withType) {
       try {
-        await updateUserSettings({ mbti_type: withType });
+        await AsyncStorage.setItem(PENDING_MBTI_KEY, withType);
       } catch {
         // ignore
       }

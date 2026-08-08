@@ -194,6 +194,9 @@ export interface ComboReport {
 
 export type UserTier = 'free' | 'pro' | 'pro_plus';
 
+/** AI 对话风格（P1-F04，后端三枚举校验）。 */
+export type ConversationStyle = 'warm' | 'rational' | 'philosophical';
+
 export interface UserProfile {
   id: string;
   name: string | null;
@@ -208,6 +211,7 @@ export interface UserProfile {
   daily_quota_total: number;
   ai_consent: boolean;
   push_time?: string | null;
+  conversation_style?: ConversationStyle | null;
 }
 
 export interface UserSettings {
@@ -219,6 +223,7 @@ export interface UserSettings {
   push_frequency?: 'daily' | 'important' | 'off';
   push_enabled?: boolean;
   mbti_type?: string;
+  conversation_style?: ConversationStyle;
 }
 
 // ═══ Discovery ═══
@@ -308,6 +313,42 @@ export interface AuthResponse {
   access_token: string;
   refresh_token: string;
   user: AuthUser;
+}
+
+// ═══ Natal Chart (P0 本命星盘) ═══
+
+export type ZodiacSign =
+  | 'aries' | 'taurus' | 'gemini' | 'cancer' | 'leo' | 'virgo'
+  | 'libra' | 'scorpio' | 'sagittarius' | 'capricorn' | 'aquarius' | 'pisces';
+
+export type NatalPlanet = 'mercury' | 'venus' | 'mars' | 'jupiter' | 'saturn';
+
+export interface NatalChart {
+  sun_sign: ZodiacSign;
+  moon_sign: ZodiacSign;
+  rising_sign: ZodiacSign | null; // 出生时间未知时为 null
+  timezone: string;
+  tz_fallback: boolean; // true = 出生地点未识别，按当前时区计算
+  planets: Record<NatalPlanet, ZodiacSign>;
+  interpretation: string; // AI 解读（按请求语言生成）
+  birth_time_unknown: boolean;
+}
+
+export interface NatalChartInput {
+  birth_date: string; // YYYY-MM-DD
+  birth_time?: string; // HH:MM，缺省表示出生时间未知
+  birth_place: string;
+}
+
+export interface NatalChartDaily {
+  date: string;
+  overall_score: number; // 1-5
+  career_score: number;
+  wealth_score: number;
+  lucky_color: string;
+  lucky_number: number;
+  lucky_time: string;
+  comment: string;
 }
 
 // ═══ Navigation ═══

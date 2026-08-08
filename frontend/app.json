@@ -12,7 +12,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.closenai.app",
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
     },
     "android": {
       "package": "com.closenai.app"
@@ -23,7 +26,8 @@
     },
     "plugins": [
       "react-native-iap",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "expo-notifications"
     ]
   }
 }

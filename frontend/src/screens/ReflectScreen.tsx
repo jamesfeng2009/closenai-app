@@ -14,7 +14,7 @@ import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView,
   Platform, ActivityIndicator, Alert,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import {
   streamChat, moodCheckin, getChatHistory, getGrowthDashboard,
@@ -23,6 +23,7 @@ import {
 import AIConsentModal from '../components/AIConsentModal';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { chatRepo } from '../services/db/chatRepository';
+import { aiMessagesRepo } from '../services/db/aiMessagesRepository';
 import { track } from '../services/analytics';
 import type { MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
@@ -38,6 +39,8 @@ interface Message {
   content: string;
   isDraft?: boolean;
   draftSaved?: boolean;
+  // 历史消息创建时间（本地/远端历史均有；新发送的消息与草稿无此字段）
+  created_at?: string;
   // 草稿关联的记忆 ID（保存 Reflection 时透传给后端）
   relatedMemoryIds?: string[] | null;
 }
@@ -50,6 +53,11 @@ function mergeMessages(remote: Message[], local: Message[]): Message[] {
   local.forEach((m) => map.set(m.id, m));
   remote.forEach((m) => map.set(m.id, m));
   return Array.from(map.values());
+}
+
+/** 按创建时间升序排列（最旧在顶、最新在底，符合聊天 UI 惯例；本地 getRecent 为 DESC 需反转）。 */
+function sortByCreatedAtAsc(msgs: Message[]): Message[] {
+  return [...msgs].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''));
 }
 
 export default function ReflectScreen() {
@@ -66,25 +74,26 @@ export default function ReflectScreen() {
   const [streak, setStreak] = useState(0);
   const [levelLabel, setLevelLabel] = useState('');
   const [consentVisible, setConsentVisible] = useState(false);
+  // 消息中心未读数（本地 ai_messages 表，🔔 角标）
+  const [unreadCount, setUnreadCount] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (isLoggedIn) loadInitial();
-    else setLoading(false);
-    return () => cancelStreamRef.current?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn]);
+  // 防止聚焦重入导致重复并发请求
+  const loadingRef = useRef(false);
 
-  const loadInitial = async () => {
+  const loadInitial = React.useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     // 首屏秒开：先读本地对话历史（Tier 1 本地拥有，离线可用）
-    setLoading(true);
     const local = await chatRepo.getRecent(20).catch(() => []);
-    let msgs: Message[] = local.map((h) => ({
+    // 本地 getRecent 为 created_at DESC，统一升序（最旧在顶、最新在底）
+    let msgs: Message[] = sortByCreatedAtAsc(local.map((h) => ({
       id: h.id,
       role: h.role === 'assistant' ? 'ai' : 'user',
       content: h.content_preview,
-    }));
+      created_at: h.created_at,
+    })));
     setMessages(msgs);
 
     try {
@@ -108,14 +117,16 @@ export default function ReflectScreen() {
         id: h.id,
         role: h.role,
         content: h.content,
+        created_at: h.created_at,
       }));
       // 本地与远端按 id 去重合并；远端为真相源（覆盖本地旧内容，写入本地缓存）
       const merged = mergeMessages(remote, local.map((h) => ({
         id: h.id,
         role: h.role === 'assistant' ? 'ai' : 'user',
         content: h.content_preview,
+        created_at: h.created_at,
       })));
-      msgs = merged;
+      msgs = sortByCreatedAtAsc(merged);
       if (merged.length > 0) {
         await chatRepo.addAll(
           remote.map((m) => ({
@@ -123,7 +134,8 @@ export default function ReflectScreen() {
             role: m.role === 'ai' ? 'assistant' : 'user',
             content_preview: m.content,
             full_content_url: null,
-            created_at: new Date().toISOString(),
+            // 透传远端创建时间，保持本地缓存时间轴与远端一致
+            created_at: m.created_at ?? new Date().toISOString(),
           })),
         );
       }
@@ -149,9 +161,27 @@ export default function ReflectScreen() {
     } catch (e) {
       console.warn('Failed to load reflect screen:', e);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
-  };
+  }, []);
+
+  // 卸载时取消进行中的 SSE 流
+  useEffect(() => () => cancelStreamRef.current?.(), []);
+
+  // Tab 常驻不卸载：每次聚焦都重新加载（streak/签到提醒需刷新；mount 时也会触发一次）
+  // 游客态跳过请求（401 噪声）
+  useFocusEffect(
+    React.useCallback(() => {
+      // 每次聚焦刷新未读角标（从消息中心返回时清除已读掉的计数；纯本地查询，游客也可读）
+      aiMessagesRepo.getUnreadCount().then(setUnreadCount).catch(() => {});
+      if (isLoggedIn) {
+        loadInitial();
+      } else {
+        setLoading(false);
+      }
+    }, [isLoggedIn, loadInitial])
+  );
 
   // 同意：持久化并关闭弹窗，进入 AI 对话
   const onConsentAgree = async () => {
@@ -308,10 +338,19 @@ export default function ReflectScreen() {
         </View>
         <Text style={styles.headerTitle}>ClosenAI</Text>
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={() => Alert.alert(t('explore.comingSoon'))}>
-            <Text style={styles.iconBtn}>🔔</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Messages')}>
+            <View>
+              <Text style={styles.iconBtn}>🔔</Text>
+              {unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => Alert.alert(t('explore.comingSoon'))}>
+          <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
             <Text style={styles.iconBtn}>⚙️</Text>
           </TouchableOpacity>
         </View>
@@ -413,6 +452,13 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textPrimary },
   headerRight: { flexDirection: 'row', gap: 12 },
   iconBtn: { fontSize: 18 },
+  badge: {
+    position: 'absolute', top: -4, right: -8,
+    minWidth: 14, height: 14, borderRadius: 7,
+    backgroundColor: Colors.error, justifyContent: 'center', alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: { fontSize: 9, fontWeight: '700', color: Colors.textPrimary },
   streakBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: 'rgba(255,215,0,0.1)', borderWidth: 1, borderColor: Colors.borderGoldStrong,

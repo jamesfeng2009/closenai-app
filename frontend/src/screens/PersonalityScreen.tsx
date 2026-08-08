@@ -110,16 +110,19 @@ export default function PersonalityScreen() {
         personalityProfileRepo.cache(profileStateToRow(p)).catch(() => {});
       }
       if (a) {
+        // 本地有未完成进度而远端尚未开始（本地作答尚未同步到远端）：优先恢复本地续答进度
+        const localInProgress =
+          cachedAssessment?.status === 'in_progress' && cachedAssessment.current_index > 0;
+        if (localInProgress && a.status === 'not_started') {
+          return;
+        }
         setAssessment(a);
-        // 持久化评估进度（Tier 1 本地拥有，离线断点续答）
+        // 持久化评估进度（Tier 1 本地拥有，离线断点续答；saveProgress 保留本地已答答案）
         personalityAssessmentRepo
-          .save({
-            id: 'current',
+          .saveProgress({
             status: a.status,
             current_index: a.current_index,
             total_questions: a.total,
-            answers: null,
-            updated_at: new Date().toISOString(),
           })
           .catch(() => {});
       }
@@ -159,15 +162,12 @@ export default function PersonalityScreen() {
       setAnswering(true);
       const a = await startAssessment();
       setAssessment(a);
-      // 持久化评估进度（Tier 1 离线断点续答）
+      // 持久化评估进度（Tier 1 离线断点续答；saveProgress 保留本地已答答案）
       personalityAssessmentRepo
-        .save({
-          id: 'current',
+        .saveProgress({
           status: a.status,
           current_index: a.current_index,
           total_questions: a.total,
-          answers: null,
-          updated_at: new Date().toISOString(),
         })
         .catch(() => {});
     } catch (e) {
@@ -180,6 +180,8 @@ export default function PersonalityScreen() {
 
   const submitAnswer = async (payload: { option: 'a' | 'b' | 'neutral' } | { answer: string }) => {
     if (answering) return;
+    // 作答时快照当前题（提交成功后 question 已切换，需用快照写本地答案日志）
+    const answeredQuestion = assessment?.question ?? null;
     try {
       setAnswering(true);
       const res = await answerAssessment(payload);
@@ -189,7 +191,7 @@ export default function PersonalityScreen() {
         setAssessment((prev) =>
           prev ? { ...prev, status: 'completed', question: null } : prev,
         );
-        // 完成：本地标记完成并缓存最新画像（Tier 1 + Tier 2）
+        // 完成：全部答案已在远端保存成功，本地标记完成并清除离线答案凭证（Tier 1 + Tier 2）
         personalityAssessmentRepo
           .save({
             id: 'current',
@@ -210,17 +212,16 @@ export default function PersonalityScreen() {
             ? { ...prev, current_index: res.next_question!.index, question: res.next_question }
             : prev,
         );
-        // 持久化进度，支持离线续答
-        personalityAssessmentRepo
-          .save({
-            id: 'current',
-            status: 'in_progress',
-            current_index: res.next_question!.index,
-            total_questions: res.next_question!.total,
-            answers: null,
-            updated_at: new Date().toISOString(),
-          })
-          .catch(() => {});
+        // 作答同步写本地（fire-and-forget）：追加答案 + 前移进度，支持离线断点续答
+        if (answeredQuestion) {
+          personalityAssessmentRepo
+            .recordAnswer(
+              `q${answeredQuestion.index}`,
+              'option' in payload ? payload.option : payload.answer,
+              res.next_question.total,
+            )
+            .catch(() => {});
+        }
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.submitFailed');
@@ -337,7 +338,11 @@ export default function PersonalityScreen() {
             <Text style={styles.cardTitle}>💬 {t('personality.assessmentTitle')}</Text>
             {!question ? (
               <>
-                <Text style={styles.assessmentDesc}>{t('personality.assessmentDesc')}</Text>
+                <Text style={styles.assessmentDesc}>
+                  {assessment.status === 'in_progress'
+                    ? t('personality.resumeHint')
+                    : t('personality.assessmentDesc')}
+                </Text>
                 <TouchableOpacity
                   style={[styles.assessmentBtn, answering && styles.refreshBtnDisabled]}
                   onPress={onStartAssessment}
