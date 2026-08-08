@@ -44,6 +44,9 @@ reportlab>=4.0.0
 # 行为分析 + 错误追踪（PostHog Cloud·EU；未配置 API key 时服务内 no-op）
 posthog>=3.0.0
 
+# 本命星盘计算（Swiss Ephemeris C 扩展；Vercel 部署需 manylinux wheel）
+pyswisseph>=2.10.0
+
 # 开发工具
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

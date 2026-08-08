@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import auth, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics
+from backend.routers import auth, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics, natal
 from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
@@ -98,6 +98,7 @@ app.include_router(reflection.router, prefix="/api/v1", tags=["reflections"])
 app.include_router(cron.router, prefix="/api/v1", tags=["cron"])
 app.include_router(share.router, prefix="/api/v1", tags=["share"])
 app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
+app.include_router(natal.router, prefix="/api/v1", tags=["natal"])
 
 
 @app.get("/health")

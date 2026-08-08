@@ -51,7 +51,7 @@ async def get_memory(
     """获取单条记忆详情。"""
     memory = await service.get_memory(db, memory_id, user_id)
     if not memory:
-        raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在")
+        raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在 / Memory not found")
     return success(memory)
 
 
@@ -127,5 +127,5 @@ async def delete_memory(
     """删除单条记忆（合规：用户可随时删除自己的数据）。"""
     deleted = await memory_repository.delete(db, memory_id, user_id)
     if not deleted:
-        raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在")
+        raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在 / Memory not found")
     return success({"deleted": True})

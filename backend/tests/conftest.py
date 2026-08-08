@@ -132,6 +132,8 @@ _TIME_PATCH_TARGETS = {
     "backend.services.message_generator": ("utc_now",),
     "backend.services.discovery_service": ("utc_now",),
     "backend.services.reflection_service": ("local_day_start_utc",),
+    "backend.services.natal_service": ("local_today",),
+    "backend.repositories.natal_repository": ("utc_now",),
     "backend.services.push.copy": ("local_today",),
     "backend.repositories.mood_repository": ("local_day_start_utc", "utc_now"),
     "backend.repositories.chat_repository": ("local_day_start_utc",),

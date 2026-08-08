@@ -17,6 +17,7 @@ from backend.core.llm import llm
 from backend.core.time_utils import local_today
 from backend.models.user import User
 from backend.repositories import mood_repository
+from backend.services.message_generator import conversation_style_prompt
 from backend.services.safety_service import safety_service
 
 logger = logging.getLogger("closenai.push.copy")
@@ -169,11 +170,13 @@ class PushCopywriter:
         message: Optional[str] = None,
     ) -> Optional[str]:
         """lite LLM 生成推送正文（30-60 字温暖通知体）。失败返回 None。"""
+        # 对话风格感知（P1-F04）：文案语气跟随用户偏好风格，安全约束不变
         prompt = (
             "你是一位温暖的情绪陪伴者。请写一条手机推送通知正文，要求："
             "30-60 字、像朋友说话、具体不空泛；"
             "禁止出现运势、预测、幸运数字等占星措辞；"
             "不要引号、不要解释，只输出通知文本本身。\n"
+            f"{conversation_style_prompt(getattr(user, 'conversation_style', None), language)}\n"
             f"场景：{_SCENARIO_DESC.get(scenario, scenario)}\n"
             f"用户称呼：{name}\n"
         )

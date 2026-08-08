@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.llm import llm
 from backend.core.time_utils import utc_now
+from backend.models.user import DEFAULT_CONVERSATION_STYLE
 from backend.repositories import (
     chat_repository,
     growth_repository,
@@ -23,6 +24,36 @@ from backend.services.memory_service import memory_service
 from backend.services.safety_service import safety_service
 
 logger = logging.getLogger("closenai.message")
+
+# ═══ 对话风格 prompt（PRD P1-F04：温暖知心 / 理性分析 / 哲学思辨）═══
+# key 定义见 models/user.py CONVERSATION_STYLES；非法/缺省一律回退默认风格。
+_STYLE_PROMPTS: Dict[str, Dict[str, str]] = {
+    "warm": {
+        "zh": "对话风格：温暖知心。语气温柔共情，多用感受词，先接住情绪再回应。",
+        "en": "Conversation style: Warm & Empathetic. Use a gentle, caring tone with feeling-oriented language; acknowledge emotions before responding.",
+    },
+    "rational": {
+        "zh": "对话风格：理性分析。语气客观清晰，多给结构化分析和可执行建议。",
+        "en": "Conversation style: Rational & Analytical. Use an objective, clear tone; offer structured analysis and actionable suggestions.",
+    },
+    "philosophical": {
+        "zh": "对话风格：哲学思辨。语气深沉探索，多提开放式问题，引导用户自我追问。",
+        "en": "Conversation style: Philosophical & Reflective. Use a deep, exploratory tone; ask open-ended questions that invite self-inquiry.",
+    },
+}
+
+# 风格与安全的关系（固定注入，护栏约束不因风格改变）
+_STYLE_SAFETY_NOTE = {
+    "zh": "风格只影响语气，不改变任何安全与边界规则。",
+    "en": "Style affects tone only; it never overrides any safety or boundary rules.",
+}
+
+
+def conversation_style_prompt(style: Optional[str], language: str = "en") -> str:
+    """对话风格 prompt 段落（按语言；未知值回退默认风格，永不抛错）。"""
+    lang_key = "zh" if (language or "").startswith("zh") else "en"
+    desc = _STYLE_PROMPTS.get(style or "", _STYLE_PROMPTS[DEFAULT_CONVERSATION_STYLE])[lang_key]
+    return f"{desc}\n{_STYLE_SAFETY_NOTE[lang_key]}"
 
 
 class MessageGenerator:
@@ -87,10 +118,15 @@ class MessageGenerator:
         # 记忆上下文注入
         memory_context = await self._get_memory_context_str(db, user_id, user_input, language)
 
+        # 对话风格注入（P1-F04：用户偏好风格，读库失败回退默认 warm）
+        user = await user_repository.get_user(db, user_id)
+        style = getattr(user, "conversation_style", None) or DEFAULT_CONVERSATION_STYLE
+
         system_prompt = (
             "You are ClosenAI, a warm, insightful AI companion. "
             "You help the user reflect on their emotions, relationships, and growth. "
             "Keep replies concise, empathetic, and in the user's language.\n\n"
+            f"{conversation_style_prompt(style, language)}\n\n"
             f"{safety_service.boundary(language)}\n\n"
             f"关于用户的记忆（可作为参考，不要生硬复述）：\n{memory_context}"
         )
@@ -174,10 +210,12 @@ class MessageGenerator:
         if tier == "free":
             return self._build_free_proactive(memory_desc, discovery_desc, mood_desc, language)
 
-        # Pro/Pro+：LLM 个性化生成
+        # Pro/Pro+：LLM 个性化生成（注入用户对话风格，P1-F04）
+        style = getattr(user, "conversation_style", None) or DEFAULT_CONVERSATION_STYLE
         prompt = (
             "你是 ClosenAI，一位温暖、有洞察的 AI 陪伴者。请给用户发一条简短的主动问候（1-2句话），"
             "要自然、具体、不过度，像朋友一样关心。\n"
+            f"{conversation_style_prompt(style, language)}\n"
             f"用户近期记忆：{memory_desc}\n"
             f"数据洞察：{discovery_desc}\n"
             f"最近情绪：{mood_desc}\n"

@@ -51,7 +51,7 @@ CODE_COOLDOWN = 60
 DAILY_SEND_LIMIT = 10
 # 验证码校验失败次数上限（防爆破：超过即作废验证码，需重新获取）
 CODE_MAX_ATTEMPTS = 5
-# 密码登录失败次数上限与锁定时长（防口令爆破）
+# 密码登录失败次数上限与锁定时长（防口令爆破；固定窗口，到期自动解锁）
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCK_SECONDS = 300
 # refresh token 重放宽限期（秒）：宽限内重放视为客户端网络重试，不吊销家族
@@ -186,19 +186,22 @@ class AuthService:
         if not user:
             user = await user_repository.get_by_username(db, ident)
         # 限流主体：命中账号按 user_id（防账号口令爆破）；未命中按 identifier（防枚举探测）
+        # 限流计数类操作 fail-open：Redis 抖动记告警放行，不把登录链路打成 500
         fail_key = self._login_fail_key(f"user:{user.id}" if user else f"ident:{ident.lower()}")
-        fails = await redis_client.get(fail_key)
+        fails = await redis_client.get(fail_key, fail_open=True)
         if fails and int(fails) >= LOGIN_MAX_FAILURES:
             raise AppException(
                 ErrorCode.RATE_LIMITED,
                 "尝试次数过多，请 5 分钟后再试 / Too many attempts, try again later",
             )
         if not user or not user.password_hash or not verify_password(password, user.password_hash):
-            # 失败计数（滑动窗口：持续失败持续锁定，阻断爆破）
-            await redis_client.incr_with_ttl(fail_key, LOGIN_LOCK_SECONDS)
+            # 失败计数（固定窗口：首次失败锚定窗口并设置 TTL，后续失败仅自增不续期，
+            # 窗口到期自动解锁。滑动窗口下攻击者可持续提交错误密码使受害者永远无法
+            # 登录（DoS），固定窗口保证到点必解锁，同时窗口内仍阻断爆破）
+            await redis_client.incr_fixed_window(fail_key, LOGIN_LOCK_SECONDS, fail_open=True)
             raise AppException(ErrorCode.INVALID_CREDENTIALS, "账号或密码错误 / Invalid credentials")
         if fails:
-            await redis_client.delete(fail_key)  # 登录成功清零计数
+            await redis_client.delete(fail_key, fail_open=True)  # 登录成功清零计数
         return await self._issue_tokens(db, user)
 
     # ── 邮箱验证码 ──
@@ -209,11 +212,13 @@ class AuthService:
         email = email.lower().strip()
         # 限流前置：冷却 + 日上限先于业务校验，
         # 防止 purpose=register 的"邮箱已注册"报错被无速率限制地用于枚举已注册邮箱
-        if await redis_client.get(self._cooldown_key(email)):
+        if await redis_client.get(self._cooldown_key(email), fail_open=True):
             raise AppException(
                 ErrorCode.EMAIL_SEND_RATE_LIMITED, "请求过于频繁，请稍后再试 / Too many requests"
             )
-        count = await redis_client.incr_with_ttl(self._daily_key(email), self._daily_window_ttl())
+        count = await redis_client.incr_with_ttl(
+            self._daily_key(email), self._daily_window_ttl(), fail_open=True
+        )
         if count > DAILY_SEND_LIMIT:
             raise AppException(
                 ErrorCode.EMAIL_SEND_RATE_LIMITED, "今日发送次数已达上限 / Daily limit reached"
@@ -231,10 +236,12 @@ class AuthService:
         # login 不校验（验证码登录自动建账号）
 
         code = self._gen_code()
+        # 验证码写入 fail-closed：写不进去必须抛错（默认语义），
+        # 否则用户收到码却因读取侧故障永远验证不过
         await redis_client.setex(
             self._code_key(email, purpose), CODE_TTL, self._hash_code(code)
         )
-        await redis_client.setex(self._cooldown_key(email), CODE_COOLDOWN, "1")
+        await redis_client.setex(self._cooldown_key(email), CODE_COOLDOWN, "1", fail_open=True)
         # resend SDK 为同步阻塞 IO：放线程池执行，避免阻塞 event loop
         await asyncio.to_thread(send_verification_code, email, code, purpose, language)
         return {"status": "ok"}

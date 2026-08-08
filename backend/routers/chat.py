@@ -15,15 +15,15 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
-from backend.core.errors import ErrorCode
+from backend.core.errors import AppException, ErrorCode
 from backend.core.language import get_request_language
 from backend.core.response import success
-from backend.database import SessionLocal, get_db
+from backend.database import get_db
 from backend.models.schemas import ChatStreamRequest
-from backend.repositories import chat_repository, user_repository
+from backend.repositories import chat_repository
+from backend.services.chat_service import chat_service
 from backend.services.memory_service import memory_service
 from backend.services.message_generator import MessageGenerator, message_generator
-from backend.services.quota_service import quota_service
 from backend.services.user_service import user_service
 
 logger = logging.getLogger("closenai.chat")
@@ -70,41 +70,26 @@ async def stream_chat(
     # 合规前置检查：未同意数据共享则直接 403（在进入 SSE 流之前，前端按信封错误处理）
     await user_service.require_ai_consent(db, user_id)
 
-    # ── B6 修复：拆分事务，避免 FOR UPDATE 行锁持有整个 LLM 流式生成期间（3-10s）──
-    # 阶段一（独立短事务 prep_session，持有行锁）：配额检查 + 扣减 + 写入用户消息 →
-    #   commit 释放锁。用独立 session 而非在请求级 db 上中途 commit，避免破坏 get_db()
-    #   「请求结束统一 commit/rollback」的事务契约。配额校验+扣减（写用户消息+累加
-    #   chat_count）在同一事务内原子完成；commit 后用户消息已落库、配额已计数。
-    #   若阶段二 LLM 失败，用户消息保留、配额仍计数（用户已发起请求，消耗一次对话
-    #   轮数是合理语义；原「整事务回滚」会因持锁期间过长阻塞同用户并发，故拆分）。
-    async with SessionLocal() as prep_session:
-        try:
-            user = await user_repository.require_user(
-                prep_session, user_id, for_update=True
+    # 阶段一事务编排已下沉 chat_service（router 不持有事务边界/不直连 repository）：
+    # 配额校验 + 扣减 + 用户消息落库在独立短事务内原子完成（B6：避免行锁横跨 LLM 流）。
+    try:
+        await chat_service.prepare_chat_turn(
+            user_id, request.content, request.message_type
+        )
+    except AppException as e:
+        if e.code == int(ErrorCode.QUOTA_EXCEEDED):
+            # 配额超限：返回只含错误事件的 SSE 流（保持客户端 SSE 错误处理契约）
+            async def quota_error_stream():
+                yield _sse_event("error", {
+                    "code": int(ErrorCode.QUOTA_EXCEEDED),
+                    "message": e.message,
+                })
+            return StreamingResponse(
+                quota_error_stream(),
+                media_type="text/event-stream",
+                headers=_stream_headers(),
             )
-            # 配额检查（B2）：对话入口只受对话轮数约束，统一池耗尽不阻断对话
-            if await quota_service.is_chat_quota_exceeded(prep_session, user):
-                # 配额超限：返回只含错误事件的 SSE 流（保持客户端 SSE 错误处理契约）
-                async def quota_error_stream():
-                    yield _sse_event("error", {
-                        "code": int(ErrorCode.QUOTA_EXCEEDED),
-                        "message": "今天的次数已经用完，请明天再来",
-                    })
-                return StreamingResponse(
-                    quota_error_stream(),
-                    media_type="text/event-stream",
-                    headers=_stream_headers(),
-                )
-            # 保存用户消息（并累计聊天次数，首页"聊天次数"展示）
-            await chat_repository.create(
-                prep_session, user_id, "user", request.content,
-                message_type=request.message_type,
-            )
-            await user_repository.increment_chat_count(prep_session, user_id)
-            await prep_session.commit()
-        except Exception:
-            await prep_session.rollback()
-            raise
+        raise
 
     # 阶段二（无锁 SSE 流式生成）：用请求级 db session，不持有用户行锁，
     # 同用户并发请求不被 LLM 耗时（3-10s）阻塞。AI 回复写入与记忆提取由 get_db
@@ -146,7 +131,7 @@ async def stream_chat(
             logger.exception("chat stream 失败 user=%s", user_id)
             yield _sse_event("error", {
                 "code": int(ErrorCode.INTERNAL_ERROR),
-                "message": "生成失败，请稍后再试",
+                "message": "生成失败，请稍后再试 / Generation failed, please try again later",
             })
 
     return StreamingResponse(

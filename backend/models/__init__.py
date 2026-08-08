@@ -8,11 +8,13 @@
 禁止：在此层中编写任何业务逻辑或数据访问逻辑。
 """
 from backend.database import Base
+from backend.models.auth import RefreshToken
 from backend.models.chat import ChatMessage
-from backend.models.growth import GrowthRecord
+from backend.models.growth import GrowthRecord, UserMilestone
 from backend.models.memory import Memory
 from backend.models.mood import MoodCheckin
-from backend.models.personality import PersonalityProfile
+from backend.models.natal import NatalChart
+from backend.models.personality import PersonalityAssessment, PersonalityProfile
 from backend.models.push import PushToken
 from backend.models.share import ShareExport
 from backend.models.subscription import Receipt, Subscription
@@ -24,10 +26,14 @@ __all__ = [
     "GrowthRecord",
     "Memory",
     "MoodCheckin",
+    "NatalChart",
+    "PersonalityAssessment",
     "PersonalityProfile",
     "PushToken",
     "Receipt",
+    "RefreshToken",
     "ShareExport",
     "Subscription",
     "User",
+    "UserMilestone",
 ]

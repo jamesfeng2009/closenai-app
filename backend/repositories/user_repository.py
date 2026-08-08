@@ -143,6 +143,7 @@ class UserRepository:
         language: Optional[str] = None,
         timezone: Optional[str] = None,
         chat_style: Optional[str] = None,
+        conversation_style: Optional[str] = None,
         push_time: Optional[str] = None,
         push_frequency: Optional[str] = None,
         push_enabled: Optional[bool] = None,
@@ -160,6 +161,8 @@ class UserRepository:
             values["timezone"] = timezone
         if chat_style is not None:
             values["chat_style"] = chat_style
+        if conversation_style is not None:
+            values["conversation_style"] = conversation_style
         if push_time is not None:
             values["push_time"] = push_time
         if push_frequency is not None:

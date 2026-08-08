@@ -7,6 +7,7 @@
 
 中间件注册顺序：TraceIdMiddleware 必须在最外层（最先执行），保证后续日志都有 trace_id。
 """
+import json
 import uuid
 from typing import Awaitable, Callable
 
@@ -68,7 +69,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         # 提取首个校验错误，给出可读信息
-        errors = exc.errors()
+        # ctx 内含 ValueError 等异常对象，需兜底 str 序列化，否则响应渲染 500
+        errors = json.loads(json.dumps(exc.errors(), default=str))
         first = errors[0] if errors else {}
         loc = ".".join(str(p) for p in first.get("loc", []) if p != "body")
         msg = first.get("msg", "参数校验失败")
@@ -77,7 +79,10 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=ErrorCode.BAD_REQUEST,
             content={
                 "code": ErrorCode.INVALID_PARAMS,
-                "message": f"参数错误: {loc} {msg}" if loc else f"参数错误: {msg}",
+                "message": (
+                    f"参数错误: {loc} {msg} / Invalid parameters"
+                    if loc else f"参数错误: {msg} / Invalid parameters"
+                ),
                 "data": errors,
                 "trace_id": set_trace_id_ctx(request),
                 "user_id": get_user_id_ctx(),
@@ -91,7 +96,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=ErrorCode.INTERNAL_ERROR,
             content={
                 "code": ErrorCode.INTERNAL_ERROR,
-                "message": "服务器内部错误",
+                "message": "服务器内部错误 / Internal server error",
                 "data": None,
                 "trace_id": set_trace_id_ctx(request),
                 "user_id": get_user_id_ctx(),

@@ -10,6 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
 
+# AI 对话风格枚举（PRD P1-F04）：温暖知心 / 理性分析 / 哲学思辨
+CONVERSATION_STYLES = ("warm", "rational", "philosophical")
+DEFAULT_CONVERSATION_STYLE = "warm"
+
 
 class User(Base):
     __tablename__ = "users"
@@ -32,6 +36,10 @@ class User(Base):
     special_push_month: Mapped[str | None] = mapped_column(String(7), nullable=True)
     # 对话风格（free 不可用，Pro 可切换）
     chat_style: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # AI 对话风格（PRD P1-F04）：warm 温暖知心 / rational 理性分析 / philosophical 哲学思辨
+    conversation_style: Mapped[str] = mapped_column(
+        String(20), default="warm", server_default="warm"
+    )
     # 引导流程中用户已知的 MBTI（P1-F05），用于性格画像种子
     mbti_type: Mapped[str | None] = mapped_column(String(4), nullable=True)
     # AI 数据共享同意（合规 5.1.2(i)）：未同意时 AI 对话接口返回 403 AI_CONSENT_REQUIRED

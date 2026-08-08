@@ -3,7 +3,7 @@
 
 职责：只与 mood_checkins 表交互，不含业务逻辑。
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import uuid4
 
@@ -25,14 +25,16 @@ class MoodRepository:
         mood_emoji: str,
         mood_label: str,
         ai_interpretation: str,
+        checkin_date: Optional[date] = None,
     ) -> MoodCheckin:
-        """写入一条签到记录。"""
+        """写入一条签到记录（低层写入，不锚定本地日；业务入口请用 create_once_today）。"""
         record = MoodCheckin(
             id=str(uuid4()),
             user_id=user_id,
             mood_emoji=mood_emoji,
             mood_label=mood_label,
             ai_interpretation=ai_interpretation,
+            checkin_date=checkin_date,
         )
         db.add(record)
         await db.flush()
@@ -46,14 +48,16 @@ class MoodRepository:
         mood_label: str,
         ai_interpretation: str,
         day_start: datetime,
+        checkin_date: Optional[date] = None,
     ) -> tuple[MoodCheckin, bool]:
         """写入今日签到；若今日已存在则返回已有记录（created=False）。
 
-        先查后写；并发下若撞上唯一约束（IntegrityError），回滚到 savepoint 后
-        重查并返回已存在记录，保证同一用户同一本地日不会双记。
-        注意：mood_checkins 目前无 (user_id, 本地日) 唯一约束，调用方需配合
-        用户行锁（for_update）先行串行化，本方法作为 DB 层兜底。
+        先查后写；并发下若撞上 (user_id, checkin_date) 唯一约束（IntegrityError），
+        回滚到 savepoint 后重查并返回已存在记录，保证同一用户同一本地日不会双记。
+        调用方需配合用户行锁（for_update）先行串行化，唯一约束作为 DB 层兜底防线
+        （SQLite 无行锁语义，约束由兜底分支真正兜底）。
         """
+        checkin_date = checkin_date or utc_now().date()
         existing = await self.get_today(db, user_id, day_start)
         if existing:
             return existing, False
@@ -63,6 +67,7 @@ class MoodRepository:
             mood_emoji=mood_emoji,
             mood_label=mood_label,
             ai_interpretation=ai_interpretation,
+            checkin_date=checkin_date,
         )
         db.add(record)
         try:
@@ -70,7 +75,10 @@ class MoodRepository:
                 await db.flush()
         except IntegrityError:
             # 并发双写兜底：回滚到 savepoint，重查返回已存在记录
+            # （先按时间窗查，再按本地日查——时区变更边缘下 day_start 窗口可能查不到）
             existing = await self.get_today(db, user_id, day_start)
+            if existing is None:
+                existing = await self.get_by_date(db, user_id, checkin_date)
             if existing is None:
                 raise
             return existing, False
@@ -103,6 +111,21 @@ class MoodRepository:
         result = await db.execute(
             select(MoodCheckin)
             .where(MoodCheckin.user_id == user_id, MoodCheckin.created_at >= start)
+            .order_by(MoodCheckin.created_at.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_date(
+        self, db: AsyncSession, user_id: str, checkin_date: date
+    ) -> Optional[MoodCheckin]:
+        """按用户本地日历日查询签到（唯一约束兜底分支的重查路径）。"""
+        result = await db.execute(
+            select(MoodCheckin)
+            .where(
+                MoodCheckin.user_id == user_id,
+                MoodCheckin.checkin_date == checkin_date,
+            )
             .order_by(MoodCheckin.created_at.asc())
             .limit(1)
         )

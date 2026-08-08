@@ -74,7 +74,10 @@ class ReflectionService:
 
         # 配额（B2）：反思草稿走统一池口径（仅主动消息 + 签到解读），不叠加对话轮数
         if await quota_service.is_proactive_quota_exceeded(db, user):
-            raise AppException(ErrorCode.QUOTA_EXCEEDED, "今天的次数已经用完，请明天再来")
+            raise AppException(
+                ErrorCode.QUOTA_EXCEEDED,
+                "今天的次数已经用完，请明天再来 / Daily limit reached, try again tomorrow",
+            )
 
         zh = (language or "").startswith("zh")
         today_mood = await mood_repository.get_today(

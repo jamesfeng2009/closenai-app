@@ -20,6 +20,7 @@ async def _insert_checkin_days_ago(db, user_id: str, emoji: str, days_ago: int) 
             mood_emoji=emoji,
             mood_label="label",
             ai_interpretation="interp",
+            checkin_date=day,  # 与 (user_id, checkin_date) 唯一约束的生产数据形状一致
             created_at=datetime.combine(day, dt_time(12, 0), tzinfo=timezone.utc),
         )
     )

@@ -6,7 +6,7 @@
     GET  /api/v1/mood/history  — 签到历史
     GET  /api/v1/mood/trend    — 情绪趋势
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
@@ -54,7 +54,7 @@ async def history(
 
 @router.get("/mood/trend")
 async def trend(
-    days: int = 14,
+    days: int = Query(14, ge=1, le=90),
     db: AsyncSession = Depends(get_db),
     language: str = Depends(get_request_language),
     user_id: str = Depends(get_current_user),

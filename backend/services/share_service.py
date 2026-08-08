@@ -111,11 +111,16 @@ class ShareService:
         - combo：Pro 三维度组合名片（MBTI + 星座 + 九型 + 跨框架解读），layout=combo
         """
         if variant not in CARD_VARIANTS:
-            raise AppException(ErrorCode.INVALID_PARAMS, f"无效的名片变体: {variant}")
+            raise AppException(
+                ErrorCode.INVALID_PARAMS, f"无效的名片变体: {variant} / Invalid card variant"
+            )
         user = await user_repository.require_user(db, user_id)
         # Pro 权益门（40302）
         if variant in PRO_CARD_VARIANTS and user.tier == FREE_TIER:
-            raise AppException(ErrorCode.PRO_REQUIRED, "三维度组合名片为 Pro 订阅权益")
+            raise AppException(
+                ErrorCode.PRO_REQUIRED,
+                "三维度组合名片为 Pro 订阅权益 / Combo card requires Pro subscription",
+            )
         profile = await personality_service.get_profile(db, user_id)
         tagline = await self._generate_tagline(profile, variant, language)
 
@@ -156,10 +161,15 @@ class ShareService:
         - 同周期缓存：命中 share_exports 直接返回，不重复调 LLM、不重复落库
         """
         if period not in ALLOWED_PERIODS:
-            raise AppException(ErrorCode.INVALID_PARAMS, f"无效的导出周期: {period}")
+            raise AppException(
+                ErrorCode.INVALID_PARAMS, f"无效的导出周期: {period} / Invalid export period"
+            )
         user = await user_repository.require_user(db, user_id)
         if period in PRO_PERIODS and user.tier == FREE_TIER:
-            raise AppException(ErrorCode.PRO_REQUIRED, "该周期报告为 Pro 订阅权益")
+            raise AppException(
+                ErrorCode.PRO_REQUIRED,
+                "该周期报告为 Pro 订阅权益 / This report requires Pro subscription",
+            )
 
         period_key = self._period_key(period, user.timezone)
         cached = await share_repository.get_cached(db, user_id, period, period_key)

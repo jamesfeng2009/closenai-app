@@ -123,7 +123,8 @@ class MoodService:
             record = await mood_repository.update(db, existing, emoji, label, interpretation)
         else:
             record, created = await mood_repository.create_once_today(
-                db, user_id, emoji, label, interpretation, day_start
+                db, user_id, emoji, label, interpretation, day_start,
+                checkin_date=local_today(user.timezone),
             )
             if not created:
                 # 并发兜底（SQLite 无行锁）：另一请求已先写入，更新该记录

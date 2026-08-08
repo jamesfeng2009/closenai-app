@@ -5,7 +5,7 @@ Pydantic 数据模型定义。
 所有模型使用 Pydantic v2 语法。
 """
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Optional, List, Literal, Dict
 from zoneinfo import ZoneInfo
 
@@ -13,13 +13,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.config import settings
 from backend.core.time_utils import local_today
+from backend.models.user import CONVERSATION_STYLES
 
 
 # ═══ Chat (P0-F01) ═══
 
 class ChatStreamRequest(BaseModel):
     """SSE 流式对话请求。"""
-    content: str = Field(..., description="用户输入内容")
+    content: str = Field(..., max_length=4000, description="用户输入内容")
     message_type: Literal["reply", "mood_checkin"] = Field("reply", description="消息类型")
 
 
@@ -35,7 +36,7 @@ class ChatHistoryResponse(BaseModel):
 
 class MemoryCreate(BaseModel):
     """记忆创建请求。"""
-    content: str = Field(..., description="记忆内容")
+    content: str = Field(..., max_length=4000, description="记忆内容")
     category: Literal["values", "preference", "relationship", "goal", "factual"] = Field(
         "factual", description="记忆类别"
     )
@@ -65,7 +66,7 @@ class MemoryResponse(BaseModel):
 class MemorySearchRequest(BaseModel):
     """语义搜索请求。"""
     query: str = Field(..., description="搜索查询")
-    limit: int = Field(10, description="返回结果数")
+    limit: int = Field(10, ge=1, le=100, description="返回结果数")
     include_superseded: bool = Field(False, description="是否包含已替代记忆")
 
 
@@ -83,7 +84,7 @@ class MemoryVersionRequest(BaseModel):
 class MoodCheckinRequest(BaseModel):
     """情绪签到请求。"""
     emoji: str = Field(..., description="表情符号: 😊😌😰😢😡😴")
-    note: Optional[str] = Field(None, description="可选文字备注")
+    note: Optional[str] = Field(None, max_length=1000, description="可选文字备注")
 
 
 class MoodCheckinResponse(BaseModel):
@@ -171,7 +172,7 @@ class ReflectionGenerateRequest(BaseModel):
 
 class ReflectionCreate(BaseModel):
     """保存 Reflection 请求。"""
-    content: str = Field(..., description="Reflection 内容")
+    content: str = Field(..., max_length=4000, description="Reflection 内容")
     related_memory_ids: Optional[List[str]] = Field(None, description="关联的记忆 ID 列表（来自草稿）")
 
 
@@ -281,6 +282,7 @@ class UserProfileResponse(BaseModel):
     ai_consent: bool = False  # AI 数据共享同意状态（合规 5.1.2(i)）
     streak_freeze_count: int = 0  # 剩余 Streak 冻结券（PRD P0-F05）
     push_time: Optional[str] = None  # 主动消息时间 HH:MM（None 时后端按 09:00 调度）
+    conversation_style: str = "warm"  # AI 对话风格（P1-F04）：warm | rational | philosophical
 
 
 class AIConsentUpdate(BaseModel):
@@ -298,6 +300,7 @@ class UserSettingsUpdate(BaseModel):
     push_frequency: Optional[Literal["daily", "important", "off"]] = None  # 推送频率
     push_enabled: Optional[bool] = None  # 推送总开关
     mbti_type: Optional[str] = None  # 引导流程中用户已知的 MBTI 类型（P1-F05）
+    conversation_style: Optional[str] = None  # AI 对话风格（P1-F04）：warm | rational | philosophical
     birthday: Optional[str] = None   # 生日 YYYY-MM-DD（P0-F06：推导太阳星座）
     enneagram_type: Optional[str] = None  # 九型人格编号 1-9（P0-F06：用户主动输入）
 
@@ -343,6 +346,16 @@ class UserSettingsUpdate(BaseModel):
             return v
         if v not in settings.supported_languages:
             raise ValueError(f"不支持的语言码: {v}")
+        return v
+
+    @field_validator("conversation_style")
+    @classmethod
+    def _validate_conversation_style(cls, v: Optional[str]) -> Optional[str]:
+        """校验对话风格枚举（P1-F04；非法值 400，与 language 校验同路径）。"""
+        if v is None:
+            return v
+        if v not in CONVERSATION_STYLES:
+            raise ValueError(f"不支持的对话风格: {v}")
         return v
 
     @field_validator("push_time")
@@ -422,12 +435,28 @@ _EMAIL_RE = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 _USERNAME_RE = r"^[A-Za-z0-9_.-]+$"
 
 
+def _validate_supported_language(v: str) -> str:
+    """校验语言码在支持集合内（对应错误码 INVALID_LANGUAGE 40003）。
+
+    与 UserSettingsUpdate._validate_language 共用 settings.supported_languages，
+    供注册/发码/验证码登录/Apple 登录/忘记密码等认证入口请求的 language 字段复用。
+    """
+    if v not in settings.supported_languages:
+        raise ValueError(f"不支持的语言码: {v}")
+    return v
+
+
 class RegisterRequest(BaseModel):
     """邮箱 + 用户名 + 密码注册。"""
     email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
     username: str = Field(..., min_length=3, max_length=50, pattern=_USERNAME_RE)
     password: str = Field(..., min_length=8, max_length=128)
     language: str = "en"
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: str) -> str:
+        return _validate_supported_language(v)
 
 
 class LoginRequest(BaseModel):
@@ -442,6 +471,11 @@ class SendCodeRequest(BaseModel):
     purpose: Literal["register", "login", "reset"]
     language: str = "en"
 
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: str) -> str:
+        return _validate_supported_language(v)
+
 
 class LoginCodeRequest(BaseModel):
     """邮箱验证码登录（未注册自动建账号）。"""
@@ -449,12 +483,22 @@ class LoginCodeRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=8)
     language: str = "en"
 
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: str) -> str:
+        return _validate_supported_language(v)
+
 
 class AppleLoginRequest(BaseModel):
     """Apple 登录（Sign in with Apple）。"""
     identity_token: str = Field(..., min_length=1)
     auth_code: Optional[str] = None
     language: str = "en"
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: str) -> str:
+        return _validate_supported_language(v)
 
 
 class RefreshRequest(BaseModel):
@@ -466,6 +510,11 @@ class ForgotPasswordRequest(BaseModel):
     """忘记密码（发重置验证码；防枚举，统一返回成功）。"""
     email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
     language: str = "en"
+
+    @field_validator("language")
+    @classmethod
+    def _validate_language(cls, v: str) -> str:
+        return _validate_supported_language(v)
 
 
 class ResetPasswordRequest(BaseModel):
@@ -519,4 +568,51 @@ class AnalyticsEvent(BaseModel):
 
 class AnalyticsBatchRequest(BaseModel):
     """前端本地 analytics_events 队列批量上报请求。"""
-    events: List[AnalyticsEvent]
+    events: List[AnalyticsEvent] = Field(..., max_length=100)
+
+
+# ═══ Natal Chart（本命星盘，PRD 探索 Tab 可选入口）═══
+
+class NatalChartRequest(BaseModel):
+    """本命星盘生成/更新请求。
+
+    时区由后端从 birth_place（城市）推导，用户不填时区。
+    birth_time 省略表示出生时间未知：按 12:00 计算，上升星座不可用。
+    """
+    birth_date: date = Field(..., description="出生日期（不晚于今日）")
+    birth_time: Optional[time] = Field(None, description="出生时间（可选；缺省按 12:00，上升不可用）")
+    birth_place: str = Field(..., min_length=1, max_length=100, description="出生城市")
+
+
+class NatalChartResponse(BaseModel):
+    """本命星盘响应。
+
+    sign 字段为星座 key（aries/taurus/...），展示文案由前端 i18n；
+    rising_sign 在 birth_time_unknown 时为 None。
+    """
+    id: str
+    birth_date: date
+    birth_time: Optional[time] = None
+    birth_time_unknown: bool = False
+    birth_place: str
+    timezone: str
+    tz_fallback: bool = False     # True = 城市库未命中，回退用户时区
+    sun_sign: Optional[str] = None
+    moon_sign: Optional[str] = None
+    rising_sign: Optional[str] = None
+    planets: Dict[str, str] = {}  # {"mercury": "gemini", ...}（水/金/火/木/土，纯文本数据）
+    interpretation: Optional[str] = None  # 按请求语言的 AI 解读（缓存）
+    created_at: datetime
+    updated_at: datetime
+
+
+class NatalDailyResponse(BaseModel):
+    """今日参考响应（确定性伪随机，零 LLM 成本；PRD 禁止爱情维度）。"""
+    date: str              # 用户本地日历日 YYYY-MM-DD
+    overall_score: int     # 综合 1-5
+    career_score: int      # 事业 1-5
+    wealth_score: int      # 财运 1-5
+    lucky_color: str       # 按请求语言本地化
+    lucky_number: int      # 1-9
+    lucky_time: str        # 幸运时刻（如 "09:00-11:00"）
+    comment: str           # 模板短评（按请求语言）

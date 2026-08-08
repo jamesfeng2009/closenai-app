@@ -88,6 +88,7 @@ class UserService:
             daily_quota_total=settings.free_daily_messages,
             ai_consent=user.ai_consent,
             push_time=user.push_time,
+            conversation_style=user.conversation_style,
         )
 
     async def set_ai_consent(self, db: AsyncSession, user_id: str, consent: bool) -> bool:
@@ -104,7 +105,8 @@ class UserService:
         if not user.ai_consent:
             raise AppException(
                 ErrorCode.AI_CONSENT_REQUIRED,
-                "使用 AI 功能前，请先阅读并同意 AI 数据共享说明",
+                "使用 AI 功能前，请先阅读并同意 AI 数据共享说明 / "
+                "Please review and agree to the AI data sharing notice before using AI features",
             )
 
     async def update_settings(
@@ -121,6 +123,7 @@ class UserService:
             language=settings_update.language,
             timezone=settings_update.timezone,
             chat_style=settings_update.chat_style,
+            conversation_style=settings_update.conversation_style,
             push_time=settings_update.push_time,
             push_frequency=settings_update.push_frequency,
             push_enabled=settings_update.push_enabled,
@@ -143,8 +146,15 @@ class UserService:
         """注册设备推送 Token（登录时调用）。
 
         前端传 ios/android，统一映射为推送通道 apns/fcm 存储。
+
+        竞态说明：并发注册（同一用户双端/重试同时登录）时「先查后插」存在窗口——
+        两个请求都查不到同平台记录便各自插入重复行，导致同一设备重复推送。
+        先用 require_user(for_update=True) 持用户行锁把并发串行化（与 update_streak
+        同一模式；SQLite 方言忽略 FOR UPDATE，测试单连接天然串行），后到者读到
+        前者已插入的记录走更新分支，保证 (user_id, platform) 至多一行。
+        表上不加唯一约束（避免迁移与历史脏数据冲突），行锁即为防线。
         """
-        await self._require_user(db, user_id)
+        await self._require_user(db, user_id, for_update=True)
         channel = PLATFORM_MAP.get((platform or "").lower())
         if not channel:
             return  # 未知平台不落库，避免产生永不送达的脏数据

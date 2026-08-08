@@ -1,15 +1,18 @@
-"""认证限流回归测试（S4 验证码试错 / S5 登录限流 / S6 日限固定窗口 + 枚举速率前置）。
+"""认证限流回归测试（S4 验证码试错 / S5 登录限流固定窗口 / S6 日限固定窗口 + 枚举速率前置）。
 
 覆盖：
 - _verify_code：错误码计数，达 CODE_MAX_ATTEMPTS 作废验证码（连正确码也拒绝）；
   验证成功清零试错计数
 - login_with_password：连续失败 LOGIN_MAX_FAILURES 次后锁定（429）；
-  锁定对命中账号按 user_id、未命中按 identifier；登录成功清零计数
+  锁定对命中账号按 user_id、未命中按 identifier；登录成功清零计数；
+  固定窗口语义——后续失败不续期 TTL（防持续失败造成受害者永久锁定的 DoS），
+  窗口到期自动解锁
 - send_email_code：限流前置（业务校验前），register 枚举同样受冷却/日上限约束；
   日限 key 的 TTL 对齐固定窗口边界（下一个 UTC 0 点）
 
 注：redis 未配置时走 backend.core.redis._mem_store 内存回退，每用例清空防串扰。
 """
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -143,6 +146,42 @@ async def test_login_lock_shared_across_email_and_username(db, monkeypatch):
     with pytest.raises(AppException) as exc_info:
         await auth_service.login_with_password(db, "user1", "Password1")
     assert exc_info.value.code == ErrorCode.RATE_LIMITED
+
+
+async def test_login_failure_window_ttl_not_renewed(db):
+    """固定窗口：窗口内后续失败仅自增计数，不续期 TTL（窗口锚定首次失败）。
+
+    滑动窗口下攻击者持续提交错误密码会持续续期，使受害者永远无法登录（DoS）。
+    """
+    await _make_password_user(db)
+    fail_key = auth_service._login_fail_key("user:u-user1")
+    with pytest.raises(AppException):
+        await auth_service.login_with_password(db, "u@x.com", "WrongPass1")
+    first_expire_at = redis_client._mem_store[fail_key][1]
+    with pytest.raises(AppException):
+        await auth_service.login_with_password(db, "u@x.com", "WrongPass1")
+    second_expire_at = redis_client._mem_store[fail_key][1]
+    assert second_expire_at == first_expire_at  # 不续期
+    assert redis_client._mem_store[fail_key][0] == "2"  # 计数仍自增
+
+
+async def test_login_lock_auto_unlocks_after_window_expires(db, monkeypatch):
+    """固定窗口到期自动解锁：锁定状态不随持续失败永久延续，过后可正常登录。"""
+    monkeypatch.setattr(settings, "jwt_secret", "test-secret")
+    await _make_password_user(db)
+    for _ in range(LOGIN_MAX_FAILURES):
+        with pytest.raises(AppException):
+            await auth_service.login_with_password(db, "u@x.com", "WrongPass1")
+    # 窗口内：正确密码也 429
+    with pytest.raises(AppException) as exc_info:
+        await auth_service.login_with_password(db, "u@x.com", "Password1")
+    assert exc_info.value.code == ErrorCode.RATE_LIMITED
+    # 模拟窗口 TTL 到期（回退 key 的过期时刻），此后应自动解锁
+    fail_key = auth_service._login_fail_key("user:u-user1")
+    value, _ = redis_client._mem_store[fail_key]
+    redis_client._mem_store[fail_key] = (value, time.time() - 1)
+    resp = await auth_service.login_with_password(db, "u@x.com", "Password1")
+    assert resp.access_token
 
 
 # ── S6：日限固定窗口 + 枚举速率前置 ──
