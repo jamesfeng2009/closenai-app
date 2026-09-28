@@ -17,7 +17,7 @@ import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import PersonalityScreen from './src/screens/PersonalityScreen';
 import PaywallScreen from './src/screens/PaywallScreen';
 import MemoriesScreen from './src/screens/MemoriesScreen';
-import NatalChartScreen from './src/screens/NatalChartScreen';
+import RelationshipTimelineScreen from './src/screens/RelationshipTimelineScreen';
 import ShareCardScreen from './src/screens/ShareCardScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import MessagesScreen from './src/screens/MessagesScreen';
@@ -47,7 +47,7 @@ export type RootStackParamList = {
   Personality: undefined;
   Paywall: undefined;
   Memories: undefined;
-  NatalChart: undefined;
+  RelationshipTimeline: undefined;
   ShareCard: undefined;
   Insights: undefined;
   Messages: undefined;
@@ -200,8 +200,8 @@ export default function App() {
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen
-                name="NatalChart"
-                component={NatalChartScreen}
+                name="RelationshipTimeline"
+                component={RelationshipTimelineScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen

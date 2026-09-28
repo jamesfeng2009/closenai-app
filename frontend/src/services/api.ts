@@ -14,15 +14,16 @@ import type {
   ChatStreamRequest, ChatHistoryItem, SSEEvent,
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
   GrowthDashboard, WeeklyInsight, GrowthTimeline,
+  LevelDetail, BadgeItem, RelationshipTimeline, TimelineDaySummary,
   PersonalityProfile, PersonalityRefreshResult,
   AssessmentState, AssessmentAnswerResult, ComboReport,
+  EnneagramState, EnneagramAnswerResult,
   UserProfile, UserSettings,
   DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
   SubscriptionStatus, ReceiptVerifyResult,
   ReflectionDraft, ReflectionItem,
   Memory,
-  NatalChart, NatalChartInput, NatalChartDaily,
   AuthResponse, AuthUser, CodePurpose,
 } from '../types';
 
@@ -404,6 +405,28 @@ export async function getTimeline(days: number = 365): Promise<GrowthTimeline> {
   return request<GrowthTimeline>(`/growth/timeline?days=${days}`);
 }
 
+// ═══ Relationship (P0-F04：关系等级 / 徽章 / 时间线) ═══
+
+/** 关系等级详情：当前等级 + 全部等级/解锁能力表 + 说明（名称无恋爱含义）。 */
+export async function getLevelDetail(): Promise<LevelDetail> {
+  return request<LevelDetail>('/growth/level');
+}
+
+/** 徽章列表（streak 7/30/100/365 四枚，含未解锁占位，名称按 X-Language 本地化）。 */
+export async function getBadges(): Promise<{ badges: BadgeItem[]; total: number }> {
+  return request<{ badges: BadgeItem[]; total: number }>('/growth/badges');
+}
+
+/** 关系时间线：认识天数/聊天数/事件数 + 倒序事件流（里程碑徽章 + 成长记录）。 */
+export async function getRelationshipTimeline(): Promise<RelationshipTimeline> {
+  return request<RelationshipTimeline>('/growth/relationship-timeline');
+}
+
+/** 单日摘要卡片：情绪 + 当日洞察 + 消息数 + 当日徽章（GET 只读）。 */
+export async function getTimelineDay(day: string): Promise<TimelineDaySummary> {
+  return request<TimelineDaySummary>(`/growth/timeline/day?day=${day}`);
+}
+
 // ═══ Reflection (P0-F04) ═══
 
 export async function generateReflectionDraft(context?: string): Promise<ReflectionDraft> {
@@ -460,6 +483,28 @@ export async function answerAssessment(
 /** 生成 Pro 组合报告（16 型人格 × 星座 × 九型交叉解读；每月 1 份缓存）。 */
 export async function generateComboReport(): Promise<ComboReport> {
   return request<ComboReport>('/personality/combo-report', { method: 'POST' });
+}
+
+// ── 九型人格渐进式评估（PRD P1-F03：36 题，可跨会话断点续答）──
+
+/** 查询九型评估状态（not_started / in_progress + 下一题 / completed + 结果）。 */
+export async function getEnneagram(): Promise<EnneagramState> {
+  return request<EnneagramState>('/personality/enneagram');
+}
+
+/** 开始/续答 36 题九型评估，返回当前题。 */
+export async function startEnneagram(): Promise<EnneagramState> {
+  return request<EnneagramState>('/personality/enneagram/start', { method: 'POST' });
+}
+
+/** 提交九型当前题答案（复用 AssessmentAnswerRequest：option 或 answer 二选一）。 */
+export async function answerEnneagram(
+  payload: { option: 'a' | 'b' | 'neutral' } | { answer: string },
+): Promise<EnneagramAnswerResult> {
+  return request<EnneagramAnswerResult>('/personality/enneagram/answer', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 // ═══ User (P0-F04) ═══
@@ -539,26 +584,6 @@ export async function getShareReport(period: SharePeriod): Promise<ShareReport> 
 /** 跨维度模式发现（LLM 实时生成，点击触发，勿自动轮询）。 */
 export async function getPatternDiscovery(): Promise<PatternDiscovery> {
   return request<PatternDiscovery>('/growth/patterns');
-}
-
-// ═══ Natal Chart (P0 本命星盘) ═══
-
-/** 创建/重算本命星盘（解读语言由 X-Language 请求头透传）。 */
-export async function createNatalChart(input: NatalChartInput): Promise<NatalChart> {
-  return request<NatalChart>('/natal-chart', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-}
-
-/** 读取本命星盘；未创建时后端返回 data=null。 */
-export async function getNatalChart(): Promise<NatalChart | null> {
-  return request<NatalChart | null>('/natal-chart');
-}
-
-/** 今日参考（综合/事业/财运 + 幸运项）；无星盘时返回 null。 */
-export async function getNatalChartDaily(): Promise<NatalChartDaily | null> {
-  return request<NatalChartDaily | null>('/natal-chart/daily');
 }
 
 // ═══ Analytics (分析事件队列批量上送) ═══

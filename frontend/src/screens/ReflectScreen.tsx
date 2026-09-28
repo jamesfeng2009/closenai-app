@@ -334,7 +334,13 @@ export default function ReflectScreen() {
             <Text style={styles.streakIcon}>🔥</Text>
             <Text style={styles.streakText}>{streak}</Text>
           </View>
-          {!!levelLabel && <Text style={styles.levelBadge}>✨ {levelLabel}</Text>}
+          {!!levelLabel && (
+            <TouchableOpacity
+              onPress={() => { if (requireAuth()) navigation.navigate('RelationshipTimeline'); }}
+            >
+              <Text style={styles.levelBadge}>✨ {levelLabel}</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <Text style={styles.headerTitle}>ClosenAI</Text>
         <View style={styles.headerRight}>

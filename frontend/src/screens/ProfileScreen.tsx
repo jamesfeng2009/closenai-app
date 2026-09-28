@@ -26,12 +26,14 @@ import {
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import AIConsentModal from '../components/AIConsentModal';
 import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n';
-import type { ConversationStyle, UserProfile } from '../types';
+import type { ConversationStyle, PrimaryFramework, UserProfile } from '../types';
 
 // 主动消息时间：00:00–23:00 整点（不引入 datetimepicker 依赖）
 const PUSH_HOURS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
 // 对话风格三枚举（与后端 CONVERSATION_STYLES 一致，展示顺序即默认排序）
 const CONVERSATION_STYLES: ConversationStyle[] = ['warm', 'rational', 'philosophical'];
+// 主要性格框架三枚举（P0-F05：画像页与解读以所选框架为主）
+const PRIMARY_FRAMEWORKS: PrimaryFramework[] = ['mbti', 'enneagram', 'astrology'];
 
 export default function ProfileScreen({ navigation }: { navigation: any }) {
   const { t, i18n } = useTranslation();
@@ -46,6 +48,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
   const [usernameVisible, setUsernameVisible] = useState(false);
   const [timeVisible, setTimeVisible] = useState(false);
   const [styleVisible, setStyleVisible] = useState(false);
+  const [frameworkVisible, setFrameworkVisible] = useState(false);
 
   // Tab 常驻不卸载：每次聚焦都刷新（仅登录态；游客跳过请求避免 401 噪声）
   useFocusEffect(
@@ -111,6 +114,19 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
       const updated = await updateUserSettings({ conversation_style: style });
       setProfile(updated);
       setStyleVisible(false);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    }
+  };
+
+  // 主要框架：三枚举选择 → PATCH /user/settings → 本地合并所选值刷新展示
+  // （后端 UserSettingsUpdate 暂未持久化 primary_framework，响应不回显，本地先行）
+  const onSelectFramework = async (framework: PrimaryFramework) => {
+    try {
+      const updated = await updateUserSettings({ primary_framework: framework });
+      setProfile({ ...updated, primary_framework: framework });
+      setFrameworkVisible(false);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), msg);
@@ -215,6 +231,17 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={styles.settingLabel}>{t('profile.chatStyle')}</Text>
           <Text style={styles.settingValueSmall}>
             {t(`profile.style.${profile?.conversation_style || 'warm'}`)}
+          </Text>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={() => { if (requireAuth()) setFrameworkVisible(true); }}
+        >
+          <Text style={styles.settingIcon}>🧭</Text>
+          <Text style={styles.settingLabel}>{t('profile.framework')}</Text>
+          <Text style={styles.settingValueSmall}>
+            {t(`profile.frameworkOption.${profile?.primary_framework || 'mbti'}`)}
           </Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
@@ -452,6 +479,36 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
               );
             })}
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setStyleVisible(false)}>
+              <Text style={styles.cancelText}>{t('common.done')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 主要框架选择（mbti / enneagram / astrology） */}
+      <Modal
+        visible={frameworkVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFrameworkVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('profile.framework')}</Text>
+            {PRIMARY_FRAMEWORKS.map((f) => {
+              const active = f === (profile?.primary_framework || 'mbti');
+              return (
+                <TouchableOpacity
+                  key={f}
+                  style={[styles.langRow, active && styles.langRowActive]}
+                  onPress={() => onSelectFramework(f)}
+                >
+                  <Text style={styles.langName}>{t(`profile.frameworkOption.${f}`)}</Text>
+                  {active && <Text style={styles.langCheck}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setFrameworkVisible(false)}>
               <Text style={styles.cancelText}>{t('common.done')}</Text>
             </TouchableOpacity>
           </View>

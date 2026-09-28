@@ -4,7 +4,7 @@
  * 按 UI 原型 screen-explore 实现：
  * - 性格画像卡片（主体 70%）
  * - 冷启动进度条（新用户 Day 1-6）
- * - 更多探索（本命星盘、性格名片）
+ * - 更多探索（性格名片）
  */
 import React, { useState } from 'react';
 import {
@@ -87,12 +87,6 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
     }
   };
 
-  // 本命星盘入口：游客拦截 → 跳登录；已登录进详情页（视觉层级保持次要卡片）
-  const onNatalPress = () => {
-    if (!requireAuth()) return;
-    navigation.navigate('NatalChart');
-  };
-
   // MBTI 名称按类型查 i18n 表（不依赖后端中文 label，多语言安全）
   const mbtiLabel = profile?.mbti_type ? t(`mbti.${profile.mbti_type}`) : null;
 
@@ -159,14 +153,6 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
       <View style={styles.moreSection}>
         <Text style={styles.sectionTitle}>{t('explore.moreTitle')}</Text>
         <View style={styles.exploreGrid}>
-          <TouchableOpacity
-            style={styles.exploreTile}
-            onPress={onNatalPress}
-          >
-            <Text style={styles.tileIcon}>⭐</Text>
-            <Text style={styles.tileName}>{t('explore.natal')}</Text>
-            <Text style={styles.tileDesc}>{t('explore.natalDesc')}</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.exploreTile}
             onPress={() => navigation.navigate('ShareCard')}

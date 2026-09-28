@@ -3,7 +3,7 @@
  *
  * 独立报告页（非对话流）：
  * - 每周洞察（Insight Level L1-L4 自动晋升标识，cron 生成只读）
- * - 今日发现（Personal Dataset 数据对比洞察）
+ * - AI 消息历史入口（P0-F10：每日发现已融入 AI 主动消息，跳消息中心查看）
  * - 模式发现（跨维度关联，LLM 实时生成，点击触发）
  * - 周期报告（周报免费；月/季/年报 Pro，走后端同周期缓存）
  * - 年度热力图（365 天情绪值）
@@ -14,13 +14,12 @@ import {
 } from 'react-native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import {
-  getWeeklyInsight, getDailyDiscovery, getPatternDiscovery, getShareReport, getTimeline,
+  getWeeklyInsight, getPatternDiscovery, getShareReport, getTimeline,
   getUserProfile, ApiError,
 } from '../services/api';
 import type {
-  DailyDiscovery, GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
+  GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
-import { dailyDiscoveryRepo } from '../services/db/dailyDiscoveryRepository';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 
@@ -40,19 +39,10 @@ const HEAT_COLORS: Record<number, string> = {
   5: '#66BB6A',
 };
 
-/** 本地时区日期 YYYY-MM-DD（toISOString 是 UTC 日期，UTC+8 用户 0-8 点会读错一天）。 */
-function localDateKey(d: Date = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 export default function InsightsScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const { isLoggedIn } = useAuth();
   const [weekly, setWeekly] = useState<WeeklyInsight | null>(null);
-  const [discovery, setDiscovery] = useState<DailyDiscovery | null>(null);
   const [timeline, setTimeline] = useState<GrowthTimeline | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,8 +52,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [reportPeriod, setReportPeriod] = useState<SharePeriod | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
-  // 首屏并行加载 4 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
-  // 游客态跳过请求（4 个接口均需登录，游客必 401），展示空态
+  // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
+  // 游客态跳过请求（接口均需登录，游客必 401），展示空态
   useEffect(() => {
     if (!isLoggedIn) {
       setLoading(false);
@@ -72,36 +62,12 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     (async () => {
       try {
         setLoading(true);
-        // 首屏秒开：先读本地每日发现缓存（Tier 2 展示缓存，按本地时区日期取）
-        const cachedDiscovery = await dailyDiscoveryRepo
-          .getByDate(localDateKey())
-          .catch(() => null);
-        if (cachedDiscovery) {
-          try {
-            setDiscovery(JSON.parse(cachedDiscovery.content) as DailyDiscovery);
-          } catch {
-            // 缓存损坏则忽略，交由远端刷新
-          }
-        }
-        const [w, d, tl, p] = await Promise.all([
+        const [w, tl, p] = await Promise.all([
           getWeeklyInsight().catch(() => null),
-          getDailyDiscovery().catch(() => null),
           getTimeline(365).catch(() => null),
           getUserProfile().catch(() => null),
         ]);
         setWeekly(w);
-        if (d) {
-          setDiscovery(d);
-          // 缓存每日发现（Tier 2 只读缓存，远端为准；date 用本地时区）
-          dailyDiscoveryRepo
-            .cache({
-              id: `discovery-${localDateKey()}`,
-              date: localDateKey(),
-              content: JSON.stringify(d),
-              created_at: new Date().toISOString(),
-            })
-            .catch(() => {});
-        }
         setTimeline(tl);
         setProfile(p);
       } finally {
@@ -206,13 +172,20 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         )}
       </View>
 
-      {/* 今日发现（P0-F10） */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>✨ {t('insights.dailyTitle')}</Text>
-        <Text style={discovery?.has_discovery && discovery.content ? styles.bodyText : styles.emptyText}>
-          {discovery?.has_discovery && discovery.content ? discovery.content : t('insights.dailyEmpty')}
-        </Text>
-      </View>
+      {/* AI 消息历史入口（P0-F10：每日发现融入主动消息，历史消息在消息中心查看） */}
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => navigation.navigate('Messages')}
+        activeOpacity={0.7}
+      >
+        <View style={styles.entryRow}>
+          <View style={styles.entryBody}>
+            <Text style={styles.cardTitle}>🔔 {t('insights.messagesTitle')}</Text>
+            <Text style={styles.emptyText}>{t('insights.messagesDesc')}</Text>
+          </View>
+          <Text style={styles.entryChevron}>›</Text>
+        </View>
+      </TouchableOpacity>
 
       {/* 模式发现（点击触发，LLM 成本） */}
       <View style={styles.card}>
@@ -310,6 +283,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(192,132,252,0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
   },
   metaText: { fontSize: FontSize.sm, color: Colors.textTertiary, marginBottom: Spacing.xs },
+  entryRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  entryBody: { flex: 1 },
+  entryChevron: { fontSize: FontSize.h3, color: Colors.textTertiary },
   bodyText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.6, marginTop: 4 },
   emptyText: { fontSize: FontSize.md, color: Colors.textTertiary, lineHeight: 1.6 },
   actionBtn: {

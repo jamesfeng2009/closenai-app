@@ -138,8 +138,11 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         <Text style={styles.greeting}>{dashboard?.greeting || t('home.greeting')}</Text>
       </View>
 
-      {/* Streak + 等级 */}
-      <TouchableOpacity style={styles.streakBar}>
+      {/* Streak + 等级（关系进度入口：点击进关系时间线 P0-F04，游客守卫） */}
+      <TouchableOpacity
+        style={styles.streakBar}
+        onPress={() => { if (requireAuth()) navigation.navigate('RelationshipTimeline'); }}
+      >
         <View style={styles.streakItem}>
           <Text style={styles.streakIcon}>🔥</Text>
           <Text style={styles.streakNum}>{dashboard?.streak_count || 0}</Text>

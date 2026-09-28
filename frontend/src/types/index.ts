@@ -120,6 +120,68 @@ export interface GrowthTimeline {
   days: GrowthTimelineDay[];
 }
 
+// ═══ Relationship (P0-F04：关系等级 / 徽章 / 时间线) ═══
+
+/** 等级信息（/growth/level.current 与 relationship-timeline.level 共用）。 */
+export interface RelationshipLevelInfo {
+  level: number; // 1-4
+  label: string; // 后端本地化等级名（如 熟悉 L2 / Familiar L2）
+  progress: number; // 0-1，到下一级进度
+  active_days: number;
+  next_threshold: number | null;
+  days_to_next: number;
+  unlocks: string[]; // 后端本地化解锁能力列表
+}
+
+export interface LevelDetail {
+  current: RelationshipLevelInfo;
+  levels: Array<{
+    level: number;
+    label: string;
+    threshold: number;
+    unlocks: string[];
+    reached: boolean;
+  }>;
+  note: string; // 等级说明（名称无恋爱含义）
+}
+
+export interface BadgeItem {
+  milestone_type: string; // streak_7 | streak_30 | streak_100 | streak_365
+  days: number;
+  name: string; // 后端本地化徽章名
+  achieved: boolean;
+  achieved_at: string | null;
+}
+
+export interface RelationshipTimelineEvent {
+  type: 'milestone' | 'record';
+  milestone_type?: string;
+  record_type?: string;
+  title: string; // 后端本地化标题
+  content?: string;
+  tags?: string[];
+  date: string; // YYYY-MM-DD（用户本地日历日）
+  created_at: string | null;
+}
+
+export interface RelationshipTimeline {
+  days_known: number;
+  chat_count: number;
+  event_count: number;
+  level: RelationshipLevelInfo;
+  events: RelationshipTimelineEvent[];
+}
+
+export interface TimelineDaySummary {
+  date: string;
+  has_data: boolean;
+  mood: { emoji: string; label: string; value: number; interpretation: string | null } | null;
+  color: string; // 情绪色块 hex
+  chat_count: number;
+  records: Array<{ record_type: string; content: string; tags: string[] }>;
+  milestones: Array<{ date: string; milestone_type: string; name: string }>;
+}
+
 // ═══ Reflection (P0-F04) ═══
 
 export interface ReflectionDraft {
@@ -136,6 +198,9 @@ export interface ReflectionItem {
 
 // ═══ Personality ═══
 
+/** 主要性格框架（P0-F05：画像页与解读以所选框架为主）。 */
+export type PrimaryFramework = 'mbti' | 'enneagram' | 'astrology';
+
 export interface PersonalityProfile {
   id: string;
   mbti_type: string | null;
@@ -149,6 +214,12 @@ export interface PersonalityProfile {
   zodiac: string | null;           // 太阳星座 key（aries 等，前端按 i18n 翻译）
   enneagram_type: string | null;   // 九型人格编号（1-9）
   created_at: string;
+  // ── 对话式发现（P0-F05）渐进字段：后端逐步补齐，前端缺省降级到 cold_start_* ──
+  stage?: string | null;                    // 阶段 key（icebreaking/observing/exploring/revealing/applying）
+  signals_count?: number | null;            // 已采集的性格信号数
+  estimated_completion_days?: number | null; // 预计画像完成所需天数
+  dimension_signals?: Record<string, number> | null; // EI/SN/TF/JP 各维度倾向强度 0-1（0.5 为均衡）
+  primary_framework?: PrimaryFramework | null;       // 用户选择的主要框架
 }
 
 export interface PersonalityRefreshResult {
@@ -190,6 +261,37 @@ export interface ComboReport {
   enneagram_type: string | null;
 }
 
+// ── 九型人格渐进式评估（PRD P1-F03：36 题，可跨会话断点续答）──
+
+export interface EnneagramQuestion {
+  index: number;               // 0 起
+  total: number;               // 总题数（36）
+  text: string;
+  options: Record<string, string>; // { a, b, neutral }，按用户语言下发
+}
+
+export interface EnneagramResult {
+  enneagram_type: string;      // 1-9
+  type_label: string;          // 按用户语言的类型名
+  combo_name: string | null;   // MBTI×九型组合名（命中关联表时）
+  combo_mbti: string | null;   // 组合对应的 16 型类型
+}
+
+export interface EnneagramState {
+  status: 'not_started' | 'in_progress' | 'completed';
+  current_index: number;       // 下一题下标（= 已答题数）
+  total: number;
+  question: EnneagramQuestion | null;
+  result: EnneagramResult | null;
+}
+
+export interface EnneagramAnswerResult {
+  completed: boolean;
+  next_question: EnneagramQuestion | null;
+  result: EnneagramResult | null; // 完成时返回
+  message: string;
+}
+
 // ═══ User ═══
 
 export type UserTier = 'free' | 'pro' | 'pro_plus';
@@ -212,6 +314,7 @@ export interface UserProfile {
   ai_consent: boolean;
   push_time?: string | null;
   conversation_style?: ConversationStyle | null;
+  primary_framework?: PrimaryFramework | null; // 主要性格框架（P0-F05）
 }
 
 export interface UserSettings {
@@ -224,6 +327,7 @@ export interface UserSettings {
   push_enabled?: boolean;
   mbti_type?: string;
   conversation_style?: ConversationStyle;
+  primary_framework?: PrimaryFramework;
 }
 
 // ═══ Discovery ═══
@@ -313,42 +417,6 @@ export interface AuthResponse {
   access_token: string;
   refresh_token: string;
   user: AuthUser;
-}
-
-// ═══ Natal Chart (P0 本命星盘) ═══
-
-export type ZodiacSign =
-  | 'aries' | 'taurus' | 'gemini' | 'cancer' | 'leo' | 'virgo'
-  | 'libra' | 'scorpio' | 'sagittarius' | 'capricorn' | 'aquarius' | 'pisces';
-
-export type NatalPlanet = 'mercury' | 'venus' | 'mars' | 'jupiter' | 'saturn';
-
-export interface NatalChart {
-  sun_sign: ZodiacSign;
-  moon_sign: ZodiacSign;
-  rising_sign: ZodiacSign | null; // 出生时间未知时为 null
-  timezone: string;
-  tz_fallback: boolean; // true = 出生地点未识别，按当前时区计算
-  planets: Record<NatalPlanet, ZodiacSign>;
-  interpretation: string; // AI 解读（按请求语言生成）
-  birth_time_unknown: boolean;
-}
-
-export interface NatalChartInput {
-  birth_date: string; // YYYY-MM-DD
-  birth_time?: string; // HH:MM，缺省表示出生时间未知
-  birth_place: string;
-}
-
-export interface NatalChartDaily {
-  date: string;
-  overall_score: number; // 1-5
-  career_score: number;
-  wealth_score: number;
-  lucky_color: string;
-  lucky_number: number;
-  lucky_time: string;
-  comment: string;
 }
 
 // ═══ Navigation ═══
