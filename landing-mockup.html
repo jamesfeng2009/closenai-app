@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClosenAI — 记录你的信念如何演变 | 个人成长平台</title>
+<meta name="description" content="记录反思、追踪成长维度变化、识别信念演变——ClosenAI 是陪伴你长期成长的个人成长平台。" />
+<style>
+  :root {
+    /* 严格沿用 frontend/src/theme/colors.ts 设计 token */
+    --gold400: #FFD700;
+    --gold500: #D4AF37;
+    --gold600: #B8960C;
+    --accent500: #6366F1;
+    --accent600: #4F46E5;
+    --accent800: #1E1B48;
+    --neonPink: #E879F9;
+    --neonPurple: #C084FC;
+    --neonDeep: #7C3AED;
+    --bgPrimary: #050508;
+    --bgSecondary: #0D0D12;
+    --bgTertiary: #16161D;
+    --bgCard: #1E1B48;
+    --bgElevated: #1F0F22;
+    --textPrimary: #FFFFFF;
+    --textSecondary: #A1A1AA;
+    --textTertiary: #71717A;
+    --textGold: #FFD700;
+    --textMuted: #4A4A5A;
+    --borderGold: rgba(255, 215, 0, 0.1);
+    --borderGoldStrong: rgba(255, 215, 0, 0.3);
+    --borderLight: rgba(255, 255, 255, 0.1);
+    --gradCta: linear-gradient(135deg, #8B05CF 0%, #8B5CF6 50%, #EC4899 100%);
+    --gradCosmic: linear-gradient(180deg, #050508 0%, #1E1B48 50%, #050508 100%);
+    --gradGoldText: linear-gradient(135deg, #FFE566 0%, #FFD700 50%, #B8860B 100%);
+    --shadowGold: 0 0 40px rgba(255, 215, 0, 0.25);
+    --shadowCard: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --radius: 14px;
+    --radius-lg: 20px;
+    --radius-pill: 999px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bgPrimary);
+    color: var(--textPrimary);
+    line-height: 1.6;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { max-width: 100%; display: block; }
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* ===== Nav ===== */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    padding: 18px 0;
+    background: transparent;
+    transition: all 0.3s ease;
+    border-bottom: 1px solid transparent;
+  }
+  nav.scrolled {
+    background: rgba(5, 5, 8, 0.85);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--borderGold);
+    padding: 14px 0;
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; }
+  .logo {
+    font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+    background: var(--gradGoldText);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .nav-links { display: flex; gap: 36px; list-style: none; }
+  .nav-links a {
+    color: var(--textSecondary); font-size: 15px; font-weight: 500;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--textGold); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px 26px; border-radius: var(--radius-pill); border: none;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    font-family: inherit;
+  }
+  .btn-cta {
+    background: var(--gradCta); color: #fff;
+    box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+  }
+  .btn-cta:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(139, 92, 246, 0.6); }
+  .btn-ghost {
+    background: rgba(255,255,255,0.04); color: var(--textPrimary);
+    border: 1px solid var(--borderLight);
+  }
+  .btn-ghost:hover { border-color: var(--borderGoldStrong); background: rgba(255,215,0,0.06); }
+  .btn-comingsoon {
+    background: rgba(255,215,0,0.08); color: var(--textGold);
+    border: 1px solid var(--borderGoldStrong);
+    cursor: default;
+  }
+  .btn-comingsoon:disabled {
+    opacity: 0.85;
+    cursor: not-allowed;
+  }
+  .coming-soon-badge {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: rgba(255,215,0,0.06); border: 1px solid var(--borderGoldStrong);
+    border-radius: 12px; padding: 10px 18px;
+    box-shadow: 0 0 24px rgba(255,215,0,0.08);
+  }
+  .coming-soon-badge .cs-icon { font-size: 24px; line-height: 1; }
+  .coming-soon-badge .cs-label {
+    display: block; font-size: 16px; font-weight: 700; color: var(--textGold);
+    letter-spacing: 0.3px;
+  }
+  .coming-soon-badge .cs-sub {
+    display: block; font-size: 11px; color: var(--textSecondary); margin-top: 1px;
+  }
+
+  /* ===== Hero ===== */
+  .hero {
+    position: relative; padding: 160px 0 100px;
+    background: var(--gradCosmic);
+    overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; top: -10%; right: -5%;
+    width: 700px; height: 700px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,215,0,0.12) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .hero::after {
+    content: ''; position: absolute; bottom: -20%; left: -10%;
+    width: 600px; height: 600px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .hero-grid {
+    position: relative; z-index: 1;
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 60px; align-items: center;
+  }
+  .hero-tag {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: var(--radius-pill);
+    background: rgba(255,215,0,0.08); border: 1px solid var(--borderGoldStrong);
+    color: var(--textGold); font-size: 13px; font-weight: 600; margin-bottom: 24px;
+  }
+  .hero-tag .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold400); box-shadow: 0 0 8px var(--gold400); }
+  .hero h1 {
+    font-size: 64px; line-height: 1.08; font-weight: 800; letter-spacing: -1.5px;
+    margin-bottom: 24px;
+  }
+  .hero h1 .hl {
+    background: var(--gradGoldText);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero p.sub {
+    font-size: 19px; color: var(--textSecondary); max-width: 520px; margin-bottom: 36px;
+  }
+  .hero-cta { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .appstore-badge {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: #fff; color: #000; padding: 10px 18px; border-radius: 12px;
+    font-weight: 600; transition: transform 0.2s;
+  }
+  .appstore-badge:hover { transform: translateY(-2px); }
+  .appstore-badge .logo-svg { width: 28px; height: 28px; }
+  .appstore-badge .small { font-size: 10px; line-height: 1.2; opacity: 0.7; display: block; }
+  .appstore-badge .big { font-size: 16px; line-height: 1.2; }
+
+  .hero-visual { position: relative; }
+  .hero-phone {
+    border-radius: 32px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6), 0 0 60px rgba(255,215,0,0.15);
+    border: 1px solid var(--borderGoldStrong);
+    aspect-ratio: 4/3;
+  }
+  .hero-phone img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* ===== Positioning strip ===== */
+  .strip {
+    background: var(--bgSecondary);
+    border-top: 1px solid var(--borderGold);
+    border-bottom: 1px solid var(--borderGold);
+    padding: 28px 0;
+    text-align: center;
+  }
+  .strip p {
+    font-size: 20px; font-weight: 600; max-width: 900px; margin: 0 auto;
+  }
+  .strip .em {
+    background: var(--gradGoldText);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* ===== Section common ===== */
+  section.block { padding: 100px 0; }
+  .section-head { text-align: center; max-width: 720px; margin: 0 auto 60px; }
+  .section-eyebrow {
+    color: var(--textGold); font-size: 13px; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 14px;
+  }
+  .section-head h2 { font-size: 42px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; margin-bottom: 16px; }
+  .section-head p { font-size: 17px; color: var(--textSecondary); }
+
+  /* ===== Features ===== */
+  .features-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+  .feature-card {
+    background: linear-gradient(180deg, var(--bgTertiary), var(--bgSecondary));
+    border: 1px solid var(--borderLight);
+    border-radius: var(--radius-lg); padding: 36px;
+    transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+  }
+  .feature-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--borderGoldStrong);
+    box-shadow: var(--shadowCard), 0 0 30px rgba(255,215,0,0.08);
+  }
+  .feature-icon {
+    width: 56px; height: 56px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,215,0,0.08); border: 1px solid var(--borderGold);
+    margin-bottom: 22px; font-size: 26px;
+  }
+  .feature-card h3 { font-size: 22px; font-weight: 700; margin-bottom: 10px; }
+  .feature-card p { color: var(--textSecondary); font-size: 15.5px; }
+
+  /* ===== How it works ===== */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; position: relative; }
+  .steps::before {
+    content: ''; position: absolute; top: 32px; left: 16%; right: 16%; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold500), var(--neonDeep), transparent);
+  }
+  .step { text-align: center; position: relative; }
+  .step-num {
+    width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 22px;
+    background: var(--gradCta); display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 800; color: #fff;
+    box-shadow: 0 0 30px rgba(139,92,246,0.4); position: relative; z-index: 1;
+    border: 3px solid var(--bgPrimary);
+  }
+  .step h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+  .step p { color: var(--textSecondary); font-size: 15px; }
+
+  /* ===== Showcase ===== */
+  .showcase { background: var(--bgSecondary); }
+  .showcase-frame {
+    border-radius: var(--radius-lg); overflow: hidden;
+    border: 1px solid var(--borderGold);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5), 0 0 80px rgba(99,102,241,0.15);
+    aspect-ratio: 16/9;
+  }
+  .showcase-frame img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* ===== Personas ===== */
+  .personas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .persona-card {
+    background: var(--bgTertiary); border: 1px solid var(--borderLight);
+    border-radius: var(--radius-lg); padding: 32px; text-align: center;
+    transition: border-color 0.25s, transform 0.25s;
+  }
+  .persona-card:hover { border-color: var(--borderGoldStrong); transform: translateY(-3px); }
+  .persona-avatar {
+    width: 72px; height: 72px; border-radius: 50%; margin: 0 auto 20px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; font-weight: 800; color: #fff;
+  }
+  .persona-card h3 { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+  .persona-card p { color: var(--textSecondary); font-size: 14.5px; }
+
+  /* ===== Pricing ===== */
+  .pricing { background: var(--gradCosmic); }
+  .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; align-items: stretch; }
+  .price-card {
+    background: var(--bgTertiary); border: 1px solid var(--borderLight);
+    border-radius: var(--radius-lg); padding: 36px 32px;
+    display: flex; flex-direction: column; position: relative;
+    transition: transform 0.25s;
+  }
+  .price-card.featured {
+    border-color: var(--borderGoldStrong);
+    background: linear-gradient(180deg, rgba(255,215,0,0.06), var(--bgTertiary));
+    box-shadow: 0 0 50px rgba(255,215,0,0.1);
+    transform: scale(1.03);
+  }
+  .price-card.featured:hover { transform: scale(1.03) translateY(-4px); }
+  .price-card:hover { transform: translateY(-4px); }
+  .price-badge {
+    position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    background: var(--gradCta); color: #fff; font-size: 12px; font-weight: 700;
+    padding: 5px 16px; border-radius: var(--radius-pill);
+    box-shadow: 0 4px 14px rgba(139,92,246,0.4);
+  }
+  .price-tier { font-size: 15px; color: var(--textSecondary); font-weight: 600; margin-bottom: 12px; letter-spacing: 1px; text-transform: uppercase; }
+  .price-amount { font-size: 44px; font-weight: 800; margin-bottom: 4px; }
+  .price-amount .per { font-size: 16px; color: var(--textTertiary); font-weight: 500; }
+  .price-yearly { font-size: 13px; color: var(--textGold); margin-bottom: 24px; }
+  .price-features { list-style: none; margin-bottom: 28px; flex: 1; }
+  .price-features li {
+    padding: 10px 0; color: var(--textSecondary); font-size: 14.5px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .price-features li::before { content: '✓'; color: var(--gold400); font-weight: 700; }
+  .price-features li.muted { opacity: 0.4; }
+  .price-features li.muted::before { content: '—'; color: var(--textTertiary); }
+  .price-card .btn { width: 100%; }
+
+  /* ===== FAQ ===== */
+  .faq-list { max-width: 760px; margin: 0 auto; }
+  .faq-item {
+    border: 1px solid var(--borderLight); border-radius: var(--radius);
+    margin-bottom: 14px; overflow: hidden; background: var(--bgTertiary);
+    transition: border-color 0.2s;
+  }
+  .faq-item.open { border-color: var(--borderGoldStrong); }
+  .faq-q {
+    padding: 20px 24px; cursor: pointer; display: flex; justify-content: space-between;
+    align-items: center; font-weight: 600; font-size: 16px;
+  }
+  .faq-q .chev { color: var(--textGold); transition: transform 0.25s; font-size: 20px; }
+  .faq-item.open .chev { transform: rotate(45deg); }
+  .faq-a {
+    max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+    color: var(--textSecondary); font-size: 15px;
+  }
+  .faq-a-inner { padding: 0 24px 22px; }
+
+  /* ===== Final CTA ===== */
+  .final-cta { text-align: center; padding: 110px 0; position: relative; overflow: hidden; }
+  .final-cta::before {
+    content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 800px; height: 800px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(139,92,246,0.18) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .final-cta-inner { position: relative; z-index: 1; }
+  .final-cta h2 { font-size: 44px; font-weight: 800; letter-spacing: -1px; margin-bottom: 18px; }
+  .final-cta p { color: var(--textSecondary); font-size: 18px; margin-bottom: 32px; }
+
+  footer { background: var(--bgSecondary); border-top: 1px solid var(--borderLight); padding: 60px 0 30px; }
+  .footer-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 40px; margin-bottom: 40px; }
+  .footer-brand .logo { font-size: 24px; }
+  .footer-brand p { color: var(--textTertiary); font-size: 14px; margin-top: 12px; max-width: 260px; }
+  .footer-col h4 { font-size: 13px; color: var(--textGold); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+  .footer-col ul { list-style: none; }
+  .footer-col li { margin-bottom: 10px; }
+  .footer-col a { color: var(--textSecondary); font-size: 14.5px; transition: color 0.2s; }
+  .footer-col a:hover { color: var(--textGold); }
+  .footer-bottom {
+    border-top: 1px solid var(--borderLight); padding-top: 24px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+  }
+  .footer-bottom p { color: var(--textTertiary); font-size: 13px; }
+  .lang-switch { display: flex; gap: 8px; flex-wrap: wrap; max-width: 460px; justify-content: flex-end; }
+  .lang-switch span {
+    padding: 4px 10px; border-radius: var(--radius-pill); font-size: 12px;
+    color: var(--textTertiary); cursor: pointer; border: 1px solid transparent;
+  }
+  .lang-switch span.active { color: var(--textGold); border-color: var(--borderGoldStrong); background: rgba(255,215,0,0.06); }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+    .hero h1 { font-size: 44px; }
+    .features-grid, .steps, .personas, .pricing-grid { grid-template-columns: 1fr; }
+    .price-card.featured { transform: none; }
+    .price-card.featured:hover { transform: translateY(-4px); }
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+    .nav-links { display: none; }
+    .section-head h2, .final-cta h2 { font-size: 32px; }
+    section.block { padding: 70px 0; }
+    .hero { padding: 130px 0 70px; }
+    .steps::before { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== Nav ===== -->
+<nav id="nav">
+  <div class="container nav-inner">
+    <a href="#" class="logo">ClosenAI</a>
+    <ul class="nav-links">
+      <li><a href="#features">功能</a></li>
+      <li><a href="#how">如何运作</a></li>
+      <li><a href="#pricing">定价</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+    <a href="#cta" class="btn btn-comingsoon">即将上线 · Coming Soon</a>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<header class="hero">
+  <div class="container hero-grid">
+    <div class="hero-text">
+      <span class="hero-tag"><span class="dot"></span>个人成长平台</span>
+      <h1>记录你的<span class="hl">信念</span>，<br/>如何<span class="hl">演变</span></h1>
+      <p class="sub">记录反思、追踪成长维度变化、识别信念演变——一个陪伴你长期成长的个人成长平台。</p>
+      <div class="hero-cta">
+        <div class="coming-soon-badge">
+          <span class="cs-icon">⏳</span>
+          <span><span class="cs-label">Coming Soon</span><span class="cs-sub">App Store 上线在即</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="hero-phone">
+        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=smartphone%20mockup%20floating%20on%20dark%20cosmic%20background%2C%20screen%20showing%20a%20personal%20growth%20journaling%20app%20with%20reflection%20note%20cards%2C%20mood%20check-in%20circles%2C%20and%20a%20personality%20profile%20card%2C%20warm%20introspective%20feel%2C%20gold%20and%20purple%20accents%2C%20dark%20UI%20theme%2C%20premium%20minimal%20design%2C%20soft%20golden%20glow%2C%20no%20charts%20no%20graphs&image_size=portrait_4_3" alt="ClosenAI 反思记录与性格画像预览" />
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== Positioning strip ===== -->
+<div class="strip">
+  <div class="container">
+    <p>「ClosenAI 帮助你记录反思、追踪成长维度变化、<span class="em">识别信念演变</span>——一个真正的个人成长平台。」</p>
+  </div>
+</div>
+
+<!-- ===== Features ===== -->
+<section class="block" id="features">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">核心功能</div>
+      <h2>不只是记录，而是看见变化</h2>
+      <p>四个维度协同工作，让你的成长可被追踪、可被理解。</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📝</div>
+        <h3>反思记录</h3>
+        <p>结构化记录每日反思，沉淀你的成长素材。每一次记录都是未来洞察的基石。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📈</div>
+        <h3>成长维度追踪</h3>
+        <p>多维度可视化你的成长轨迹变化，看见那些日常难以察觉的长期趋势。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🧬</div>
+        <h3>性格画像</h3>
+        <p>AI 基于你的长期数据生成性格画像，随着时间推移反映你的内在变化。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🌱</div>
+        <h3>成长陪伴</h3>
+        <p>基于你的反思与情绪记录，提供个性化的成长洞察与回应，辅助而非替代你的思考。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== How it works ===== -->
+<section class="block" id="how" style="background:var(--bgSecondary);">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">如何运作</div>
+      <h2>三步，把日常变成成长</h2>
+      <p>记录、追踪、洞察——一个持续运转的成长闭环。</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>记录</h3>
+        <p>每日反思 + 情绪签到，自然地沉淀你的思考与感受。</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>追踪</h3>
+        <p>维度变化与情绪模式，转化为可视化曲线与趋势。</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>洞察</h3>
+        <p>识别信念演变，生成性格画像，看见你如何成长。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Showcase ===== -->
+<section class="block showcase">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">成长全貌</div>
+      <h2>看见你的信念如何随时间演变</h2>
+      <p>反思、情绪、性格画像——你的成长全貌尽在一处，让长期变化一目了然。</p>
+    </div>
+    <div class="showcase-frame">
+      <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=dark%20themed%20personal%20growth%20app%20interface%20showcase%2C%20reflection%20journal%20cards%20grid%20layout%2C%20mood%20calendar%20with%20softly%20colored%20dots%2C%20personality%20profile%20card%20with%20gold%20accents%2C%20introspective%20warm%20aesthetic%2C%20premium%20UI%20design%2C%20dark%20background%2C%20no%20financial%20charts%20no%20stock%20graphs&image_size=landscape_16_9" alt="ClosenAI 反思记录与情绪日历展示" />
+    </div>
+  </div>
+</section>
+
+<!-- ===== Personas ===== -->
+<section class="block">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">使用场景</div>
+      <h2>为不同的成长者而生</h2>
+    </div>
+    <div class="personas">
+      <div class="persona-card">
+        <div class="persona-avatar" style="background:linear-gradient(135deg,#FFD700,#B8860B);">成</div>
+        <h3>自我成长者</h3>
+        <p>追踪信念如何随阅读与实践演变，把零散思考沉淀为可见的成长轨迹。</p>
+      </div>
+      <div class="persona-card">
+        <div class="persona-avatar" style="background:linear-gradient(135deg,#6366F1,#7C3AED);">念</div>
+        <h3>正念练习者</h3>
+        <p>情绪签到 + 长期情绪模式识别，理解自己的情绪周期与触发因素。</p>
+      </div>
+      <div class="persona-card">
+        <div class="persona-avatar" style="background:linear-gradient(135deg,#E879F9,#EC4899);">盘</div>
+        <h3>长期复盘者</h3>
+        <p>用成长记忆做季度、年度复盘，看见一年里你改变了什么。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Pricing ===== -->
+<section class="block pricing" id="pricing">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">定价</div>
+      <h2>从免费开始，按需成长</h2>
+      <p>3 天免费试用 · 随时取消 · 订阅支持升级折算</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="price-tier">免费</div>
+        <div class="price-amount">$0<span class="per">/月</span></div>
+        <div class="price-yearly">&nbsp;</div>
+        <ul class="price-features">
+          <li>每日 2 次 AI 回应</li>
+          <li>基础性格画像（3 次总计）</li>
+          <li>基础情绪签到解读</li>
+          <li>基础记忆能力</li>
+          <li class="muted">深度主动消息</li>
+        </ul>
+        <button class="btn btn-comingsoon" disabled>Coming Soon</button>
+      </div>
+      <div class="price-card featured">
+        <span class="price-badge">推荐</span>
+        <div class="price-tier">Pro</div>
+        <div class="price-amount">$7.99<span class="per">/月</span></div>
+        <div class="price-yearly">$59.99/年 · 约 $5.00/月</div>
+        <ul class="price-features">
+          <li>每日 5 次 AI 回应</li>
+          <li>性格画像 5 次/月</li>
+          <li>深度情绪解读</li>
+          <li>完整记忆能力</li>
+          <li>每日 1 条深度主动消息</li>
+        </ul>
+        <button class="btn btn-comingsoon" disabled>Coming Soon</button>
+      </div>
+      <div class="price-card">
+        <div class="price-tier">Pro+</div>
+        <div class="price-amount">$14.99<span class="per">/月</span></div>
+        <div class="price-yearly">$99.99/年 · 约 $8.33/月</div>
+        <ul class="price-features">
+          <li>每日 100 次 AI 回应</li>
+          <li>性格画像不限</li>
+          <li>深度版全部能力</li>
+          <li>完整记忆能力</li>
+          <li>每日多条主动消息</li>
+        </ul>
+        <button class="btn btn-comingsoon" disabled>Coming Soon</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FAQ ===== -->
+<section class="block" id="faq">
+  <div class="container">
+    <div class="section-head">
+      <div class="section-eyebrow">常见问题</div>
+      <h2>你可能想知道的</h2>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item">
+        <div class="faq-q">数据隐私如何保障？<span class="chev">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">你的反思数据属于你。记忆数据加密存储，仅用于生成属于你的成长洞察，不会用于训练公开模型。详细的隐私政策请参阅我们的隐私条款页面。</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">支持哪些语言？<span class="chev">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">支持中文、英语、印尼语、德语、西班牙语、法语、意大利语、日语、高棉语、韩语、马来语、葡萄牙语、俄语、泰语、越南语共 15 种界面与交互语言，覆盖全球主要市场。</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">如何取消订阅？<span class="chev">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">订阅通过 Apple App Store 管理，可随时在 iPhone「设置 → Apple ID → 订阅」中取消。取消后权益持续到当前计费周期结束。</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">它和普通日记 App 有什么区别？<span class="chev">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">日记 App 只记录当下，ClosenAI 追踪的是变化。它通过成长维度、信念演变识别和性格画像，让你看见自己如何随时间改变——这是普通日记无法提供的长期视角。</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">支持哪些设备？<span class="chev">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">iOS 优先发布，支持 iPhone 与 iPad。Android 版本已规划中，敬请期待。</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Final CTA ===== -->
+<section class="final-cta" id="cta">
+  <div class="container final-cta-inner">
+    <h2>即将上线，敬请期待</h2>
+    <p>我们正在做最后的打磨，很快将在 App Store 与你见面。</p>
+    <button class="btn btn-comingsoon" disabled>Coming Soon</button>
+  </div>
+</section>
+
+<!-- ===== Footer ===== -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="#" class="logo">ClosenAI</a>
+        <p>记录反思、追踪成长维度变化、识别信念演变的个人成长平台。</p>
+      </div>
+      <div class="footer-col">
+        <h4>产品</h4>
+        <ul>
+          <li><a href="#features">功能</a></li>
+          <li><a href="#pricing">定价</a></li>
+          <li><a href="#how">如何运作</a></li>
+          <li><a href="#faq">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>法务</h4>
+        <ul>
+          <li><a href="/privacy">隐私政策</a></li>
+          <li><a href="/terms">服务条款</a></li>
+          <li><a href="mailto:support@closenai.app">联系我们</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>关注</h4>
+        <ul>
+          <li><a href="#">更新日志</a></li>
+          <li><a href="#">博客</a></li>
+          <li><a href="#">X / Twitter</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2026 ClosenAI · closenai.app</p>
+      <div class="lang-switch">
+        <span class="active">中文</span>
+        <span>English</span>
+        <span>Bahasa Indonesia</span>
+        <span>Deutsch</span>
+        <span>Español</span>
+        <span>Français</span>
+        <span>Italiano</span>
+        <span>日本語</span>
+        <span>ខ្មែរ</span>
+        <span>한국어</span>
+        <span>Melayu</span>
+        <span>Português</span>
+        <span>Русский</span>
+        <span>ไทย</span>
+        <span>Tiếng Việt</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Nav scroll background
+  const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => {
+    nav.classList.toggle('scrolled', window.scrollY > 30);
+  });
+  // FAQ accordion
+  document.querySelectorAll('.faq-q').forEach(q => {
+    q.addEventListener('click', () => {
+      const item = q.parentElement;
+      const ans = q.nextElementSibling;
+      const isOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item').forEach(i => {
+        i.classList.remove('open');
+        i.querySelector('.faq-a').style.maxHeight = null;
+      });
+      if (!isOpen) {
+        item.classList.add('open');
+        ans.style.maxHeight = ans.scrollHeight + 'px';
+      }
+    });
+  });
+</script>
+</body>
+</html>
