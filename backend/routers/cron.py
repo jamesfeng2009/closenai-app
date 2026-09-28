@@ -12,6 +12,7 @@
     GET  /api/v1/cron/daily-insight   — 每日洞察生成
     GET  /api/v1/cron/weekly-insight  — 周洞察生成
     GET  /api/v1/cron/weekly-drift    — 渐变漂移周检测（记忆层）
+    POST /api/v1/cron/follow-up       — QStash 调度：事件后 3-7 天主动跟进（验签）
     POST /api/v1/cron/purge-user      — QStash 回调：注销用户物理删除（验签，幂等）
     GET  /api/v1/cron/purge-deleted-users — 兜底清理：软删除超 1h 用户批量物理删除
     GET  /api/v1/cron/cleanup-tokens  — 清理过期 refresh token（防表无限增长）
@@ -204,6 +205,24 @@ async def weekly_drift(
     """
     verify_cron_secret(request)
     result = await service.run_weekly_drift_detection(db)
+    return success(result)
+
+
+@router.post("/cron/follow-up")
+async def follow_up(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """事件后 3-7 天主动跟进（PRD P0-F07，QStash 每日调度触发）。
+
+    验签（Upstash-Signature JWT）通过后扫描跟进窗口内未跟进的
+    reflection/milestone 成长记录，生成「上次你提到...现在怎么样了？」式
+    跟进消息写入对话流（message_type='follow_up'）并标记防重复。
+    调度注册见 cron_service.register_follow_up_schedule（幂等）。
+    """
+    await verify_qstash_signature(request)
+    result = await service.dispatch_follow_ups(db)
     return success(result)
 
 

@@ -16,7 +16,6 @@ from backend.repositories.milestone_repository import (
     milestone_repository,
 )
 from backend.repositories.mood_repository import MoodRepository, mood_repository
-from backend.repositories.natal_repository import NatalRepository, natal_repository
 from backend.repositories.personality_repository import (
     PersonalityRepository,
     personality_repository,
@@ -44,8 +43,6 @@ __all__ = [
     "milestone_repository",
     "MoodRepository",
     "mood_repository",
-    "NatalRepository",
-    "natal_repository",
     "PersonalityRepository",
     "personality_repository",
     "PushTokenRepository",

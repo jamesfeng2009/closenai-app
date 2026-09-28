@@ -132,6 +132,10 @@ class Settings(BaseSettings):
     # 定时任务
     cron_secret: str = ""
     health_check_interval: int = 5       # /health 保热间隔（分钟）
+    # 事件后主动跟进窗口（天，PRD P0-F07）：记录创建满 start 天且未超 end 天时，
+    # 每日 cron 生成「上次你提到...现在怎么样了？」式跟进消息（默认 3-7 天）
+    follow_up_window_start_days: int = 3
+    follow_up_window_end_days: int = 7
 
     # PostHog（行为分析 + 错误追踪，Cloud·EU；生产才启用，key 为空则服务内 no-op）
     posthog_api_key: str = ""

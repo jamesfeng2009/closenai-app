@@ -97,6 +97,8 @@ class MoodCheckinResponse(BaseModel):
     created_at: datetime
     # 深度解读（连续 3 天同情绪 / 连续 2 天负面时由 LLM 生成；未触发或生成失败为 None）
     deep_interpretation: Optional[str] = None
+    # 关系等级晋升负载（PRD P0-F05：升级当次签到返回，含新解锁能力；未升级为 None）
+    level_up: Optional[dict] = None
 
 
 class MoodHistoryResponse(BaseModel):
@@ -133,6 +135,7 @@ class MilestoneItem(BaseModel):
     """里程碑徽章（PRD P0-F05：连续 7/30/100/365 天）。"""
     milestone_type: str        # streak_7 | streak_30 | streak_100 | streak_365
     days: int                  # 达成所需连续天数
+    name: Optional[str] = None  # 徽章名称（按请求语言本地化，如 一周坚持 / 7-Day Streak）
     achieved: bool
     achieved_at: Optional[datetime] = None
 
@@ -262,6 +265,41 @@ class ComboReportResponse(BaseModel):
     personality_type: Optional[str] = None
     zodiac: Optional[str] = None
     enneagram_type: Optional[str] = None
+
+
+# ── 九型人格渐进式评估（PRD P1-F03：36 题，可跨会话断点续答）──
+
+class EnneagramQuestion(BaseModel):
+    """九型评估题目（按用户语言下发；不暴露题目归属类型，防刷分）。"""
+    index: int                 # 0 起
+    total: int                 # 总题数（36）
+    text: str
+    options: Dict[str, str]    # {"a": 符合我, "b": 不符合我, "neutral": 不确定}
+
+
+class EnneagramResultResponse(BaseModel):
+    """九型评估结果（完成时 / 查询状态且已有类型时返回）。"""
+    enneagram_type: str        # 1-9
+    type_label: str            # 按用户语言的类型名（如 探索者 / Investigator）
+    combo_name: Optional[str] = None   # MBTI×九型组合名（有 16 型画像且命中关联表时）
+    combo_mbti: Optional[str] = None   # 组合对应的 16 型类型
+
+
+class EnneagramStateResponse(BaseModel):
+    """九型评估状态响应。"""
+    status: str                # not_started | in_progress | completed
+    current_index: int         # 下一题下标（= 已答题数）
+    total: int
+    question: Optional[EnneagramQuestion] = None
+    result: Optional[EnneagramResultResponse] = None
+
+
+class EnneagramAnswerResponse(BaseModel):
+    """九型评估答题响应。"""
+    completed: bool
+    next_question: Optional[EnneagramQuestion] = None
+    result: Optional[EnneagramResultResponse] = None  # 完成时返回
+    message: str = ""
 
 
 # ═══ User (P0-F04) ═══
@@ -398,6 +436,7 @@ class DailyDiscoveryResponse(BaseModel):
     has_discovery: bool
     content: Optional[str]           # 发现内容
     comparison_type: Optional[str]   # 对比类型
+    priority: Optional[str] = None   # 价值分级：high | medium | low（P0-F10 融入主动消息）
     generated_at: datetime
 
 
@@ -571,48 +610,3 @@ class AnalyticsBatchRequest(BaseModel):
     events: List[AnalyticsEvent] = Field(..., max_length=100)
 
 
-# ═══ Natal Chart（本命星盘，PRD 探索 Tab 可选入口）═══
-
-class NatalChartRequest(BaseModel):
-    """本命星盘生成/更新请求。
-
-    时区由后端从 birth_place（城市）推导，用户不填时区。
-    birth_time 省略表示出生时间未知：按 12:00 计算，上升星座不可用。
-    """
-    birth_date: date = Field(..., description="出生日期（不晚于今日）")
-    birth_time: Optional[time] = Field(None, description="出生时间（可选；缺省按 12:00，上升不可用）")
-    birth_place: str = Field(..., min_length=1, max_length=100, description="出生城市")
-
-
-class NatalChartResponse(BaseModel):
-    """本命星盘响应。
-
-    sign 字段为星座 key（aries/taurus/...），展示文案由前端 i18n；
-    rising_sign 在 birth_time_unknown 时为 None。
-    """
-    id: str
-    birth_date: date
-    birth_time: Optional[time] = None
-    birth_time_unknown: bool = False
-    birth_place: str
-    timezone: str
-    tz_fallback: bool = False     # True = 城市库未命中，回退用户时区
-    sun_sign: Optional[str] = None
-    moon_sign: Optional[str] = None
-    rising_sign: Optional[str] = None
-    planets: Dict[str, str] = {}  # {"mercury": "gemini", ...}（水/金/火/木/土，纯文本数据）
-    interpretation: Optional[str] = None  # 按请求语言的 AI 解读（缓存）
-    created_at: datetime
-    updated_at: datetime
-
-
-class NatalDailyResponse(BaseModel):
-    """今日参考响应（确定性伪随机，零 LLM 成本；PRD 禁止爱情维度）。"""
-    date: str              # 用户本地日历日 YYYY-MM-DD
-    overall_score: int     # 综合 1-5
-    career_score: int      # 事业 1-5
-    wealth_score: int      # 财运 1-5
-    lucky_color: str       # 按请求语言本地化
-    lucky_number: int      # 1-9
-    lucky_time: str        # 幸运时刻（如 "09:00-11:00"）
-    comment: str           # 模板短评（按请求语言）

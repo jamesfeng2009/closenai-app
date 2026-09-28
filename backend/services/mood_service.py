@@ -145,6 +145,7 @@ class MoodService:
             streak_updated=streak["streak_count"],
             created_at=record.created_at,
             deep_interpretation=deep,
+            level_up=streak.get("level_up"),
         )
 
     async def _interpret(

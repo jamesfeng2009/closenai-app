@@ -1,5 +1,5 @@
 """
-性格画像路由 (P0-F06)。
+性格画像路由 (P0-F06 + P1-F03)。
 
 端点：
     GET  /api/v1/personality/profile          — 查看性格画像
@@ -8,6 +8,9 @@
     POST /api/v1/personality/assessment/start — 开始/续答评估
     POST /api/v1/personality/assessment/answer— 提交当前题答案
     POST /api/v1/personality/combo-report     — Pro 组合报告（16 型 × 星座 × 九型）
+    GET  /api/v1/personality/enneagram        — 查询九型渐进式评估状态/结果
+    POST /api/v1/personality/enneagram/start  — 开始/续答九型评估（36 题）
+    POST /api/v1/personality/enneagram/answer — 提交九型当前题答案
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +19,7 @@ from backend.core.auth import get_current_user
 from backend.core.response import success
 from backend.database import get_db
 from backend.models.schemas import AssessmentAnswerRequest
+from backend.services.enneagram_service import EnneagramService, enneagram_service
 from backend.services.personality_service import PersonalityService, personality_service
 from backend.services.user_service import user_service
 
@@ -24,6 +28,10 @@ router = APIRouter()
 
 def get_personality_service() -> PersonalityService:
     return personality_service
+
+
+def get_enneagram_service() -> EnneagramService:
+    return enneagram_service
 
 
 @router.get("/personality/profile")
@@ -98,3 +106,37 @@ async def combo_report(
     """生成 Pro 组合报告（16 型人格 × 星座 × 九型交叉解读；每月 1 份，本月内命中缓存）。"""
     await user_service.require_ai_consent(db, user_id)
     return success(await service.generate_combo_report(db, user_id))
+
+
+# ── 九型人格渐进式评估（PRD P1-F03：36 题，可跨会话断点续答）──
+
+
+@router.get("/personality/enneagram")
+async def get_enneagram(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: EnneagramService = Depends(get_enneagram_service),
+):
+    """查询九型评估状态（not_started / in_progress + 下一题 / completed + 结果）。"""
+    return success(await service.get_state(db, user_id))
+
+
+@router.post("/personality/enneagram/start")
+async def start_enneagram(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: EnneagramService = Depends(get_enneagram_service),
+):
+    """开始 36 题九型渐进式评估；已有进行中评估则续答，返回当前题。"""
+    return success(await service.start(db, user_id))
+
+
+@router.post("/personality/enneagram/answer")
+async def answer_enneagram(
+    request: AssessmentAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: EnneagramService = Depends(get_enneagram_service),
+):
+    """提交当前题答案（快捷选项或自由输入）；答满 36 题后定型并写入 users.enneagram_type。"""
+    return success(await service.answer(db, user_id, request))

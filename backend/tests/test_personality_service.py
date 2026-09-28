@@ -1,8 +1,27 @@
 """personality_service：_parse_llm_result 16 型校验、7 天无新数据不扣配额。"""
+from datetime import datetime
+
 import pytest
 
 from backend.repositories import personality_repository
 from backend.services.personality_service import personality_service
+
+
+async def _create_profile(
+    db, user_id: str, mbti: str, version: int, created_at: datetime
+):
+    """造一版画像并把 created_at 钉到指定时刻。
+
+    PersonalityProfile.created_at 由 DB server_default 落库（真实时钟），
+    time_travel 只补丁应用层 utc_now/local_now——按「当月」统计配额的用例
+    若不钉日期，跨月回归时会落到冻结月之外。
+    """
+    profile = await personality_repository.create(
+        db, user_id, mbti, '["观察"]', "独特", version
+    )
+    profile.created_at = created_at
+    await db.flush()
+    return profile
 
 
 def test_parse_llm_result_valid_type():
@@ -75,12 +94,13 @@ async def test_pro_monthly_quota_excludes_assessment_version(db, make_user, time
     """B6 回归：Pro 月度配额同样剔除当月评估版（1 评估版 + 1 刷新版 → 剩 4）。"""
     from datetime import datetime, timezone
 
-    time_travel.set(datetime(2026, 8, 5, 12, tzinfo=timezone.utc))
+    frozen = datetime(2026, 8, 5, 12, tzinfo=timezone.utc)
+    time_travel.set(frozen)
     await make_user("u1", language="en", tier="pro", timezone="UTC")
     assessment = await personality_repository.create_assessment(db, "u1")
     await personality_repository.save_assessment(db, assessment, "[]", "completed")
-    await personality_repository.create(db, "u1", "INTP", '["观察"]', "独特", 1)
-    await personality_repository.create(db, "u1", "INTJ", '["观察2"]', "独特2", 2)
+    await _create_profile(db, "u1", "INTP", 1, frozen)
+    await _create_profile(db, "u1", "INTJ", 2, frozen)
 
     remaining = await personality_service._refresh_quota_remaining(db, "u1")
     assert remaining == 4

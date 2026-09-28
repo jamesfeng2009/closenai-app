@@ -9,6 +9,7 @@ from typing import AsyncGenerator, Optional, List, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core import redis as redis_client
 from backend.core.llm import llm
 from backend.core.time_utils import utc_now
 from backend.models.user import DEFAULT_CONVERSATION_STYLE
@@ -75,11 +76,28 @@ class MessageGenerator:
         ],
     }
 
+    # 事件后跟进消息降级模板（P0-F07；LLM 失败/命中安全过滤时使用，按语言两套）
+    FOLLOW_UP_FALLBACK_TEMPLATES = {
+        "zh": "上次你提到「{excerpt}」，现在怎么样了？想聊聊吗？",
+        "en": "Last time you mentioned \"{excerpt}\" — how's it going now? I'd love to hear.",
+    }
+
+    # 跟进消息引用的原文摘要长度（防 prompt 膨胀，控制 LLM 成本）
+    FOLLOW_UP_EXCERPT_LEN = 50
+
     # 四层公式最低命中层数（PRD P0-F01 §4：不足 2 层当日静默）
     MIN_LAYERS_REQUIRED = 2
 
     # Day1 冷启动窗口（注册 24h 内视为新用户）
     DAY1_WINDOW = timedelta(hours=24)
+
+    # Day 1-2 冷启动窗口（注册 48h 内强制无 Discovery，防冷启动信息过载）
+    DAY12_WINDOW = timedelta(hours=48)
+
+    # Discovery 疲劳控制：连续第 3 天高价值发现自动降级 medium（防疲劳）
+    DISCOVERY_HIGH_FATIGUE_DAYS = 3
+    # 高价值计数 Redis 滑动窗口（48h；中间一天非 high 则计数随 TTL 失效）
+    _DISCOVERY_STREAK_TTL = 48 * 3600
 
     # 里程碑祝贺文案（streak / 累计活跃天数达成时优先于四层公式；按语言两套）
     MILESTONE_TEMPLATES = {
@@ -163,6 +181,13 @@ class MessageGenerator:
         ② 发现模式：每日发现（P0-F10）对比洞察
         ③ 情绪关联：最近情绪签到
         ④ 互动/对话跟进：引用最近的对话主题
+
+        Discovery 融合规则（P0-F10）：
+        - high：消息以 Discovery 开头（今日最有价值的发现）
+        - medium：融入消息中段（先记忆/情绪开场，发现居中）
+        - low：跳过，用①③④层补足（不计入命中层数）
+        - 连续 3 天高价值发现自动降级 medium（防疲劳，Redis 滑动窗口计数）
+        - 新用户 Day 1-2 强制无 Discovery（Day1 走冷启动开场，Day2 走其他层）
         """
         await user_repository.require_user(db, user_id)
         user = await user_repository.get_user(db, user_id)
@@ -186,9 +211,17 @@ class MessageGenerator:
         memories = await memory_repository.list(db, user_id, limit=3)
         memory_desc = "\n".join(f"- {m.content}" for m in memories) or ""
 
-        # ② 每日发现
-        discovery = await discovery_service.generate_discovery(db, user_id, language)
-        discovery_desc = discovery or ""
+        # ② 每日发现（按价值分级融合；Day 1-2 新用户强制跳过）
+        discovery_desc = ""
+        discovery_priority: Optional[str] = None
+        if user is not None and not self._in_day12_window(user):
+            discovery_result = await discovery_service.generate_discovery(db, user_id, language)
+            if discovery_result is not None:
+                discovery_priority = await self._discovery_priority_with_fatigue(
+                    user_id, discovery_result.priority
+                )
+                if discovery_priority != "low":  # low：跳过，用①③④层补足
+                    discovery_desc = discovery_result.content
 
         # ③ 最近情绪
         checkins = await mood_repository.get_recent(db, user_id, limit=3)
@@ -208,7 +241,9 @@ class MessageGenerator:
 
         # 免费用户：Rule Engine 模板 + 数据占位（成本控制）
         if tier == "free":
-            return self._build_free_proactive(memory_desc, discovery_desc, mood_desc, language)
+            return self._build_free_proactive(
+                memory_desc, discovery_desc, mood_desc, language, discovery_priority
+            )
 
         # Pro/Pro+：LLM 个性化生成（注入用户对话风格，P1-F04）
         style = getattr(user, "conversation_style", None) or DEFAULT_CONVERSATION_STYLE
@@ -216,6 +251,7 @@ class MessageGenerator:
             "你是 ClosenAI，一位温暖、有洞察的 AI 陪伴者。请给用户发一条简短的主动问候（1-2句话），"
             "要自然、具体、不过度，像朋友一样关心。\n"
             f"{conversation_style_prompt(style, language)}\n"
+            f"{self._discovery_placement_hint(discovery_priority, language)}"
             f"用户近期记忆：{memory_desc}\n"
             f"数据洞察：{discovery_desc}\n"
             f"最近情绪：{mood_desc}\n"
@@ -227,12 +263,16 @@ class MessageGenerator:
             # L3 输出过滤（非流式）：命中回退 Rule Engine 模板
             text = await safety_service.check_or(
                 text.strip(), language,
-                self._build_free_proactive(memory_desc, discovery_desc, mood_desc, language),
+                self._build_free_proactive(
+                    memory_desc, discovery_desc, mood_desc, language, discovery_priority
+                ),
             )
             return text or self._fallback_reply(user_id, language)
         except Exception as exc:  # noqa: BLE001
             logger.warning("主动消息 LLM 失败，回退模板: %s", exc)
-            return self._build_free_proactive(memory_desc, discovery_desc, mood_desc, language)
+            return self._build_free_proactive(
+                memory_desc, discovery_desc, mood_desc, language, discovery_priority
+            )
 
     def _is_day1(self, user, history: List) -> bool:
         """Day1 冷启动判定：注册 24h 内，或从未有过用户对话。"""
@@ -242,6 +282,54 @@ class MessageGenerator:
             if utc_now() - aware < self.DAY1_WINDOW:
                 return True
         return not any(m.role == "user" for m in history)
+
+    def _in_day12_window(self, user) -> bool:
+        """Day 1-2 判定：注册 48h 内（强制无 Discovery；Day1 开场白在此之前已拦截）。"""
+        created = getattr(user, "created_at", None)
+        if created is None:
+            return False
+        aware = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+        return utc_now() - aware < self.DAY12_WINDOW
+
+    async def _discovery_priority_with_fatigue(self, user_id: str, priority: str) -> str:
+        """连续高价值 Discovery 疲劳控制：连续第 3 天起 high 自动降级 medium。
+
+        Redis 滑动窗口计数（48h）：当日非 high 即清零；Redis 故障 fail-open，
+        按原优先级放行，不阻塞主动消息主流程。
+        """
+        key = f"discovery:high_streak:{user_id}"
+        try:
+            if priority != "high":
+                await redis_client.delete(key, fail_open=True)
+                return priority
+            raw = await redis_client.get(key, fail_open=True)
+            streak = int(raw) + 1 if raw and raw.isdigit() else 1
+            await redis_client.setex(
+                key, self._DISCOVERY_STREAK_TTL, str(streak), fail_open=True
+            )
+            if streak >= self.DISCOVERY_HIGH_FATIGUE_DAYS:
+                logger.info("Discovery 连续 %d 天高价值，降级为 medium user=%s", streak, user_id)
+                return "medium"
+            return "high"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Discovery 疲劳控制失败，按原优先级放行: %s", exc)
+            return priority
+
+    @staticmethod
+    def _discovery_placement_hint(priority: Optional[str], language: str) -> str:
+        """Discovery 融合位置指令（注入 LLM prompt）：high 开头 / medium 中段。"""
+        zh = (language or "").startswith("zh")
+        if priority == "high":
+            return (
+                "融合规则：数据洞察是今天最有价值的发现，请将它作为消息开头，自然引出其余内容。\n" if zh
+                else "Fusion rule: the data insight is today's most valuable finding — open the message with it, then flow into the rest.\n"
+            )
+        if priority == "medium":
+            return (
+                "融合规则：请将数据洞察自然融入消息中段，不要作为开头。\n" if zh
+                else "Fusion rule: weave the data insight naturally into the middle of the message, not the opening.\n"
+            )
+        return ""
 
     def _day1_opener(self, user, language: str) -> str:
         """Day1 开场白：社交伴侣身份自我介绍 + 引导首次记录（不以占星开场）。
@@ -274,26 +362,78 @@ class MessageGenerator:
                 return self.MILESTONE_TEMPLATES[milestone][lang_key]
         return None
 
-    def _build_free_proactive(self, memory_desc: str, discovery_desc: str, mood_desc: str, language: str = "en") -> str:
-        """免费用户主动消息（Rule Engine 模板 + 数据占位；按语言两套）。"""
+    def _build_free_proactive(
+        self,
+        memory_desc: str,
+        discovery_desc: str,
+        mood_desc: str,
+        language: str = "en",
+        discovery_priority: Optional[str] = None,
+    ) -> str:
+        """免费用户主动消息（Rule Engine 模板 + 数据占位；按语言两套）。
+
+        Discovery 融合（P0-F10）：high 以发现开头；medium 先记忆/情绪开场、发现居中。
+        """
         zh = (language or "").startswith("zh")
-        if discovery_desc:
+        if discovery_desc and discovery_priority == "high":
             return discovery_desc
         if memory_desc:
             first = memory_desc.split("\n")[0].lstrip("- ").strip()
-            return (
+            opener = (
                 f"嗨，想接着聊聊「{first}」吗？我之前一直记着。" if zh
                 else f"Hi — want to keep talking about \"{first}\"? I've kept it in mind."
             )
+            return f"{opener}\n{discovery_desc}" if discovery_desc else opener
         if mood_desc:
-            return (
+            opener = (
                 f"看到你最近的心情是 {mood_desc}，今天过得怎么样？" if zh
                 else f"I saw your recent mood was {mood_desc}. How's today going?"
             )
+            return f"{opener}\n{discovery_desc}" if discovery_desc else opener
+        if discovery_desc:
+            # 发现是唯一内容层：位置无意义，直接发出
+            return discovery_desc
         return (
             "嗨，我是你的 AI 朋友。今天过得怎么样？想记录点什么吗？" if zh
             else "Hi, I'm your AI friend. How's your day? Anything you'd like to record?"
         )
+
+    async def generate_follow_up(self, record_content: str, language: str = "en") -> str:
+        """事件后跟进消息（PRD P0-F07）：「上次你提到...现在怎么样了？」。
+
+        输入原始成长记录内容，LLM lite 生成 1-2 句自然的跟进询问；
+        LLM 失败 / 命中 L3 安全过滤一律回退模板（永不抛异常，cron 批量安全）。
+        """
+        zh = (language or "").startswith("zh")
+        excerpt = " ".join((record_content or "").split())[: self.FOLLOW_UP_EXCERPT_LEN]
+        fallback = self.FOLLOW_UP_FALLBACK_TEMPLATES["zh" if zh else "en"].format(
+            excerpt=excerpt
+        )
+        if not excerpt:
+            return fallback
+        if zh:
+            prompt = (
+                "你是 ClosenAI，一位温暖、有洞察的 AI 陪伴者。用户几天前的成长记录里"
+                "写下了下面的内容。请生成一条简短的跟进消息（1-2 句话），自然地询问"
+                "那件事现在的进展，像朋友一样关心，具体、不空泛、不说教：\n"
+                f"用户当时的记录：「{excerpt}」"
+            )
+        else:
+            prompt = (
+                "You are ClosenAI, a warm, insightful AI companion. A few days ago the "
+                "user wrote the following in their growth record. Write a short follow-up "
+                "message (1-2 sentences) that naturally asks how that thing is going now, "
+                "like a caring friend — specific, not generic, no lecturing:\n"
+                f"The user's record back then: \"{excerpt}\""
+            )
+        try:
+            text = await llm.complete(prompt, language=language, lite=True, max_tokens=80)
+            # L3 输出过滤：命中回退模板
+            text = await safety_service.check_or(text.strip(), language, "")
+            return text or fallback
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("跟进消息 LLM 失败，回退模板: %s", exc)
+            return fallback
 
     async def get_memory_context(self, db: AsyncSession, user_id: str, query: str, n: int = 5) -> List[Dict]:
         """获取记忆上下文（用于对话注入）。"""

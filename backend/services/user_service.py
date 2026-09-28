@@ -24,7 +24,12 @@ from backend.core.errors import AppException, ErrorCode
 from backend.core.logging import get_logger
 from backend.models.auth import RefreshToken
 from backend.models.user import User
-from backend.repositories import auth_repository, milestone_repository, user_repository
+from backend.repositories import (
+    auth_repository,
+    chat_repository,
+    milestone_repository,
+    user_repository,
+)
 from backend.services.quota_service import quota_service
 from backend.config import settings
 
@@ -55,11 +60,53 @@ class UserService:
         4: "至交 L4",
     }
 
+    # 等级名称双语展示表（DB 存中文规范名，展示按语言本地化）
+    LEVEL_NAMES = {
+        1: {"zh": "初识 L1", "en": "Acquainted L1"},
+        2: {"zh": "熟悉 L2", "en": "Familiar L2"},
+        3: {"zh": "知己 L3", "en": "Confidant L3"},
+        4: {"zh": "至交 L4", "en": "Kindred L4"},
+    }
+
+    # 各等级解锁能力（PRD P0-F05 §1 等级表，双语）
+    LEVEL_UNLOCKS = {
+        1: {
+            "zh": ["基础对话", "情绪签到"],
+            "en": ["Basic conversations", "Mood check-in"],
+        },
+        2: {
+            "zh": ["AI 主动跟进", "记忆引用"],
+            "en": ["Proactive AI follow-ups", "Memory references"],
+        },
+        3: {
+            "zh": ["深度性格分析", "模式发现", "AI 周报"],
+            "en": ["Deep personality analysis", "Pattern discovery", "AI weekly report"],
+        },
+        4: {
+            "zh": ["季度性格深度报告", "预测性洞察", "深度反思模式"],
+            "en": ["Quarterly personality deep report", "Predictive insights", "Deep reflection mode"],
+        },
+    }
+
+    # 等级页说明文字（PRD P0-F05 验收：所有等级名称无恋爱含义，等级页有说明文字）
+    LEVEL_NOTE = {
+        "zh": "所有等级名称均形容 AI 对你的理解深度，不涉及恋爱关系。",
+        "en": "All level names describe how well the AI understands you — they are not romantic.",
+    }
+
     # 升级所需累计活跃天数（PRD P0-F05：L1 0-6 / L2 7-29 / L3 30-89 / L4 90+）
     LEVEL_THRESHOLDS = {1: 0, 2: 7, 3: 30, 4: 90}
 
     # 里程碑徽章（PRD P0-F05：连续 7/30/100/365 天，判定依据 streak 连续天数）
     MILESTONE_DAYS = {"streak_7": 7, "streak_30": 30, "streak_100": 100, "streak_365": 365}
+
+    # 徽章名称双语（PRD P0-F05：7 天"一周坚持"、30 天"月度知己"；100/365 沿用 P0-F07 §3 里程碑语义）
+    MILESTONE_NAMES = {
+        "streak_7": {"zh": "一周坚持", "en": "7-Day Streak"},
+        "streak_30": {"zh": "月度知己", "en": "30-Day Confidant"},
+        "streak_100": {"zh": "百日相伴", "en": "100 Days Together"},
+        "streak_365": {"zh": "周年挚友", "en": "One-Year Companion"},
+    }
 
     # Streak 冻结券月度配额（PRD P0-F05：免费每月 1 张，Pro 每月 3 张）
     FREEZE_MONTHLY_QUOTA = {"free": 1, "pro": 3, "pro_plus": 3}
@@ -195,6 +242,7 @@ class UserService:
         # Streak 按用户本地时区的日历日计算（PRD：每日 00:00 用户本地重置）
         today = local_today(user.timezone)
         yesterday = today - timedelta(days=1)
+        old_level = self.get_relationship_level(user.active_days)[0]
 
         freeze_used = 0
         if user.last_active_date == today:
@@ -226,6 +274,10 @@ class UserService:
         # PRD P0-F05：等级按累计活跃天数晋升（与 streak 中断解耦）
         level, label, progress = self.get_relationship_level(active_days)
         await user_repository.update_relationship_level(db, user_id, label)
+        # 等级晋升庆祝（PRD P0-F05：升级时 AI 发送庆祝消息并展示新解锁能力）
+        level_up = None
+        if level > old_level:
+            level_up = await self._celebrate_level_up(db, user, level, active_days)
         return {
             "streak_count": streak,
             "level": label,
@@ -233,6 +285,7 @@ class UserService:
             "streak_freeze_count": freeze_count,
             "freeze_used": freeze_used,
             "new_milestones": new_milestones,
+            "level_up": level_up,
         }
 
     async def ensure_freeze_grant(self, db: AsyncSession, user: User) -> None:
@@ -261,8 +314,8 @@ class UserService:
                     newly.append(mtype)
         return newly
 
-    async def get_milestones(self, db: AsyncSession, user_id: str) -> list:
-        """里程碑徽章列表（4 枚，含未达成占位）；先按当前 streak 幂等补齐。"""
+    async def get_milestones(self, db: AsyncSession, user_id: str, language: str | None = None) -> list:
+        """里程碑徽章列表（4 枚，含未达成占位与本地化名称）；先按当前 streak 幂等补齐。"""
         user = await self._require_user(db, user_id)
         await self.sync_milestones(db, user_id, user.streak_count)
         records = await milestone_repository.list_for_user(db, user_id)
@@ -271,6 +324,7 @@ class UserService:
             MilestoneItem(
                 milestone_type=mtype,
                 days=days,
+                name=self.milestone_name(mtype, language),
                 achieved=mtype in achieved_map,
                 achieved_at=achieved_map.get(mtype),
             )
@@ -361,6 +415,82 @@ class UserService:
         else:
             progress = 1.0
         return level, label, min(progress, 1.0)
+
+    def level_label(self, level: int, language: str | None = None) -> str:
+        """等级名称按语言本地化（zh* 中文，其余英文）。"""
+        lang = "zh" if (language or "").startswith("zh") else "en"
+        return self.LEVEL_NAMES.get(level, self.LEVEL_NAMES[1])[lang]
+
+    def milestone_name(self, milestone_type: str, language: str | None = None) -> str:
+        """徽章名称按语言本地化；未知类型回退原始类型串。"""
+        lang = "zh" if (language or "").startswith("zh") else "en"
+        return self.MILESTONE_NAMES.get(milestone_type, {}).get(lang, milestone_type)
+
+    def get_level_info(self, active_days: int, language: str | None = None) -> dict:
+        """当前等级信息（本地化名称 + 进度 + 解锁能力 + 升级剩余天数）。"""
+        level, _canonical, progress = self.get_relationship_level(active_days)
+        lang = "zh" if (language or "").startswith("zh") else "en"
+        next_threshold = self.LEVEL_THRESHOLDS.get(level + 1)
+        return {
+            "level": level,
+            "label": self.level_label(level, language),
+            "progress": progress,
+            "active_days": active_days,
+            "next_threshold": next_threshold,
+            "days_to_next": (next_threshold - active_days) if next_threshold else 0,
+            "unlocks": self.LEVEL_UNLOCKS[level][lang],
+        }
+
+    async def get_level_detail(
+        self, db: AsyncSession, user_id: str, language: str = "en"
+    ) -> dict:
+        """等级页数据（PRD P0-F05）：当前等级 + 全部等级/解锁能力表 + 无恋爱含义说明。"""
+        user = await self._require_user(db, user_id)
+        lang = "zh" if (language or "").startswith("zh") else "en"
+        return {
+            "current": self.get_level_info(user.active_days, language),
+            "levels": [
+                {
+                    "level": lv,
+                    "label": self.level_label(lv, language),
+                    "threshold": self.LEVEL_THRESHOLDS[lv],
+                    "unlocks": self.LEVEL_UNLOCKS[lv][lang],
+                    "reached": user.active_days >= self.LEVEL_THRESHOLDS[lv],
+                }
+                for lv in sorted(self.LEVEL_THRESHOLDS)
+            ],
+            "note": self.LEVEL_NOTE[lang],
+        }
+
+    async def _celebrate_level_up(
+        self, db: AsyncSession, user: User, level: int, active_days: int
+    ) -> dict:
+        """等级晋升庆祝（PRD P0-F05）：写入一条 AI 庆祝消息（规则模板，零 LLM 成本），
+        并返回 level_up 负载供调用方（签到响应等）即时展示新解锁能力。
+
+        active_days 单调递增（每日至多 +1），等级阈值仅在跨越当日触发一次，天然幂等。
+        """
+        language = user.language or "en"
+        info = self.get_level_info(active_days, language)
+        if (language or "").startswith("zh"):
+            text = (
+                f"🎉 经过 {active_days} 天的陪伴，我们的关系升级为「{info['label']}」！"
+                f"新解锁能力：{'、'.join(info['unlocks'])}。"
+            )
+        else:
+            text = (
+                f"🎉 After {active_days} days together, our connection has grown to "
+                f"\"{info['label']}\"! Newly unlocked: {', '.join(info['unlocks'])}."
+            )
+        await chat_repository.create(
+            db, user.id, "assistant", text, message_type="level_up", ai_generated=False
+        )
+        return {
+            "level": info["level"],
+            "label": info["label"],
+            "unlocks": info["unlocks"],
+            "message": text,
+        }
 
 
 user_service = UserService()

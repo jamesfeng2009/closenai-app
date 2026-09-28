@@ -4,7 +4,11 @@
 端点：
     GET /api/v1/growth/dashboard    — 成长仪表盘
     GET /api/v1/growth/insights     — 本周洞察
-    GET /api/v1/growth/timeline     — 365 天热力图
+    GET /api/v1/growth/level        — 关系等级详情（当前等级 + 等级/解锁能力表）
+    GET /api/v1/growth/badges       — 徽章列表（含本地化名称）
+    GET /api/v1/growth/timeline     — 365 天热力图（含里程碑标注）
+    GET /api/v1/growth/timeline/day — 单日摘要卡片
+    GET /api/v1/growth/relationship-timeline — 关系时间线（认识天数/聊天数/事件流）
     GET /api/v1/growth/records      — 成长记录列表（支持标签筛选）
     GET /api/v1/growth/topics       — 推荐话题（基于近期记录高频标签）
     GET /api/v1/growth/memory-card  — 回忆卡片（N 天前今日）
@@ -60,10 +64,56 @@ async def timeline(
     days: int = Query(365, ge=7, le=365, description="天数"),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
+    language: str = Depends(get_request_language),
     service: GrowthService = Depends(get_growth_service),
 ):
-    """365 天成长热力图数据。"""
-    return success(await service.get_timeline(db, user_id, days))
+    """365 天成长热力图数据（含里程碑标注）。"""
+    return success(await service.get_timeline(db, user_id, days, language))
+
+
+@router.get("/growth/timeline/day")
+async def timeline_day(
+    day: str = Query(..., description="日期 YYYY-MM-DD（用户本地日历日）"),
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    language: str = Depends(get_request_language),
+    service: GrowthService = Depends(get_growth_service),
+):
+    """单日摘要卡片（P0-F07 §2）：情绪类型 + 当日记录（AI 对话摘要）+ 关键事件。GET 只读，不触发 LLM。"""
+    return success(await service.get_day_summary(db, user_id, day, language))
+
+
+@router.get("/growth/relationship-timeline")
+async def relationship_timeline(
+    limit: int = Query(50, ge=1, le=100, description="事件条数上限"),
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    language: str = Depends(get_request_language),
+    service: GrowthService = Depends(get_growth_service),
+):
+    """关系时间线（P0-F07 §7）：认识第 N 天 · 聊了 N 次 · 共同经历 N 个时刻 + 倒序事件流。"""
+    return success(await service.get_relationship_timeline(db, user_id, language, limit=limit))
+
+
+@router.get("/growth/level")
+async def level_detail(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    language: str = Depends(get_request_language),
+):
+    """关系等级详情（P0-F05）：当前等级 + 全部等级/解锁能力表 + 等级说明（名称无恋爱含义）。"""
+    return success(await user_service.get_level_detail(db, user_id, language))
+
+
+@router.get("/growth/badges")
+async def badges(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    language: str = Depends(get_request_language),
+):
+    """徽章列表（P0-F05）：连续 7/30/100/365 天四枚，含本地化名称与达成状态。"""
+    items = await user_service.get_milestones(db, user_id, language)
+    return success({"badges": items, "total": len(items)})
 
 
 @router.get("/growth/reports/{period}")

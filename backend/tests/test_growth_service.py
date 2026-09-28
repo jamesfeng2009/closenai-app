@@ -1,5 +1,5 @@
 """growth_service：_insight_level 晋升阈值、仪表盘周报时效过滤、规则打标、报告门控。"""
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -81,3 +81,105 @@ async def test_generate_report_weekly_free_allowed(db, make_user):
     report = await growth_service.generate_report(db, "u1", "weekly")
     assert report["period"] == "weekly"
     assert report["content"]
+
+
+async def test_get_day_summary_aggregates_mood_records_chats(db, make_user, time_travel):
+    """单日摘要卡片（P0-F07 §2）：情绪 + 当日记录 + 对话数 + 当日徽章。"""
+    from backend.repositories import chat_repository, milestone_repository, mood_repository
+
+    time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
+    await make_user("u1", timezone="UTC")
+    target = date(2026, 8, 4)
+
+    # 当日签到（checkin_date 即用户本地日历日）
+    checkin = await mood_repository.create(db, "u1", "😊", "开心", "解读", checkin_date=target)
+    checkin.created_at = datetime(2026, 8, 4, 10, 0, tzinfo=timezone.utc)
+    # 当日洞察记录（= AI 对话摘要）
+    record = await growth_repository.create(
+        db, "u1", "daily_insight", "今日洞察：工作压力", tags=["工作"]
+    )
+    record.created_at = datetime(2026, 8, 4, 23, 0, tzinfo=timezone.utc)
+    # 当日两条对话（窗口外一条不计数）
+    m1 = await chat_repository.create(db, "u1", "user", "今天工作很累")
+    m1.created_at = datetime(2026, 8, 4, 11, 0, tzinfo=timezone.utc)
+    m2 = await chat_repository.create(db, "u1", "assistant", "我在听")
+    m2.created_at = datetime(2026, 8, 4, 11, 1, tzinfo=timezone.utc)
+    m3 = await chat_repository.create(db, "u1", "user", "三天前的消息")
+    m3.created_at = datetime(2026, 8, 1, 11, 0, tzinfo=timezone.utc)
+    # 当日达成徽章
+    badge = await milestone_repository.create(db, "u1", "streak_7")
+    badge.achieved_at = datetime(2026, 8, 4, 9, 0, tzinfo=timezone.utc)
+    await db.flush()
+
+    summary = await growth_service.get_day_summary(db, "u1", "2026-08-04", "zh")
+    assert summary["has_data"] is True
+    assert summary["mood"]["emoji"] == "😊"
+    assert summary["mood"]["value"] == 5
+    assert summary["color"] == "#E8F5E9"
+    assert summary["chat_count"] == 2
+    assert [r["record_type"] for r in summary["records"]] == ["daily_insight"]
+    assert summary["records"][0]["tags"] == ["工作"]
+    assert summary["milestones"] == [
+        {"date": "2026-08-04", "milestone_type": "streak_7", "name": "一周坚持"}
+    ]
+
+
+async def test_get_day_summary_empty_and_invalid_date(db, make_user):
+    """无数据日 has_data=False；非法日期 → 40001。"""
+    await make_user("u1", timezone="UTC")
+    summary = await growth_service.get_day_summary(db, "u1", "2026-08-01", "en")
+    assert summary["has_data"] is False
+    assert summary["mood"] is None
+    assert summary["chat_count"] == 0
+
+    with pytest.raises(AppException) as exc:
+        await growth_service.get_day_summary(db, "u1", "not-a-date")
+    assert exc.value.code == 40001
+
+
+async def test_timeline_includes_milestone_markers(db, make_user, time_travel):
+    """热力图附带里程碑标注（P0-F07 §3：本地日历日 + 本地化名称）。"""
+    from backend.repositories import milestone_repository
+
+    time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
+    await make_user("u1", timezone="UTC")
+    badge = await milestone_repository.create(db, "u1", "streak_7")
+    badge.achieved_at = datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc)
+    await db.flush()
+
+    timeline = await growth_service.get_timeline(db, "u1", days=30, language="en")
+    assert len(timeline["days"]) == 30
+    assert timeline["milestones"] == [
+        {"date": "2026-08-03", "milestone_type": "streak_7", "name": "7-Day Streak"}
+    ]
+
+
+async def test_relationship_timeline_stats_and_event_order(db, make_user, time_travel):
+    """关系时间线（P0-F07 §7）：认识天数/聊天数/事件计数 + 事件按时间倒序。"""
+    from backend.repositories import chat_repository, milestone_repository
+
+    time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
+    await make_user(
+        "u1",
+        timezone="UTC",
+        active_days=5,
+        created_at=datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc),
+    )
+
+    badge = await milestone_repository.create(db, "u1", "streak_7")
+    badge.achieved_at = datetime(2026, 8, 4, 9, 0, tzinfo=timezone.utc)
+    record = await growth_repository.create(db, "u1", "daily_insight", "洞察内容")
+    record.created_at = datetime(2026, 8, 3, 23, 0, tzinfo=timezone.utc)
+    msg = await chat_repository.create(db, "u1", "user", "你好")
+    msg.created_at = datetime(2026, 8, 2, 10, 0, tzinfo=timezone.utc)
+    await db.flush()
+
+    data = await growth_service.get_relationship_timeline(db, "u1", "zh")
+    assert data["days_known"] == 5  # 8/1 → 8/5
+    assert data["chat_count"] == 1
+    assert data["event_count"] == 2
+    # 倒序：徽章（8/4）在前，洞察（8/3）在后
+    assert [e["type"] for e in data["events"]] == ["milestone", "record"]
+    assert data["events"][0]["title"] == "一周坚持"
+    assert data["events"][1]["title"] == "每日洞察"
+    assert data["level"]["level"] == 1

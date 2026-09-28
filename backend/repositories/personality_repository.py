@@ -57,17 +57,18 @@ class PersonalityRepository:
         await db.flush()
         return profile
 
-    # ── 对话式评估（P0-F06：8 题问答状态）──
+    # ── 对话式评估（P0-F06：8 题问答状态；P1-F03：九型 36 题，kind 区分）──
 
     async def get_in_progress_assessment(
-        self, db: AsyncSession, user_id: str
+        self, db: AsyncSession, user_id: str, kind: str = "mbti"
     ) -> Optional[PersonalityAssessment]:
-        """获取用户进行中的评估（最新一条 in_progress）。"""
+        """获取用户进行中的评估（最新一条 in_progress，按 kind 过滤）。"""
         result = await db.execute(
             select(PersonalityAssessment)
             .where(
                 PersonalityAssessment.user_id == user_id,
                 PersonalityAssessment.status == "in_progress",
+                PersonalityAssessment.kind == kind,
             )
             .order_by(PersonalityAssessment.created_at.desc())
             .limit(1)
@@ -75,23 +76,27 @@ class PersonalityRepository:
         return result.scalar_one_or_none()
 
     async def list_completed_assessments(
-        self, db: AsyncSession, user_id: str
+        self, db: AsyncSession, user_id: str, kind: str = "mbti"
     ) -> List[PersonalityAssessment]:
-        """全部已完成评估（每次完成生成一版画像；刷新配额需剔除这部分"免费"版本）。"""
+        """全部已完成评估（每次完成生成一版画像；刷新配额需剔除这部分"免费"版本）。
+
+        默认只统计 kind='mbti'——九型评估不生成 16 型画像，不影响刷新配额口径。
+        """
         result = await db.execute(
             select(PersonalityAssessment).where(
                 PersonalityAssessment.user_id == user_id,
                 PersonalityAssessment.status == "completed",
+                PersonalityAssessment.kind == kind,
             )
         )
         return list(result.scalars().all())
 
     async def create_assessment(
-        self, db: AsyncSession, user_id: str
+        self, db: AsyncSession, user_id: str, kind: str = "mbti"
     ) -> PersonalityAssessment:
         """开始一轮新评估。"""
         assessment = PersonalityAssessment(
-            id=str(uuid4()), user_id=user_id, answers="[]", status="in_progress"
+            id=str(uuid4()), user_id=user_id, kind=kind, answers="[]", status="in_progress"
         )
         db.add(assessment)
         await db.flush()

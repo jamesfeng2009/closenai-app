@@ -98,6 +98,19 @@ class ChatRepository:
         result = await db.execute(stmt)
         return int(result.scalar_one() or 0)
 
+    async def count_between(
+        self, db: AsyncSession, user_id: str, start: datetime, end: datetime
+    ) -> int:
+        """统计时间窗口 [start, end) 内的消息条数（单日摘要卡片对话数）。"""
+        result = await db.execute(
+            select(func.count(ChatMessage.id)).where(
+                ChatMessage.user_id == user_id,
+                ChatMessage.created_at >= start,
+                ChatMessage.created_at < end,
+            )
+        )
+        return int(result.scalar_one() or 0)
+
     async def get_last_user_message(
         self, db: AsyncSession, user_id: str
     ) -> Optional[ChatMessage]:

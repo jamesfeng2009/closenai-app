@@ -2,7 +2,7 @@
 定时任务服务 (P0-F01/P0-F03/P0-F07/P1-F01)。
 
 管理 Vercel Cron 触发的定时任务：主动消息生成、签到轻提醒、周洞察生成、
-连续负面关心推送。
+连续负面关心推送、事件后 3-7 天主动跟进（QStash 每日调度）。
 
 触发模型（PRD P0-F01）：
 - Vercel Cron 每小时触发一次
@@ -80,6 +80,8 @@ SILENT_STOP_DAYS = 14    # 连续 14 天未回复 → 停止主动消息
 
 # 特殊事件推送（里程碑/关心类）每月每用户上限（PRD P1-F01 §6）
 SPECIAL_PUSH_MONTHLY_LIMIT = 4
+# 事件后主动跟进（PRD P0-F07）：QStash 每日调度表达式（UTC 01:00，避开各时区推送高峰）
+FOLLOW_UP_SCHEDULE_CRON = "0 1 * * *"
 # 连续负面签到触发关心推送的天数（恰达该天数的当天触发一次，episode 内不重复）
 CARE_NEGATIVE_DAYS = 3
 # 里程碑天数（与 message_generator._milestone_message 同口径：streak/累计活跃恰达即触发）
@@ -555,6 +557,96 @@ class CronService:
         )
         await subscription_repository.mark_trial_reminded(db, sub.id)
         return "sent"
+
+    async def dispatch_follow_ups(self, db: AsyncSession) -> Dict[str, Any]:
+        """事件后 3-7 天主动跟进（PRD P0-F07，QStash 每日调度触发）。
+
+        扫描跟进窗口（配置 follow_up_window_start_days ~ end_days，默认 3-7 天前）
+        内未跟进的 reflection/milestone 成长记录，逐条生成
+        「上次你提到...现在怎么样了？」式跟进消息写入对话流
+        （message_type='follow_up'），并标记 follow_up_sent 防重复。
+        每条记录独立事务边界，单条失败不影响整批。
+        """
+        records = await growth_service.get_pending_follow_ups(db)
+        sent = 0
+        skipped = 0
+        failed = 0
+        for record in records:
+            try:
+                status = await self._maybe_send_follow_up(db, record)
+                await db.commit()
+                if status == "sent":
+                    sent += 1
+                else:
+                    skipped += 1
+            except Exception as exc:  # noqa: BLE001
+                await db.rollback()
+                logger.warning("跟进消息发送失败 record=%s: %s", record.id, exc)
+                failed += 1
+        return {
+            "pending": len(records),
+            "sent": sent,
+            "skipped": skipped,
+            "failed": failed,
+            "status": "completed",
+        }
+
+    async def _maybe_send_follow_up(self, db: AsyncSession, record) -> str:
+        """对单条成长记录生成并写入跟进消息（事务边界由调用方控制）。
+
+        返回 "sent" / "skipped"。跳过的记录同样标记 follow_up_sent，
+        避免每日 cron 重复扫描（与试用到期提醒同口径）。
+        """
+        user = await user_repository.get_user(db, record.user_id)
+        # 合规：未同意 AI 数据共享的用户不生成 AI 内容（5.1.2(i)）；
+        # 用户已注销（查不到 active 行）时记录随 purge 清理，同样标记跳过
+        if user is None or not user.ai_consent:
+            await growth_service.mark_follow_up_sent(db, record.id)
+            return "skipped"
+        message = await message_generator.generate_follow_up(
+            record.content, user.language or "en"
+        )
+        await chat_repository.create(
+            db, record.user_id, "assistant", message,
+            message_type="follow_up", ai_generated=True,
+        )
+        await growth_service.mark_follow_up_sent(db, record.id)
+        return "sent"
+
+    async def register_follow_up_schedule(self) -> Optional[str]:
+        """向 QStash 注册「事件后跟进」每日调度（幂等），返回 scheduleId。
+
+        调度目标：每日 POST {backend_base_url}/api/v1/cron/follow-up
+        （带 Upstash-Signature 签名，由端点验签）。已存在同 destination
+        的调度时直接复用其 scheduleId，不重复创建；未配置 qstash_token /
+        backend_base_url 时返回 None（功能降级，可改用外部 cron 触发）。
+        供部署后一次性调用（如运维脚本 / REPL）。
+        """
+        if not (settings.qstash_token and settings.backend_base_url):
+            logger.warning("QStash 未配置，跳过 follow-up 调度注册")
+            return None
+        base = (settings.qstash_url or QSTASH_DEFAULT_URL).rstrip("/")
+        destination = f"{settings.backend_base_url.rstrip('/')}/api/v1/cron/follow-up"
+        headers = {"Authorization": f"Bearer {settings.qstash_token}"}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{base}/v2/schedules", headers=headers)
+                if 200 <= resp.status_code < 300:
+                    for item in resp.json():
+                        if destination in (item.get("destination") or ""):
+                            return item.get("scheduleId")
+                resp = await client.post(
+                    f"{base}/v2/schedules/{destination}",
+                    headers={**headers, "Upstash-Cron": FOLLOW_UP_SCHEDULE_CRON},
+                )
+            if 200 <= resp.status_code < 300:
+                schedule_id = resp.json().get("scheduleId")
+                logger.info("follow-up 调度已注册 schedule=%s", schedule_id)
+                return schedule_id
+            logger.warning("follow-up 调度注册失败 status=%s", resp.status_code)
+        except Exception as exc:  # noqa: BLE001 - 注册失败不影响端点本身可用
+            logger.warning("follow-up 调度注册异常: %s", exc)
+        return None
 
     async def generate_daily_insights(self, db: AsyncSession) -> Dict[str, Any]:
         """每日洞察生成（P0-F07 §1，每日触发）。

@@ -3,12 +3,13 @@
 
 职责：只与 growth_records 表交互，不含业务逻辑。
 - 每日洞察 / 周报 / 模式发现 的写入与查询
+- 事件后跟进（follow_up_sent 标记）的扫描与更新
 """
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Sequence
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import utc_now
@@ -105,6 +106,36 @@ class GrowthRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def list_pending_follow_ups(
+        self,
+        db: AsyncSession,
+        record_types: Sequence[str],
+        start: datetime,
+        end: datetime,
+        limit: int = 200,
+    ) -> List[GrowthRecord]:
+        """查询窗口 [start, end) 内未发送跟进消息的记录（按时间正序，跨用户）。"""
+        result = await db.execute(
+            select(GrowthRecord)
+            .where(
+                GrowthRecord.record_type.in_(record_types),
+                GrowthRecord.follow_up_sent.is_(False),
+                GrowthRecord.created_at >= start,
+                GrowthRecord.created_at < end,
+            )
+            .order_by(GrowthRecord.created_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def mark_follow_up_sent(self, db: AsyncSession, record_id: str) -> None:
+        """标记记录已发送跟进消息（幂等：重复标记结果一致）。"""
+        await db.execute(
+            update(GrowthRecord)
+            .where(GrowthRecord.id == record_id)
+            .values(follow_up_sent=True)
+        )
 
 
 growth_repository = GrowthRepository()

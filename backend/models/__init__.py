@@ -13,7 +13,6 @@ from backend.models.chat import ChatMessage
 from backend.models.growth import GrowthRecord, UserMilestone
 from backend.models.memory import Memory
 from backend.models.mood import MoodCheckin
-from backend.models.natal import NatalChart
 from backend.models.personality import PersonalityAssessment, PersonalityProfile
 from backend.models.push import PushToken
 from backend.models.share import ShareExport
@@ -26,7 +25,6 @@ __all__ = [
     "GrowthRecord",
     "Memory",
     "MoodCheckin",
-    "NatalChart",
     "PersonalityAssessment",
     "PersonalityProfile",
     "PushToken",

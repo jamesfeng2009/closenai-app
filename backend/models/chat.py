@@ -16,7 +16,7 @@ class ChatMessage(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(36), index=True)
-    # 消息类型: proactive | reply | mood_checkin | discovery
+    # 消息类型: proactive | reply | mood_checkin | discovery | follow_up
     message_type: Mapped[str] = mapped_column(String(20), default="reply")
     role: Mapped[str] = mapped_column(String(10))  # user | assistant
     content: Mapped[str] = mapped_column(Text)

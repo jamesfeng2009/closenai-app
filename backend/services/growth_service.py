@@ -7,10 +7,11 @@
 """
 import json
 import logging
-from datetime import timedelta, timezone
+from datetime import date, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.time_utils import (
@@ -29,6 +30,7 @@ from backend.repositories import (
     chat_repository,
     growth_repository,
     memory_repository,
+    milestone_repository,
     mood_repository,
     user_repository,
 )
@@ -41,6 +43,9 @@ logger = logging.getLogger("closenai.growth")
 # 报告周期白名单（非法 period → 400）；月/季/年报为 Pro 权益（PRD P1-F02 §3），与 share_service 同口径
 REPORT_PERIODS = ("weekly", "monthly", "quarterly", "yearly")
 PRO_REPORT_PERIODS = ("monthly", "quarterly", "yearly")
+
+# 事件后主动跟进的记录类型（PRD P0-F07：用户写下的反思 / 重要事件记录）
+FOLLOW_UP_RECORD_TYPES = ("reflection", "milestone")
 
 
 def _is_zh(language: str | None) -> bool:
@@ -111,12 +116,20 @@ INSIGHT_TYPE_LABELS = {
         "weekly_summary": "周报",
         "pattern_discovery": "模式发现",
         "drift_alert": "变化提醒",
+        "weekly_report": "周报",
+        "monthly_report": "月度报告",
+        "quarterly_report": "季度报告",
+        "yearly_report": "年度报告",
     },
     "en": {
         "daily_insight": "Daily insight",
         "weekly_summary": "Weekly summary",
         "pattern_discovery": "Pattern discovery",
         "drift_alert": "Drift alert",
+        "weekly_report": "Weekly report",
+        "monthly_report": "Monthly report",
+        "quarterly_report": "Quarterly report",
+        "yearly_report": "Yearly report",
     },
 }
 
@@ -136,12 +149,14 @@ class GrowthService:
         )
         today_mood_str = today_mood.mood_emoji if today_mood else None
 
-        # 关系等级（PRD P0-F05：按累计活跃天数晋升，与 update_streak 写入的 users.relationship_level 同源）
-        _level, label, progress = user_service.get_relationship_level(user.active_days)
+        # 关系等级（PRD P0-F05：按累计活跃天数晋升，与 update_streak 写入的 users.relationship_level 同源；
+        # 展示名按用户语言本地化）
+        level, _canonical, progress = user_service.get_relationship_level(user.active_days)
+        label = user_service.level_label(level, user.language)
 
         # 月度冻结券发放（读路径保持展示值新鲜）+ 里程碑徽章（按当前 streak 幂等补齐）
         await user_service.ensure_freeze_grant(db, user)
-        milestones = await user_service.get_milestones(db, user_id)
+        milestones = await user_service.get_milestones(db, user_id, user.language)
 
         # 记忆分类计数（成长指标）
         cat_counts = await memory_repository.count_by_category(db, user_id)
@@ -233,8 +248,13 @@ class GrowthService:
         header = "最近 7 天成长洞察：" if zh else "Growth insights from the past 7 days:"
         return header + "\n" + "\n".join(lines)
 
-    async def get_timeline(self, db: AsyncSession, user_id: str, days: int = 365) -> dict:
-        """365 天成长热力图：按天返回 (date, 情绪值, 颜色)（按用户本地日历日）。"""
+    async def get_timeline(
+        self, db: AsyncSession, user_id: str, days: int = 365, language: str = "en"
+    ) -> dict:
+        """365 天成长热力图：按天返回 (date, 情绪值, 颜色)（按用户本地日历日）。
+
+        附带已达成徽章的里程碑标注（PRD P0-F07 §3：里程碑在热力图上用特殊图标标注）。
+        """
         user = await user_repository.require_user(db, user_id)
         rows = await mood_repository.count_by_day(db, user_id, days, tz=user.timezone)
         day_map: dict = {}
@@ -250,7 +270,122 @@ class GrowthService:
             d = start + timedelta(days=i)
             val = day_map.get(d.isoformat(), 0)
             result.append({"date": d.isoformat(), "value": val})
-        return {"days": result}
+        milestones = await self._milestone_markers(db, user_id, user.timezone, language)
+        return {"days": result, "milestones": milestones}
+
+    async def _milestone_markers(
+        self, db: AsyncSession, user_id: str, tz: str | None, language: str = "en"
+    ) -> list[dict]:
+        """热力图里程碑标注：已达成徽章 → 用户本地日历日 + 本地化徽章名。"""
+        records = await milestone_repository.list_for_user(db, user_id)
+        return [
+            {
+                "date": self._local_date(m.achieved_at, tz).isoformat(),
+                "milestone_type": m.milestone_type,
+                "name": user_service.milestone_name(m.milestone_type, language),
+            }
+            for m in records
+        ]
+
+    async def get_day_summary(
+        self, db: AsyncSession, user_id: str, day: str, language: str = "en"
+    ) -> dict:
+        """单日摘要卡片（PRD P0-F07 §2：点击单日弹出，不跳转页面）。
+
+        内容：情绪类型 + 当日记录（每日洞察即 AI 对话摘要）+ 关键事件（当日达成徽章）
+        + 当日对话消息数。GET 只读、不触发 LLM；无任何数据时 has_data=False，
+        由前端展示空状态。
+        """
+        from backend.services.mood_service import mood_label_for
+
+        user = await user_repository.require_user(db, user_id)
+        try:
+            target = date.fromisoformat(day)
+        except ValueError:
+            raise AppException(ErrorCode.INVALID_PARAMS, f"无效的日期格式: {day}")
+        start = local_day_start_utc(user.timezone, target)
+        end = local_day_start_utc(user.timezone, target + timedelta(days=1))
+
+        # 情绪签到（checkin_date 即用户本地日历日）
+        checkin = await mood_repository.get_by_date(db, user_id, target)
+        mood = None
+        if checkin:
+            mood = {
+                "emoji": checkin.mood_emoji,
+                "label": checkin.mood_label or mood_label_for(checkin.mood_emoji, language),
+                "value": self._emoji_value(checkin.mood_emoji),
+                "interpretation": checkin.ai_interpretation,
+            }
+
+        # 当日成长记录（每日洞察 = AI 对话摘要）
+        records = await growth_repository.list_between(db, user_id, start, end)
+        # 当日对话消息数
+        chat_count = await chat_repository.count_between(db, user_id, start, end)
+        # 关键事件：当日达成的徽章
+        markers = await self._milestone_markers(db, user_id, user.timezone, language)
+        day_milestones = [m for m in markers if m["date"] == target.isoformat()]
+
+        return {
+            "date": target.isoformat(),
+            "has_data": bool(checkin or records or chat_count or day_milestones),
+            "mood": mood,
+            "color": MOOD_COLORS.get(mood["value"], EMPTY_COLOR) if mood else EMPTY_COLOR,
+            "chat_count": chat_count,
+            "records": [
+                {
+                    "record_type": r.record_type,
+                    "content": r.content,
+                    "tags": self._record_tags(r),
+                }
+                for r in records
+            ],
+            "milestones": day_milestones,
+        }
+
+    async def get_relationship_timeline(
+        self, db: AsyncSession, user_id: str, language: str = "en", limit: int = 50
+    ) -> dict:
+        """关系时间线（PRD P0-F07 §7）。
+
+        顶部统计：认识第 N 天（自注册本地日历日起）· 聊了 N 次 · 共同经历 N 个时刻；
+        事件流按时间倒序：里程碑徽章 + 成长记录（每日洞察/周报/报告）。
+        """
+        user = await user_repository.require_user(db, user_id)
+        today = local_today(user.timezone)
+        days_known = (today - self._local_date(user.created_at, user.timezone)).days + 1
+        chat_count = await chat_repository.count_total(db, user_id)
+
+        events: list[dict] = []
+        for m in await milestone_repository.list_for_user(db, user_id):
+            events.append({
+                "type": "milestone",
+                "milestone_type": m.milestone_type,
+                "title": user_service.milestone_name(m.milestone_type, language),
+                "date": self._local_date(m.achieved_at, user.timezone).isoformat(),
+                "created_at": m.achieved_at.isoformat() if m.achieved_at else None,
+            })
+        records = await growth_repository.list_recent(db, user_id, days=365, limit=limit)
+        labels = INSIGHT_TYPE_LABELS["zh" if _is_zh(language) else "en"]
+        for r in records:
+            events.append({
+                "type": "record",
+                "record_type": r.record_type,
+                "title": labels.get(r.record_type, r.record_type),
+                "content": r.content,
+                "tags": self._record_tags(r),
+                "date": self._local_date(r.created_at, user.timezone).isoformat(),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            })
+        events.sort(key=lambda e: e["created_at"] or "", reverse=True)
+        events = events[:limit]
+
+        return {
+            "days_known": days_known,
+            "chat_count": chat_count,
+            "event_count": len(events),
+            "level": user_service.get_level_info(user.active_days, language),
+            "events": events,
+        }
 
     async def generate_daily_insight(self, db: AsyncSession, user_id: str, language: str = "en") -> str:
         """生成当日洞察（P0-F07），写入成长记录。
@@ -473,6 +608,26 @@ class GrowthService:
             "memories": [m.content for m in memories],
             "card_text": card_text,
         }
+
+    # ── P0-F07 事件后主动跟进（3-7 天窗口）──
+
+    async def get_pending_follow_ups(self, db: AsyncSession, limit: int = 200) -> list:
+        """查询跟进窗口内未发送跟进消息的成长记录（跨用户，每日 cron 扫描）。
+
+        窗口由配置项 follow_up_window_start_days ~ follow_up_window_end_days
+        决定（默认 3-7 天前），按 UTC 滚动窗口比较 created_at（精确到秒，
+        不涉及本地日历日换算）；记录类型限定 FOLLOW_UP_RECORD_TYPES。
+        """
+        now = utc_now()
+        start = now - timedelta(days=settings.follow_up_window_end_days)
+        end = now - timedelta(days=settings.follow_up_window_start_days)
+        return await growth_repository.list_pending_follow_ups(
+            db, FOLLOW_UP_RECORD_TYPES, start, end, limit=limit
+        )
+
+    async def mark_follow_up_sent(self, db: AsyncSession, record_id: str) -> None:
+        """标记记录已发送跟进消息（防 cron 重复触发导致重复发送）。"""
+        await growth_repository.mark_follow_up_sent(db, record_id)
 
     # ── P1-F03 高级洞察（周期报告）──
 

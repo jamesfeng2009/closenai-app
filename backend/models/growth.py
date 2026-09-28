@@ -5,7 +5,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, String, Text, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -25,6 +25,8 @@ class GrowthRecord(Base):
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 结构化摘要（JSON 字符串：周报 mood_distribution/top_topics 等，P1-F03 §1）
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 事件后跟进消息是否已发送（P0-F07：3-7 天主动跟进防重复标记）
+    follow_up_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

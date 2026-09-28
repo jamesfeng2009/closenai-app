@@ -10,10 +10,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import auth, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics, natal
+from backend.routers import auth, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics
 from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
+from backend.services.cron_service import cron_service
 
 # 初始化日志系统（统一格式：trace_id / user_id 透传）
 setup_logging("DEBUG" if settings.debug else "INFO")
@@ -58,6 +59,12 @@ def _validate_startup_config() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _validate_startup_config()
+    try:
+        schedule_id = await cron_service.register_follow_up_schedule()
+        if schedule_id:
+            logger.info("lifespan 已注册 follow-up 调度 schedule=%s", schedule_id)
+    except Exception as exc:  # noqa: BLE001 - 调度注册失败不影响应用启动
+        logger.warning("lifespan follow-up 调度注册失败（可后续手动注册）: %s", exc)
     yield
 
 
@@ -98,7 +105,6 @@ app.include_router(reflection.router, prefix="/api/v1", tags=["reflections"])
 app.include_router(cron.router, prefix="/api/v1", tags=["cron"])
 app.include_router(share.router, prefix="/api/v1", tags=["share"])
 app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
-app.include_router(natal.router, prefix="/api/v1", tags=["natal"])
 
 
 @app.get("/health")
