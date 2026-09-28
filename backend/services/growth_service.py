@@ -483,13 +483,15 @@ class GrowthService:
         prompt = (
             "基于以下真实情绪数据，给出 1-2 句对下周的预测与可行动建议"
             "（指出具体星期/趋势，不空泛，不使用占星/算命措辞）：\n"
+            f"{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}\n"
             f"近14天情绪分布：{mood_desc}\n"
             f"负面情绪出现的星期：{weekday_map}"
         )
         try:
             text = await llm.complete(prompt, language=language, lite=True, max_tokens=120)
             # L3 输出过滤：命中则周报省略预测段
-            text = await safety_service.check_or(text.strip(), language, "")
+            text = await safety_service.check_or(text.strip(), language, "", scope="assertion")
             return text or None
         except Exception as exc:  # noqa: BLE001
             logger.warning("下周预测 LLM 失败，周报省略预测段: %s", exc)
@@ -740,6 +742,8 @@ class GrowthService:
         prompt = (
             "你是 ClosenAI，一位温暖有洞察力的成长陪伴者。基于以下真实数据，发现用户跨维度的成长模式，"
             "输出 2-3 条具体、可行动的洞察（不要空泛，不要算命/占星措辞）：\n"
+            f"{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}\n"
             f"近90天情绪分布：{mood_desc}\n"
             f"负面情绪出现的星期：{weekday_map}\n"
             f"记忆：{mem_desc}\n"
@@ -748,7 +752,9 @@ class GrowthService:
         try:
             text = await llm.complete(prompt, language=language, lite=True, max_tokens=220)
             # L3 输出过滤：命中回退模板
-            text = await safety_service.check_or(text.strip(), language, "")
+            text = await safety_service.check_or(
+                text.strip(), language, "", scope="assertion"
+            )
             return text or self._fallback_pattern(mood_desc, language)
         except Exception as exc:  # noqa: BLE001
             logger.warning("模式发现 LLM 失败，回退模板: %s", exc)
@@ -762,6 +768,8 @@ class GrowthService:
             f"你是一位温暖、有洞察力的成长教练。请为用户生成一份「{data['period_label']}」，"
             f"基于以下真实数据，用 3-6 句话总结，包含情绪趋势、模式发现、性格洞察与成长建议，"
             "要具体、有温度、不空泛，不使用占星/算命措辞：\n"
+            f"{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}\n"
             f"情绪趋势：{data['mood_trend']}\n"
             f"情绪分布：{data['mood_distribution']}\n"
             f"对话次数：{data['chat_count']}，对话天数：{data['chat_days']}\n"
@@ -772,7 +780,9 @@ class GrowthService:
         try:
             text = await llm.complete(prompt, language=language, lite=True, max_tokens=300)
             # L3 输出过滤：命中回退模板
-            text = await safety_service.check_or(text.strip(), language, "")
+            text = await safety_service.check_or(
+                text.strip(), language, "", scope="assertion"
+            )
             return text or self._fallback_report(data, language)
         except Exception as exc:  # noqa: BLE001
             logger.warning("报告生成 LLM 失败，回退模板: %s", exc)
@@ -855,21 +865,31 @@ class GrowthService:
         )
 
     async def _llm_or_fallback(self, prompt: str, language: str) -> str:
-        """LLM 生成，失败回退规则模板（模板按语言）。"""
+        """LLM 生成，失败回退规则模板（模板按语言）。
+
+        成长洞察/周报/主题卡都走这里：统一注入 L1 段落（boundary + evidence_policy），
+        输出统一过 L3（断言型 scope），命中同样回退规则模板。
+        """
         zh = _is_zh(language)
+        fallback = (
+            "这段时间你正在慢慢更了解自己，继续记录，模式会浮现。" if zh
+            else "You're slowly getting to know yourself better these days. "
+                 "Keep recording and patterns will surface."
+        )
+        full_prompt = (
+            f"{prompt}\n\n{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}"
+        )
         try:
-            text = await llm.complete(prompt, language=language, lite=True, max_tokens=200)
-            return text.strip() or (
+            text = await llm.complete(full_prompt, language=language, lite=True, max_tokens=200)
+            text = text.strip() or (
                 "你正在一点点理解自己，继续记录吧。" if zh
                 else "You're understanding yourself bit by bit — keep recording."
             )
+            return await safety_service.check_or(text, language, fallback, scope="assertion")
         except Exception as exc:  # noqa: BLE001
             logger.warning("成长洞察 LLM 失败，回退模板: %s", exc)
-            return (
-                "这段时间你正在慢慢更了解自己，继续记录，模式会浮现。" if zh
-                else "You're slowly getting to know yourself better these days. "
-                     "Keep recording and patterns will surface."
-            )
+            return fallback
 
     async def _mood_timeline(self, db: AsyncSession, user_id: str, tz: str | None = None) -> list:
         """最近 14 天情绪热力图颜色（按用户本地日历日）。"""

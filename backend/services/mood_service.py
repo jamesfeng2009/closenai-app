@@ -175,7 +175,8 @@ class MoodService:
             prompt = (
                 f"用户今天签到情绪为「{label}」{emoji}，备注：{note}\n"
                 "请用2-3句话给一句温暖、真诚的回应，不要空洞，不要提建议过度。\n"
-                f"{safety_service.boundary(language)}"
+                f"{safety_service.boundary(language)}\n"
+                f"{safety_service.evidence_policy(language)}"
             )
             text = await llm.complete(
                 prompt,
@@ -215,7 +216,8 @@ class MoodService:
                 f"最近记忆：\n{memory_desc}\n"
                 "请结合情绪趋势与近期记忆，生成 2-3 句深度解读：指出这个模式，"
                 "语气温和真诚，像朋友一样自然地邀请用户聊聊，不要说教、不要空泛。\n"
-                f"{safety_service.boundary(language)}"
+                f"{safety_service.boundary(language)}\n"
+                f"{safety_service.evidence_policy(language)}"
             )
             text = await llm.complete(
                 prompt,
@@ -225,7 +227,10 @@ class MoodService:
                 temperature=0.7,
             )
             # L3 输出过滤：命中降级为 None（不影响签到主流程）
-            return await safety_service.check_or(text.strip() or "", language, "") or None
+            # scope=assertion：深度解读断言跨天模式，属断言型出口
+            return await safety_service.check_or(
+                text.strip() or "", language, "", scope="assertion"
+            ) or None
         except Exception as exc:  # noqa: BLE001  深度解读失败不影响签到
             logger.warning("mood 深度解读失败，降级为 None: %s", exc)
             return None

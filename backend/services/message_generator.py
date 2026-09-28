@@ -146,6 +146,7 @@ class MessageGenerator:
             "Keep replies concise, empathetic, and in the user's language.\n\n"
             f"{conversation_style_prompt(style, language)}\n\n"
             f"{safety_service.boundary(language)}\n\n"
+            f"{safety_service.evidence_policy(language)}\n\n"
             f"关于用户的记忆（可作为参考，不要生硬复述）：\n{memory_context}"
         )
         gate = safety_service.sentence_gate(language)
@@ -251,6 +252,8 @@ class MessageGenerator:
             "你是 ClosenAI，一位温暖、有洞察的 AI 陪伴者。请给用户发一条简短的主动问候（1-2句话），"
             "要自然、具体、不过度，像朋友一样关心。\n"
             f"{conversation_style_prompt(style, language)}\n"
+            f"{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}\n"
             f"{self._discovery_placement_hint(discovery_priority, language)}"
             f"用户近期记忆：{memory_desc}\n"
             f"数据洞察：{discovery_desc}\n"
@@ -261,11 +264,13 @@ class MessageGenerator:
         try:
             text = await llm.complete(prompt, language=language, lite=True, max_tokens=80)
             # L3 输出过滤（非流式）：命中回退 Rule Engine 模板
+            # scope=assertion：主动消息引用记忆与模式，属断言型出口，推理越界一并拦
             text = await safety_service.check_or(
                 text.strip(), language,
                 self._build_free_proactive(
                     memory_desc, discovery_desc, mood_desc, language, discovery_priority
                 ),
+                scope="assertion",
             )
             return text or self._fallback_reply(user_id, language)
         except Exception as exc:  # noqa: BLE001
@@ -416,6 +421,8 @@ class MessageGenerator:
                 "你是 ClosenAI，一位温暖、有洞察的 AI 陪伴者。用户几天前的成长记录里"
                 "写下了下面的内容。请生成一条简短的跟进消息（1-2 句话），自然地询问"
                 "那件事现在的进展，像朋友一样关心，具体、不空泛、不说教：\n"
+                f"{safety_service.boundary(language)}\n"
+                f"{safety_service.evidence_policy(language)}\n"
                 f"用户当时的记录：「{excerpt}」"
             )
         else:
@@ -424,12 +431,14 @@ class MessageGenerator:
                 "user wrote the following in their growth record. Write a short follow-up "
                 "message (1-2 sentences) that naturally asks how that thing is going now, "
                 "like a caring friend — specific, not generic, no lecturing:\n"
+                f"{safety_service.boundary(language)}\n"
+                f"{safety_service.evidence_policy(language)}\n"
                 f"The user's record back then: \"{excerpt}\""
             )
         try:
             text = await llm.complete(prompt, language=language, lite=True, max_tokens=80)
-            # L3 输出过滤：命中回退模板
-            text = await safety_service.check_or(text.strip(), language, "")
+            # L3 输出过滤：命中回退模板（承诺回访引用用户原话，属断言型出口）
+            text = await safety_service.check_or(text.strip(), language, "", scope="assertion")
             return text or fallback
         except Exception as exc:  # noqa: BLE001
             logger.warning("跟进消息 LLM 失败，回退模板: %s", exc)

@@ -280,7 +280,10 @@ class PersonalityService:
         mood_desc = " ".join(f"{c.mood_emoji}{c.mood_label or ''}" for c in checkins) or "暂无情绪记录。"
         prompt = (
             f"根据以下用户数据，推断其 16 型人格类型（如 INTP；返回格式：类型|观察1；观察2；观察3|独特之处1-2句）。\n"
-            f"用户语言：{user.language if user else 'en'}\n用户记忆：\n{data_desc}\n最近情绪：{mood_desc}"
+            f"用户语言：{user.language if user else 'en'}\n"
+            f"{safety_service.boundary((user.language if user else 'en'))}\n"
+            f"{safety_service.evidence_policy((user.language if user else 'en'))}\n"
+            f"用户记忆：\n{data_desc}\n最近情绪：{mood_desc}"
         )
         try:
             text = await llm.complete(prompt, language=(user.language if user else "en"), lite=True, max_tokens=200)
@@ -471,6 +474,8 @@ class PersonalityService:
             "根据以下性格问答与用户数据，推断其 16 型人格类型"
             f"（返回格式：类型|观察1；观察2；观察3|独特之处1-2句）。\n"
             f"答题统计推断：{stats_type or '未知'}（可参考或修正）\n"
+            f"{safety_service.boundary(language or 'en')}\n"
+            f"{safety_service.evidence_policy(language or 'en')}\n"
             f"用户语言：{language}\n性格问答：\n" + "\n".join(qa_lines) +
             f"\n用户记忆：\n{data_desc}\n最近情绪：{mood_desc}"
         )
@@ -536,6 +541,8 @@ class PersonalityService:
         prompt = (
             "你是一位温暖、有洞察力的成长教练。请把用户的三个性格框架做交叉解读（3-5 句话），"
             "指出它们共同指向的特质与一条成长建议。只做性格框架解读，不做运势预测，不使用算命/占卜措辞：\n"
+            f"{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}\n"
             f"16 型人格：{profile.mbti_type}（{mbti_label or ''}）\n"
             f"太阳星座：{zodiac_desc}\n"
             f"九型人格：{enneagram_desc}\n"
@@ -546,7 +553,7 @@ class PersonalityService:
         try:
             content = (await llm.complete(prompt, language=language, lite=True, max_tokens=300)).strip()
             # L3 输出过滤：命中回退模板
-            content = await safety_service.check_or(content, language, "")
+            content = await safety_service.check_or(content, language, "", scope="assertion")
         except Exception as exc:  # noqa: BLE001
             logger.warning("组合报告 LLM 失败，回退模板: %s", exc)
         if not content:

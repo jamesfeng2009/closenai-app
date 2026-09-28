@@ -177,6 +177,8 @@ class PushCopywriter:
             "禁止出现运势、预测、幸运数字等占星措辞；"
             "不要引号、不要解释，只输出通知文本本身。\n"
             f"{conversation_style_prompt(getattr(user, 'conversation_style', None), language)}\n"
+            f"{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}\n"
             f"场景：{_SCENARIO_DESC.get(scenario, scenario)}\n"
             f"用户称呼：{name}\n"
         )

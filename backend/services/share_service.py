@@ -28,6 +28,7 @@ from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.time_utils import local_today, utc_now
+from backend.services.safety_service import safety_service
 from backend.models.user import User
 from backend.repositories import (
     chat_repository,
@@ -640,17 +641,26 @@ class ShareService:
             prompt = (
                 f"为性格名片生成一句个性标语，风格：{style}。"
                 "只输出标语本身，不要引号、不要解释。\n"
+                f"{safety_service.boundary(language)}\n"
+                f"{safety_service.evidence_policy(language)}\n"
                 f"16 型人格类型：{mbti}\n特质：{traits or '未知'}"
             )
         else:
             prompt = (
                 f"Write a one-line tagline for a personality card, style: {style}. "
                 "Output the tagline only, no quotes, no explanation.\n"
+                f"{safety_service.boundary(language)}\n"
+                f"{safety_service.evidence_policy(language)}\n"
                 f"Personality type (16-type framework): {mbti}\nTraits: {traits or 'unknown'}"
             )
         try:
             text = await llm.complete(prompt, language=language, lite=True, max_tokens=60)
             tagline = (text or "").strip().strip('"“”\'')
+            # L3 输出过滤：标语是对外分享内容，命中则降级为本地模板（措辞规范 §1.1 D 级）
+            if tagline:
+                tagline = await safety_service.check_or(
+                    tagline, language, "", scope="assertion"
+                )
             if tagline:
                 return tagline[:60]
         except Exception as exc:  # noqa: BLE001 - LLM 失败安全降级模板

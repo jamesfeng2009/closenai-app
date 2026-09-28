@@ -109,12 +109,14 @@ class ReflectionService:
             "【AI 观察】基于近期记忆与今日情绪给出 1-2 句客观、具体的观察"
             "（如情绪模式、与之前记忆呼应的变化），不评价、不建议、不说教。\n"
             "语气温暖真诚，不要空泛。每段 2-3 句话。\n"
+            f"{safety_service.boundary(language)}\n"
+            f"{safety_service.evidence_policy(language)}\n"
             f"{mood_desc}\n最近记忆：\n{memory_desc}{ctx_desc}"
         )
         try:
             draft = await llm.complete(prompt, language=language, lite=True, max_tokens=300)
-            # L3 输出过滤：命中回退模板
-            draft = await safety_service.check_or(draft, language, "")
+            # L3 输出过滤：命中回退模板（【AI 观察】段是模式断言，走断言型 scope）
+            draft = await safety_service.check_or(draft, language, "", scope="assertion")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Reflection 草稿生成失败，回退模板: %s", exc)
             draft = ""

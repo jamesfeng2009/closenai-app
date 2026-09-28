@@ -1,9 +1,9 @@
 """内容安全服务（三层防御之 L3 输出后置过滤，唯一事实源）。
 
 三层防御（详见 .trae/skills/closenai-llm/SKILL.md）：
-- L1 Prompt 防御：SAFETY_BOUNDARY 段落注入所有面向用户的 system prompt
+- L1 Prompt 防御：SAFETY_BOUNDARY + EVIDENCE_POLICY 两段注入所有面向用户的 system prompt
 - L2 Provider 原生审核：DashScope/Gemini 自带，命中走现有 LLM 降级兜底
-- L3 输出后置过滤：本模块。流式按句缓冲闸门 + 非流式全量检测。
+- L3 输出后置过滤：本模块。流式按句缓冲闸门 + 非流式全量检测（确定性黑名单/句式 → 语义分类器）。
 
 设计铁律：
 - 用户发送路径零阻塞：输入不预检，检测全在输出端与生成并行
@@ -128,6 +128,47 @@ class SafetyService:
         ),
     }
 
+    # L1：证据分级与措辞纪律段落（《沟通证据与措辞规范-2026-09-28》§一）。
+    # 决策点 1：独立段落、与 boundary() 平级同注入点，不压缩进 boundary——两者关注点不同，
+    # 合并会超载且无法单测隔离。
+    EVIDENCE_POLICY = {
+        "zh": (
+            "证据与措辞纪律（必须遵守）："
+            "1) 按证据强度选措辞：A 级（官方求助资源、法规要求）可陈述事实；"
+            "B 级（心理学概念与研究）必须带限制语，写成「研究提示……，不等于……」；"
+            "C 级（用户自己记录里的观察）只允许共现措辞，如「在你的记录里，X 与 Y 同时出现过」；"
+            "D 级（星座配对、爱情语言、MBTI、九型等流行框架）仅可复述用户对自己的描述，"
+            "禁止用于预测或定性任何第三方。"
+            "2) 禁止四类推理错误：① 相关当因果——不得用「导致/说明/因为……所以」连接两条记录，"
+            "只用「伴随/同时出现/在记录中相关」；② 平均当个人——不得把群体统计结论当作对某个具体的人"
+            "（用户提到的对方）的判断；③ 标签当解释——不得用类型标签替代「触发情境—具体行为—可观察后果」"
+            "的描述；④ 技巧脱离权力——疑似不平等或胁迫关系里，不得建议用户「更温柔表达/再沟通一次」，"
+            "改为个人安全与求助方向。"
+            "3) 结论强度闸门：记录内的共现永远不得升格成因果机制；观察幅度中等时降格为提问句，"
+            "幅度低时不输出。禁止医疗化措辞（治疗/疗愈/诊断/处方/焦虑症/抑郁症/康复）"
+            "与 D 级词汇（星座配对、爱情语言、高价值/低价值、PUA 话术）。"
+        ),
+        "en": (
+            "Evidence and wording discipline (must follow): "
+            "1) Match wording to evidence strength: level A (official helplines, legal requirements) may state facts; "
+            "level B (psychology concepts and research) must carry a qualifier, e.g. \"research suggests ..., which is not the same as ...\"; "
+            "level C (observations from the user's own records) may only state co-occurrence, e.g. \"in your records, X and Y appeared together\"; "
+            "level D (pop frameworks such as zodiac compatibility, love languages, MBTI, Enneagram) may only restate how the user "
+            "describes themselves, and must never be used to predict or characterise any third party. "
+            "2) Four reasoning errors are forbidden: (i) correlation as causation — never link two records with "
+            "\"causes / proves / because...so\"; use \"went together / appeared at the same time / correlated in your records\"; "
+            "(ii) averages as individuals — never apply a population statistic as a judgement about a specific person "
+            "(the other party the user mentions); (iii) labels as explanations — never substitute a type label for the "
+            "\"trigger situation — concrete behaviour — observable consequence\" description; (iv) technique ignoring power — "
+            "in a possibly unequal or coercive relationship, never advise the user to \"express more gently\" or \"talk it through again\"; "
+            "redirect to personal safety and help-seeking. "
+            "3) Conclusion gate: co-occurrence inside the records may never be upgraded into a causal mechanism; "
+            "a medium-magnitude observation becomes a question; a low-magnitude one is not output at all. "
+            "Medical wording (treat, heal, diagnose, prescription, anxiety disorder, depression, recovery) and level-D "
+            "vocabulary (zodiac compatibility, love languages, high/low value, PUA scripts) are forbidden."
+        ),
+    }
+
     # L3 命中后的替换话术（话题转回成长，温和不指责；中英双表）
     SAFE_REPLY = {
         "zh": "这个话题我可能不太适合深入聊呢。不如说说，今天有什么让你印象深刻的事吗？",
@@ -140,9 +181,57 @@ class SafetyService:
     # 句缓冲区强制切句长度（字）
     MAX_SENTENCE_LEN = 200
 
+    # L3 确定性黑名单（PRD §5.16 ① 医疗化红线 + 措辞规范 §1.4 D 级词汇扩充）。
+    # v1 仅 zh/en 词表（规范 §六 决策点 3），其余语言由 L1 段落 + 语义分类器兜底。
+    # 注：「高价值/低价值」不入正则表——该词在本项目已用作 Discovery 幅度分级的内部术语
+    # （discovery_service.py:24、message_generator 疲劳控制），纯正则会误杀；
+    # 因此它只进 EVIDENCE_POLICY 段落与语义分类 prompt。
+    # en 表另不含 treat / therapy：作普通动词与求助语境高频（"how they treat you"、"seek therapy"），
+    # 正则误杀率过高；医疗化判定由 treatment + 语义分类器承担。
+    BANNED_TERMS = {
+        "zh": (
+            "焦虑症", "抑郁症", "治疗", "疗愈", "诊断", "缓解焦虑", "处方", "康复", "心理健康服务",
+            "星座配对", "星座运势", "爱情语言", "爱的五种语言", "话术", "PUA",
+        ),
+        "en": (
+            "anxiety disorder", "depression", "depressive", "treatment", "heal",
+            "diagnose", "diagnosis", "prescription", "medication", "rehab", "mental health service",
+            "zodiac compatibility", "star sign", "horoscope", "fortune telling", "love language",
+            "pick-up artist", "pua",
+        ),
+    }
+
+    # L3 断言型出口的越界推理句式指纹（措辞规范 §1.2）。
+    # 确定性规则只覆盖「对第三方的归因」这一条红线（§1.1：类型仅可描述用户自身，禁止推断他人）：
+    # 第三方指称 + (类型标签 | 因果连接词) → 违规。
+    # 不匹配「标签+因果但无第三方」——组合报告等性格功能天然要对自己的类型做解释（否则整功能被拦），
+    # 该情形交给 L1 段落与语义分类器。
+    # 只在 scope="assertion"（洞察/模式/报告/剧本/主动消息/分享卡等断言型文案）生效——
+    # 对话流里"因为他没回你"是正常复述用户叙述，正则一律拦截会毁掉可用性，语义分类器负责。
+    ATTRIBUTION_MARKERS = {
+        "zh": {
+            "third": (r"TA", r"(?<![其这那每])他", r"她", r"对方", r"男朋友", r"女朋友", r"伴侣",
+                      r"老公", r"老婆", r"前任", r"另一半"),
+            "label": (r"焦虑型", r"回避型", r"安全型", r"依恋", r"MBTI", r"九型", r"星座",
+                      r"人格类型", r"性格类型", r"爱情语言"),
+            "causal": (r"导致", r"致使", r"注定", r"说明", r"因此", r"所以", r"因为"),
+        },
+        "en": {
+            "third": (r"\bhe\b", r"\bshe\b", r"\bhim\b", r"\bher\b", r"\bthey\b", r"\bpartner\b",
+                      r"\bex\b", r"\bboss\b", r"\bcolleague\b"),
+            "label": (r"attachment style", r"anxious attach", r"avoidant", r"\bmbti\b", r"enneagram",
+                      r"zodiac", r"love language", r"personality type"),
+            "causal": (r"\bbecause\b", r"\btherefore\b", r"\bmeans\b", r"\bproves\b", r"\bcauses?\b",
+                      r"\bleads? to\b", r"\bis why\b", r"\bdestined\b"),
+        },
+    }
+
     _CHECK_PROMPT = (
-        "你是内容安全分类器。判断以下 AI 生成文本是否包含：仇恨言论、暴力、恐吓、"
-        "政治或宗教争议、色情内容、极端人生建议（如直接劝辞职/分手）。"
+        "你是内容安全与措辞合规分类器。判断以下 AI 生成文本是否包含：仇恨言论、暴力、恐吓、"
+        "政治或宗教争议、色情内容、极端人生建议（如直接劝辞职/分手）、"
+        "医疗化措辞（治疗/疗愈/诊断/处方/焦虑症/抑郁症/康复）、"
+        "D 级流行框架词汇（星座配对/爱情语言/高价值或低价值/PUA 话术）、"
+        "推理越界（把记录里的共现写成因果、用类型标签推断或定性第三方、把群体统计当成对某个具体的人的判断）。"
         "只回答 SAFE 或 UNSAFE，不要输出其他内容。\n\n文本：\n"
     )
 
@@ -150,17 +239,62 @@ class SafetyService:
         """L1 安全边界段落（按语言）。"""
         return self.SAFETY_BOUNDARY[_lang_key(language)]
 
+    def evidence_policy(self, language: str) -> str:
+        """L1 证据分级与措辞纪律段落（按语言），与 boundary() 平级、同注入点。"""
+        return self.EVIDENCE_POLICY[_lang_key(language)]
+
     def safe_reply(self, language: str) -> str:
         """命中替换话术（按语言）。"""
         return self.SAFE_REPLY[_lang_key(language)]
 
-    async def check_text(self, text: str, language: str = "en") -> bool:
+    def banned_hit(self, text: str, language: str) -> Optional[str]:
+        """确定性黑名单命中判定（§5.16 ① + §1.4）。命中返回违规词，否则 None。"""
+        lang = _lang_key(language)
+        for term in self.BANNED_TERMS[lang]:
+            if lang == "en":
+                # 词边界匹配：substrings 会误杀（"treat" 命中 "retreat"）
+                if re.search(rf"\b{re.escape(term)}", text, re.IGNORECASE):
+                    return term
+            elif term in text:
+                return term
+        return None
+
+    def attribution_hit(self, text: str, language: str) -> Optional[str]:
+        """断言型出口的推理越界判定（§1.2）。命中返回错误类别，否则 None。"""
+        markers = self.ATTRIBUTION_MARKERS[_lang_key(language)]
+
+        def _any(keys: tuple) -> Optional[str]:
+            for pattern in keys:
+                if re.search(pattern, text, re.IGNORECASE):
+                    return pattern
+            return None
+
+        third = _any(markers["third"])
+        label = _any(markers["label"])
+        causal = _any(markers["causal"])
+        if third and label:
+            return "标签推断第三方"
+        if third and causal:
+            return "因果断言指向第三方"
+        return None
+
+    async def check_text(self, text: str, language: str = "en", *, scope: str = "chat") -> bool:
         """全量检测（非流式路径）。True=安全。
 
-        lite 模型分类，不计入用户配额；超时/异常/不可解析 → fail-open True + 日志。
+        两级判定：① 确定性黑名单（+ scope="assertion" 时的推理越界句式）——命中即拦，不调模型；
+        ② lite 模型语义分类，不计入用户配额；超时/异常/不可解析 → fail-open True + 日志。
         """
         if not text or not text.strip():
             return True
+        banned = self.banned_hit(text, language)
+        if banned:
+            logger.warning("safety L3 黑名单命中(%s)，拦截: %.100s", banned, text)
+            return False
+        if scope == "assertion":
+            overreach = self.attribution_hit(text, language)
+            if overreach:
+                logger.warning("safety L3 推理越界(%s)，拦截: %.100s", overreach, text)
+                return False
         try:
             result = await asyncio.wait_for(
                 llm.complete(
@@ -181,16 +315,18 @@ class SafetyService:
             logger.exception("safety 检测失败 fail-open 放行: %.100s", text)
             return True
 
-    async def check_or(self, text: str, language: str, fallback: str) -> str:
+    async def check_or(
+        self, text: str, language: str, fallback: str, *, scope: str = "chat"
+    ) -> str:
         """非流式便捷封装：text 违规时返回 fallback，否则返回 text。"""
-        if text and text.strip() and not await self.check_text(text, language):
+        if text and text.strip() and not await self.check_text(text, language, scope=scope):
             return fallback
         return text
 
-    def sentence_gate(self, language: str = "en") -> SentenceGate:
+    def sentence_gate(self, language: str = "en", *, scope: str = "chat") -> SentenceGate:
         """流式按句缓冲闸门（见 SentenceGate docstring）。"""
         return SentenceGate(
-            check=lambda text: self.check_text(text, language),
+            check=lambda text: self.check_text(text, language, scope=scope),
             safe_reply=self.safe_reply(language),
             max_sentence_len=self.MAX_SENTENCE_LEN,
         )

@@ -72,9 +72,21 @@
 
 ## D. 规范工程（2026-09-28 第六批，无排期依赖，可插队）
 
-- [ ] **D1 · evidence_policy prompt 段落**（~1d）｜规范 §一 + 架构方案 §六-4
-  - [ ] SafetyService 双语段落 + 注入 message_generator/mood_service/模板出口
-  - [ ] D 级词汇并入黑名单判定；SentenceGate 单测扩例（因果断言/标签推断样本被拦）
+- [x] **D1 · evidence_policy prompt 段落**（~1d）｜规范 §一 + 架构方案 §六-4 ｜2026-09-29 完成
+  - [x] SafetyService 双语段落 + 注入 message_generator/mood_service/模板出口
+  - [x] D 级词汇并入黑名单判定；SentenceGate 单测扩例（因果断言/标签推断样本被拦）
+  - 实测：`pytest backend/tests` **276 passed**（基线 243 + 新增 `test_evidence_policy.py` 33 例）。
+  - ⚠️ 注入点范围：按架构方案 §六-4「及未来所有面向用户的生成出口」扩到现存 **15 处**出口（测试 `OUTLETS` 表可逐
+    项核验）——personality 画像×2/组合报告、growth 下周预测/模式发现/报告正文/`_llm_or_fallback`（覆盖每日洞察、
+    周报、主题卡）、reflection 草稿、share 名片标语、push 文案、承诺回访 follow_up、主动消息。
+  - ⚠️ 判定分级：确定性黑名单（§5.16 医疗化词 + §1.4 D 级词）对全部出口生效；**推理越界句式只在
+    `scope="assertion"`**（洞察/模式/报告/主动消息/回访/分享卡）生效，对话流不启用——聊天里"因为他没回你"是
+    正常复述用户叙述，正则拦截会毁掉可用性，该情形交给 L1 段落 + 语义分类器。
+  - ⚠️ 两处刻意不入正则表（理由已写进 `safety_service` 注释）：「高价值/低价值」（已用作 Discovery 幅度分级
+    内部术语，`discovery_service.py:24`、`test_discovery_fusion.py:304` 即误杀样本）与 en 的 `treat`/`therapy`
+    （普通动词与求助语境高频）。两者仍进 L1 段落与 `_CHECK_PROMPT` 语义判定。
+  - 未做：架构方案 §六-1 的 `filter_template()` 静态模板闸——M1/M2/M3 模板尚不存在，随 B1/B2 文案渲染出口一并落地，
+    此项不预先建未被调用的函数。
 - [ ] **D2 · crisis_intercept 实装（两类触发词）**｜规范 §二 + 架构方案 §六-2
   - [ ] 自伤类 + 关系暴力类（v1 仅 zh/en 词表）；命中→热线→停推→safety_events 审计
   - [ ] 验收：暴力样本禁归因/禁沟通建议测试进 pytest
