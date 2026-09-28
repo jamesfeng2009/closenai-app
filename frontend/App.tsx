@@ -19,6 +19,7 @@ import PaywallScreen from './src/screens/PaywallScreen';
 import MemoriesScreen from './src/screens/MemoriesScreen';
 import RelationshipTimelineScreen from './src/screens/RelationshipTimelineScreen';
 import ShareCardScreen from './src/screens/ShareCardScreen';
+import FirstReadCardScreen from './src/screens/FirstReadCardScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import MessagesScreen from './src/screens/MessagesScreen';
 import PrivacySecurityScreen from './src/screens/PrivacySecurityScreen';
@@ -49,6 +50,7 @@ export type RootStackParamList = {
   Memories: undefined;
   RelationshipTimeline: undefined;
   ShareCard: undefined;
+  FirstReadCard: undefined;
   Insights: undefined;
   Messages: undefined;
   PrivacySecurity: undefined;
@@ -207,6 +209,11 @@ export default function App() {
               <Stack.Screen
                 name="ShareCard"
                 component={ShareCardScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="FirstReadCard"
+                component={FirstReadCardScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen

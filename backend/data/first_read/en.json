@@ -1,0 +1,73 @@
+{
+  "_comment": "性格初读卡静态模板库英文版（PRD §5.19.2 P1-B01 / 架构方案 §二 M1）。与 zh.json 同 key 结构；断言 = 复述并放大用户对快问的自述，静态直出、不经 LLM。",
+  "questions": [
+    {
+      "id": "conflict",
+      "text": "When a friend gets on your nerves, you usually...",
+      "options": [
+        { "id": "speak_now", "text": "say it right then" },
+        { "id": "hold_in", "text": "hold it in until it overflows" },
+        { "id": "step_back", "text": "step back and raise it after the heat passes" }
+      ]
+    },
+    {
+      "id": "uncertainty",
+      "text": "Facing something you're unsure about, you...",
+      "options": [
+        { "id": "keep_busy", "text": "pack your schedule until there's no gap left" },
+        { "id": "list_out", "text": "list the possible outcomes first" },
+        { "id": "talk_out", "text": "think it out loud with someone" }
+      ]
+    },
+    {
+      "id": "night",
+      "text": "What kind of time is late night for you?",
+      "options": [
+        { "id": "slow_down", "text": "the only time you allow yourself to slow down" },
+        { "id": "replay", "text": "the day going through your head again" },
+        { "id": "sharpest", "text": "when your thinking is clearest and your energy is real" }
+      ]
+    }
+  ],
+  "assertions": {
+    "conflict": {
+      "speak_now": "What matters to you deserves to be said: your move is to {option} — you don't let a misunderstanding sit overnight.",
+      "hold_in": "Your move is to {option}, and the talking only happens once it can't be held any longer.",
+      "step_back": "You don't talk at the peak of it — your move is to {option}."
+    },
+    "uncertainty": {
+      "keep_busy": "When something is unsure, you {option} — the not-knowing gets no room.",
+      "list_out": "When something is unsure, you {option} — you need a floor under it before you move.",
+      "talk_out": "Your thoughts take shape as you speak, so you {option}."
+    },
+    "night": {
+      "slow_down": "For you, late night is {option} — daytime rarely permits that.",
+      "replay": "For you, late night is {option} — what you said, and what you didn't.",
+      "sharpest": "You save the real work for {option}, while daytime often just idles."
+    }
+  },
+  "summary_frame": "You placed yourself in {persona}: {trait}. On this card that is not a conclusion, only the doorway you handed yourself.",
+  "closer": "In 30 days you'll get your first Monthly Story — by then it will know you better than today does.",
+  "fillers": [
+    "You haven't written a single record yet, but you already started. Write one, and it slowly turns into your own words.",
+    "You say more to yourself than you ever say out loud. Write it down, and it stays right here waiting."
+  ],
+  "personas": {
+    "INTJ": "thinking it through before opening your mouth",
+    "INTP": "unable to let go of what you haven't figured out",
+    "ENTJ": "setting the direction first, feelings after",
+    "ENTP": "asking \"what if it isn't?\" from the other side",
+    "INFJ": "reading the room before you speak",
+    "INFP": "measuring things by your own scale",
+    "ENFJ": "checking on everyone else's state first",
+    "ENFP": "lit up by the possibility first",
+    "ISTJ": "letting what you've done do the talking",
+    "ISFJ": "remembering the details other people mentioned",
+    "ESTJ": "only at ease once things are in order",
+    "ESFJ": "making everyone in the room comfortable",
+    "ISTP": "taking it apart to see how it works",
+    "ISFP": "not explaining yourself, just showing it",
+    "ESTP": "getting in and judging while moving",
+    "ESFP": "valuing the lived moment over the plan"
+  }
+}

@@ -501,6 +501,45 @@ class LifeArchiveExportRequest(BaseModel):
     regenerate: bool = Field(False, description="忽略缓存重新生成（同档位同周期幂等）")
 
 
+# ═══ Onboarding 性格初读卡 (P1-B01 / 架构方案 §二 M1) ═══
+
+class FirstReadAnswer(BaseModel):
+    """单道快问的答案（q = 题目 id，option = 选项 id）。
+
+    选项 id 由前端从 `GET /onboarding/questions` 拿到的模板里取；后端只认模板内
+    已有的 id/文案，未知项在 first_read_service 里跳过并回退 filler。
+    """
+    q: str = Field(..., max_length=30, description="题目 id：conflict / uncertainty / night")
+    option: str = Field(..., max_length=40, description="选项 id")
+
+
+class FirstReadRequest(BaseModel):
+    """初读卡生成请求（幂等 upsert，重复提交以最后一次为准）。"""
+    answers: List[FirstReadAnswer] = Field(default_factory=list, max_length=10)
+    persona_type: Optional[str] = Field(
+        None, description="引导期自选性格类型（16 型；D 级标签，仅描述用户自己）"
+    )
+    language: str = Field("en", max_length=10, description="生成语言（落库后按此复现）")
+
+    @field_validator("persona_type")
+    @classmethod
+    def _normalize_persona(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not v.strip():
+            return None
+        upper = v.strip().upper()
+        if not re.fullmatch(r"[A-Z]{4}", upper):
+            raise ValueError(f"非法的性格类型: {v}")
+        return upper
+
+
+class FirstReadResponse(BaseModel):
+    """初读卡响应（card_payload 供前端渲染与分享复用）。"""
+    assertions: List[str]
+    summary: str = ""
+    closer: str = ""
+    card_payload: Dict = Field(default_factory=dict)
+
+
 # ═══ Auth ═══
 
 _EMAIL_RE = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"

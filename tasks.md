@@ -44,10 +44,19 @@
 
 ## B. Sprint 2｜过桥获客（P1）
 
-- [ ] **B1 · M1 性格初读卡 B01**（后端 2d + 前端 2d + 文案 1d）｜架构方案 §二 M1
-  - [ ] 表 `onboarding_profiles` + `first_read_service` + 静态 JSON 模板库（零 LLM）
-  - [ ] `POST/GET /onboarding/first-read`、`/share/first-read-card`
-  - [ ] OnboardingScreen 快问 3 题 + `FirstReadCardScreen`（UI 原型 Screen 29 已就绪）
+- [x] **B1 · M1 性格初读卡 B01**（后端 2d + 前端 2d + 文案 1d）｜架构方案 §二 M1 ✅ 2026-09-29 完成
+  - [x] 表 `onboarding_profiles` + `first_read_service` + 静态 JSON 模板库（零 LLM）
+    - 模板库 `backend/data/first_read/{zh,en}.json`：3 题 × 3 选项 + `assertions` 槽位 + `summary_frame` + `closer` + `fillers` + 16 型 `personas`；非 zh 语言回退 en（与措辞规范 §六 决策点 3 的 v1 词表口径一致）
+    - 生成率 100%（PRD §5.19.2 硬指标）：0 答案 / 未知题目 / 闸拦截条目一律用 `fillers` 补至 2 条，上限 3 条
+  - [x] `POST/GET /onboarding/first-read`、`/share/first-read-card`
+    - 出口过闸：新增 `safety_service.filter_template()`（架构方案 §六-1）——**只跑确定性黑名单 + 越界句式，不调 LLM**；静态模板由我方撰写，正则对它有 100% 把握，语义分类器留给不可控产出
+    - ⚠️ 偏离：`POST /share/first-read-card` v1 用既有 reportlab 文本管线出 PDF；QR + 水印 + 深链归因（M4/B4）落地时替换内部渲染，**端点签名不变**（已在 `share_service.export_first_read_card_pdf` docstring 记录）
+  - [x] OnboardingScreen 快问 3 题 + `FirstReadCardScreen`（UI 原型 Screen 29 已就绪）
+    - 引导变 3 步（Step 3 快问），选项 id 与后端模板对齐、文案走 15 语言 i18n；Step 2「跳过」不再直接结束，改为进入 Step 3
+    - ⚠️ 游客态约束：引导阶段无 token，`POST /onboarding/first-read` 必失败，因此答案先落 AsyncStorage（`@closenai/pending_first_read`），**登录/注册成功后由 AuthContext 补调**并缓存卡片（沿用 `@closenai/pending_mbti` 既有模式）；POST 失败时暂存不删，下次登录重试
+    - 入口：`HomeScreen` 顶部 D0 卡片入口（有缓存卡且未读时展示）→ `FirstReadCardScreen`；CTA「开始书写你自己的」→ Reflect Tab（PRD §5.19.2 漏斗第一环）
+  - 验收实测：`backend/tests/test_first_read.py` 22 例（复述自述 / 零 LLM / 空答案兜底 / 上限 3 条 / 未知项跳过 / 按文案反查 / fr 回退 en / personas 无类型不出 summary / zh-en 同构 / 模板逐条过闸 / 违规槽位被丢弃 / upsert 幂等单行 / 语言不漂移 / 40402 / PDF `%PDF` 头）；`frontend/__tests__/firstRead.test.ts` 36 例（暂存 peek-clear 语义 / 脏缓存按 null / 已读标记 / 15 语言 × 26 键齐备）
+  - 全量：pytest 315 passed；前端 tsc exit 0、jest 12 套件 124 passed
 - [ ] **B2 · M2 第一周剧本 B02**（后端 3d + 前端 1.5d + 文案 1d）｜架构方案 §二 M2
   - [ ] 表 `journey_events`（7 种 event_kind，事务内预写 pending）
   - [ ] `dispatch_journey_events` 挂 cron + 沉默降频

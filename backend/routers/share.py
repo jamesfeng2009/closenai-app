@@ -3,6 +3,7 @@
 
 端点：
     GET  /api/v1/share/personality-card    — 性格名片导出（JSON）
+    POST /api/v1/share/first-read-card     — 初读卡分享（PDF，P1-B01）
     GET  /api/v1/share/report/{period}     — 周期报告导出（JSON）
     GET  /api/v1/share/report/{period}/pdf — 周期报告导出（PDF）
     POST /api/v1/share/life-archive        — Life Archive 导出（JSON，权益校验 + 幂等）
@@ -35,6 +36,24 @@ async def personality_card(
 ):
     """导出性格名片（JSON 结构 + 分享文案），用于社交分享卡片。"""
     return success(await service.export_personality_card(db, user_id, language, variant))
+
+
+@router.post("/share/first-read-card")
+async def first_read_card_pdf(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: ShareService = Depends(get_share_service),
+):
+    """初读卡分享 PDF（P1-B01 / 架构方案 §二 M1）。
+
+    内容 = 已落库的静态初读卡，不新增 LLM 调用；未生成 → 40402。
+    """
+    pdf = await service.export_first_read_card_pdf(db, user_id)
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="closenai_first_read.pdf"'},
+    )
 
 
 @router.get("/share/report/{period}")

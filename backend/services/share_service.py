@@ -45,6 +45,7 @@ from backend.services.growth_service import (
     REPORT_PERIODS,
     growth_service,
 )
+from backend.services.first_read_service import first_read_service
 from backend.services.personality_service import personality_service
 from backend.services.quota_service import FREE_TIER
 
@@ -226,6 +227,45 @@ class ShareService:
             card["combo_insight"] = self._combo_insight(profile.mbti_type, language)
         card["share_text"] = self._personality_share_text(card, language)
         return card
+
+    async def export_first_read_card_pdf(
+        self, db: AsyncSession, user_id: str
+    ) -> bytes:
+        """初读卡分享 PDF（架构方案 §二 M1「复用 SVG→PDF 管线」）。
+
+        v1 先用既有 reportlab 文本管线出 PDF；QR + 水印 + 深链 `closenai.app/r/{code}`
+        属 M4 分享卡体系（B4），届时替换本方法内部渲染，端点签名不变。
+        """
+        card = await first_read_service.restore(db, user_id)
+        if card is None:
+            raise AppException(
+                ErrorCode.RESOURCE_NOT_FOUND,
+                "尚未生成初读卡 / First-read card not generated yet",
+            )
+        language = card.get("language") or "en"
+        zh = (language or "").startswith("zh")
+        title = "性格初读卡" if zh else "First Read"
+        return self._render_pdf(title, self._first_read_lines(card, zh))
+
+    def _first_read_lines(self, card: dict, zh: bool) -> List[str]:
+        assertions = card.get("assertions") or []
+        lines: List[str] = [
+            "你写下第一条记录之前，它读到的只有你自己给的话。" if zh
+            else "Before your first record, all it read were the words you gave yourself."
+        ]
+        lines.append("")
+        lines.extend(f"· {text}" for text in assertions)
+        summary = card.get("summary") or ""
+        if summary:
+            lines.append("")
+            lines.append(summary)
+        closer = card.get("closer") or ""
+        if closer:
+            lines.append("")
+            lines.append(closer)
+        lines.append("")
+        lines.append(card.get("share_url") or settings.app_store_url)
+        return lines
 
     async def export_report(
         self, db: AsyncSession, user_id: str, period: str, language: str = "en"

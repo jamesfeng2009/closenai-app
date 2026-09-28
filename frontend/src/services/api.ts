@@ -21,6 +21,7 @@ import type {
   UserProfile, UserSettings,
   DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
+  FirstReadAnswer, FirstReadCard,
   SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult, LifeArchiveResult,
   LifeArchiveScope,
   ReflectionDraft, ReflectionItem,
@@ -578,6 +579,28 @@ export async function getPersonalityCard(variant: ShareCardVariant): Promise<Per
 /** 导出周期报告（weekly 免费；monthly/quarterly/yearly 为 Pro 权益 40302；同周期后端缓存）。 */
 export async function getShareReport(period: SharePeriod): Promise<ShareReport> {
   return request<ShareReport>(`/share/report/${period}?language=${langParam()}`);
+}
+
+// ═══ Onboarding 性格初读卡 (P1-B01 · 架构方案 §二 M1) ═══
+
+/** 生成初读卡并落库（幂等 upsert；后端静态模板直出，零 LLM）。 */
+export async function postFirstRead(
+  answers: FirstReadAnswer[],
+  personaType?: string | null,
+): Promise<FirstReadCard> {
+  return request<FirstReadCard>('/onboarding/first-read', {
+    method: 'POST',
+    body: JSON.stringify({
+      answers,
+      persona_type: personaType ?? null,
+      language: langParam(),
+    }),
+  });
+}
+
+/** 重进 App 恢复初读卡（按生成时语言复现）；未生成 → 40402，由调用方兜底。 */
+export async function getFirstRead(): Promise<FirstReadCard> {
+  return request<FirstReadCard>('/onboarding/first-read');
 }
 
 // ═══ Advanced Insights (P1-F03) ═══

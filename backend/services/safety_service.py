@@ -431,6 +431,25 @@ class SafetyService:
             return fallback
         return text
 
+    def filter_template(self, text: str, language: str = "en") -> str:
+        """静态模板文案出口的确定性闸（架构方案 §六-1）。命中返回 ""，调用方自行降级。
+
+        只跑 banned_hit / attribution_hit，**不调 LLM**：模板由我方撰写、内容固定，
+        词表与句式正则对它有 100% 把握；语义分类器留给不可控的 LLM 产出。
+        命中即说明模板本身违反措辞规范，按错误级别记日志。
+        """
+        if not text or not text.strip():
+            return ""
+        banned = self.banned_hit(text, language)
+        if banned:
+            logger.error("静态模板文案命中黑名单(%s): %.100s", banned, text)
+            return ""
+        overreach = self.attribution_hit(text, language)
+        if overreach:
+            logger.error("静态模板文案推理越界(%s): %.100s", overreach, text)
+            return ""
+        return text
+
     def sentence_gate(self, language: str = "en", *, scope: str = "chat") -> SentenceGate:
         """流式按句缓冲闸门（见 SentenceGate docstring）。"""
         return SentenceGate(

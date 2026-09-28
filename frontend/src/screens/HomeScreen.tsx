@@ -17,6 +17,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { getGrowthDashboard, moodCheckin, ApiError } from '../services/api';
+import { isFirstReadUnseen, loadFirstReadCard } from '../services/firstRead';
 import { settingsRepo } from '../services/db/settingsRepository';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import type { GrowthDashboard, MoodEmoji } from '../types';
@@ -84,6 +85,17 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     }, [loadDashboard, isLoggedIn])
   );
 
+  // D0 初读卡入口（P1-B01）：卡已生成且未打开过时展示，打开后进 FirstReadCardScreen
+  const [showFirstReadEntry, setShowFirstReadEntry] = useState(false);
+  useFocusEffect(
+    React.useCallback(() => {
+      (async () => {
+        const card = await loadFirstReadCard();
+        setShowFirstReadEntry(!!card && (await isFirstReadUnseen()));
+      })();
+    }, [])
+  );
+
   const onMoodPress = async (emoji: MoodEmoji) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     if (checkingIn || dashboard?.today_mood) return; // 已签到或请求中则忽略
@@ -137,6 +149,20 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         <Text style={styles.date}>{dashboard?.date || '...'}</Text>
         <Text style={styles.greeting}>{dashboard?.greeting || t('home.greeting')}</Text>
       </View>
+
+      {/* D0 性格初读卡入口（P1-B01：初读卡 → 首条记录，死亡谷漏斗第一环） */}
+      {showFirstReadEntry && (
+        <TouchableOpacity
+          style={styles.firstReadEntry}
+          onPress={() => navigation.navigate('FirstReadCard')}
+        >
+          <View style={styles.firstReadTextBlock}>
+            <Text style={styles.firstReadTitle}>🌱 {t('firstRead.homeEntryTitle')}</Text>
+            <Text style={styles.firstReadHint}>{t('firstRead.homeEntry')}</Text>
+          </View>
+          <Text style={styles.detailArrow}>→</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Streak + 等级（关系进度入口：点击进关系时间线 P0-F04，游客守卫） */}
       <TouchableOpacity
@@ -296,6 +322,15 @@ const styles = StyleSheet.create({
   header: { marginBottom: Spacing.md },
   date: { fontSize: FontSize.md, color: Colors.textTertiary },
   greeting: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.gold400, marginTop: Spacing.xs },
+  firstReadEntry: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    padding: Spacing.md, backgroundColor: 'rgba(255,215,0,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,215,0,0.18)', borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+  },
+  firstReadTextBlock: { flex: 1 },
+  firstReadTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.gold400 },
+  firstReadHint: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 2 },
   streakBar: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
     padding: 10, backgroundColor: 'rgba(255,215,0,0.04)',

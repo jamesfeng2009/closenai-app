@@ -14,8 +14,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   getAuthUser, getRefreshToken, deleteAccount, logoutApi,
-  getMe, updateAuthUser, updateUserSettings,
+  getMe, updateAuthUser, updateUserSettings, postFirstRead,
 } from '../services/api';
+import {
+  clearPendingFirstRead, peekPendingFirstRead, saveFirstReadCard,
+} from '../services/firstRead';
 import { registerForPushNotifications } from '../services/push';
 import { resetSession, resetSessionFull } from '../services/session';
 import { onSessionReset } from '../services/api';
@@ -49,6 +52,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // 引导期（游客态）暂存的写入请求：登录后补交给后端。
+  // fire-and-forget + try/catch，不阻断登录主流程；失败保留暂存待下次登录重试
+  const flushPendingOnboarding = useCallback(async () => {
+    try {
+      const pendingMbti = await AsyncStorage.getItem(PENDING_MBTI_KEY);
+      if (pendingMbti) {
+        await updateUserSettings({ mbti_type: pendingMbti });
+        await AsyncStorage.removeItem(PENDING_MBTI_KEY);
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const pending = await peekPendingFirstRead();
+      if (!pending) return;
+      // 初读卡是 D0「它懂我」证据卡（P1-B01）：生成结果落本地缓存，成长首页据此展示入口
+      const card = await postFirstRead(pending.answers, pending.persona_type);
+      await saveFirstReadCard(card);
+      await clearPendingFirstRead();
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const login = useCallback((resp: AuthResponse) => {
     // api.ts 的 register/login/appleLogin 等已调 setAuth 持久化 token + user
     setUser(resp.user);
@@ -61,18 +88,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // 登录成功后补报推送 token（fire-and-forget；权限/模拟器/失败在 push.ts 内静默处理）
     registerForPushNotifications().catch(() => {});
-    // 引导期游客暂存的 MBTI：登录/注册成功后补写后端并清除暂存
-    // （fire-and-forget + try/catch，不阻断登录主流程；失败保留暂存待下次登录重试）
-    void (async () => {
-      try {
-        const pending = await AsyncStorage.getItem(PENDING_MBTI_KEY);
-        if (!pending) return;
-        await updateUserSettings({ mbti_type: pending });
-        await AsyncStorage.removeItem(PENDING_MBTI_KEY);
-      } catch {
-        // ignore
-      }
-    })();
+    void flushPendingOnboarding();
+  }, [flushPendingOnboarding]);
+
+  // 冷启动即为已登录（SecureStore 恢复出 session）：引导期暂存同样需要补交
+  useEffect(() => {
+    if (user) void flushPendingOnboarding();
+    // 只在挂载时跑一次；后续登录由 login() 触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const logout = useCallback(async () => {

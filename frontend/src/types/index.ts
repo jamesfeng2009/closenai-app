@@ -341,6 +341,27 @@ export interface DailyDiscovery {
   generated_at: string;
 }
 
+// ═══ Onboarding 性格初读卡 (P1-B01 / 架构方案 §二 M1) ═══
+
+/** 快问答案：q = 题目 id，option = 选项 id（与 backend/data/first_read/{zh,en}.json 对齐） */
+export interface FirstReadAnswer {
+  q: 'conflict' | 'uncertainty' | 'night';
+  option: string;
+}
+
+/** 初读卡内容（POST/GET /onboarding/first-read 的 data；后端 card_payload 展平而来） */
+export interface FirstReadCard {
+  id?: string;
+  card_type?: string;
+  assertions: string[];
+  summary: string;
+  closer: string;
+  persona_type?: string | null;
+  language?: string;
+  share_url?: string;
+  created_at?: string;
+}
+
 // ═══ Share (P1-F04) ═══
 
 export type ShareCardVariant = 'classic' | 'minimal' | 'combo';

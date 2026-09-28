@@ -1,10 +1,13 @@
 /**
  * 新用户引导流程 (P1-F05)。
  *
- * 成长优先 · 2 步 · 零占星信号：
+ * 成长优先 · 3 步 · 零占星信号：
  *   Step 1 — Welcome：展示 3 个核心成长卡片，主按钮「开始记录」
  *   Step 2 — 性格类型（可选）：16 型选择 / 跳过
+ *   Step 3 — 三个快问（P1-B01 性格初读卡输入）：3 题 × 3 选项 / 跳过
  *
+ * Step 3 提交后：游客态只能把答案暂存本地（无 token 调 API 必失败），
+ * 登录/注册成功后由 AuthContext 补调 POST /onboarding/first-read 生成初读卡。
  * 完成后落地成长首页（Growth，第一位 Tab），不是对话页。
  * AI 不作为主体出现，底部声明强调「成长追踪」定位。
  */
@@ -16,6 +19,8 @@ import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { savePendingFirstRead } from '../services/firstRead';
+import type { FirstReadAnswer } from '../types';
 
 const ONBOARDED_KEY = '@closenai/onboarded';
 // 游客期选择的 MBTI 暂存 key（与 AuthContext 登录后补写逻辑共用）
@@ -29,10 +34,48 @@ const MBTI_TYPES = [
   'ISTP', 'ISFP', 'ESTP', 'ESFP',
 ];
 
+// 快问 i18n 键 → 后端模板题目 id（backend/data/first_read/{zh,en}.json）
+// 选项 id 必须与模板一致：后端按 id 取断言槽位，因此各语言可自由翻译选项文案
+const QUICK_QUESTIONS: {
+  id: FirstReadAnswer['q'];
+  titleKey: string;
+  options: { id: string; key: string }[];
+}[] = [
+  {
+    id: 'conflict',
+    titleKey: 'onboarding.q1Title',
+    options: [
+      { id: 'speak_now', key: 'onboarding.q1Opt1' },
+      { id: 'hold_in', key: 'onboarding.q1Opt2' },
+      { id: 'step_back', key: 'onboarding.q1Opt3' },
+    ],
+  },
+  {
+    id: 'uncertainty',
+    titleKey: 'onboarding.q2Title',
+    options: [
+      { id: 'keep_busy', key: 'onboarding.q2Opt1' },
+      { id: 'list_out', key: 'onboarding.q2Opt2' },
+      { id: 'talk_out', key: 'onboarding.q2Opt3' },
+    ],
+  },
+  {
+    id: 'night',
+    titleKey: 'onboarding.q3Title',
+    options: [
+      { id: 'slow_down', key: 'onboarding.q3Opt1' },
+      { id: 'replay', key: 'onboarding.q3Opt2' },
+      { id: 'sharpest', key: 'onboarding.q3Opt3' },
+    ],
+  },
+];
+
 export default function OnboardingScreen({ onComplete }: { onComplete: () => void }) {
   const { t } = useTranslation();
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  // 题目 id → 选项 id（未答的题目不进 answers）
+  const [answers, setAnswers] = useState<Record<string, string>>({});
 
   const finish = async (withType: string | null) => {
     // 保存引导完成标记
@@ -50,6 +93,12 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
         // ignore
       }
     }
+    // 快问答案同样暂存：AuthContext 登录后补调 POST /onboarding/first-read。
+    // 空答案也要写入——PRD §5.19.2 要求 onboarding → 初读卡生成率 100%（后端 filler 兜底）
+    const payload: FirstReadAnswer[] = QUICK_QUESTIONS
+      .filter((q) => answers[q.id])
+      .map((q) => ({ q: q.id, option: answers[q.id] }));
+    await savePendingFirstRead(payload, withType);
     onComplete();
   };
 
@@ -87,36 +136,75 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
     );
   }
 
+  if (step === 2) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.step2Title}>{t('onboarding.step2Title')}</Text>
+          <Text style={styles.step2Subtitle}>{t('onboarding.step2Subtitle')}</Text>
+
+          <View style={styles.typeGrid}>
+            {MBTI_TYPES.map((type) => {
+              const selected = selectedType === type;
+              return (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.typeCell, selected && styles.typeCellSelected]}
+                  onPress={() => setSelectedType(type)}
+                >
+                  <Text style={[styles.typeText, selected && styles.typeTextSelected]}>{type}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.primaryBtn, !selectedType && styles.primaryBtnDisabled]}
+            disabled={!selectedType}
+            onPress={() => setStep(3)}
+          >
+            <Text style={styles.primaryBtnText}>{t('onboarding.step2Confirm')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.skipBtn} onPress={() => setStep(3)}>
+            <Text style={styles.skipBtnText}>{t('onboarding.step2SkipCta')}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.step2Title}>{t('onboarding.step2Title')}</Text>
-        <Text style={styles.step2Subtitle}>{t('onboarding.step2Subtitle')}</Text>
+        <Text style={styles.step2Title}>{t('onboarding.step3Title')}</Text>
+        <Text style={styles.step2Subtitle}>{t('onboarding.step3Subtitle')}</Text>
 
-        <View style={styles.typeGrid}>
-          {MBTI_TYPES.map((type) => {
-            const selected = selectedType === type;
-            return (
-              <TouchableOpacity
-                key={type}
-                style={[styles.typeCell, selected && styles.typeCellSelected]}
-                onPress={() => setSelectedType(type)}
-              >
-                <Text style={[styles.typeText, selected && styles.typeTextSelected]}>{type}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {QUICK_QUESTIONS.map((question) => (
+          <View key={question.id} style={styles.questionBlock}>
+            <Text style={styles.questionTitle}>{t(question.titleKey)}</Text>
+            {question.options.map((option) => {
+              const selected = answers[question.id] === option.id;
+              return (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[styles.optionRow, selected && styles.optionRowSelected]}
+                  onPress={() => setAnswers((prev) => ({ ...prev, [question.id]: option.id }))}
+                >
+                  <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                    {t(option.key)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
 
-        <TouchableOpacity
-          style={[styles.primaryBtn, !selectedType && styles.primaryBtnDisabled]}
-          disabled={!selectedType}
-          onPress={() => finish(selectedType)}
-        >
-          <Text style={styles.primaryBtnText}>{t('onboarding.step2Confirm')}</Text>
+        <TouchableOpacity style={styles.primaryBtn} onPress={() => finish(selectedType)}>
+          <Text style={styles.primaryBtnText}>{t('onboarding.step3Confirm')}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.skipBtn} onPress={() => finish(null)}>
+        <TouchableOpacity style={styles.skipBtn} onPress={() => finish(selectedType)}>
           <Text style={styles.skipBtnText}>{t('onboarding.step2SkipCta')}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -195,6 +283,28 @@ const styles = StyleSheet.create({
   },
   typeText: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textSecondary },
   typeTextSelected: { color: Colors.gold400 },
+  questionBlock: { marginBottom: Spacing.xl },
+  questionTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.sm,
+  },
+  optionRow: {
+    paddingVertical: 12,
+    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    borderRadius: BorderRadius.md,
+  },
+  optionRowSelected: {
+    backgroundColor: 'rgba(255,215,0,0.12)',
+    borderColor: Colors.gold400,
+  },
+  optionText: { fontSize: FontSize.md, color: Colors.textSecondary },
+  optionTextSelected: { color: Colors.gold400, fontWeight: '600' },
   skipBtn: { alignItems: 'center', paddingVertical: 10 },
   skipBtnText: { fontSize: FontSize.md, color: Colors.textTertiary },
 });
