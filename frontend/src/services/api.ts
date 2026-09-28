@@ -21,7 +21,8 @@ import type {
   UserProfile, UserSettings,
   DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
-  SubscriptionStatus, ReceiptVerifyResult,
+  SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult, LifeArchiveResult,
+  LifeArchiveScope,
   ReflectionDraft, ReflectionItem,
   Memory,
   AuthResponse, AuthUser, CodePurpose,
@@ -625,6 +626,28 @@ export async function verifyReceipt(
       receipt_data: receiptData,
       product_id: productId,
     }),
+  });
+}
+
+/** Life Archive 买断权益（一次性内购，永久可用，与订阅状态互不影响）。 */
+export async function getEntitlements(): Promise<EntitlementsResult> {
+  return request<EntitlementsResult>('/iap/entitlements');
+}
+
+/**
+ * 导出 Life Archive（章节化数据）。
+ *
+ * 无权益且非订阅用户 → 后端 40304（ApiError.code=40304），Paywall 据此引导购买。
+ * 同档位（订阅口径为同档位同自然月）命中后端缓存，`regenerate` 才重新组装。
+ */
+export async function exportLifeArchive(
+  scope: LifeArchiveScope,
+  language: string,
+  regenerate = false,
+): Promise<LifeArchiveResult> {
+  return request<LifeArchiveResult>('/share/life-archive', {
+    method: 'POST',
+    body: JSON.stringify({ scope, language, regenerate }),
   });
 }
 

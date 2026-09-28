@@ -11,6 +11,12 @@ from backend.database import Base
 from backend.models.auth import RefreshToken
 from backend.models.chat import ChatMessage
 from backend.models.growth import GrowthRecord, UserMilestone
+from backend.models.journey import (
+    JourneyEvent,
+    OnboardingProfile,
+    SafetyEvent,
+    UserEntitlement,
+)
 from backend.models.memory import Memory
 from backend.models.mood import MoodCheckin
 from backend.models.personality import PersonalityAssessment, PersonalityProfile
@@ -23,15 +29,19 @@ __all__ = [
     "Base",
     "ChatMessage",
     "GrowthRecord",
+    "JourneyEvent",
     "Memory",
     "MoodCheckin",
+    "OnboardingProfile",
     "PersonalityAssessment",
     "PersonalityProfile",
     "PushToken",
     "Receipt",
     "RefreshToken",
+    "SafetyEvent",
     "ShareExport",
     "Subscription",
     "User",
+    "UserEntitlement",
     "UserMilestone",
 ]

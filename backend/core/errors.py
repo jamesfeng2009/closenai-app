@@ -52,6 +52,7 @@ class ErrorCode(IntEnum):
     QUOTA_EXCEEDED = 40301
     PRO_REQUIRED = 40302
     AI_CONSENT_REQUIRED = 40303  # 未同意 AI 数据共享（5.1.2(i)），前端弹 consent 弹窗
+    ENTITLEMENT_REQUIRED = 40304  # 未持有 Life Archive 买断权益（M6），且无订阅月度免费额度
     # 资源
     USER_NOT_FOUND = 40401
     RESOURCE_NOT_FOUND = 40402

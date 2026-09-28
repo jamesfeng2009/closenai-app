@@ -156,7 +156,11 @@ async def test_level_up_triggers_celebration_message(db, make_user):
     assert result["level_up"] is not None
     assert result["level_up"]["level"] == 2
     assert result["level_up"]["label"] == "熟悉 L2"
-    assert result["level_up"]["unlocks"] == ["AI 主动跟进", "记忆引用"]
+    assert result["level_up"]["unlocks"] == [
+        "AI 第一次提起你说过的事",  # §5.15a 情感回报，排在功能之前
+        "AI 主动跟进",
+        "记忆引用",
+    ]
 
     # 庆祝消息已写入对话（message_type=level_up，用户下次打开 App 可见）
     history = await chat_repository.get_history(db, "u1", limit=5)
@@ -201,15 +205,24 @@ async def test_get_level_detail_bilingual(db, make_user):
     assert detail["current"]["level"] == 3
     assert detail["current"]["label"] == "知己 L3"
     assert detail["current"]["days_to_next"] == 60
-    assert detail["current"]["unlocks"] == ["深度性格分析", "模式发现", "AI 周报"]
+    assert detail["current"]["unlocks"] == [
+        "首份 Monthly Story 预览",  # §5.15a 情感回报
+        "深度性格分析",
+        "模式发现",
+        "AI 周报",
+    ]
     assert len(detail["levels"]) == 4
     assert detail["levels"][0]["threshold"] == 0
     assert detail["levels"][2]["reached"] is True
     assert detail["levels"][3]["reached"] is False
     assert "恋爱" in detail["note"]
+    # §5.15a：等级页逐档给出情感回报，L1（0 天）没有回报档
+    assert detail["levels"][0]["reward"] is None
+    assert detail["levels"][3]["reward"] == "一封 90 天的信：这 90 天我看到的你"
 
     detail_en = await user_service.get_level_detail(db, "u1", "en")
     assert detail_en["current"]["label"] == "Confidant L3"
+    assert detail_en["levels"][1]["reward"] == "AI brings up something you once said"
     assert "romantic" in detail_en["note"]
 
 

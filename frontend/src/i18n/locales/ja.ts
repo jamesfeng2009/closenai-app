@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "アーカイブを永久に手元に",
+    "archiveSubtitle": "ClosenAI に記録したすべてを、あなた自身のアーカイブとして書き出せます",
+    "archiveOneTime": "買い切り · サブスクリプションではありません",
+    "archiveScope1y": "直近 1 年",
+    "archiveScopeAll": "全期間",
+    "archiveScopeLegacy": "年比較つき",
+    "archiveBuy": "購入",
+    "archiveOwned": "購入済み",
+    "archivePurchaseSuccess": "解放されました。アーカイブページから書き出せます",
+    "archiveRestoreSuccess": "アーカイブの購入を復元しました",
+    "archiveSubscriberHint": "Pro / Pro+ 契約中は毎月 1 回無料書き出し可"
   },
   "reflect": {
     "moodReminder": "今日はまだチェックインしていません · タップして絵文字を選択",

@@ -6,7 +6,9 @@
  * - Pro / Pro+ 档位 × 月付/年付周期 SKU 选择器（年付首选，带省钱锚点）
  * - Pro / Pro+ 权益对比
  * - StoreKit 购买（react-native-iap → /iap/verify 服务端校验）
- * - 恢复购买入口（App Store 合规必需）
+ * - 第四区块 Life Archive 一次性买断（M6：三档 scope + /iap/entitlements 已购态，
+ *   与订阅链路完全独立）
+ * - 恢复购买入口（App Store 合规必需，同一入口覆盖订阅与买断）
  *
  * 注：react-native-iap 为原生模块，需开发构建（expo prebuild / dev client）；
  * Expo Go 中购买按钮显示环境不可用提示。
@@ -15,15 +17,20 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Linking,
 } from 'react-native';
-import type { Subscription } from 'react-native-iap';
+import type { Product, Subscription } from 'react-native-iap';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { ARCHIVE_SCOPES, isScopeOwned } from '../config/archive';
 import { PRIVACY_POLICY_URL, TERMS_URL } from '../config/links';
-import { getSubscriptionStatus, ApiError } from '../services/api';
+import { getEntitlements, getSubscriptionStatus, ApiError } from '../services/api';
 import {
-  getProducts, initIAP, isUserCancelled, purchaseSubscription, restorePurchases,
+  getLifeArchiveProducts, getProducts, initIAP, isUserCancelled, purchaseLifeArchive,
+  purchaseSubscription, restorePurchases,
 } from '../services/iap';
-import type { SubscriptionStatus, UserTier } from '../types';
+import type { LifeArchiveSku } from '../services/iap';
+import type {
+  EntitlementsResult, LifeArchiveScope, SubscriptionStatus, UserTier,
+} from '../types';
 import { useTranslation } from 'react-i18next';
 
 type PaidTier = 'pro' | 'pro_plus';
@@ -76,10 +83,15 @@ export default function PaywallScreen() {
   // 而非仅静默禁用按钮。unavailableMsgKey 区分两种原因的文案。
   const [iapUnavailable, setIapUnavailable] = useState(false);
   const [unavailableMsgKey, setUnavailableMsgKey] = useState('paywall.unavailable');
+  // Life Archive 一次性买断：三档商品（本地化价格）+ 已购权益
+  const [archiveProducts, setArchiveProducts] = useState<Product[]>([]);
+  const [entitlements, setEntitlements] = useState<EntitlementsResult | null>(null);
+  const [archiveBusyScope, setArchiveBusyScope] = useState<LifeArchiveScope | null>(null);
 
   useEffect(() => {
     loadStatus();
     loadProducts();
+    loadArchive();
   }, []);
 
   // silent=true 时为后台刷新（购买/恢复成功后刷新状态），不触发全屏 loading 闪烁。
@@ -114,6 +126,18 @@ export default function PaywallScreen() {
     setProducts(list);
   };
 
+  // 档案买断区数据：三档本地化价格 + 已购权益（owned 状态来自后端 user_entitlements，
+  // 不读 tier——买断与订阅是两条独立链路）。任一失败都只影响本区，不阻塞订阅区。
+  const loadArchive = async () => {
+    try {
+      setEntitlements(await getEntitlements());
+    } catch (e) {
+      console.warn('Failed to load entitlements:', e);
+    }
+    const list = await getLifeArchiveProducts();
+    setArchiveProducts(list);
+  };
+
   const findProduct = (sku: string): Subscription | undefined =>
     products.find((p) => p.productId === sku);
 
@@ -124,6 +148,16 @@ export default function PaywallScreen() {
   // 展示用本地化价格（如 $4.99）。拉不到返回 null，对应卡片置灰、购买按钮禁用。
   const localizedPrice = (sku: string): string | null =>
     priceField(sku, 'localizedPrice') ?? priceField(sku, 'price');
+
+  // 档案档位 → 展示价（SKU 未拉到价格时为 null，按钮禁用，避免无价格购买）。
+  const archivePrice = (sku: string): string | null => {
+    const product = archiveProducts.find((p) => p.productId === sku);
+    return product?.localizedPrice || product?.price || null;
+  };
+
+  // 已购判定走后端权益（含高档向下兼容：持 legacy 即拥有 all/1y 的导出范围）。
+  const isArchiveOwned = (scope: LifeArchiveScope): boolean =>
+    isScopeOwned(entitlements?.owned_scopes ?? [], scope);
 
   // price 为本币数字字符串；同档月/年 SKU 同币种，可直接比价。
   const numericPrice = (sku: string): number | null => {
@@ -159,8 +193,10 @@ export default function PaywallScreen() {
   const selectedPrice = localizedPrice(selectedSku);
   // 已订阅且选中的正是当前生效 SKU：按钮置为"当前方案"并禁用（重复购买无意义）。
   const isCurrentPlan = !!status?.is_active && status.product_id === selectedSku;
+  // 订阅与档案买断共用 busy 语义：任一流程进行中时两条链路都禁用，避免并发交易互相覆盖 listener。
+  const anyBusy = busy || archiveBusyScope !== null;
   // 价格缺失（该 SKU 拉价失败）时禁用购买，防止无价格购买（App Store 合规）。
-  const canPurchase = !busy && !!selectedPrice && !iapUnavailable && !isCurrentPlan;
+  const canPurchase = !anyBusy && !!selectedPrice && !iapUnavailable && !isCurrentPlan;
 
   // 订阅：StoreKit 购买 → 收据回传后端校验 → 权益生效
   const onSubscribe = async () => {
@@ -191,17 +227,55 @@ export default function PaywallScreen() {
     }
   };
 
+  // 档案买断（一次性非消耗品）：requestPurchase → 校验（kind=entitlement）→ finishTransaction
+  // 买断不改 tier，因此成功后刷新的是 entitlements 而不是订阅状态。
+  const onBuyArchive = async (scope: LifeArchiveScope, sku: LifeArchiveSku) => {
+    if (anyBusy || iapUnavailable || isArchiveOwned(scope)) return;
+    setArchiveBusyScope(scope);
+    try {
+      const result = await purchaseLifeArchive(sku);
+      if (result && typeof result === 'object' && 'status' in result && result.status === 'timeout_pending') {
+        Alert.alert(t('paywall.processing'), t('paywall.timeoutPending'));
+        await loadArchive();
+        return;
+      }
+      Alert.alert(t('common.done'), t('paywall.archivePurchaseSuccess'));
+      await loadArchive();
+    } catch (e) {
+      if (isUserCancelled(e)) {
+        // 用户主动取消，不提示
+      } else if (e instanceof Error && e.message === 'iap_unavailable') {
+        Alert.alert(t('common.error'), t('paywall.unavailable'));
+      } else {
+        const msg = e instanceof ApiError ? e.message : t('paywall.purchaseFailed');
+        Alert.alert(t('common.error'), msg);
+      }
+    } finally {
+      setArchiveBusyScope(null);
+    }
+  };
+
   // 恢复购买（合规必需）：拉取可恢复交易 → 逐笔后端校验
+  // 订阅与档案买断共用同一入口（后端 /iap/verify 按收据内交易类型分流），
+  // 提示文案按恢复到的类型区分，避免把买断恢复说成"订阅已恢复"。
   const onRestore = async () => {
-    if (busy) return;
+    if (anyBusy) return;
     setBusy(true);
     try {
-      const { restored } = await restorePurchases();
-      Alert.alert(
-        t('common.done'),
-        restored ? t('paywall.restoreSuccess') : t('paywall.restoreNone'),
-      );
-      if (restored) await loadStatus(true);
+      const { restored, entitlementRestored } = await restorePurchases();
+      if (restored && entitlementRestored) {
+        Alert.alert(t('common.done'), `${t('paywall.restoreSuccess')}\n${t('paywall.archiveRestoreSuccess')}`);
+      } else if (entitlementRestored) {
+        Alert.alert(t('common.done'), t('paywall.archiveRestoreSuccess'));
+      } else {
+        Alert.alert(
+          t('common.done'),
+          restored ? t('paywall.restoreSuccess') : t('paywall.restoreNone'),
+        );
+      }
+      if (restored || entitlementRestored) {
+        await Promise.all([loadStatus(true), loadArchive()]);
+      }
     } catch (e) {
       if (e instanceof Error && e.message === 'iap_unavailable') {
         Alert.alert(t('common.error'), t('paywall.unavailable'));
@@ -379,6 +453,58 @@ export default function PaywallScreen() {
         )}
       </TouchableOpacity>
 
+      {/* ── 第四区块：Life Archive 一次性买断（M6 / 架构方案 §二 M6）──
+          与订阅区用分隔线 + 独立卡片底分离：§九-4 口径"订阅卖活体、买断卖标本"，
+          两者是互不影响的权益链路，UI 上不能被读成"第三个订阅档位"。 */}
+      <View style={styles.archiveDivider} />
+      <View style={styles.archiveSection}>
+        <View style={styles.archiveHeader}>
+          <Text style={styles.archiveTitle}>{t('paywall.archiveTitle')}</Text>
+          <View style={styles.archiveOneTimeBadge}>
+            <Text style={styles.archiveOneTimeText}>{t('paywall.archiveOneTime')}</Text>
+          </View>
+        </View>
+        <Text style={styles.archiveSubtitle}>{t('paywall.archiveSubtitle')}</Text>
+
+        {ARCHIVE_SCOPES.map(({ scope, sku, nameKey }) => {
+          const price = archivePrice(sku);
+          const owned = isArchiveOwned(scope);
+          const rowBusy = archiveBusyScope === scope;
+          // 已拥有（含更高档向下兼容）时不给重复购买入口；价格缺失时禁用，防无价格购买。
+          const disabled = owned || rowBusy || anyBusy || iapUnavailable || !price;
+          return (
+            <View key={scope} style={styles.archiveRow}>
+              <View style={styles.archiveRowMain}>
+                <Text style={styles.archiveScopeName}>{t(nameKey)}</Text>
+                {!!price && !owned && (
+                  <Text style={styles.archivePrice}>{price}</Text>
+                )}
+              </View>
+              {owned ? (
+                <View style={styles.archiveOwnedBadge}>
+                  <Text style={styles.archiveOwnedText}>{t('paywall.archiveOwned')}</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.archiveBuyBtn, disabled && styles.archiveBuyBtnDisabled]}
+                  onPress={() => onBuyArchive(scope, sku)}
+                  disabled={disabled}
+                >
+                  {rowBusy ? (
+                    <ActivityIndicator color={Colors.bgPrimary} />
+                  ) : (
+                    <Text style={styles.archiveBuyText}>{t('paywall.archiveBuy')}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })}
+
+        {/* Pro 联动权益（架构方案 §二 决策点：订阅加分，不取消买断） */}
+        <Text style={styles.archiveHint}>{t('paywall.archiveSubscriberHint')}</Text>
+      </View>
+
       {/* IAP 环境不可用提示（Expo Go 等）：持久展示原因，避免按钮静默禁用 */}
       {iapUnavailable && (
         <View style={styles.unavailableBox}>
@@ -386,8 +512,8 @@ export default function PaywallScreen() {
         </View>
       )}
 
-      {/* 恢复购买（App Store 合规必需） */}
-      <TouchableOpacity style={styles.restoreBtn} onPress={onRestore} disabled={busy}>
+      {/* 恢复购买（App Store 合规必需；同一入口覆盖订阅与档案买断） */}
+      <TouchableOpacity style={styles.restoreBtn} onPress={onRestore} disabled={anyBusy}>
         <Text style={styles.restoreText}>{t('paywall.restore')}</Text>
       </TouchableOpacity>
 
@@ -495,4 +621,47 @@ const styles = StyleSheet.create({
   legalRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: Spacing.md },
   legalLink: { fontSize: FontSize.md, color: Colors.textTertiary, textDecorationLine: 'underline' },
   legalSep: { fontSize: FontSize.md, color: Colors.textTertiary },
+  // Life Archive 买断区：霓虹紫底 + 顶部 hairline，与金色订阅区在色彩与结构上都分离
+  archiveDivider: {
+    alignSelf: 'stretch', height: 1, marginTop: Spacing.xl,
+    backgroundColor: 'rgba(99,102,241,0.3)',
+  },
+  archiveSection: {
+    alignSelf: 'stretch', marginTop: Spacing.lg, padding: Spacing.lg,
+    backgroundColor: 'rgba(99,102,241,0.07)', borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.25)', borderRadius: BorderRadius.xl,
+  },
+  archiveHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+  },
+  archiveTitle: { fontSize: FontSize.title, fontWeight: '700', color: Colors.textPrimary, flexShrink: 1 },
+  archiveOneTimeBadge: {
+    backgroundColor: 'rgba(99,102,241,0.18)', borderRadius: BorderRadius.sm,
+    paddingHorizontal: 8, paddingVertical: 2,
+  },
+  archiveOneTimeText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
+  archiveSubtitle: {
+    fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 6, lineHeight: 20,
+  },
+  archiveRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: 10, marginTop: Spacing.md,
+  },
+  archiveRowMain: { flex: 1, flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  archiveScopeName: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textPrimary },
+  archivePrice: { fontSize: FontSize.md, color: Colors.textSecondary },
+  archiveBuyBtn: {
+    backgroundColor: Colors.gold400, borderRadius: BorderRadius.md,
+    paddingHorizontal: 16, paddingVertical: 8, minWidth: 76, alignItems: 'center',
+  },
+  archiveBuyBtnDisabled: { opacity: 0.45 },
+  archiveBuyText: { fontSize: FontSize.md, fontWeight: '700', color: Colors.bgPrimary },
+  archiveOwnedBadge: {
+    backgroundColor: 'rgba(16,185,129,0.12)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)',
+    borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 2,
+  },
+  archiveOwnedText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.success },
+  archiveHint: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.md, lineHeight: 18,
+  },
 });

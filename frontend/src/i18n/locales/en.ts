@@ -50,6 +50,7 @@ const resource = {
     "toNextLevel": "{{days}} active days to the next level",
     "maxLevel": "Highest level reached",
     "unlocksTitle": "Unlocked abilities",
+    "rewardTitle": "What deepens between us",
     "badgesTitle": "Badges",
     "timelineTitle": "Milestones",
     "emptyTimeline": "No milestones yet — start your first conversation today",
@@ -218,7 +219,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "Keep your archive forever",
+    "archiveSubtitle": "Export everything you've recorded in ClosenAI as an archive that's yours",
+    "archiveOneTime": "One-time purchase · Not a subscription",
+    "archiveScope1y": "Last 1 year",
+    "archiveScopeAll": "Full history",
+    "archiveScopeLegacy": "With year-over-year",
+    "archiveBuy": "Buy",
+    "archiveOwned": "Owned",
+    "archivePurchaseSuccess": "Unlocked. Export it from the Archive page.",
+    "archiveRestoreSuccess": "Your archive purchases were restored",
+    "archiveSubscriberHint": "Pro / Pro+ subscribers get 1 free export per month"
   },
   "reflect": {
     "moodReminder": "Haven't checked in today · Tap to pick an emoji",

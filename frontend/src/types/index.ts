@@ -130,7 +130,8 @@ export interface RelationshipLevelInfo {
   active_days: number;
   next_threshold: number | null;
   days_to_next: number;
-  unlocks: string[]; // 后端本地化解锁能力列表
+  unlocks: string[]; // 后端本地化解锁能力列表（§5.15a：首位为该级情感回报）
+  reward?: string | null; // §5.15a 情感回报文案；L1 无回报时为 null
 }
 
 export interface LevelDetail {
@@ -140,6 +141,7 @@ export interface LevelDetail {
     label: string;
     threshold: number;
     unlocks: string[];
+    reward?: string | null;
     reached: boolean;
   }>;
   note: string; // 等级说明（名称无恋爱含义）
@@ -392,12 +394,63 @@ export interface SubscriptionStatus {
   is_trial: boolean;
 }
 
+export type LifeArchiveScope = '1y' | 'all' | 'legacy';
+
+export interface LifeArchiveEntitlement {
+  product_id: string;
+  scope: LifeArchiveScope;
+  transaction_id: string;
+  purchase_date: string | null;
+  environment: string | null;
+}
+
 export interface ReceiptVerifyResult {
   valid: boolean;
+  // 收据类型：subscription（自动续期订阅）/ entitlement（Life Archive 一次性买断）。
+  // 买断响应里 tier 保持用户当前订阅档位，前端不得据此显示"订阅已生效"。
+  kind: 'subscription' | 'entitlement';
   tier: UserTier | null;
   expires_at: string | null;
   is_trial: boolean;
+  product_id?: string | null;
+  scope?: LifeArchiveScope | null;
+  entitlements?: LifeArchiveEntitlement[];
   message: string;
+}
+
+export interface EntitlementsResult {
+  entitlements: LifeArchiveEntitlement[];
+  owned_scopes: LifeArchiveScope[];
+  best_scope: LifeArchiveScope | null;
+}
+
+export interface LifeArchiveChapter {
+  key: string;
+  title: string;
+  aigc_generated: boolean;
+  aigc_label: string | null;
+  items: string[];
+}
+
+export interface LifeArchiveResult {
+  archive_type: string;
+  scope: LifeArchiveScope;
+  gate: 'entitlement' | 'subscription';
+  language: string;
+  window_days: number | null;
+  generated_at: string;
+  from_cache?: boolean;
+  stats: {
+    active_days: number;
+    chat_count: number;
+    memory_count: number;
+    checkin_count: number;
+    message_count: number;
+  };
+  chapters: LifeArchiveChapter[];
+  aigc_mark: string;
+  aigc_notice: string;
+  share_url: string;
 }
 
 // ═══ Auth ═══

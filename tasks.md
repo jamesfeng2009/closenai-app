@@ -23,20 +23,24 @@
   - [x] 移除 `pyswisseph` 依赖（requirements.txt + pyproject.toml）
   - [x] DB 表保留（alembic 迁移文件不删）；enneagram 不动
   - 验收实测：运行时代码 grep 无 natal 引用（残留"占星"字样均为提示词内**禁用措辞约束**，属预期）；`from backend.main import app` OK；pytest 217 过（2 个失败为工作区在途的 follow_up 签名/personality 配额改动，与 M7 无关）
-  - ⏳ 待办：前端未跑 `tsc --noEmit`（本机无 node_modules，装依赖耗时放弃）——下次 `npm i` 后顺带验证
-- [ ] **A2 · M6 Life Archive IAP**（后端 3d + 前端 2d）｜架构方案 §二 M6 / 行动方案 P0-2 ｜SKU 形态已拍板：维持一次性买断（架构方案 §九-4，2026-09-28）
-  - [ ] 清理 `iap_service.py:71` `life_archive → pro_plus` 别名（买断走 user_entitlements，不走 _map_tier）
-  - [ ] Pro 联动权益：订阅期内导出折扣/每月 1 次免费生成（订阅加分，不取消买断）
-  - [ ] 新表 `user_entitlements` + alembic 迁移
-  - [ ] `iap_service` non-consumable 分支（App Store Server Notifications v2）
-  - [ ] `POST /api/v1/share/life-archive`（entitlement 校验 + worker 后台渲染 PDF + 幂等）
-  - [ ] Paywall 第四区块"永久保存你的档案"（视觉分离订阅区）+ 恢复购买
-  - [ ] AIGC 章节 GB 45438-2025 显式标识
+  - ✅ 补验：A2 期间已重装 node_modules 并跑 `tsc --noEmit`（exit 0）+ jest 11 套件 88 例全过，M7 删除的前端引用无类型残留
+- [x] **A2 · M6 Life Archive IAP**（后端 3d + 前端 2d）｜架构方案 §二 M6 / 行动方案 P0-2 ｜SKU 形态已拍板：维持一次性买断（架构方案 §九-4，2026-09-28）✅ 2026-09-29 完成（代码+测试；sandbox 实机三档验收待提审前）
+  - [x] 清理 `iap_service.py:71` `life_archive → pro_plus` 别名（买断走 user_entitlements，不走 _map_tier）
+  - [x] Pro 联动权益：订阅期内导出折扣/每月 1 次免费生成（订阅加分，不取消买断）
+  - [x] 新表 `user_entitlements` + alembic 迁移
+  - [x] `iap_service` non-consumable 分支（App Store Server Notifications v2）
+  - [x] `POST /api/v1/share/life-archive`（entitlement 校验 + worker 后台渲染 PDF + 幂等）
+    - ⚠️ 偏离：PDF 为**同步渲染**（v1）。档案只编排既有落库内容、零新增 LLM 调用，成本只在本地排版；后台渲染待 E3（arq+Redis）落地后切换 + 完成推送。已在 `routers/share.py` docstring 记录。
+  - [x] Paywall 第四区块"永久保存你的档案"（视觉分离订阅区）+ 恢复购买
+  - [x] AIGC 章节 GB 45438-2025 显式标识（仅 AI 产出章节 portrait/patterns/insights 逐章标注 + 文档级声明；用户原话与确定性统计不标注）
   - 验收：sandbox 三档 购买→导出→卸载重装恢复
-- [ ] **A3 · M3 §5.15a 情感回报进 LEVEL_UNLOCKS**（1.5d，依赖 A4 的 journey_events 表先建）｜架构方案 §二 M3
-  - [ ] L2「AI 提起你说过的事」/ L3「Monthly Story 预览」/ L4「90 天信」
-  - [ ] level 变更检测写 journey_events（kind=level_reward）
-  - 验收：代码侧不再是纯功能奖励（现状：LEVEL_UNLOCKS 全为功能解锁）
+    - 实测覆盖：`backend/tests/test_life_archive.py`（18 例：买断不改 tier / 混合收据双链路 / 恢复幂等 / 跨账号拒发 / 退款回收 / 40304 / 档位向下兼容 / 订阅每月 1 次免费 / 1y 窗口 / PDF 渲染）+ `frontend/__tests__/lifeArchiveConfig.test.ts`（49 例：SKU 对齐 ASC、档位序与后端 SCOPE_RANK 同口径、15 语言文案齐备）
+    - ⏳ 真机 sandbox 流程（购买→导出→卸载重装恢复）需 dev build，本机 Expo Go 不可用，留待提审前 D5 阶段
+- [x] **A3 · M3 §5.15a 情感回报进 LEVEL_UNLOCKS**（1.5d，依赖 A4 的 journey_events 表先建）✅ 2026-09-29 完成
+  - [x] L2「AI 提起你说过的事」/ L3「Monthly Story 预览」/ L4「90 天信」（`LEVEL_REWARDS` + `_merge_level_unlocks` 把回报合到 `LEVEL_UNLOCKS` 首位；zh/en 先行，其余语言按架构方案 §二 M3 跟 i18n 批次）
+  - [x] level 变更检测写 journey_events（kind=level_reward，day_no=LEVEL_THRESHOLDS[level]=7/30/90，scheduled_at=下一个用户本地 push 窗口，payload.reward_key 供 B2 调度管线分派正文）
+  - 验收实测：`backend/tests/test_level_reward.py` 7 例（L2/L3/L4 回报键与 day_no、scheduled_at 落本地 push 窗口、同日幂等不重复写行、庆祝消息不重复列回报、等级页逐档 reward）；全量 pytest 243 passed；前端 tsc exit 0 + jest 88 passed
+  - ⏳ 交给 B2：level_reward 的**正文渲染**（L2 记忆引用 / L3 月报缩略 / L4 长信）与 memory_refs 引用依据，由 `dispatch_journey_events` 按 payload.reward_key 分派（架构方案 §二 M2/M3 同一张表、同一套调度）
 
 ## B. Sprint 2｜过桥获客（P1）
 

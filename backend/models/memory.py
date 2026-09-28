@@ -42,6 +42,11 @@ class Memory(Base):
     transition_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 软删除标记（用户删除不物理删行，注销级联物理删除不受影响）
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 结构化标签（§5.18 承诺回访：JSON 对象字符串，无新表原则）
+    #   {"labels": ["commitment"], "commitment": {"kind": "habit"|"event",
+    #    "follow_up_count": 0, "muted": false}}
+    # 只记录不当场确认；回访调度状态（次数/负向退出）随该记忆一行，避免新表漂移。
+    labels: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

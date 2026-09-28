@@ -449,12 +449,27 @@ class ReceiptVerifyRequest(BaseModel):
     is_sandbox: bool = Field(False, description="是否 Sandbox 环境")
 
 
+class LifeArchiveEntitlement(BaseModel):
+    """一笔 Life Archive 一次性买断权益（M6，与订阅 tier 无关）。"""
+    product_id: str
+    scope: Literal["1y", "all", "legacy"]
+    transaction_id: str
+    purchase_date: Optional[datetime] = None
+    environment: Optional[str] = None
+
+
 class ReceiptVerifyResponse(BaseModel):
     """收据校验响应。"""
     valid: bool
-    tier: Optional[str] = None       # free | pro | pro_plus
+    # 收据内交易类型：subscription（自动续期订阅）| entitlement（一次性买断）。
+    # 买断响应必须显式区分，否则前端会把"买了 Life Archive"渲染成"订阅已生效"。
+    kind: Literal["subscription", "entitlement"] = "subscription"
+    tier: Optional[str] = None       # free | pro | pro_plus（买断时保持用户当前订阅档位）
     expires_at: Optional[datetime] = None
     is_trial: bool = False           # 是否免费试用中（P1-F02 §4）
+    product_id: Optional[str] = None
+    scope: Optional[Literal["1y", "all", "legacy"]] = None  # 买断最高档
+    entitlements: List[LifeArchiveEntitlement] = []
     message: str
 
 
@@ -466,6 +481,24 @@ class SubscriptionStatusResponse(BaseModel):
     product_id: Optional[str]
     auto_renew: bool
     is_trial: bool = False           # 是否免费试用中（到期前 24h 推送提醒）
+
+
+class EntitlementsResponse(BaseModel):
+    """Life Archive 买断权益查询响应（P0-2 / M6）。"""
+    entitlements: List[LifeArchiveEntitlement] = []
+    owned_scopes: List[Literal["1y", "all", "legacy"]] = []
+    best_scope: Optional[Literal["1y", "all", "legacy"]] = None
+
+
+class LifeArchiveExportRequest(BaseModel):
+    """Life Archive 导出请求。
+
+    scope 只放宽导出窗口，不放宽授权：持有 legacy 可导出 all/1y（向下兼容），
+    只持有 1y 不能导出 all。
+    """
+    scope: Literal["1y", "all", "legacy"] = Field("all", description="导出档位")
+    language: str = Field("en", max_length=10, description="语言")
+    regenerate: bool = Field(False, description="忽略缓存重新生成（同档位同周期幂等）")
 
 
 # ═══ Auth ═══

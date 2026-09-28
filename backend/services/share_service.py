@@ -12,9 +12,9 @@ PDF 使用 reportlab 的 UnicodeCIDFont（STSong-Light），无需嵌入字体�
 """
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -30,7 +30,11 @@ from backend.core.llm import llm
 from backend.core.time_utils import local_today, utc_now
 from backend.models.user import User
 from backend.repositories import (
+    chat_repository,
+    entitlement_repository,
     growth_repository,
+    memory_repository,
+    milestone_repository,
     mood_repository,
     share_repository,
     user_repository,
@@ -94,6 +98,77 @@ _TAGLINE_STYLES = {
         "minimal": "minimal and punchy, no more than 8 words",
         "combo": "deep and cross-framework, pointing to the core of personality",
     },
+}
+
+
+# ── Life Archive 一次性买断导出（架构方案 §二 M6）──
+
+# 全量档（all / legacy）用"epoch 起算"表达不设窗口，SQL 与 Python 比较都走同一口径
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_ALL_HISTORY_DAYS = 3650 * 3  # 10 年：档案的最长现实跨度
+
+
+def _as_aware(value: datetime) -> datetime:
+    """DB 读出的 datetime 在 SQLite 下不带 tzinfo，统一补 UTC 后才能与 utc_now() 比较。"""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+# share_exports.period 取值（String(20) 内）
+LIFE_ARCHIVE_PERIOD = "life_archive"
+# 三档导出窗口：1y=近 365 天，all=全量，legacy=全量 + 跨年对比 + 里程碑全史
+LIFE_ARCHIVE_SCOPES = ("1y", "all", "legacy")
+LIFE_ARCHIVE_WINDOW_DAYS = {"1y": 365, "all": None, "legacy": None}
+# 每章条目上限：档案是"纪念品"不是数据备份，超长导出既慢又没人读
+LIFE_ARCHIVE_ITEM_LIMIT = {"1y": 60, "all": 200, "legacy": 300}
+
+# AIGC 显式标识（GB 45438-2025）：LLM 产出的章节必须逐章标注 + 文档级声明。
+# 用户原话/确定性统计不标注，避免把用户自己的话标成 AI 内容。
+AIGC_CHAPTER_KEYS = ("portrait", "patterns", "insights")
+AIGC_MARK = {
+    "zh": "［AI 生成］",
+    "en": " [AI-GENERATED]",
+}
+AIGC_NOTICE = {
+    "zh": (
+        "本档案中标注「AI 生成」的章节由人工智能根据你在 ClosenAI 的记录生成，"
+        "依据 GB 45438-2025《网络安全技术 生成式人工智能服务安全基本要求》显式标识；"
+        "其余内容为你本人的原始记录与确定性统计。"
+    ),
+    "en": (
+        "Chapters marked [AI-GENERATED] in this archive were produced by artificial "
+        "intelligence from your ClosenAI records and are labelled as such per "
+        "GB 45438-2025 (Cybersecurity Technology - Security Basic Requirements for "
+        "Generative AI Services). All other content is your own raw record data and "
+        "deterministic statistics."
+    ),
+}
+
+_ARCHIVE_TITLES = {
+    "zh": {
+        "overview": "档案概览",
+        "portrait": "性格画像",
+        "voice": "你说过的话",
+        "mood": "情绪轨迹",
+        "patterns": "反复出现的模式",
+        "insights": "周期洞察",
+        "milestones": "里程碑",
+        "cross_year": "跨年对比",
+    },
+    "en": {
+        "overview": "Archive Overview",
+        "portrait": "Personality Portrait",
+        "voice": "In Your Own Words",
+        "mood": "Mood Trajectory",
+        "patterns": "Recurring Patterns",
+        "insights": "Periodic Insights",
+        "milestones": "Milestones",
+        "cross_year": "Year-over-Year Comparison",
+    },
+}
+
+_ARCHIVE_EMPTY = {
+    "zh": "（这段时间还没有记录）",
+    "en": "(Nothing recorded for this window yet)",
 }
 
 
@@ -195,6 +270,301 @@ class ShareService:
         lines = self._report_lines(report, language)
         default_title = "成长报告" if (language or "").startswith("zh") else "Growth Report"
         return self._render_pdf(report.get("period_label", default_title), lines)
+
+    # ── Life Archive 导出（M6 · 一次性买断）──
+
+    async def export_life_archive(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        scope: str = "all",
+        language: str = "en",
+        regenerate: bool = False,
+    ) -> dict:
+        """导出 Life Archive（章节化 JSON，PDF 渲染共用同一份数据）。
+
+        权益口径（架构方案 §九-4：订阅卖"活体"，买断卖"标本"）：
+        - 持有 ≥ scope 档买断 → 放行，缓存键 = scope（同档幂等，不重复渲染）
+        - Pro/Pro+ 订阅期内 → 每月 1 次免费生成（联动权益），缓存键带 YYYY-MM
+        - 两者都不满足 → 40304 ENTITLEMENT_REQUIRED
+        """
+        if scope not in LIFE_ARCHIVE_SCOPES:
+            raise AppException(
+                ErrorCode.INVALID_PARAMS, f"无效的导出档位: {scope} / Invalid archive scope"
+            )
+        user = await user_repository.require_user(db, user_id)
+        period_key, gate = await self._life_archive_gate(db, user, scope)
+
+        cached = await share_repository.get_cached(
+            db, user_id, LIFE_ARCHIVE_PERIOD, period_key
+        )
+        if cached is not None and not regenerate:
+            payload = json.loads(cached.payload)
+            payload["from_cache"] = True
+            return payload
+
+        archive = await self._build_life_archive(db, user, scope, language, gate)
+        raw = json.dumps(archive, ensure_ascii=False)
+        if cached is not None:
+            await share_repository.overwrite(db, cached, raw)
+        else:
+            await share_repository.save(db, user_id, LIFE_ARCHIVE_PERIOD, period_key, raw)
+        return archive
+
+    async def export_life_archive_pdf(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        scope: str = "all",
+        language: str = "en",
+        regenerate: bool = False,
+    ) -> bytes:
+        """导出 Life Archive（PDF）。复用 JSON 导出缓存，权益判定同走一次。"""
+        archive = await self.export_life_archive(db, user_id, scope, language, regenerate)
+        return self._render_pdf(
+            self._life_archive_title(archive), self._life_archive_lines(archive)
+        )
+
+    async def _life_archive_gate(
+        self, db: AsyncSession, user: User, scope: str
+    ) -> Tuple[str, str]:
+        """返回 (缓存键, 放行来源)；无权益抛 40304。
+
+        买断判定只看 user_entitlements.revoked_at IS NULL（退款即回收），
+        不看 tier——买 Life Archive 不等于订阅，反之亦然。
+        """
+        if await entitlement_repository.has(db, user.id, scope):
+            return scope, "entitlement"
+        if user.tier != FREE_TIER:
+            month = local_today(user.timezone).strftime("%Y-%m")
+            return f"{scope}:{month}", "subscription"
+        raise AppException(
+            ErrorCode.ENTITLEMENT_REQUIRED,
+            "Life Archive 为一次性买断（Pro/Pro+ 订阅期内每月可免费生成 1 次）"
+            " / Life Archive requires a one-time purchase (Pro subscribers get one free export per month)",
+        )
+
+    async def _build_life_archive(
+        self, db: AsyncSession, user: User, scope: str, language: str, gate: str
+    ) -> dict:
+        """组装档案数据：用户原始记录 + 既有 AI 产出，不新增 LLM 调用。
+
+        "无新增生成"是 M6 的合规前提（架构方案 §二 M6）——档案里出现的所有
+        叙述性文字都是此前已生成并落库的内容，导出只负责编排与标识。
+        """
+        zh = (language or "").startswith("zh")
+        window_days = LIFE_ARCHIVE_WINDOW_DAYS[scope]
+        window_start = (
+            _EPOCH if window_days is None else utc_now() - timedelta(days=window_days)
+        )
+        item_limit = LIFE_ARCHIVE_ITEM_LIMIT[scope]
+
+        memories = await memory_repository.list(db, user.id, limit=item_limit)
+        if window_days is not None:
+            memories = [m for m in memories if _as_aware(m.created_at) >= window_start]
+        patterns = await growth_repository.list_recent(
+            db, user.id, "pattern_discovery",
+            days=window_days or _ALL_HISTORY_DAYS, limit=item_limit,
+        )
+        weekly = await growth_repository.list_recent(
+            db, user.id, "weekly_summary",
+            days=window_days or _ALL_HISTORY_DAYS, limit=item_limit,
+        )
+        daily = await growth_repository.list_recent(
+            db, user.id, "daily_insight",
+            days=window_days or _ALL_HISTORY_DAYS, limit=item_limit,
+        )
+        checkins = await mood_repository.get_history(
+            db, user.id, days=window_days or _ALL_HISTORY_DAYS
+        )
+        milestones = await milestone_repository.list_for_user(db, user.id)
+        if window_days is not None:
+            milestones = [
+                m for m in milestones if _as_aware(m.achieved_at) >= window_start
+            ]
+
+        stats = {
+            "active_days": user.active_days,
+            "chat_count": user.chat_count,
+            "memory_count": await memory_repository.count_since(db, user.id, window_start),
+            "checkin_count": await mood_repository.count_since(db, user.id, window_start),
+            "message_count": await chat_repository.count_since(db, user.id, window_start),
+        }
+
+        chapters: List[dict] = [
+            self._chapter(zh, "overview", self._overview_items(stats, scope, zh)),
+            self._chapter(zh, "portrait", await self._portrait_items(db, user.id, language)),
+            self._chapter(zh, "voice", self._voice_items(memories)),
+            self._chapter(zh, "mood", self._mood_items(checkins, language, zh)),
+            self._chapter(zh, "patterns", self._record_items(patterns)),
+            self._chapter(
+                zh,
+                "insights",
+                self._record_items(weekly) + self._record_items(daily),
+            ),
+            self._chapter(zh, "milestones", self._milestone_items(milestones, language, zh)),
+        ]
+        if scope == "legacy":
+            chapters.append(
+                self._chapter(zh, "cross_year", self._cross_year_items(checkins, memories, zh))
+            )
+
+        return {
+            "archive_type": "life_archive",
+            "scope": scope,
+            "gate": gate,
+            "language": language,
+            "window_days": window_days,
+            "generated_at": utc_now().isoformat(),
+            "stats": stats,
+            "chapters": chapters,
+            "aigc_mark": AIGC_MARK["zh" if zh else "en"],
+            "aigc_notice": AIGC_NOTICE["zh" if zh else "en"],
+            "share_url": settings.app_store_url,
+        }
+
+    def _chapter(self, zh: bool, key: str, items: List[str]) -> dict:
+        """章节对象：AIGC 标识随章节走（GB 45438 要求显式标识落在内容上）。"""
+        generated = key in AIGC_CHAPTER_KEYS
+        return {
+            "key": key,
+            "title": _ARCHIVE_TITLES["zh" if zh else "en"][key],
+            "aigc_generated": generated,
+            "aigc_label": AIGC_MARK["zh" if zh else "en"] if generated else None,
+            "items": items,
+        }
+
+    def _overview_items(self, stats: dict, scope: str, zh: bool) -> List[str]:
+        if zh:
+            return [
+                f"档案档位：{scope}",
+                f"累计活跃 {stats['active_days']} 天",
+                f"对话消息 {stats['message_count']} 条",
+                f"情绪签到 {stats['checkin_count']} 次",
+                f"长期记忆 {stats['memory_count']} 条",
+            ]
+        return [
+            f"Archive scope: {scope}",
+            f"{stats['active_days']} active days in total",
+            f"{stats['message_count']} chat messages",
+            f"{stats['checkin_count']} mood check-ins",
+            f"{stats['memory_count']} long-term memories",
+        ]
+
+    async def _portrait_items(
+        self, db: AsyncSession, user_id: str, language: str
+    ) -> List[str]:
+        profile = await personality_service.get_profile(db, user_id)
+        items: List[str] = []
+        if profile.mbti_type:
+            label = profile.mbti_label or ""
+            items.append(f"{profile.mbti_type} · {label}".strip(" ·"))
+        if profile.unique_traits:
+            items.append(profile.unique_traits)
+        for obs in profile.observations or []:
+            text = obs if isinstance(obs, str) else json.dumps(obs, ensure_ascii=False)
+            items.append(text)
+        return items
+
+    def _voice_items(self, memories) -> List[str]:
+        """用户原话（不是 AI 产出，故不加 AIGC 标识）。"""
+        out: List[str] = []
+        for m in memories:
+            day = _as_aware(m.created_at).date().isoformat()
+            out.append(f"{day} · {m.content}")
+        return out
+
+    def _mood_items(self, checkins, language: str, zh: bool) -> List[str]:
+        from backend.services.mood_service import mood_label_for
+
+        dist: dict = {}
+        for c in checkins:
+            label = c.mood_label or mood_label_for(c.mood_emoji, language)
+            dist[label] = dist.get(label, 0) + 1
+        if not dist:
+            return [_ARCHIVE_EMPTY["zh" if zh else "en"]]
+        parts = sorted(dist.items(), key=lambda x: -x[1])
+        unit = "次" if zh else "times"
+        return [f"{label} × {count} {unit}".strip() for label, count in parts]
+
+    def _record_items(self, records) -> List[str]:
+        out: List[str] = []
+        for r in records:
+            day = _as_aware(r.created_at).date().isoformat()
+            out.append(f"{day} · {r.content}")
+        return out
+
+    def _milestone_items(self, milestones, language: str, zh: bool) -> List[str]:
+        from backend.services.user_service import user_service
+
+        if not milestones:
+            return [_ARCHIVE_EMPTY["zh" if zh else "en"]]
+        out: List[str] = []
+        for m in milestones:
+            day = _as_aware(m.achieved_at).date().isoformat()
+            name = user_service.milestone_name(m.milestone_type, language)
+            out.append(f"{day} · {name}")
+        return out
+
+    def _cross_year_items(self, checkins, memories, zh: bool) -> List[str]:
+        """跨年对比：按自然年统计量（确定性计数，非 AI 推断）。"""
+        buckets: dict = {}
+        for c in checkins:
+            year = _as_aware(c.created_at).year
+            buckets.setdefault(year, {"checkins": 0, "memories": 0})["checkins"] += 1
+        for m in memories:
+            year = _as_aware(m.created_at).year
+            buckets.setdefault(year, {"checkins": 0, "memories": 0})["memories"] += 1
+        if len(buckets) < 2:
+            return [
+                "跨年对比需要至少两个自然年的记录。" if zh
+                else "Year-over-year comparison needs records from at least two calendar years."
+            ]
+        out: List[str] = []
+        for year in sorted(buckets):
+            b = buckets[year]
+            if zh:
+                out.append(f"{year} 年：情绪签到 {b['checkins']} 次，记忆 {b['memories']} 条")
+            else:
+                out.append(
+                    f"{year}: {b['checkins']} mood check-ins, {b['memories']} memories"
+                )
+        return out
+
+    def _life_archive_title(self, archive: dict) -> str:
+        zh = (archive.get("language") or "").startswith("zh")
+        label = _ARCHIVE_TITLES["zh" if zh else "en"]
+        scope = archive.get("scope", "all")
+        if zh:
+            return f"人生档案（{scope}）· {label['overview']}"
+        return f"Life Archive ({scope}) — {label['overview']}"
+
+    def _life_archive_lines(self, archive: dict) -> List[str]:
+        """PDF 文本行：文档级 AIGC 声明 + 逐章标题带标识。"""
+        zh = (archive.get("language") or "").startswith("zh")
+        stats = archive.get("stats") or {}
+        lines: List[str] = [archive.get("aigc_notice", ""), ""]
+        lines.append(
+            f"记录概况：累计活跃 {stats.get('active_days', 0)} 天，"
+            f"记忆 {stats.get('memory_count', 0)} 条，签到 {stats.get('checkin_count', 0)} 次"
+            if zh
+            else
+            f"Overview: {stats.get('active_days', 0)} active days, "
+            f"{stats.get('memory_count', 0)} memories, "
+            f"{stats.get('checkin_count', 0)} check-ins"
+        )
+        lines.append("")
+        for chapter in archive.get("chapters", []):
+            mark = chapter.get("aigc_label") or ""
+            lines.append(f"{chapter.get('title', '')}{mark}".strip())
+            items = chapter.get("items") or []
+            if not items:
+                lines.append(_ARCHIVE_EMPTY["zh" if zh else "en"])
+            for item in items:
+                lines.append(f"· {item}")
+            lines.append("")
+        lines.append(archive.get("aigc_notice", ""))
+        return lines
 
     # ── 周期报告（weekly 专属构建） ──
 

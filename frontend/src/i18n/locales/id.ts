@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "Simpan arsipmu selamanya",
+    "archiveSubtitle": "Ekspor semua catatanmu di ClosenAI menjadi arsip milikmu",
+    "archiveOneTime": "Sekali beli · Bukan langganan",
+    "archiveScope1y": "1 tahun terakhir",
+    "archiveScopeAll": "Seluruh riwayat",
+    "archiveScopeLegacy": "Dengan perbandingan tahunan",
+    "archiveBuy": "Beli",
+    "archiveOwned": "Dimiliki",
+    "archivePurchaseSuccess": "Terbuka. Ekspor dari halaman Arsip.",
+    "archiveRestoreSuccess": "Pembelian arsipmu berhasil dipulihkan",
+    "archiveSubscriberHint": "Pelanggan Pro / Pro+ mendapat 1 ekspor gratis tiap bulan"
   },
   "reflect": {
     "moodReminder": "Belum check-in hari ini · Ketuk untuk memilih emoji",

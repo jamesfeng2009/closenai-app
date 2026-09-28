@@ -7,6 +7,8 @@ IAP 订阅服务 (P1-F02)。
 - 收据必须由服务端调用 App Store Server API 校验，禁止信任客户端
 - 校验通过后才写入 subscriptions 并下发权益
 - 退款 / 过期通知立即回收权益（降级为 free）
+- Life Archive 一次性买断走 user_entitlements，与 tier / subscriptions 完全解耦
+  （架构方案 §二 M6 / §九-4）；买断收据不改 tier
 
 未配置 `APP_STORE_SHARED_SECRET` 时（开发态）：
 - debug=True 时返回模拟成功，便于本地联调
@@ -17,14 +19,18 @@ import base64
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from sqlalchemy.exc import IntegrityError
 
 from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
-from backend.repositories import subscription_repository, user_repository
+from backend.repositories import (
+    entitlement_repository,
+    subscription_repository,
+    user_repository,
+)
 
 logger = logging.getLogger("closenai.iap")
 
@@ -63,12 +69,23 @@ APPLE_21008 = 21008  # 生产收据打到沙盒端点
 APP_STORE_VERIFY_APP_TIMEOUT = 10  # 秒
 
 # 产品 → 档位映射（与现有 tier 体系 free/pro/pro_plus 对齐）
-# 支持 P1-F02 四层体系中的 Pro/Premium/Life Archive 映射到现有档位
+# 支持 P1-F02 四层体系中的 Pro/Premium 映射到现有档位。
+# ⚠️ Life Archive 不在此表：一次性买断走 user_entitlements（架构方案 §九-4），
+# 原 `life_archive → pro_plus` 历史别名已删除——买断若映射成订阅档位，
+# 用户买一次即永久持有 pro_plus tier，退款/过期链路又只认 subscriptions，
+# 权益会永久漂移。买断的判定唯一入口是 _non_consumable_scope。
 PRODUCT_TIER_MAP = {
     "pro": "pro",
     "pro_plus": "pro_plus",
     "premium": "pro_plus",
-    "life_archive": "pro_plus",
+}
+
+# 一次性买断产品（Life Archive 三档，架构方案 §二 M6）：App Store 产品 ID → 权益档位键。
+# 档位包含关系 legacy ⊃ all ⊃ 1y（见 entitlement_repository.SCOPE_RANK）。
+NON_CONSUMABLE_SCOPES = {
+    "life_archive_legacy": "legacy",
+    "life_archive_all": "all",
+    "life_archive_1y": "1y",
 }
 
 
@@ -81,6 +98,40 @@ def _map_tier(product_id: str) -> str:
         if key in pid:
             return tier
     return "pro"
+
+
+def _non_consumable_scope(product_id: str) -> Optional[str]:
+    """非消耗品档位键；非买断产品返回 None。
+
+    同样按键长降序匹配：`life_archive_legacy` 必须优先于 `life_archive_all`
+    之类的短键，避免跨档误判（误判会发错导出范围）。
+    """
+    pid = (product_id or "").lower()
+    for key, scope in sorted(NON_CONSUMABLE_SCOPES.items(), key=lambda kv: -len(kv[0])):
+        if key in pid:
+            return scope
+    return None
+
+
+def _collect_transactions(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """收据内全部交易：`latest_receipt_info` + `receipt.in_app` 合并去重。
+
+    两个数组都要取：请求带了 `exclude-old-transactions`，该字段只裁剪自动续期
+    订阅历史，一次性买断通常只出现在 `receipt.in_app`；只读前者的话，卸载重装后
+    的"恢复购买"会拿不到已购档位。
+    """
+    rows = list(data.get("latest_receipt_info") or [])
+    rows += list((data.get("receipt") or {}).get("in_app") or [])
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    for row in rows:
+        tx_id = str(row.get("transaction_id") or row.get("original_transaction_id") or "")
+        key = tx_id or f"anon-{len(out)}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 def _b64url_decode(data: str) -> bytes:
@@ -192,8 +243,30 @@ class IAPService:
         # 开发态且未配置密钥：模拟成功（同样落库，保证 dev 联调时状态一致）
         if not settings.app_store_shared_secret:
             if settings.debug:
-                result = self._dev_success(user_id, product_id, is_sandbox)
                 await user_repository.require_user(db, user_id)
+                # 买断在开发态同样走 user_entitlements，保持与生产一致的判定链路
+                scope = _non_consumable_scope(product_id)
+                if scope:
+                    row = await entitlement_repository.grant(
+                        db,
+                        user_id,
+                        product_id=product_id,
+                        scope=scope,
+                        transaction_id=f"dev-{scope}-{user_id}",
+                        purchase_date=datetime.now(timezone.utc),
+                        original_transaction_id=f"dev-{scope}-{user_id}",
+                        environment="Sandbox",
+                    )
+                    await subscription_repository.create_receipt(
+                        db,
+                        user_id,
+                        product_id=product_id,
+                        receipt_data=receipt_data,
+                        status="valid",
+                        transaction_id=row.transaction_id,
+                    )
+                    return await self._entitlement_result(db, user_id, [self._entitlement_item(row)])
+                result = self._dev_success(user_id, product_id, is_sandbox)
                 await subscription_repository.upsert(
                     db,
                     user_id,
@@ -260,13 +333,32 @@ class IAPService:
         if status != 0:
             return {"valid": False, "message": f"App Store 校验失败 ({status})"}
 
-        # 解析最新一笔订阅交易（按过期时间取最新，不依赖数组顺序）
-        latest_info = data.get("latest_receipt_info") or data.get("receipt", {}).get("in_app") or []
-        info = max(
-            latest_info,
-            key=lambda x: int(x.get("expires_date_ms") or 0),
-            default={},
-        )
+        # 解析收据内全部交易（买断 + 订阅共存）
+        transactions = _collect_transactions(data)
+        await user_repository.require_user(db, user_id)
+
+        # 一次性买断先发放：与订阅同收据共存时两笔都要处理，
+        # 买断只写 user_entitlements，不改 tier、不写 subscriptions（§九-4）。
+        entitlements = await self._grant_non_consumables(db, user_id, transactions)
+        subscription_tx = [
+            t for t in transactions if _non_consumable_scope(t.get("product_id") or "") is None
+        ]
+        if not subscription_tx:
+            if not entitlements:
+                return {"valid": False, "message": "收据内无有效交易"}
+            # 收据内只有买断 → 不进入订阅链路（不改 tier），仅留审计收据行
+            await subscription_repository.create_receipt(
+                db,
+                user_id,
+                product_id=entitlements[-1]["product_id"],
+                receipt_data=receipt_data,
+                status="valid",
+                transaction_id=entitlements[-1]["transaction_id"],
+            )
+            return await self._entitlement_result(db, user_id, entitlements)
+
+        # 按过期时间取最新一笔订阅交易（不依赖数组顺序）
+        info = max(subscription_tx, key=lambda x: int(x.get("expires_date_ms") or 0))
         expires_ms = info.get("expires_date_ms") or info.get("expires_date")
         expires_at = self._parse_expiry(expires_ms)
         original_tx = info.get("original_transaction_id")
@@ -290,7 +382,6 @@ class IAPService:
                 )
 
         # 写入订阅 + 收据 + 下发权益
-        await user_repository.require_user(db, user_id)
         upsert_kwargs = dict(
             user_id=user_id,
             product_id=receipt_product_id,
@@ -331,10 +422,108 @@ class IAPService:
 
         return {
             "valid": True,
+            "kind": "subscription",
             "tier": tier,
             "expires_at": expires_at,
             "is_trial": is_trial,
+            "product_id": receipt_product_id,
+            "scope": None,
+            "entitlements": entitlements,
             "message": "校验通过",
+        }
+
+    async def _grant_non_consumables(
+        self, db, user_id: str, transactions: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """发放收据内全部 Life Archive 买断权益（恢复购买据此一次补齐三档）。
+
+        幂等：同一 transaction_id 重复校验只更新不新增（重装/重试安全）。
+        所有权：同一交易已归属其他账号时拒发——买断没有订阅那样的
+        `expires_at` 自然失效，一旦错绑就是永久错发，所以此处 fail-closed。
+        """
+        granted: List[Dict[str, Any]] = []
+        for tx in transactions:
+            product_id = tx.get("product_id") or ""
+            scope = _non_consumable_scope(product_id)
+            if not scope:
+                continue
+            transaction_id = str(
+                tx.get("transaction_id") or tx.get("original_transaction_id") or ""
+            )
+            if not transaction_id:
+                logger.warning("买断收据缺少 transaction_id，跳过 product=%s", product_id)
+                continue
+            original_tx = tx.get("original_transaction_id") or transaction_id
+            existing = await entitlement_repository.get_by_transaction(db, transaction_id)
+            if existing is not None and existing.user_id != user_id:
+                raise AppException(
+                    ErrorCode.SUBSCRIPTION_ALREADY_EXISTS, "该收据已绑定其他账号"
+                )
+            purchase_date = self._parse_expiry(
+                tx.get("purchase_date_ms") or tx.get("purchase_date")
+            ) or datetime.now(timezone.utc)
+            grant_kwargs = dict(
+                user_id=user_id,
+                product_id=product_id,
+                scope=scope,
+                transaction_id=transaction_id,
+                purchase_date=purchase_date,
+                original_transaction_id=original_tx,
+                environment=tx.get("environment"),
+            )
+            try:
+                # transaction_id 上有唯一索引（迁移 f1a3b5c7d9e2），并发双写时
+                # 后到者触发 IntegrityError，SAVEPOINT 内回滚后重查复用既有行。
+                async with db.begin_nested():
+                    row = await entitlement_repository.grant(db, **grant_kwargs)
+            except IntegrityError:
+                row = await entitlement_repository.get_by_transaction(db, transaction_id)
+                if row is None or row.user_id != user_id:
+                    raise AppException(
+                        ErrorCode.SUBSCRIPTION_ALREADY_EXISTS, "该收据已绑定其他账号"
+                    )
+            granted.append(self._entitlement_item(row))
+        return granted
+
+    def _entitlement_item(self, row) -> Dict[str, Any]:
+        return {
+            "product_id": row.product_id,
+            "scope": row.scope,
+            "transaction_id": row.transaction_id,
+            "purchase_date": row.purchase_date,
+            "environment": row.environment,
+        }
+
+    async def _entitlement_result(
+        self, db, user_id: str, entitlements: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """买断发放结果。
+
+        `tier` 恒为用户当前订阅档位：买断不产生订阅权益（架构方案 §九-4 角色切分，
+        买断只解锁 Life Archive 导出），若在此返回 pro_plus 会让前端误显示订阅已生效。
+        """
+        user = await user_repository.require_user(db, user_id)
+        best = await entitlement_repository.best_scope(db, user_id)
+        return {
+            "valid": True,
+            "kind": "entitlement",
+            "tier": user.tier,
+            "expires_at": None,
+            "is_trial": False,
+            "product_id": entitlements[-1]["product_id"] if entitlements else None,
+            "scope": best,
+            "entitlements": entitlements,
+            "message": "买断权益已发放",
+        }
+
+    async def entitlements(self, db, user_id: str) -> Dict[str, Any]:
+        """查询 Life Archive 买断权益（Paywall 展示已购档位 + 导出门判定）。"""
+        await user_repository.require_user(db, user_id)
+        rows = await entitlement_repository.list_active(db, user_id)
+        return {
+            "entitlements": [self._entitlement_item(r) for r in rows],
+            "best_scope": await entitlement_repository.best_scope(db, user_id),
+            "owned_scopes": [r.scope for r in rows],
         }
 
     async def get_status(self, db, user_id: str) -> Dict[str, Any]:
@@ -365,10 +554,22 @@ class IAPService:
         }
 
     async def handle_refund(self, db, original_transaction_id: str) -> None:
-        """处理退款：立即回收权益（降级为 free）。"""
+        """处理退款/撤销：立即回收权益（订阅降级 free，买断置为已撤销）。
+
+        买断与订阅共用 original_transaction_id 口径，但落库分表：只清
+        subscriptions 的话，退款用户会永久保留 Life Archive 导出权（M6 要求
+        退款即回收）。先撤买断再查订阅，避免订阅缺失时提前 return 漏撤权益。
+        """
+        now = datetime.now(timezone.utc)
+        revoked = await entitlement_repository.revoke_by_original_transaction(
+            db, original_transaction_id, now
+        )
+        if revoked:
+            logger.info("退款回收买断 %d 笔 tx=%s", revoked, original_transaction_id)
         sub = await subscription_repository.get_by_original_transaction(db, original_transaction_id)
         if not sub:
-            logger.warning("退款通知：未找到订阅 %s", original_transaction_id)
+            if not revoked:
+                logger.warning("退款通知：未找到订阅 %s", original_transaction_id)
             return
         await subscription_repository.set_active(db, sub.id, False)
         await user_repository.update_tier(db, sub.user_id, "free")
@@ -442,6 +643,12 @@ class IAPService:
         elif notification_type == "DID_CHANGE_RENEWAL_STATUS":
             # 自动续订开关变化，仅记录
             logger.info("自动续订状态变化 user tx=%s", original_tx)
+        elif notification_type == "CONSUMPTION_REQUEST":
+            # Apple 就消耗型/买断交易询问消耗信息。Life Archive 是一次性交付的
+            # 档案导出，无「消耗进度」可报，按合规要求记录后直接确认（不下发/不回收权益）。
+            logger.info(
+                "收到 CONSUMPTION_REQUEST（买断无消耗口径）tx=%s", original_tx
+            )
         return notification_type or "UNKNOWN"
 
     def _dev_success(self, user_id: str, product_id: str, is_sandbox: bool) -> Dict[str, Any]:
@@ -453,9 +660,13 @@ class IAPService:
         logger.info("开发态模拟订阅成功 user=%s tier=%s", user_id, tier)
         return {
             "valid": True,
+            "kind": "subscription",
             "tier": tier,
             "expires_at": expires_at,
             "is_trial": False,
+            "product_id": product_id,
+            "scope": None,
+            "entitlements": [],
             "message": "校验通过（开发态）",
         }
 

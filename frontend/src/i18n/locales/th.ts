@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "เก็บคลังบันทึกของคุณไว้ตลอดไป",
+    "archiveSubtitle": "ส่งออกทุกสิ่งที่คุณบันทึกไว้ใน ClosenAI เป็นไฟล์ของตัวคุณเอง",
+    "archiveOneTime": "ซื้อครั้งเดียว · ไม่ใช่สมาชิกรายเดือน",
+    "archiveScope1y": "1 ปีล่าสุด",
+    "archiveScopeAll": "บันทึกทั้งหมด",
+    "archiveScopeLegacy": "พร้อมเปรียบเทียบรายปี",
+    "archiveBuy": "ซื้อ",
+    "archiveOwned": "ซื้อแล้ว",
+    "archivePurchaseSuccess": "ปลดล็อกแล้ว ส่งออกได้จากหน้า คลังบันทึก",
+    "archiveRestoreSuccess": "กู้คืนการซื้อคลังบันทึกของคุณแล้ว",
+    "archiveSubscriberHint": "ผู้สมัครใช้งาน Pro / Pro+ ส่งออกฟรี 1 ครั้งต่อเดือน"
   },
   "reflect": {
     "moodReminder": "ยังไม่ได้เช็คอินวันนี้ · แตะเพื่อเลือกอิโมจิ",

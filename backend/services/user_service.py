@@ -4,15 +4,21 @@
 管理用户信息、Streak、关系等级、里程碑徽章、Streak 冻结券、推送 Token。
 所有方法均注入 `db: AsyncSession` 进行真实数据访问。
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.time_utils import local_today
+from backend.core.time_utils import local_today, safe_zoneinfo, utc_now
 from backend.models.chat import ChatMessage
 from backend.models.growth import GrowthRecord, UserMilestone
+from backend.models.journey import (
+    JourneyEvent,
+    OnboardingProfile,
+    SafetyEvent,
+    UserEntitlement,
+)
 from backend.models.memory import Memory
 from backend.models.mood import MoodCheckin
 from backend.models.personality import PersonalityAssessment, PersonalityProfile
@@ -27,6 +33,7 @@ from backend.models.user import User
 from backend.repositories import (
     auth_repository,
     chat_repository,
+    journey_repository,
     milestone_repository,
     user_repository,
 )
@@ -37,6 +44,22 @@ logger = get_logger("closenai.user")
 
 # 前端平台 → 推送通道映射（PushService 按 apns/fcm 分发）
 PLATFORM_MAP = {"ios": "apns", "android": "fcm", "apns": "apns", "fcm": "fcm"}
+
+
+def _merge_level_unlocks(rewards: dict, features: dict) -> dict:
+    """合成等级展示表：情感回报在前、功能解锁在后（PRD §5.15a）。
+
+    两处单独维护会漂移（等级页与升级庆祝读同一张表），因此只在此合并一次。
+    """
+    merged = {}
+    for level, feats in features.items():
+        reward = rewards.get(level)
+        merged[level] = {
+            "zh": ([reward["zh"]] if reward else []) + list(feats["zh"]),
+            "en": ([reward["en"]] if reward else []) + list(feats["en"]),
+        }
+    return merged
+
 
 
 class UserService:
@@ -68,8 +91,8 @@ class UserService:
         4: {"zh": "至交 L4", "en": "Kindred L4"},
     }
 
-    # 各等级解锁能力（PRD P0-F05 §1 等级表，双语）
-    LEVEL_UNLOCKS = {
+    # 各等级功能解锁（PRD P0-F05 §1 等级表，双语）。展示表由 LEVEL_UNLOCKS 合成。
+    LEVEL_FEATURE_UNLOCKS = {
         1: {
             "zh": ["基础对话", "情绪签到"],
             "en": ["Basic conversations", "Mood check-in"],
@@ -87,6 +110,32 @@ class UserService:
             "en": ["Quarterly personality deep report", "Predictive insights", "Deep reflection mode"],
         },
     }
+
+    # §5.15a 等级情感回报（PRD：原 LEVEL_UNLOCKS 四级全是功能、零情感回报，
+    # 用户熬到 L4 拿到的是工具逻辑而不是"关系变了"）。三项均复用已实现能力：
+    # L2 记忆引用、L3 分享导出（Monthly Story）、L4 叙事长文。
+    # key 是 journey_events(kind=level_reward) 的渲染分派键，由剧本调度管线按 key 出正文。
+    LEVEL_REWARDS = {
+        2: {
+            "key": "memory_echo",
+            "zh": "AI 第一次提起你说过的事",
+            "en": "AI brings up something you once said",
+        },
+        3: {
+            "key": "monthly_story_preview",
+            "zh": "首份 Monthly Story 预览",
+            "en": "Your first Monthly Story preview",
+        },
+        4: {
+            "key": "letter_90d",
+            "zh": "一封 90 天的信：这 90 天我看到的你",
+            "en": "A 90-day letter: the you I've seen",
+        },
+    }
+
+    # 展示用解锁表 = 情感回报（首位）+ 功能项。情感回报排最前是刻意的：
+    # §5.15a 的目的就是让升级那一刻先看到"关系"，再看到"功能"。
+    LEVEL_UNLOCKS = _merge_level_unlocks(LEVEL_REWARDS, LEVEL_FEATURE_UNLOCKS)
 
     # 等级页说明文字（PRD P0-F05 验收：所有等级名称无恋爱含义，等级页有说明文字）
     LEVEL_NOTE = {
@@ -356,7 +405,9 @@ class UserService:
         """注销账号（第二步）：物理删除用户全部数据（QStash 异步回调，幂等）。
 
         覆盖全部用户数据表，确保无残留：
-        对话 / 情绪签到 / 记忆 / 性格画像 / 性格评估 / 成长记录 / 里程碑徽章 / 推送令牌 / 分享导出 / 订阅与收据 / 用户本体。
+        对话 / 情绪签到 / 记忆 / 性格画像 / 性格评估 / 成长记录 / 里程碑徽章 / 推送令牌 /
+        分享导出 / 订阅与收据 / 买断权益 / 第一周剧本事件 / 初读卡档案 / 危机命中审计 /
+        用户本体。
         已删除的表 rowcount=0，天然幂等（QStash 重试安全）。
         """
         counts: dict = {}
@@ -372,6 +423,10 @@ class UserService:
             (ShareExport, "share_exports"),
             (Receipt, "receipts"),
             (Subscription, "subscriptions"),
+            (UserEntitlement, "user_entitlements"),
+            (JourneyEvent, "journey_events"),
+            (OnboardingProfile, "onboarding_profiles"),
+            (SafetyEvent, "safety_events"),
             (RefreshToken, "refresh_tokens"),
             (User, "users"),
         ):
@@ -427,7 +482,7 @@ class UserService:
         return self.MILESTONE_NAMES.get(milestone_type, {}).get(lang, milestone_type)
 
     def get_level_info(self, active_days: int, language: str | None = None) -> dict:
-        """当前等级信息（本地化名称 + 进度 + 解锁能力 + 升级剩余天数）。"""
+        """当前等级信息（本地化名称 + 进度 + 解锁能力 + 情感回报 + 升级剩余天数）。"""
         level, _canonical, progress = self.get_relationship_level(active_days)
         lang = "zh" if (language or "").startswith("zh") else "en"
         next_threshold = self.LEVEL_THRESHOLDS.get(level + 1)
@@ -439,6 +494,7 @@ class UserService:
             "next_threshold": next_threshold,
             "days_to_next": (next_threshold - active_days) if next_threshold else 0,
             "unlocks": self.LEVEL_UNLOCKS[level][lang],
+            "reward": self.LEVEL_REWARDS.get(level, {}).get(lang),
         }
 
     async def get_level_detail(
@@ -455,6 +511,8 @@ class UserService:
                     "label": self.level_label(lv, language),
                     "threshold": self.LEVEL_THRESHOLDS[lv],
                     "unlocks": self.LEVEL_UNLOCKS[lv][lang],
+                    # §5.15a：等级页要能看出这一级"关系上"得到什么，而不只有功能
+                    "reward": self.LEVEL_REWARDS.get(lv, {}).get(lang),
                     "reached": user.active_days >= self.LEVEL_THRESHOLDS[lv],
                 }
                 for lv in sorted(self.LEVEL_THRESHOLDS)
@@ -465,32 +523,86 @@ class UserService:
     async def _celebrate_level_up(
         self, db: AsyncSession, user: User, level: int, active_days: int
     ) -> dict:
-        """等级晋升庆祝（PRD P0-F05）：写入一条 AI 庆祝消息（规则模板，零 LLM 成本），
-        并返回 level_up 负载供调用方（签到响应等）即时展示新解锁能力。
+        """等级晋升庆祝（PRD P0-F05 + §5.15a）。
 
-        active_days 单调递增（每日至多 +1），等级阈值仅在跨越当日触发一次，天然幂等。
+        两件事：
+        1. 写一条 AI 庆祝消息（规则模板，零 LLM 成本），正文含新解锁能力与情感回报；
+        2. 预写 journey_events(kind=level_reward) 的 pending 行——§5.15a 的情感回报
+           不是"看到一行文案"就算数，正文（L2 记忆引用 / L3 Monthly Story 预览 /
+           L4 90 天信）由剧本调度管线（架构方案 §二 M2）在计划时刻渲染并附引用依据。
+
+        active_days 单调递增（每日至多 +1），等级阈值仅在跨越当日触发一次，天然幂等；
+        仓库层再按 (user_id, kind, day_no) 去重，cron 重试不会写出第二条。
         """
         language = user.language or "en"
+        zh = (language or "").startswith("zh")
         info = self.get_level_info(active_days, language)
-        if (language or "").startswith("zh"):
+        reward = self.LEVEL_REWARDS.get(level)
+        if reward is not None:
+            reward_text = reward["zh"] if zh else reward["en"]
+        else:
+            reward_text = None
+        functional = [
+            item for item in info["unlocks"] if reward_text is None or item != reward_text
+        ]
+        if zh:
             text = (
                 f"🎉 经过 {active_days} 天的陪伴，我们的关系升级为「{info['label']}」！"
-                f"新解锁能力：{'、'.join(info['unlocks'])}。"
+                f"新解锁能力：{'、'.join(functional)}。"
             )
+            if reward_text:
+                text += f"它会开始做一件事：{reward_text}。"
         else:
             text = (
                 f"🎉 After {active_days} days together, our connection has grown to "
-                f"\"{info['label']}\"! Newly unlocked: {', '.join(info['unlocks'])}."
+                f"\"{info['label']}\"! Newly unlocked: {', '.join(functional)}."
             )
+            if reward_text:
+                text += f" And from now on: {reward_text}."
         await chat_repository.create(
             db, user.id, "assistant", text, message_type="level_up", ai_generated=False
         )
+        if reward is not None:
+            await journey_repository.schedule(
+                db,
+                user_id=user.id,
+                event_kind="level_reward",
+                day_no=self.LEVEL_THRESHOLDS[level],
+                scheduled_at=self._next_push_moment(user),
+                payload={
+                    "level": level,
+                    "label": info["label"],
+                    "reward_key": reward["key"],
+                    "active_days": active_days,
+                    "language": language,
+                },
+            )
         return {
             "level": info["level"],
             "label": info["label"],
             "unlocks": info["unlocks"],
+            "reward": reward_text,
+            "reward_key": reward["key"] if reward else None,
             "message": text,
         }
+
+    def _next_push_moment(self, user: User) -> datetime:
+        """下一个用户本地推送时刻（UTC）：push_time 当日未到用当日，否则顺延一天。
+
+        情感回报属于主动触达，必须走用户偏好的时刻而非服务器时钟的"现在"
+        （PRD §5.19.3 频控铁律：主动消息只落在本地推送窗口）。
+        """
+        zone = safe_zoneinfo(user.timezone)
+        now = utc_now().astimezone(zone)
+        try:
+            hour = int((user.push_time or "09:00").split(":")[0])
+        except (ValueError, IndexError):
+            hour = 9
+        hour = min(max(hour, 0), 23)
+        candidate = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
 
 
 user_service = UserService()

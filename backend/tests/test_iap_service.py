@@ -16,7 +16,10 @@ from backend.services.iap_service import _map_tier
         ("com.closenai.pro_plus.annual", "pro_plus"),
         ("PRO_PLUS_YEARLY", "pro_plus"),  # 大小写不敏感
         ("closenai_premium_yearly", "pro_plus"),
-        ("life_archive_forever", "pro_plus"),
+        # M6：`life_archive → pro_plus` 别名已删除。买断不再进 _map_tier（走
+        # user_entitlements），落到未知产品的缺省 pro 也无害——收据内买断交易
+        # 会先被 _non_consumable_scope 分流，不进订阅发放链路。
+        ("life_archive_forever", "pro"),
         ("com.closenai.pro_monthly", "pro"),
         ("com.closenai.pro", "pro"),
         # 未知产品缺省回退 pro

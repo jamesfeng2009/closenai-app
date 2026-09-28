@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "Dein Archiv für immer behalten",
+    "archiveSubtitle": "Exportiere alle deine ClosenAI-Aufzeichnungen als dein eigenes Archiv",
+    "archiveOneTime": "Einmalkauf · Kein Abonnement",
+    "archiveScope1y": "Letztes Jahr",
+    "archiveScopeAll": "Gesamter Verlauf",
+    "archiveScopeLegacy": "Mit Jahresvergleich",
+    "archiveBuy": "Kaufen",
+    "archiveOwned": "Im Besitz",
+    "archivePurchaseSuccess": "Freigeschaltet. Export auf der Archiv-Seite.",
+    "archiveRestoreSuccess": "Deine Archiv-Käufe wurden wiederhergestellt",
+    "archiveSubscriberHint": "Pro-/Pro+-Abonnenten: 1 kostenloser Export pro Monat"
   },
   "reflect": {
     "moodReminder": "Heute noch nicht eingetragen · Tippen, um ein Emoji zu wählen",

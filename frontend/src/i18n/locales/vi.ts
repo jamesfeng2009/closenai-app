@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "Lưu hồ sơ của bạn mãi mãi",
+    "archiveSubtitle": "Xuất toàn bộ những gì bạn ghi lại trên ClosenAI thành hồ sơ của riêng bạn",
+    "archiveOneTime": "Mua một lần · Không phải đăng ký",
+    "archiveScope1y": "1 năm gần nhất",
+    "archiveScopeAll": "Toàn bộ lịch sử",
+    "archiveScopeLegacy": "Kèm so sánh theo năm",
+    "archiveBuy": "Mua",
+    "archiveOwned": "Đã sở hữu",
+    "archivePurchaseSuccess": "Đã mở khoá. Xuất từ trang Hồ sơ.",
+    "archiveRestoreSuccess": "Đã khôi phục giao dịch mua hồ sơ của bạn",
+    "archiveSubscriberHint": "Người dùng Pro / Pro+ được xuất miễn phí 1 lần mỗi tháng"
   },
   "reflect": {
     "moodReminder": "Hôm nay chưa check-in · Chạm để chọn biểu tượng cảm xúc",

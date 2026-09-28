@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "아카이브를 영원히 간직하세요",
+    "archiveSubtitle": "ClosenAI에 기록한 모든 것을 나만의 아카이브로 내보냅니다",
+    "archiveOneTime": "평생 이용 · 구독 아님",
+    "archiveScope1y": "최근 1년",
+    "archiveScopeAll": "전체 기록",
+    "archiveScopeLegacy": "연도 비교 포함",
+    "archiveBuy": "구매",
+    "archiveOwned": "구매 완료",
+    "archivePurchaseSuccess": "잠금이 해제되었습니다. 아카이브 페이지에서 내보낼 수 있습니다",
+    "archiveRestoreSuccess": "아카이브 구매를 복원했습니다",
+    "archiveSubscriberHint": "Pro / Pro+ 구독中は 매월 1회 무료 내보내기"
   },
   "reflect": {
     "moodReminder": "오늘 아직 체크인하지 않았어요 · 이모지를 선택하세요",

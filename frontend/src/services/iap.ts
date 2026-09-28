@@ -1,8 +1,9 @@
 /**
- * IAP 购买服务 (P1-F02)。
+ * IAP 购买服务 (P1-F02) + Life Archive 一次性买断 (P0-2 / M6)。
  *
  * 封装 react-native-iap（StoreKit 2）：
  * - 订阅购买：requestSubscription → purchaseUpdatedListener → 服务端收据校验 → finishTransaction
+ * - 一次性买断：requestPurchase（Life Archive 三档，非消耗品）
  * - 恢复购买：getAvailablePurchases → 逐笔服务端校验（App Store 合规必需入口）
  *
  * 安全约束（SKILL closenai-iap）：
@@ -26,6 +27,20 @@ export const PRODUCT_SKUS = [
 
 /** 默认购买产品（Paywall 主按钮）。 */
 export const DEFAULT_SKU = 'closenai_pro_monthly';
+
+/**
+ * Life Archive 一次性买断 SKU（App Store Connect 非消耗品，M6）。
+ *
+ * 与订阅组完全独立：买断不产生 tier，后端落 user_entitlements，
+ * 因此买断的收据校验同样走 /iap/verify（响应 kind='entitlement'）。
+ */
+export const LIFE_ARCHIVE_SKUS = [
+  'life_archive_1y',
+  'life_archive_all',
+  'life_archive_legacy',
+] as const;
+
+export type LifeArchiveSku = (typeof LIFE_ARCHIVE_SKUS)[number];
 
 /**
  * 购买超时但交易可能仍在处理中（StoreKit 事件延迟送达）。
@@ -119,16 +134,27 @@ export async function getProducts(): Promise<RNIap.Subscription[]> {
   }
 }
 
+/** 拉取一次性买断商品（Life Archive 三档，展示本地化价格）。失败返回空数组。 */
+export async function getLifeArchiveProducts(): Promise<RNIap.Product[]> {
+  if (!(await initIAP())) return [];
+  try {
+    return await RNIap.getProducts({ skus: [...LIFE_ARCHIVE_SKUS] });
+  } catch {
+    return [];
+  }
+}
+
 /**
- * 发起订阅购买。
+ * 通用购买流程：发起 → purchaseUpdatedListener 收到收据 → 后端校验 → finishTransaction。
  *
- * 流程：requestSubscription → purchaseUpdatedListener 收到收据
- * → 后端 /iap/verify 校验 → finishTransaction 完成交易。
+ * 订阅（requestSubscription）与一次性买断（requestPurchase）只有"发起方式"不同，
+ * 监听、超时兜底、服务端校验与交易完成处理完全一致，因此共用本流程。
  *
  * 用户取消时 reject 携带 code 'E_USER_CANCELLED'。
  */
-export async function purchaseSubscription(
-  sku: string = DEFAULT_SKU,
+async function purchaseAndVerify(
+  sku: string,
+  request: () => Promise<unknown>,
 ): Promise<ReceiptVerifyResult | PurchaseTimeoutPending> {
   if (!(await initIAP())) {
     throw new Error('iap_unavailable');
@@ -172,7 +198,7 @@ export async function purchaseSubscription(
       reject(error);
     });
 
-    RNIap.requestSubscription({ sku }).catch((e) => {
+    request().catch((e) => {
       cleanup();
       reject(e);
     });
@@ -180,29 +206,56 @@ export async function purchaseSubscription(
 }
 
 /**
+ * 发起订阅购买（requestSubscription → 校验 → finishTransaction）。
+ */
+export function purchaseSubscription(
+  sku: string = DEFAULT_SKU,
+): Promise<ReceiptVerifyResult | PurchaseTimeoutPending> {
+  return purchaseAndVerify(sku, () => RNIap.requestSubscription({ sku }));
+}
+
+/**
+ * 发起 Life Archive 一次性买断（requestPurchase → 校验 → finishTransaction）。
+ *
+ * 非消耗品无续订周期，校验响应 kind='entitlement'，tier 保持用户当前订阅档位。
+ */
+export function purchaseLifeArchive(
+  sku: LifeArchiveSku,
+): Promise<ReceiptVerifyResult | PurchaseTimeoutPending> {
+  return purchaseAndVerify(sku, () => RNIap.requestPurchase({ sku }));
+}
+
+/**
  * 恢复购买（App Store 合规必需）。
  *
- * 拉取全部可恢复交易，逐笔回传后端校验恢复权益。
- * 返回是否存在有效订阅。
+ * 拉取全部可恢复交易，逐笔回传后端校验恢复权益——同一函数同时覆盖订阅与
+ * 一次性买断（后端 /iap/verify 按收据内交易类型分流）。
  */
-export async function restorePurchases(): Promise<{ restored: boolean }> {
+export async function restorePurchases(): Promise<{
+  restored: boolean;
+  entitlementRestored: boolean;
+}> {
   if (!(await initIAP())) {
     throw new Error('iap_unavailable');
   }
   // 超时兜底：原生侧无响应时 reject，避免调用方 busy 状态永久卡死
   const purchases = await withTimeout(RNIap.getAvailablePurchases(), IAP_TIMEOUT_MS);
   let restored = false;
+  let entitlementRestored = false;
   for (const purchase of purchases) {
     if (!purchase.transactionReceipt) continue;
     try {
       const result = await verifyReceipt(purchase.transactionReceipt, purchase.productId);
-      if (result.valid) restored = true;
+      if (result.valid) {
+        restored = true;
+        if (result.kind === 'entitlement') entitlementRestored = true;
+      }
       await RNIap.finishTransaction({ purchase, isConsumable: false });
     } catch {
       // 单笔失败不阻塞其他交易恢复
     }
   }
-  return { restored };
+  return { restored, entitlementRestored };
 }
 
 /** 判断错误是否为用户主动取消（取消不视为失败，不弹错误提示）。 */

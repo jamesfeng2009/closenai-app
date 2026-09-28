@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "Guarde seu arquivo para sempre",
+    "archiveSubtitle": "Exporte tudo o que você registrou no ClosenAI como um arquivo seu",
+    "archiveOneTime": "Compra única · Não é assinatura",
+    "archiveScope1y": "Último ano",
+    "archiveScopeAll": "Histórico completo",
+    "archiveScopeLegacy": "Com comparação anual",
+    "archiveBuy": "Comprar",
+    "archiveOwned": "Adquirido",
+    "archivePurchaseSuccess": "Desbloqueado. Exporte na página Arquivo.",
+    "archiveRestoreSuccess": "Suas compras do arquivo foram restauradas",
+    "archiveSubscriberHint": "Assinantes Pro / Pro+ têm 1 exportação grátis por mês"
   },
   "reflect": {
     "moodReminder": "Ainda não registrou hoje · Toque para escolher um emoji",

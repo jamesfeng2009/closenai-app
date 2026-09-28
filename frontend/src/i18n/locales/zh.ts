@@ -50,6 +50,7 @@ const resource = {
     "toNextLevel": "再活跃 {{days}} 天升至下一级",
     "maxLevel": "已达最高等级",
     "unlocksTitle": "已解锁能力",
+    "rewardTitle": "关系上的回报",
     "badgesTitle": "徽章墙",
     "timelineTitle": "里程碑",
     "emptyTimeline": "还没有里程碑，今天就开始第一段对话吧",
@@ -218,7 +219,18 @@ const resource = {
     "plusFeatureRefresh": "性格画像刷新不限次数",
     "plusFeatureProactive": "每日多条深度主动消息",
     "terms": "服务条款",
-    "privacy": "隐私政策"
+    "privacy": "隐私政策",
+    "archiveTitle": "永久保存你的档案",
+    "archiveSubtitle": "把你在 ClosenAI 的记录导出成一份属于你的档案",
+    "archiveOneTime": "一次性买断 · 非订阅",
+    "archiveScope1y": "近 1 年",
+    "archiveScopeAll": "全部记录",
+    "archiveScopeLegacy": "含跨年对比",
+    "archiveBuy": "购买",
+    "archiveOwned": "已拥有",
+    "archivePurchaseSuccess": "已解锁，可在档案页导出",
+    "archiveRestoreSuccess": "已恢复你的档案买断",
+    "archiveSubscriberHint": "Pro / Pro+ 订阅期内每月可免费生成 1 次"
   },
   "reflect": {
     "moodReminder": "今天还没签到 · 点这里选个表情",

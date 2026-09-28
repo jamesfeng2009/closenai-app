@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "រក្សាបណ្ណសាររបស់អ្នកជាអចិន្ត្រៃយ៍",
+    "archiveSubtitle": "នាំចេញអ្វីដែលអ្នកកត់ត្រានៅ ClosenAI ទាំងអស់ ជាបណ្ណសាររបស់អ្នក",
+    "archiveOneTime": "ទិញដាច់ម្តង · មិនមែនជាការជាវ",
+    "archiveScope1y": "១ ឆ្នាំចុងក្រោយ",
+    "archiveScopeAll": "ប្រវត្តិទាំងអស់",
+    "archiveScopeLegacy": "រួមប្រៀបធៀបឆ្នាំ",
+    "archiveBuy": "ទិញ",
+    "archiveOwned": "បានទិញហើយ",
+    "archivePurchaseSuccess": "បានដោះសោ។ នាំចេញពីទំព័របណ្ណសារបាន",
+    "archiveRestoreSuccess": "ការទិញបណ្ណសាររបស់អ្នកត្រូវបានកំណត់ឡើងវិញ",
+    "archiveSubscriberHint": "អ្នកជាវ Pro / Pro+ នាំចេញឥតគិតថ្លៃ ១ ក្នុងមួយខែ"
   },
   "reflect": {
     "moodReminder": "មិនទាន់បានកត់ត្រាអារម្មណ៍ថ្ងៃនេះទេ · ចុចដើម្បីជ្រើសរើសអ៊ីម៉ូជី",

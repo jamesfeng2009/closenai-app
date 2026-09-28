@@ -240,6 +240,13 @@ export default function RelationshipTimelineScreen() {
               ? t('relationship.toNextLevel', { days: current.days_to_next })
               : t('relationship.maxLevel')}
           </Text>
+          {/* §5.15a 情感回报：等级页先讲"关系变了什么"，再列功能解锁 */}
+          {!!current.reward && (
+            <View style={styles.rewardWrap}>
+              <Text style={styles.rewardTitle}>{t('relationship.rewardTitle')}</Text>
+              <Text style={styles.rewardText}>{current.reward}</Text>
+            </View>
+          )}
           {current.unlocks.length > 0 && (
             <View style={styles.unlocksWrap}>
               <Text style={styles.unlocksTitle}>{t('relationship.unlocksTitle')}</Text>
@@ -336,6 +343,14 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: Colors.gold400, borderRadius: 3 },
   progressHint: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 6 },
   unlocksWrap: { marginTop: Spacing.md },
+  // §5.15a 情感回报：与功能 chip 区分开（独立底色 + 整句文案，不是能力标签）
+  rewardWrap: {
+    marginTop: Spacing.md, padding: Spacing.sm,
+    backgroundColor: 'rgba(99,102,241,0.10)', borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.28)', borderRadius: BorderRadius.md,
+  },
+  rewardTitle: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textTertiary },
+  rewardText: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textPrimary, marginTop: 2 },
   unlocksTitle: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary, marginBottom: 6 },
   unlocksRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   unlockChip: {

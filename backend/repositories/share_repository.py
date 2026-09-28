@@ -57,5 +57,13 @@ class ShareRepository:
             raise
         return row
 
+    async def overwrite(
+        self, db: AsyncSession, row: ShareExport, payload: str
+    ) -> ShareExport:
+        """覆盖既有缓存（用户显式重新生成导出时调用）。"""
+        row.payload = payload
+        await db.flush()
+        return row
+
 
 share_repository = ShareRepository()

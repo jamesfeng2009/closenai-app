@@ -218,7 +218,18 @@ const resource = {
     "plusFeatureRefresh": "Unlimited personality refreshes",
     "plusFeatureProactive": "Multiple proactive messages per day",
     "terms": "Terms of Service",
-    "privacy": "Privacy Policy"
+    "privacy": "Privacy Policy",
+    "archiveTitle": "Сохраните свой архив навсегда",
+    "archiveSubtitle": "Выгрузите все ваши записи в ClosenAI в личный архив",
+    "archiveOneTime": "Разовая покупка · Не подписка",
+    "archiveScope1y": "Последний год",
+    "archiveScopeAll": "Вся история",
+    "archiveScopeLegacy": "Со сравнением по годам",
+    "archiveBuy": "Купить",
+    "archiveOwned": "Куплено",
+    "archivePurchaseSuccess": "Доступ открыт. Экспорт на странице «Архив».",
+    "archiveRestoreSuccess": "Ваши покупки архива восстановлены",
+    "archiveSubscriberHint": "Подписчики Pro / Pro+ получают 1 бесплатный экспорт в месяц"
   },
   "reflect": {
     "moodReminder": "Сегодня ещё не отмечено · Нажмите, чтобы выбрать эмодзи",
