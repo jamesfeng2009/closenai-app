@@ -11,13 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core import redis as redis_client
 from backend.core.llm import llm
-from backend.core.time_utils import utc_now
+from backend.core.time_utils import local_day_start_utc, utc_now
 from backend.models.user import DEFAULT_CONVERSATION_STYLE
 from backend.repositories import (
     chat_repository,
     growth_repository,
     memory_repository,
     mood_repository,
+    safety_repository,
     user_repository,
 )
 from backend.services.discovery_service import discovery_service
@@ -133,12 +134,36 @@ class MessageGenerator:
         多语言：`language` 由请求头（X-Language）或用户偏好解析而来。
         记忆注入：根据用户输入检索相关记忆，注入上下文。
         """
-        # 记忆上下文注入
-        memory_context = await self._get_memory_context_str(db, user_id, user_input, language)
-
         # 对话风格注入（P1-F04：用户偏好风格，读库失败回退默认 warm）
         user = await user_repository.get_user(db, user_id)
+
+        # 危机转介（PRD §5.16 ④ / 规范 §二）：命中即中断常规 AI 回复——
+        # 不进 LLM，因此不可能输出沟通行为归因或关系修复建议；只下发关怀 + 地区热线，并写审计。
+        hit = safety_service.crisis_intercept(
+            user_input, language, getattr(user, "timezone", None)
+        )
+        if hit is not None:
+            try:
+                await safety_repository.record(
+                    db,
+                    user_id=user_id,
+                    kind=hit["kind"],
+                    source="user_message",
+                    matched_terms=hit["matched"],
+                    hotline=hit["hotline"],
+                    language=language,
+                    excerpt=user_input,
+                    advice_blocked=hit["advice_blocked"],
+                )
+            except Exception:  # noqa: BLE001  审计写失败不阻断关怀文案（规范 §二 2.3：文案缺失才是 P1）
+                logger.exception("safety_events 审计写入失败 user=%s kind=%s", user_id, hit["kind"])
+            yield hit["reply"]
+            return
+
         style = getattr(user, "conversation_style", None) or DEFAULT_CONVERSATION_STYLE
+
+        # 记忆上下文注入
+        memory_context = await self._get_memory_context_str(db, user_id, user_input, language)
 
         system_prompt = (
             "You are ClosenAI, a warm, insightful AI companion. "
@@ -193,6 +218,13 @@ class MessageGenerator:
         await user_repository.require_user(db, user_id)
         user = await user_repository.get_user(db, user_id)
         tier = user.tier if user else "free"
+
+        # §5.16 ④：危机转介命中当日，营销/升级类主动消息整体挂起（safety_events 即事实源）
+        if await safety_repository.has_hit_since(
+            db, user_id, local_day_start_utc((user.timezone if user else None) or "UTC")
+        ):
+            logger.info("危机转介命中，当日停发主动消息 user=%s", user_id)
+            return None
 
         # ④ 互动/对话跟进（提前拉取：Day1 判定同样依赖对话历史）
         history = await chat_repository.get_history(db, user_id, limit=5)

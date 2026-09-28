@@ -87,9 +87,24 @@
     （普通动词与求助语境高频）。两者仍进 L1 段落与 `_CHECK_PROMPT` 语义判定。
   - 未做：架构方案 §六-1 的 `filter_template()` 静态模板闸——M1/M2/M3 模板尚不存在，随 B1/B2 文案渲染出口一并落地，
     此项不预先建未被调用的函数。
-- [ ] **D2 · crisis_intercept 实装（两类触发词）**｜规范 §二 + 架构方案 §六-2
-  - [ ] 自伤类 + 关系暴力类（v1 仅 zh/en 词表）；命中→热线→停推→safety_events 审计
-  - [ ] 验收：暴力样本禁归因/禁沟通建议测试进 pytest
+- [x] **D2 · crisis_intercept 实装（两类触发词）**｜规范 §二 + 架构方案 §六-2 ｜2026-09-29 完成
+  - [x] 自伤类 + 关系暴力类（v1 仅 zh/en 词表）；命中→热线→停推→safety_events 审计
+  - [x] 验收：暴力样本禁归因/禁沟通建议测试进 pytest
+  - 挂点三处（同一 `crisis_intercept` 判定，共用 `safety_events` 审计表）：
+    ① 用户回复路径 `message_generator.generate_chat_stream` 入口——命中即**不进 LLM**，因此结构上不可能输出
+    沟通行为归因或关系修复建议（规范 §二 铁律），只下发关怀 + 地区热线并写审计；
+    ② 主动消息入口 `generate_proactive_message`（本地日界内命中 → 返回 None 静默）；
+    ③ cron 队列级 `_process_user`（含沉默唤回轻关心在内的营销/升级类整日挂起）。
+  - 热线解析：按 `users.timezone` 推断（cn 12356 / us 988 / ca 988 / 其余兜底当地紧急号码）——
+    服务端无地区列（`backend/models/user.py:25-27` 仅 timezone/language），时区是当前唯一可用信号，已写成配置表
+    `HOTLINES` 便于后续按 IP/门店配置替换。
+  - 误报控制：词表取多字信号词，`(?<!动)打我` 负向后视专防"打动我"；测试含 4 条误报样本（含中英）必须不触发。
+    自伤类优先于暴力类（同句双命中按生命风险排序）。
+  - 转介文案自身过黑名单（`test_crisis_copy_passes_wording_blacklist` 保证文案不含 §5.16 ① 医疗化词）。
+  - ⚠️ 未做（随各自立项接入同一函数）：§5.16 睡前复盘挂载 → C1；D0–D7 剧本渲染挂载 → B2；
+    15 语言词表 → 决策点 3 明确不在 v1。
+  - 实测：新增 `backend/tests/test_crisis_intercept.py` **17 例**（含规范 §二 2.3 三条验收）；
+    全量 `pytest backend/tests` **293 passed**。
 - [ ] **D3 · 说话人锚定纪律**（纸面预留，随"截图复盘收窄版"立项才实施；立项前不动代码）｜规范 §三
 - [ ] **D4 · PRD docx 同步**：第六批修订从 html 回灌 closenai.docx（编辑器导出）
 - [ ] **D5 · ASC 提审元数据**：副标题 "It remembers everything you tell it"；关键词去 tracker/journal（提交时操作清单）

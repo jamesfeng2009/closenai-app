@@ -45,6 +45,7 @@ from backend.repositories import (
     growth_repository,
     memory_repository,
     mood_repository,
+    safety_repository,
     subscription_repository,
     user_repository,
 )
@@ -381,6 +382,11 @@ class CronService:
         )
         if already_sent:
             return "already_sent"
+
+        # §5.16 ④：危机转介命中当日，营销/升级类主动消息与推送整体挂起（含沉默唤回轻量关心）
+        if await safety_repository.has_hit_since(db, uid, day_start):
+            logger.info("危机转介命中，当日停推主动消息与推送 user=%s", uid)
+            return "skipped"
 
         # ── 连续未回复降级（PRD P0-F01 §6）──
         days_silent = await self._days_silent(db, user)

@@ -15,7 +15,7 @@
 import asyncio
 import logging
 import re
-from typing import AsyncGenerator, Awaitable, Callable, Optional, Tuple
+from typing import AsyncGenerator, Awaitable, Callable, List, Optional, Tuple
 
 from backend.core.llm import llm
 
@@ -175,6 +175,72 @@ class SafetyService:
         "en": "That's a topic I'd rather not dive into. How about telling me — what's one thing that stood out to you today?",
     }
 
+    # L3 危机转介触发词两类（PRD §5.16 ④ / 规范 §二 2.2）。v1 仅 zh/en 词表（规范 §六 决策点 3），
+    # 其余语言由 L1 boundary 第 4 条 + 语义分类器兜底。
+    # 词表取多字信号词而非单字（"打"、"死"），把误报压到可接受范围：
+    # 误报的代价是一条关怀文案 + 一次停推，漏报的代价是人。
+    # 条目按正则匹配（en 忽略大小写）；`(?<!动)打我` 这类负向后视专防"打动我"误报。
+    CRISIS_TRIGGERS = {
+        "self_harm": {
+            "zh": ("自杀", "自伤", "不想活", "活不下去", "结束生命", "结束自己的生命", "伤害自己",
+                   "割腕", "轻生", "寻短见"),
+            "en": ("suicide", "suicidal", "self-harm", "hurt myself", "kill myself", "end my life",
+                   "end myself", "want to die", "die on purpose"),
+        },
+        "relationship_violence": {
+            "zh": ("动手打", "殴打", "被打", "(?<!动)打我", "推我一把", "威胁我", "恐吓我", "跟踪我",
+                   "砸东西", "摔东西", "不让见朋友", "不让见家人", "不许我见", "经济控制", "管我的钱",
+                   "家暴"),
+            "en": ("hits me", "hit me", "beat me", "beating me", "pushed me", "threatens me",
+                   "threatened me", "stalks me", "stalking me", "smashes things", "throws things",
+                   "won'?t let me see", "controls my money", "financial abuse",
+                   "domestic violence", "abusive to me"),
+        },
+    }
+
+    # 命中后的转介文案（A 级：热线事实 + 关怀；措辞过 §5.16 ① 黑名单）。
+    # 关系暴力类按规范 §二 铁律：只走个人安全与法律求助，禁沟通/关系修复建议、禁归因到用户表达。
+    CRISIS_COPY = {
+        "self_harm": {
+            "zh": (
+                "我很在意你现在的安全，也谢谢你愿意说出来。"
+                "现在请联系一个信任的人陪在你身边，或拨打 {hotline}——那里随时有人可以帮你。"
+                "我不会替你下人生判断，但我会一直在这里，陪你先过好这一刻。"
+            ),
+            "en": (
+                "Your safety matters to me, and thank you for telling me. "
+                "Right now, please reach out to someone you trust and keep them with you, "
+                "or contact {hotline} — someone there can help at any hour. "
+                "I won't make life decisions for you, but I'll stay right here with you through this moment."
+            ),
+        },
+        "relationship_violence": {
+            "zh": (
+                "你经历的这些不是你的错，也不是靠你换一种说法就能改变的。"
+                "现在最重要的是你的人身安全：如果有即刻危险，请联系当地紧急号码，或告诉信任的人、"
+                "邻居、同事让他们陪你；也可以拨打 {hotline} 求助。"
+                "我不会给你沟通或关系修复方面的建议，只想陪你把安全这一步先确认好。"
+            ),
+            "en": (
+                "What happened is not your fault, and it is not something you can fix by choosing "
+                "different words. Your physical safety comes first: if you are in immediate danger, "
+                "contact your local emergency number, or tell someone you trust, a neighbour or a "
+                "coworker so they can stay with you; you can also contact {hotline}. "
+                "I won't give you communication or relationship-repair advice — I only want to help "
+                "you confirm the safety step first."
+            ),
+        },
+    }
+
+    # 地区热线（按 users.timezone 推断；PRD §5.16 ④「其余地区按配置表」→ 兜底走当地紧急号码）。
+    # 无地区列可用（backend/models/user.py:25-27 仅 timezone/language），时区是当前唯一服务端信号。
+    HOTLINES = {
+        "cn": "12356（中国大陆全国统一心理援助热线）",
+        "us": "988（美国 988 危机生命线）",
+        "ca": "988（加拿大 988 危机支援线）",
+        "fallback": "当地紧急求助号码（如 112 / 911）或当地心理援助热线",
+    }
+
     # 检测调用超时（秒）：超时 fail-open 放行
     CHECK_TIMEOUT = 0.8
 
@@ -242,6 +308,48 @@ class SafetyService:
     def evidence_policy(self, language: str) -> str:
         """L1 证据分级与措辞纪律段落（按语言），与 boundary() 平级、同注入点。"""
         return self.EVIDENCE_POLICY[_lang_key(language)]
+
+    def resolve_hotline(self, timezone: Optional[str]) -> str:
+        """按 users.timezone 推断求助热线（PRD §5.16 ④ 分地区；无匹配走兜底）。"""
+        tz = (timezone or "").strip()
+        if tz in ("Asia/Shanghai", "Asia/Urumqi", "Asia/Chongqing", "Asia/Harbin"):
+            return self.HOTLINES["cn"]
+        if tz.startswith("America/"):
+            return self.HOTLINES["us"]
+        if tz.startswith("Canada/") or tz.startswith("America/Toronto") or tz == "Vancouver":
+            return self.HOTLINES["ca"]
+        return self.HOTLINES["fallback"]
+
+    def crisis_intercept(
+        self, text: str, language: str = "en", timezone: Optional[str] = None
+    ) -> Optional[dict]:
+        """危机触发词检测（PRD §5.16 ④ / 规范 §二）：命中返回转介载荷，未命中返回 None。
+
+        返回 `{"kind", "matched", "hotline", "reply", "advice_blocked"}`：
+        - kind 判定顺序 self_harm → relationship_violence（自伤优先，生命风险等级更高）
+        - advice_blocked=True 表示按 §二 铁律禁用沟通/关系修复类建议（关系暴力类恒为 True）
+        - reply 已按语言与地区热线渲染，调用方直接下发即可，不再走 LLM
+        """
+        if not text or not text.strip():
+            return None
+        lang = _lang_key(language)
+        flags = re.IGNORECASE if lang == "en" else 0
+        for kind in ("self_harm", "relationship_violence"):
+            matched: List[str] = []
+            for pattern in self.CRISIS_TRIGGERS[kind][lang]:
+                m = re.search(pattern, text, flags)
+                if m:
+                    matched.append(m.group(0))
+            if matched:
+                hotline = self.resolve_hotline(timezone)
+                return {
+                    "kind": kind,
+                    "matched": matched,
+                    "hotline": hotline,
+                    "reply": self.CRISIS_COPY[kind][lang].format(hotline=hotline),
+                    "advice_blocked": kind == "relationship_violence",
+                }
+        return None
 
     def safe_reply(self, language: str) -> str:
         """命中替换话术（按语言）。"""
