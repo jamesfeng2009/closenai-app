@@ -15,6 +15,7 @@
     "@react-navigation/bottom-tabs": "^6.5.11",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/native-stack": "^6.11.0",
+    "@sentry/react-native": "~5.24.3",
     "expo": "~51.0.0",
     "expo-apple-authentication": "~6.1.0",
     "expo-linear-gradient": "~13.0.2",
