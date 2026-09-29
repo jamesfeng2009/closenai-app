@@ -2,9 +2,15 @@
  * 新用户引导流程 (P1-F05)。
  *
  * 成长优先 · 3 步 · 零占星信号：
- *   Step 1 — Welcome：展示 3 个核心成长卡片，主按钮「开始记录」
+ *   Step 1 — Welcome：展示 3 个核心成长卡片，主按钮「开始记录」，
+ *            次级入口「先看个例子」→ 页内渲染 M5 演示档案（只读、零请求）
  *   Step 2 — 性格类型（可选）：16 型选择 / 跳过
  *   Step 3 — 三个快问（P1-B01 性格初读卡输入）：3 题 × 3 选项 / 跳过
+ *
+ * 演示档案不占路由：本屏渲染在 NavigationContainer 之外（App.tsx），
+ * navigation.navigate 在这里根本不存在，所以用 showDemo 局部状态切页面。
+ * CTA 只回到 Step 2，不直接 finish()——跳过 Step 3 会打断 PRD §5.19.2
+ * 要求的「onboarding → 初读卡生成率 100%」。
  *
  * Step 3 提交后：游客态只能把答案暂存本地（无 token 调 API 必失败），
  * 登录/注册成功后由 AuthContext 补调 POST /onboarding/first-read 生成初读卡。
@@ -20,6 +26,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { savePendingFirstRead } from '../services/firstRead';
+import { track } from '../services/analytics';
+import DemoArchiveScreen from './DemoArchiveScreen';
 import type { FirstReadAnswer } from '../types';
 
 const ONBOARDED_KEY = '@closenai/onboarded';
@@ -76,6 +84,14 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
   const [selectedType, setSelectedType] = useState<string | null>(null);
   // 题目 id → 选项 id（未答的题目不进 answers）
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  // 演示档案（M5）：引导阶段是游客、无 token，任何 api 调用都会 401，
+  // 所以用组件内局部状态渲染只读示例，而不是注册一条新路由。
+  const [showDemo, setShowDemo] = useState(false);
+
+  const openDemo = () => {
+    track('demo_archive_opened', { screen: 'onboarding', feature: 'demo_archive', action: 'open' });
+    setShowDemo(true);
+  };
 
   const finish = async (withType: string | null) => {
     // 保存引导完成标记
@@ -108,6 +124,10 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
     { icon: '🌱', title: t('onboarding.step1Feature3Title'), desc: t('onboarding.step1Feature3Desc') },
   ];
 
+  if (step === 1 && showDemo) {
+    return <DemoArchiveScreen onClose={() => setShowDemo(false)} />;
+  }
+
   if (step === 1) {
     return (
       <SafeAreaView style={styles.container}>
@@ -128,6 +148,11 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
 
           <TouchableOpacity style={styles.primaryBtn} onPress={() => setStep(2)}>
             <Text style={styles.primaryBtnText}>{t('onboarding.startRecording')}</Text>
+          </TouchableOpacity>
+
+          {/* 演示档案入口（P1-1）：次级样式，不抢「开始记录」主 CTA */}
+          <TouchableOpacity style={styles.demoEntry} onPress={openDemo}>
+            <Text style={styles.demoEntryText}>{t('onboarding.demoEntry')}</Text>
           </TouchableOpacity>
 
           <Text style={styles.disclaimer}>{t('onboarding.disclaimer')}</Text>
@@ -307,4 +332,6 @@ const styles = StyleSheet.create({
   optionTextSelected: { color: Colors.gold400, fontWeight: '600' },
   skipBtn: { alignItems: 'center', paddingVertical: 10 },
   skipBtnText: { fontSize: FontSize.md, color: Colors.textTertiary },
+  demoEntry: { alignItems: 'center', paddingVertical: 10, marginBottom: Spacing.sm },
+  demoEntryText: { fontSize: FontSize.md, color: Colors.gold400 },
 });

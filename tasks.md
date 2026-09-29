@@ -10,7 +10,7 @@
 
 - Onboarding 文案改写（P0-1）：✅ 已完成（15 语言 i18n + 原型 Screen 7）
 - 后端 M1–M7 / P1-3 管线：**全部零实现**（grep 无 journey_events / onboarding_profiles / bedtime / curriculum）
-  - ↳ 2026-09-29 更新：M7（占星移除）、M1（初读卡）、M2（第一周剧本）、M3（情感回报进 LEVEL_UNLOCKS）、M4（分享卡深链与归因）、M6（Life Archive IAP）已落地，见 A/B 节勾选；bedtime / curriculum 仍零实现
+  - ↳ 2026-09-29 更新：M7（占星移除）、M1（初读卡）、M2（第一周剧本）、M3（情感回报进 LEVEL_UNLOCKS）、M4（分享卡深链与归因）、M5（演示档案，纯前端）、M6（Life Archive IAP）已落地，见 A/B 节勾选；bedtime / curriculum 仍零实现
 - 工作区在途（未提交）：~~九型人格 service、§5.18 承诺回访、discovery 融合、前端 Reflect/Insights/i18n~~ → 已在 `0ced5ac`/`48d37ed` 提交；2026-09-29 快照：B2 全套已提交，`closenai-prd` submodule 仍有未提交内容（归 D4）
 - ⚠️ **方向冲突**：近三次 commit（13313c3/efbd7ec/e89f19c）在**新增**本命星盘 + pyswisseph，而 M7 计划是整体移除占星——✅ 2026-09-28 已按 PRD v2.1「占星已移除」执行 A1，冲突关闭
 
@@ -82,8 +82,26 @@
   - ⚠️ 偏离 1：D2 文案口径冲突——架构方案 §二 M2 写「D2 走模板直出」，PRD §5.19.3 表格写「复用主动消息四层公式」，实现取**模板直出**（与 M2 零 LLM 总方针一致，且避免剧本占 LLM 配额）
   - ⚠️ 偏离 2：架构方案 §四接口清单只列 `GET /journey/events`，实现补了 `POST /journey/events/acknowledge`——红点徽标必须有消费口，否则 `unseen_count` 永不清零
   - 🔧 过程中修出的真实缺陷：`_format(gating=True)` 曾把原话替换为占位符后**无人回填**，所有含引用的消息会把 `⟦q⟧` 直接展示给用户；改为 `_gate_tpl()`（填充 → 过闸 → 回填）并在 12 处渲染点统一走该入口
-- [ ] **B3 · M5 演示档案**（前端 2d，零后端）｜架构方案 §二 M5
-  - [ ] `demoArchive.ts` 小 A 30 天 + `DemoArchiveScreen` + is_demo 隔离 + 演示模式禁 AI 对话入口
+- [x] **B3 · M5 演示档案**（前端 2d，零后端）｜架构方案 §二 M5 ✅ 2026-09-29 完成
+  - [x] 小 A 30 天数据 + `DemoArchiveScreen` + 隔离 + 演示模式禁 AI 对话入口
+    - 数据是**确定性生成**而不是手写 JSON：断言卡要把曲线里的数字印成文案（`weeks` / `n` / `delta`），手写数据 + 手写文案迟早对不上，而这张卡要进商店截图（护城河 §6.1「截图第一张必须是 Pattern 断言卡」）
+    - 曲线规则全部可反算：周五恒 1–2（撑起主断言）、周末恒 4、周一~周四 `3 ± 抖动`（步长 4 与星期周期 7 互质，不会锁死成同一形状）、留白只落周二/周四且隔一个取一个 → 恒 4 天、绝不吃掉周五
+    - 「算了 → 次日更低」的样本日是**从曲线里挑出来的**（当天 ≥3 且次日严格更低，彼此间隔 ≥5 天），不是先写文案再凑数据
+    - 三条 Pattern（friday_dip / hold_it_in / weekend_lift）+ 5 条原话 + 2 条时间线卡片；高光日不许与「算了」撞同一天（同一天又憋着又拿满分，截图一看就是假数据）
+    - 屏内三段：概览+纯 View 条形曲线 / Pattern 断言卡（带「依据：第 N 天」）/ 时间线+原话+CTA；顶部常驻「演示模式」徽章 + 返回
+    - 指标：`demo_archive_opened`（Onboarding 按钮）/ `completed`（触底，只报一次）/ `start_own`（CTA）/ `closed`（返回）→ 点击率、看完率、重开转化各有分子分母
+    - 日期一律用窗口日序而不是 ISO 字符串：RN 里 `toLocaleDateString` 依赖 Intl，Android/Hermes 上不可靠
+  - 验收实测：`frontend/__tests__/demoPersona.test.ts` 164 例 = ① 7 个锚点（覆盖一周全部起始星期）× 数字自洽（weeks/样本日/delta/stats 全部由测试**独立反算**再比，不复用被测模块的实现）② 游客态隔离（数据层零 import、屏幕本地依赖白名单只准 colors+数据层+analytics、无 navigation）③ 15 语言 × `demo` 30 键**精确键集** + `onboarding.demoEntry` + 占位符白名单（只 name/n/value/weeks/delta/refs，多一个就红）+ 每个键真被源码引用
+  - 🔧 变异验证 8 次（证明守卫不是空跑）：`weeks` 写死 3 → 7 failed；km 漏一个键 → 1 failed；屏幕键名打错 → 1 failed；去掉触底容差 → 1 failed；留白改回固定 dayNo → **10 failed**（周五/间隔不变量真的在管数据）；给数据层加 import：真实 `../services/api` 两次都是**加载期失败**（0 total，RN 依赖不可解析）而不是断言捕获，改用可解析 import 才验证到「数据层零依赖」这条断言本身会红——口径按此记录
+  - 全量：jest 15 套件 391 passed；tsc exit 0；pytest 374 passed（零后端改动，与 B3 前同数）；变异后 4 个文件 `cmp` 逐字节复原
+  - ⚠️ 偏离 1：§二 M5 原文「`src/data/demoArchive.ts`」→ 实落 `src/config/demoPersona.ts`。jest 配置 `testMatch` 只收 `.test.ts` 且 `testEnvironment: node`，纯数据必须与 .tsx 分离才能断言；`src/config/` 是既有纯模块位（archive.ts / journey.ts / links.ts）
+  - ⚠️ 偏离 2：§二 M5 原文「DemoArchiveScreen **复用** InsightsScreen / TimelineScreen 组件渲染」→ 没复用。InsightsScreen 是 317 行单体屏（取数与渲染揉在一起），`src/components/` 只有 AIConsentModal 与 BadgeWall，没有可移植展示件；改为屏内自带卡片渲染 + 纯 View 条形图。未顺手引入 `react-native-svg`（虽在依赖里但全仓零使用，属 E2 范围）
+  - ⚠️ 偏离 3：§二 M5 原文「`is_demo` profile 标记」、行动方案 P1-1 第 4 条「不计入真实数据库（用 `is_demo` 字段隔离）」→ **没有建字段**。入口挂在 Onboarding Step 1，那一刻是游客、无 token，任何 api 调用必 401，演示数据根本进不了数据库；改以「数据层零 import」的结构隔离替代，并由上述变异用例守门（谁往演示数据里加请求，谁就红）
+  - ⚠️ 偏离 4：P1-1 第 3 条「右上角『用我自己的数据重开』→ 清空演示数据回到空态」→ CTA 用护城河 §6.2 的原话「开始书写你自己的」，但行为是**回引导 Step 2，不是 finish()**：直接完成会跳过 Step 3 三个快问，打断 PRD §5.19.2 的「onboarding → 初读卡生成率 100%」（B1 验收项）；且按偏离 3 无演示数据落库，没有可清空的东西
+  - ⚠️ 偏离 5：P1-1 第 4 条「本地打包（`assets/demo_profile.json`）」→ 改为函数生成，理由见上（数字必须与曲线同源）
+  - ⚠️ 偏离 6：P1-1 第 2 条列了「3 条 Pattern、2 条时间线卡片、**1 条 AI 断言示例**」四类 → 断言示例没有另造第五类内容：Pattern 卡自带「依据」行，它就是 §5.x 要求的那张断言卡形态
+  - ⏳ 未取证：① 该屏**从未在任何设备/模拟器渲染过**——曲线观感、SafeAreaView 顶部避让、30 根条在窄屏的宽度、15 语言长文案换行，全部只有类型与逻辑证据；② 看完率的触底数学有 4 条用例（含"内容不足一屏也算看完"），但 RN 运行时是否真在 `onScroll.nativeEvent` 给 `contentSize` 未取证。RN 0.74 的 `NativeScrollEvent` 只有 `contentSize`，第一版按 `contentContainerSize` 写被 tsc 当场拦下（更高版本才有后者），现已抽成 `isScrollViewAtEnd` 供 node 断言
+  - ⚠️ 顺带记录（本任务不改）：四个 `track()` 事件只进本地 SQLite 队列，**游客态能否 flush 成功未验证**——后端 analytics 有 consent 校验，若游客被丢弃，则演示漏斗三项指标在登录前全都拿不到；列进 #17 回归清单
 - [x] **B4 · M4 分享卡体系 B03**（2d，依赖 B1）｜架构方案 §二 M4 ✅ 2026-09-29 完成
   - [x] ShareService 模板 first_read / memory_card / year_in_review 占位
     - 品牌区 = 水印 + 下载文案 + **带本人推荐码的深链二维码** + 明文短链（PDF 常被截图转发，扫不动时链接还在）；只加在分享类 PDF，**Life Archive 刻意不加**——买断的个人档案不是引流物料
