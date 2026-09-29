@@ -99,12 +99,13 @@
     - 统一落点：性格名片与周期报告的 `share_url` 由 app_store_url 改为带码深链，且分享文案复用**同一个值**（两个落点并存时归因必断）；Life Archive 的 `share_url` 保持 app_store_url
     - App 侧：`app.json` → `ios.associatedDomains: ["applinks:closenai.app"]`；`App.tsx` 冷启动 `Linking.getInitialURL()` + `url` 事件 → 取码存 AsyncStorage（跨冷启动，内存态必丢）；`api.ts` 三个建号请求带 `ref`、成功即清；`getShareLink()` 供 App 内分享文案统一取链接
     - 静态站点产物（`site/`）：`.well-known/apple-app-site-association`（components 只接管 `/r/*`——写 `"*"` 会把整站变成唤起 App，落地页反而打不开）、`_headers`（Apple 要求 application/json 且不许 3xx，而这个文件刻意没有 .json 后缀）、`_redirects`（200 重写而非跳转，保住 pathname 里的码）、`r/index.html`（中英双语纯静态，按 `navigator.language` 分支）
-  - 验收实测：pytest **374 passed**（新增 `test_referral.py` 34 例：码表与归一化 / 惰性生成+幂等+跨用户不撞码 / resolve 不泄露资料 + 未知码与非法码同形 + 注销者失效 / 初读卡 PDF 含二维码且不含 AIGC / `share_url` 落库即带码且 `restore` 复现 / 记忆卡越权 40403 / 年报 40402 / AIGC 元数据只在声明时落进 /Info / 名片与报告的 share_url==深链且文案末尾同落点 / 4 个端点级）；jest **227 passed**（新增 `referral.test.ts` 20 例：路径段、查询参数、子域放行、伪装后缀域与无协议串拒绝、8 类非法输入、peek 读不删、后到覆盖、脏值不带上注册请求、**与 backend/core/referral.py 码表逐字对表**）；tsc exit 0；落地页中英两分支经浏览器渲染取证（DOM 快照正确、console 无报错）
-  - 🔧 补测时修掉两个真实缺陷：① `resolve_referral` 对非法码返回 `…/r/`（尾巴为空的坏链）→ 改回站点根；② `parseReferralFromUrl` 原实现对**任意域名**下的 `/r/xxxx` 都放行，任何人都能把自己的码强绑到别人的安装上 → 加品牌域白名单（仅 closenai.app 及子域）；③ 码表同步用例经变异验证（把 TS 侧字符集加回 `L` → 用例 ✕）
-  - ⚠️ 偏离 1：referral_code 取**惰性生成**（架构方案未指定时机）——迁移面对的是已有全量用户，预生成要么给老用户回填随机码、要么让从不分享的人永远挂着 NULL 走两条分支
-  - ⚠️ 偏离 2：**不做剪贴板 handoff、不做手工填码入口**，因此「落地页 → App Store → 装完打开」这条路径归因必断（Apple 不向第三方 App 透传任意 URL 参数）。v1 只有「已装 App → Universal Link 唤起」归因完整，**referral 统计口径是下界，不能当分享总数看**
+  - 验收实测：pytest **374 passed**（新增 `test_referral.py` 34 例：码表与归一化 / 惰性生成+幂等+跨用户不撞码 / resolve 不泄露资料 + 未知码与非法码同形 + 注销者失效 / 初读卡 PDF 含二维码且不含 AIGC / `share_url` 落库即带码且 `restore` 复现 / 记忆卡越权 40403 / 年报 40402 / AIGC 元数据只在声明时落进 /Info / 名片与报告的 share_url==深链且文案末尾同落点 / 5 个端点级（share/link、resolve、memory-card 越权、年报、初读卡 PDF 流））；jest **227 passed**（新增 `referral.test.ts` 20 例：路径段、查询参数、子域放行、伪装后缀域与无协议串拒绝、8 类非法输入、peek 读不删、后到覆盖、脏值不带上注册请求、**与 backend/core/referral.py 码表逐字对表**）；tsc exit 0；落地页中英两分支经浏览器渲染取证（DOM 快照正确、console 无报错）
+  - 🔧 补测时修掉两个真实缺陷，并变异验证了码表同步用例：① `resolve_referral` 对非法码返回 `…/r/`（尾巴为空的坏链）→ 改回站点根；② `parseReferralFromUrl` 原实现对**任意域名**下的 `/r/xxxx` 都放行，任何人都能把自己的码强绑到别人的安装上 → 加品牌域白名单（仅 closenai.app 及子域）；③ 把 TS 侧字符集加回 `L` 后「与后端码表逐字对表」用例转 ✕，证明该用例不是空跑
+  - ⚠️ 偏离 1：架构方案 §二 M4 写「referral_code 注册时生成、share URL 归因落 `share_repository`」，实现取**惰性生成 + 归因落 `users.referred_by_code`**。理由：迁移面对的是已有全量用户，预生成要么给老用户回填随机码、要么让从不分享的人永远挂着 NULL 走两条分支；而 share_repository 是导出缓存表，往里塞归因会把「谁带来了这个新用户」变成一次需要 join 导出记录的查询——归因是安装级标签，跟着 users 一行才与软删除/重注册解耦
+  - ⚠️ 偏离 2：架构方案 §二 M4 给 memory_card 的文案是「一年前的今天 + 原话 + 日期」，实现**不写周年框**（只印原话 + 写下那天）。"一年前的今天"是一个选取规则（哪条记忆有资格被分享），属 C4 §10.1 记忆考古；本方法拿不到"被选中的记忆有多旧"的假设，硬写会造出假周年
+  - ⚠️ 偏离 3：架构方案 §五-决策点 3 原文「landing 页由 CF Pages 承载、**参数归因（utm + referral code）**」预设了链接参数能跟着用户走完安装，实测口径做不到——**不做剪贴板 handoff、不做手工填码入口**，「落地页 → App Store → 装完打开」这一跳参数必丢（Apple 不向第三方 App 透传任意 URL 参数）。v1 只有「已装 App → Universal Link 唤起」归因完整，**referral 统计口径是下界，不能当分享总数看**
   - ⏳ 未取证（三项都要用户账号，代码侧已就绪）：① 站点未部署——`closenai.app` 当前 **DNS 无解析**（`dig +short closenai.app A` 空、curl 连接失败），需 Cloudflare 账号建 Pages 项目、以 `site/` 为 output；② AASA 的 `TEAMID` 是占位，须换真实 Apple Team ID，且 `.well-known` 必须 HTTPS 无跳转，验 Universal Links 需要 prebuild 产物（Expo Go 不生效）；③ 唤起→取码→注册带 `ref` 整条链路**没在设备上跑过**
-  - ⚠️ 顺带记录：`/share/resolve/{code}` 目前**无调用方且无限流**——落地页刻意做成纯静态不依赖后端，而 `api.ts` 的 `API_BASE` 仍是 localhost（生产 API 域未配，属 E3/D5）。提审前若要让落地页用上了这个端点，得先配生产域 + 加限流
+  - ⚠️ 顺带记录：`/share/resolve/{code}` 目前**无调用方且无限流**——落地页刻意做成纯静态不依赖后端，而 `api.ts` 的 `API_BASE` 仍是 localhost（生产 API 域未配，属 E3/D5）。提审前若要让落地页用上这个端点，得先配生产域 + 加限流
 
 ## C. 内容供给管线（P1）
 
