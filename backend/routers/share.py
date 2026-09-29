@@ -16,11 +16,14 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import settings
 from backend.core.auth import get_current_user
+from backend.core.errors import AppException, ErrorCode
+from backend.core.rate_limit import FixedWindowLimiter, client_ip
 from backend.core.response import success
 from backend.database import get_db
 from backend.models.schemas import LifeArchiveExportRequest, MemoryCardRequest
@@ -28,9 +31,29 @@ from backend.services.share_service import ShareService, share_service
 
 router = APIRouter()
 
+# 进程内共享单例： limiter 的寿命 = 进程寿命，重启即清零（对反滥用计数无所谓）
+_resolve_limiter = FixedWindowLimiter()
+
 
 def get_share_service() -> ShareService:
     return share_service
+
+
+async def guard_resolve_rate(request: Request) -> None:
+    """`/share/resolve/{code}` 的单 IP 限流（#38）。
+
+    前置在依赖里而不是服务里：限流判的是"这个来源刚才打了太多次"，与推荐码本身
+    是否有效无关——写在服务里就得先查一次库，而那正是我们要保护的开销。
+    """
+    ip = client_ip(request, trust_forwarded_for=settings.trust_forwarded_for)
+    key = f"share_resolve:{ip}"
+    if not _resolve_limiter.hit(
+        key, settings.share_resolve_limit, settings.share_resolve_window_seconds
+    ):
+        raise AppException(
+            ErrorCode.SHARE_RESOLVE_RATE_LIMITED,
+            "解析请求过于频繁，请稍后再试 / Too many resolve requests, try again later",
+        )
 
 
 @router.get("/share/personality-card")
@@ -127,7 +150,7 @@ async def share_link(
     return success(await service.get_share_link(db, user_id))
 
 
-@router.get("/share/resolve/{code}")
+@router.get("/share/resolve/{code}", dependencies=[Depends(guard_resolve_rate)])
 async def resolve_share_code(
     code: str,
     db: AsyncSession = Depends(get_db),
@@ -137,6 +160,7 @@ async def resolve_share_code(
 
     只回"该跳 App Store 还是打开 App"，不回分享者的任何资料——陌生码不该变成
     一个探测他人是否在用这个 App 的入口。
+    单 IP 超窗口次数 → 42903（`guard_resolve_rate`），因为每次解析都带一次 DB 查询。
     """
     return success(await service.resolve_referral(db, code))
 

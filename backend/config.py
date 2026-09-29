@@ -122,6 +122,16 @@ class Settings(BaseSettings):
     # 且 App 侧带 applinks 权限（frontend/app.json 的 ios.associatedDomains）。
     site_url: str = "https://closenai.app"
 
+    # 公开端点 GET /share/resolve/{code} 的防批量探测（#38）。
+    # 该端点无鉴权、无副作用，且每次带一次 DB 查询：不限流等于免费提供一个
+    # 可以按 IP 慢慢跑字典的入口。真实落地页用量是个位数，60 次/5 分钟足够宽。
+    share_resolve_window_seconds: int = 300
+    share_resolve_limit: int = 60
+    # 客户端 IP 取值口径。只信 CF-Connecting-IP（Cloudflare 覆盖写入，客户端伪造不了）；
+    # X-Forwarded-For 由调用方任意伪造，故需显式开启本开关才采信——开启的前提是
+    # 应用真的只在可信代理之后（否则改一个 header 就能绕过限流）。
+    trust_forwarded_for: bool = False
+
     # 配额（每日额度判定统一由 services/quota_service.py 执行。双口径，PRD P1-F02 §2：
     # ① 对话轮数 = chat/stream 的 user 消息数；② 统一池 = 主动消息 + 签到解读。
     # pro / pro_plus 为高限（≈不限，防异常调用打爆 LLM 成本的熔断上限））

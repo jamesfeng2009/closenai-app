@@ -32,12 +32,15 @@ import type {
   AuthResponse, AuthUser, CodePurpose,
 } from '../types';
 
-// 开发环境 API 地址
-const API_BASE = Platform.select({
+// API 地址：生产用 EXPO_PUBLIC_API_BASE 注入（.env / EAS 环境变量），
+// 未注入时回落到本机开发地址——回落脚本地而不是空串，是为了让「忘了配」在
+// 开发机上表现正常、在生产包里立刻表现为请求失败（可观测），而不是静默打到 localhost。
+const DEV_API_BASE = Platform.select({
   ios: 'http://localhost:8000/api/v1',
   android: 'http://10.0.2.2:8000/api/v1',
   default: 'http://localhost:8000/api/v1',
 });
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE || '').replace(/\/+$/, '') || DEV_API_BASE;
 
 // ═══ 认证态：access/refresh token 存 SecureStore（iOS Keychain）═══
 

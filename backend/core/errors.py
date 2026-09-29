@@ -66,6 +66,7 @@ class ErrorCode(IntEnum):
     # 限流
     LLM_RATE_LIMITED = 42901
     EMAIL_SEND_RATE_LIMITED = 42902  # 验证码发送频率超限（60s 冷却 / 日上限）
+    SHARE_RESOLVE_RATE_LIMITED = 42903  # 公开端点 /share/resolve 单 IP 超窗口次数（防批量探测）
 
     # ── 5xx 服务端 ──
     INTERNAL_ERROR = 500

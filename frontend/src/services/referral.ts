@@ -24,8 +24,11 @@ export const PENDING_REFERRAL_KEY = '@closenai/pending_referral';
  */
 const REFERRAL_CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ234567]{8}$/;
 
-/** 分享深链的承载域（后端 settings.site_url 的同一值；API 域不承载分享路径）。 */
-const SITE_HOST = 'closenai.app';
+/**
+ * 分享深链的承载域（后端 settings.site_url 的同一值；API 域不承载分享路径）。
+ * 预览/测试环境用 EXPO_PUBLIC_SITE_HOST 覆盖，判定逻辑本身不变（仍然只认这一个域）。
+ */
+const SITE_HOST = (process.env.EXPO_PUBLIC_SITE_HOST || 'closenai.app').toLowerCase().trim();
 
 /**
  * 从唤起 URL 里取推荐码，两种形态都支持：
