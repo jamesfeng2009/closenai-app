@@ -541,6 +541,11 @@ class FirstReadResponse(BaseModel):
     card_payload: Dict = Field(default_factory=dict)
 
 
+class MemoryCardRequest(BaseModel):
+    """记忆卡分享（M4）：只接记忆 id，正文取该条原话；归属由 repository 强制。"""
+    memory_id: str = Field(..., max_length=36)
+
+
 class JourneyAckRequest(BaseModel):
     """剧本事件已读回执（红点消费；非本人事件按 40402 处理）。"""
     event_id: str = Field(..., max_length=36)
@@ -564,11 +569,16 @@ def _validate_supported_language(v: str) -> str:
 
 
 class RegisterRequest(BaseModel):
-    """邮箱 + 用户名 + 密码注册。"""
+    """邮箱 + 用户名 + 密码注册。
+
+    ref：分享链接带来的推荐码（M4 安装归因）；格式非法在 auth_service
+    侧静默丢弃，不在这里 422——归因丢了不该挡住注册。
+    """
     email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
     username: str = Field(..., min_length=3, max_length=50, pattern=_USERNAME_RE)
     password: str = Field(..., min_length=8, max_length=128)
     language: str = "en"
+    ref: Optional[str] = Field(None, max_length=16, description="分享推荐码（M4）")
 
     @field_validator("language")
     @classmethod
@@ -595,10 +605,14 @@ class SendCodeRequest(BaseModel):
 
 
 class LoginCodeRequest(BaseModel):
-    """邮箱验证码登录（未注册自动建账号）。"""
+    """邮箱验证码登录（未注册自动建账号）。
+
+    ref：仅首次自动建账号时作为安装归因落库，已注册用户忽略。
+    """
     email: str = Field(..., pattern=_EMAIL_RE, max_length=255)
     code: str = Field(..., min_length=4, max_length=8)
     language: str = "en"
+    ref: Optional[str] = Field(None, max_length=16, description="分享推荐码（M4）")
 
     @field_validator("language")
     @classmethod
@@ -607,10 +621,14 @@ class LoginCodeRequest(BaseModel):
 
 
 class AppleLoginRequest(BaseModel):
-    """Apple 登录（Sign in with Apple）。"""
+    """Apple 登录（Sign in with Apple）。
+
+    ref：仅首次登录建账号时作为安装归因落库，已注册用户忽略。
+    """
     identity_token: str = Field(..., min_length=1)
     auth_code: Optional[str] = None
     language: str = "en"
+    ref: Optional[str] = Field(None, max_length=16, description="分享推荐码（M4）")
 
     @field_validator("language")
     @classmethod

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClosenAI</title>
+<meta name="description" content="ClosenAI — 记录你的信念如何演变。" />
+<meta name="robots" content="noindex" />
+<!--
+  分享深链落地页（架构方案 §二 M4 / 决策点 3）。
+
+  访问者是「从别人的分享卡点进来、且此刻没有装 App」的人——已装 App 的点击由
+  iOS Universal Links 直接接管（site/.well-known/apple-app-site-association 的
+  /r/* 规则），根本不会走到这个页面。所以这里的职责只有一件事：把下载按钮给出去。
+
+  ⚠️ 本页拿不到归因。推荐码在点进 App Store 那一跳就丢了（Apple 不向第三方 App
+  透传任意 URL 参数），因此从落地页装量的新用户不会带上 referred_by_code。
+  口径与 frontend/src/services/referral.ts 头注释一致：归因统计是下界。
+  刻意不读 cookie / 剪贴板去补这一跳——审核与隐私成本高于一个增长指标的价值。
+-->
+<style>
+  :root {
+    /* 与 landing-mockup.html / frontend/src/theme/colors.ts 同一套 token */
+    --bgPrimary: #050508;
+    --bgCard: #1E1B48;
+    --gold400: #FFD700;
+    --gold500: #D4AF37;
+    --accent500: #6366F1;
+    --textPrimary: #FFFFFF;
+    --textSecondary: #A1A1AA;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bgPrimary);
+    color: var(--textPrimary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+  }
+  main { max-width: 480px; width: 100%; }
+  .brand {
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--gold500);
+    margin-bottom: 16px;
+  }
+  h1 { font-size: 28px; line-height: 1.35; font-weight: 600; margin-bottom: 14px; }
+  .sub { font-size: 16px; line-height: 1.7; color: var(--textSecondary); margin-bottom: 28px; }
+  .card {
+    background: var(--bgCard);
+    border: 1px solid rgba(255, 215, 0, 0.12);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+  .card p { font-size: 15px; line-height: 1.7; }
+  .code {
+    display: block;
+    margin-top: 12px;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: var(--textSecondary);
+    font-variant-ligatures: none;
+  }
+  a.cta {
+    display: block;
+    text-align: center;
+    background: var(--gold400);
+    color: #1a1400;
+    font-weight: 600;
+    font-size: 17px;
+    padding: 15px 20px;
+    border-radius: 12px;
+    text-decoration: none;
+  }
+  a.cta:active { background: var(--gold500); }
+  .foot { margin-top: 20px; font-size: 12px; line-height: 1.6; color: var(--textSecondary); }
+  .foot a { color: var(--accent500); }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">ClosenAI</div>
+  <h1 id="title"></h1>
+  <p class="sub" id="sub"></p>
+
+  <div class="card">
+    <p id="quoted"></p>
+    <span class="code" id="code"></span>
+  </div>
+
+  <a class="cta" id="download" href="#" rel="noopener">App Store</a>
+
+  <p class="foot" id="foot"></p>
+</main>
+
+<script>
+  // 上线前替换为提审后的真实链接（backend/config.py 的 app_store_url 同一值；
+  // 当前占位 id 见 D5「ASC 提审元数据」）。刻意只留这一处，避免两处漂移。
+  var APP_STORE_URL = 'https://apps.apple.com/app/closenai/id6740000000';
+
+  // 落地页可能从任何语言/平台的分享卡被打开，只按浏览器语言给中英两套文案。
+  var ZH = (navigator.language || 'en').toLowerCase().indexOf('zh') === 0;
+  var T = {
+    zh: {
+      title: '它记得你说过的每一句。',
+      sub: 'ClosenAI 把你的记录、你的说法、你的变化按时间攒起来，让你看见自己是怎么变的。',
+      quoted: '有人把 Ta 的一张卡片分享给了你。',
+      cta: '在 App Store 下载',
+      foot: '已装 ClosenAI？再点一次那条链接会直接打开 App。',
+    },
+    en: {
+      title: 'It remembers every word you said.',
+      sub: 'ClosenAI keeps your entries, your own phrasing, and your changes over time — so you can see how you shifted.',
+      quoted: 'Someone shared one of their cards with you.',
+      cta: 'Download on the App Store',
+      foot: 'Already have ClosenAI? Tapping the same link again opens the app.',
+    },
+  }[ZH ? 'zh' : 'en'];
+
+  document.documentElement.lang = ZH ? 'zh-CN' : 'en';
+  document.getElementById('title').textContent = T.title;
+  document.getElementById('sub').textContent = T.sub;
+  document.getElementById('quoted').textContent = T.quoted;
+  document.getElementById('download').textContent = T.cta;
+  document.getElementById('download').href = APP_STORE_URL;
+  document.getElementById('foot').textContent = T.foot;
+
+  // 码只用于「这张卡来自谁」的人眼可读提示；本页不做任何归因上报（见头注释）。
+  // 字符集与长度和 backend/core/referral.py、frontend/src/services/referral.ts 同一份：
+  // 三处不一致的后果是落地页显示一个后端根本不存在的码。
+  var m = location.pathname.match(/\/r\/([ABCDEFGHJKMNPQRSTUVWXYZ234567]{8})(?![A-Za-z0-9])/i);
+  var codeEl = document.getElementById('code');
+  if (m) {
+    codeEl.textContent = (ZH ? '来源码：' : 'Referral code: ') + m[1].toUpperCase();
+  } else {
+    codeEl.remove();
+  }
+</script>
+</body>
+</html>

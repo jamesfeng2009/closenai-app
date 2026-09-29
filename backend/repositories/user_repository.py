@@ -13,11 +13,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.errors import AppException, ErrorCode
+from backend.core.referral import new_referral_code
 from backend.core.time_utils import utc_now
 from backend.models.user import User
 
 # list_all 分页大小（offset 迭代直至取完，避免硬上限漏用户）
 LIST_ALL_PAGE_SIZE = 500
+
+# 推荐码撞码时的重试次数（码的格式与随机源在 core/referral.py；唯一性由
+# referral_code 的 UNIQUE 索引兜底，这里只保证极低概率碰撞不会把用户挡在功能外）
+_REFERRAL_RETRY = 5
 
 
 class UserRepository:
@@ -311,8 +316,13 @@ class UserRepository:
         language: str = "en",
         timezone: str = "UTC",
         email_verified: bool = False,
+        referred_by_code: Optional[str] = None,
     ) -> User:
-        """创建用户（注册 / Apple / 验证码登录时调用）。"""
+        """创建用户（注册 / Apple / 验证码登录时调用）。
+
+        referred_by_code：注册链接里带的推荐码（M4 安装归因），已在 auth_service
+        做过格式校验；此处只落标签、不校验对方是否存在（对方注销也要留得住归因）。
+        """
         user = User(
             id=user_id,
             email=email,
@@ -327,10 +337,52 @@ class UserRepository:
             chat_count=0,
             daily_quota_used=0,
             tier="free",
+            referred_by_code=referred_by_code,
         )
         db.add(user)
         await db.flush()
         return user
+
+    # ── 分享卡推荐码（M4）──
+
+    async def get_by_referral_code(
+        self, db: AsyncSession, code: str
+    ) -> Optional[User]:
+        """按推荐码查分享人（深链落地页解析用；已注销用户不再可解析）。"""
+        result = await db.execute(
+            select(User).where(
+                User.referral_code == code, User.status == "active"
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def ensure_referral_code(self, db: AsyncSession, user: User) -> str:
+        """取（或首次生成）该用户的推荐码，返回码本身。
+
+        惰性生成：只有真正导出分享卡的用户才占一个码，老用户无需回填迁移。
+
+        查重用 SELECT 而不是「写完等 IntegrityError 再回滚」：后者要靠 savepoint
+        回滚，而这里的写入属于分享卡导出这一整个事务，savepoint 语义会把码的持久化
+        和导出结果绑在一起。两个用户同时撞上同一个随机码的窗口极窄，真发生时由
+        referral_code 的 UNIQUE 索引在提交时拒掉其中一笔——宁可导出失败也不发重码。
+        """
+        if user.referral_code:
+            return user.referral_code
+        for _ in range(_REFERRAL_RETRY):
+            code = new_referral_code()
+            # 不限 status：已注销用户占过的码不能复用，否则深链会指向错的人
+            taken = await db.execute(
+                select(User.id).where(User.referral_code == code).limit(1)
+            )
+            if taken.scalar_one_or_none() is not None:
+                continue
+            user.referral_code = code
+            await db.flush()
+            return code
+        # 连续撞码只可能是随机源异常；宁可显式失败，也不发一个未经唯一性确认的码
+        raise AppException(
+            ErrorCode.INTERNAL_ERROR, "推荐码生成失败 / Referral code generation failed"
+        )
 
     async def set_password(
         self, db: AsyncSession, user_id: str, password_hash: str

@@ -18,15 +18,19 @@ from typing import List, Optional, Tuple
 
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
+import qrcode
+import qrcode.image.pil
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
+from backend.core.referral import normalize_referral_code, referral_link
 from backend.core.time_utils import local_today, utc_now
 from backend.services.safety_service import safety_service
 from backend.models.user import User
@@ -50,6 +54,25 @@ from backend.services.personality_service import personality_service
 from backend.services.quota_service import FREE_TIER
 
 logger = logging.getLogger("closenai.share")
+
+# ── 分享卡品牌要素（架构方案 §二 M4：统一品牌水印 + 下载文案 + 深链）──
+# 文案口径：说"它记得你说过什么"是产品的既有事实（记忆库），不是能力承诺；
+# 不写"帮你修复关系/读懂 TA"——那是措辞规范 §一 禁的因果断言式卖点。
+_BRAND = {
+    "zh": {"watermark": "ClosenAI · 它记得你说过的每一句", "cta": "扫码下载"},
+    "en": {
+        "watermark": "ClosenAI — it remembers what you told it",
+        "cta": "Scan to download",
+    },
+}
+
+# AIGC 隐式标识（GB 45438-2025）：含 LLM 产出的分享卡在 PDF 元数据里标注。
+# 与 Life Archive 的逐章显式标识互补：分享卡是传播物，版面上印声明会毁掉设计，
+# 但元数据跟着文件走，转发也甩不掉。
+AIGC_DOC_METADATA = {
+    "subject": "Contains AI-generated content (GB 45438-2025)",
+    "keywords": "AIGC;AI-generated",
+}
 
 # 注册中文 CID 字体（无需嵌入字体文件）
 try:
@@ -200,6 +223,9 @@ class ShareService:
             )
         profile = await personality_service.get_profile(db, user_id)
         tagline = await self._generate_tagline(profile, variant, language)
+        # 分享文案里的链接统一走带本人推荐码的深链（决策点 3）：直接给 App Store 链接
+        # 既没有 Universal Links 唤起，也没有归因——分享卡就退化成一张无人可追的海报。
+        share_url = await self._referral_link(db, user)
 
         card = {
             "card_type": "personality",
@@ -212,7 +238,7 @@ class ShareService:
             "unique_traits": profile.unique_traits,
             "streak_count": user.streak_count,
             "relationship_level": user.relationship_level,
-            "share_url": settings.app_store_url,
+            "share_url": share_url,
             "exported_at": utc_now().isoformat(),
         }
         if variant in ("classic", "combo"):
@@ -231,10 +257,10 @@ class ShareService:
     async def export_first_read_card_pdf(
         self, db: AsyncSession, user_id: str
     ) -> bytes:
-        """初读卡分享 PDF（架构方案 §二 M1「复用 SVG→PDF 管线」）。
+        """初读卡分享 PDF（架构方案 §二 M1 复用导出管线 + §二 M4 品牌要素）。
 
-        v1 先用既有 reportlab 文本管线出 PDF；QR + 水印 + 深链 `closenai.app/r/{code}`
-        属 M4 分享卡体系（B4），届时替换本方法内部渲染，端点签名不变。
+        B1 登记的偏离已在此兑现：品牌水印 + 下载文案 + 带本人推荐码的深链二维码
+        （M4），端点签名不变。
         """
         card = await first_read_service.restore(db, user_id)
         if card is None:
@@ -245,7 +271,11 @@ class ShareService:
         language = card.get("language") or "en"
         zh = (language or "").startswith("zh")
         title = "性格初读卡" if zh else "First Read"
-        return self._render_pdf(title, self._first_read_lines(card, zh))
+        brand = await self._brand_for(db, user_id, zh)
+        # 初读卡全文由静态模板直出、零 LLM，故不打 AIGC 元数据标识
+        return self._render_pdf(
+            title, self._first_read_lines(card, zh), brand=brand
+        )
 
     def _first_read_lines(self, card: dict, zh: bool) -> List[str]:
         assertions = card.get("assertions") or []
@@ -263,9 +293,98 @@ class ShareService:
         if closer:
             lines.append("")
             lines.append(closer)
-        lines.append("")
-        lines.append(card.get("share_url") or settings.app_store_url)
+        # 落地链接不在正文里印：品牌区（水印 + QR + 明文短链）统一承载，印两遍会打架
         return lines
+
+    # ── 记忆卡 / 年报占位（架构方案 §二 M4 模板清单）──
+
+    async def export_memory_card_pdf(
+        self, db: AsyncSession, user_id: str, memory_id: str
+    ) -> bytes:
+        """记忆卡分享 PDF：用户自己写过的一句原话 + 写下日期 + 品牌深链（M4）。
+
+        原话不过措辞闸：闸是给 AI 产出兜底的，用户陈述自己的话被正则误杀会让
+        功能整体发不出去（M2 同一结论，见 journey_service._gate_tpl）。
+        归属校验在 memory_repository.get 内强制 user_id，取别人的 id 得到 None。
+        """
+        memory = await memory_repository.get(db, memory_id, user_id)
+        if memory is None:
+            raise AppException(
+                ErrorCode.MEMORY_NOT_FOUND, "记忆不存在 / Memory not found"
+            )
+        user = await user_repository.get_user(db, user_id)
+        zh = ((user.language if user else "") or "").startswith("zh")
+        title = "你说过的话" if zh else "In Your Own Words"
+        brand = await self._brand_for(db, user_id, zh)
+        return self._render_pdf(
+            title, self._memory_card_lines(memory, zh), brand=brand
+        )
+
+    async def get_share_link(self, db: AsyncSession, user_id: str) -> dict:
+        """本人深链与推荐码（App 内各分享入口统一取这里，不各自拼 URL）。
+
+        读接口带一次写：首次调用即生成 referral_code（惰性归因，见 M4 迁移注释）。
+        """
+        user = await user_repository.get_user(db, user_id)
+        if user is None:
+            raise AppException(ErrorCode.USER_NOT_FOUND, "用户不存在 / User not found")
+        code = await user_repository.ensure_referral_code(db, user)
+        return {
+            "referral_code": code,
+            "link": referral_link(settings.site_url, code),
+            "app_store_url": settings.app_store_url,
+        }
+
+    async def _referral_link(self, db: AsyncSession, user: User) -> str:
+        """带本人推荐码的深链；副作用同 get_share_link（首次取链接即落码）。"""
+        code = await user_repository.ensure_referral_code(db, user)
+        return referral_link(settings.site_url, code)
+
+    async def resolve_referral(self, db: AsyncSession, code: str) -> dict:
+        """推荐码 → 落地信息（公开端点：CF Pages 落地页与 App 冷启动共用）。
+
+        只回答「码是否有效、该跳去哪」，不回分享者的任何资料——一个陌生码不该
+        变成探测「某人是否在用这个 App」的入口。查不到与非法码返回同一个
+        valid=false，不区分（否则可用来枚举有效码）。
+        """
+        normalized = normalize_referral_code(code)
+        valid = False
+        if normalized:
+            referrer = await user_repository.get_by_referral_code(db, normalized)
+            valid = referrer is not None
+        return {
+            "valid": valid,
+            "app_store_url": settings.app_store_url,
+            # 已安装时由 Universal Links 直接打开 App（AASA 的 /r/* 规则），
+            # 未安装才需要落地页，因此两个 url 一起给，由调用方决定顺序。
+            # 非法码回站点根而不是 `…/r/`——落地页拿到尾巴为空的链接会渲染出一个坏链。
+            "universal_link": (
+                referral_link(settings.site_url, normalized) if normalized else settings.site_url
+            ),
+        }
+
+    def _memory_card_lines(self, memory, zh: bool) -> List[str]:
+        """记忆卡正文：不写"一年前的今天"——本方法不假设被选中的记忆有多旧，
+        周年选取规则属 C4（§10.1 记忆考古），这里只保证一句原话 + 它的日期。"""
+        date_label = memory.created_at.strftime("%Y-%m-%d") if memory.created_at else ""
+        return [
+            "你写下过的一句：" if zh else "Something you wrote:",
+            "",
+            f"「{memory.content.strip()}」",
+            "",
+            date_label,
+        ]
+
+    async def export_year_in_review_pdf(self, db: AsyncSession, user_id: str) -> bytes:
+        """年度报告卡模板占位（架构方案 §二 M4 把 year_in_review 标为 P2）。
+
+        占位而非缺席：端点先存在，前端可以按同一条链路接好并展示"尚未开放"，
+        真数据要等跨满一个自然年（v1 用户还没有跨年记录可回顾）。
+        """
+        raise AppException(
+            ErrorCode.RESOURCE_NOT_FOUND,
+            "年度报告尚未开放 / Year in review is not available yet",
+        )
 
     async def export_report(
         self, db: AsyncSession, user_id: str, period: str, language: str = "en"
@@ -297,7 +416,7 @@ class ShareService:
             report = await self._build_weekly_report(db, user, language)
         else:
             report = await growth_service.generate_report(db, user_id, period, language)
-        report["share_url"] = settings.app_store_url
+        report["share_url"] = await self._referral_link(db, user)
         await share_repository.save(
             db, user_id, period, period_key, json.dumps(report, ensure_ascii=False)
         )
@@ -310,7 +429,15 @@ class ShareService:
         report = await self.export_report(db, user_id, period, language)
         lines = self._report_lines(report, language)
         default_title = "成长报告" if (language or "").startswith("zh") else "Growth Report"
-        return self._render_pdf(report.get("period_label", default_title), lines)
+        zh = (language or "").startswith("zh")
+        brand = await self._brand_for(db, user_id, zh)
+        # 报告正文由 LLM 生成 → AIGC 隐式标识进元数据
+        return self._render_pdf(
+            report.get("period_label") or default_title,
+            lines,
+            brand=brand,
+            aigc=True,
+        )
 
     # ── Life Archive 导出（M6 · 一次性买断）──
 
@@ -362,8 +489,12 @@ class ShareService:
     ) -> bytes:
         """导出 Life Archive（PDF）。复用 JSON 导出缓存，权益判定同走一次。"""
         archive = await self.export_life_archive(db, user_id, scope, language, regenerate)
+        # aigc=True：档案含已落库的 LLM 章节 → 隐式标识进元数据（显式逐章标注另见正文）
+        # 不给 brand：Life Archive 是付费私人交付物，带引流二维码会让它转发时变成广告
         return self._render_pdf(
-            self._life_archive_title(archive), self._life_archive_lines(archive)
+            self._life_archive_title(archive),
+            self._life_archive_lines(archive),
+            aigc=True,
         )
 
     async def _life_archive_gate(
@@ -461,6 +592,8 @@ class ShareService:
             "chapters": chapters,
             "aigc_mark": AIGC_MARK["zh" if zh else "en"],
             "aigc_notice": AIGC_NOTICE["zh" if zh else "en"],
+            # 与分享卡不同：Life Archive 是买断的个人档案，不做引流，因此这里保持
+            # App Store 直链，不替换成带推荐码的深链（它的 PDF 同样不加品牌区）。
             "share_url": settings.app_store_url,
         }
 
@@ -724,7 +857,9 @@ class ShareService:
 
     def _personality_share_text(self, card: dict, language: str) -> str:
         tagline = card.get("tagline") or ""
-        url = settings.app_store_url
+        # 取卡片自己的 share_url（带推荐码深链），而不是再读一次 app_store_url：
+        # 两个链接并存会让分享文案与卡片指向不同去处，归因也就断了
+        url = card.get("share_url") or settings.app_store_url
         if (language or "").startswith("zh"):
             label = card.get("mbti_label") or "?"
             mbti = card.get("mbti_type") or "?"
@@ -760,7 +895,15 @@ class ShareService:
 
     # ── PDF 渲染（reportlab + UnicodeCIDFont，支持中文）──
 
-    def _render_pdf(self, title: str, lines: List[str]) -> bytes:
+    def _render_pdf(
+        self,
+        title: str,
+        lines: List[str],
+        *,
+        brand: Optional[dict] = None,
+        aigc: bool = False,
+    ) -> bytes:
+        """文本行 → PDF。brand 非空时在文末追加品牌水印 + 引流二维码（M4 分享卡）。"""
         buf = BytesIO()
         doc = SimpleDocTemplate(
             buf,
@@ -770,6 +913,7 @@ class ShareService:
             topMargin=20 * mm,
             bottomMargin=20 * mm,
             title=title,
+            **(AIGC_DOC_METADATA if aigc else {}),
         )
 
         title_style = ParagraphStyle(
@@ -791,8 +935,47 @@ class ShareService:
             else:
                 story.append(Paragraph(self._escape_xml(ln), body_style))
 
+        if brand:
+            brand_style = ParagraphStyle(
+                "Brand", fontName=_CJK_FONT, fontSize=10, leading=15,
+                spaceBefore=3, textColor=colors.HexColor("#8A8A99"),
+            )
+            story.append(Spacer(1, 18))
+            story.append(Paragraph(self._escape_xml(brand["watermark"]), brand_style))
+            story.append(Paragraph(self._escape_xml(brand["cta"]), brand_style))
+            story.append(self._qr_image(brand["link"]))
+            # 二维码之外再给一条可复制的明文短链：PDF 常被截图转发，扫不动时链接还在
+            story.append(Paragraph(self._escape_xml(brand["link"]), brand_style))
+
         doc.build(story)
         return buf.getvalue()
+
+    def _qr_image(self, url: str) -> Image:
+        """深链二维码（32mm 见方：A4 上手机扫码在 20cm 距离内足够分辨）。"""
+        img = qrcode.make(
+            url, image_factory=qrcode.image.pil.PilImage, box_size=8, border=2
+        )
+        png = BytesIO()
+        img.save(png, "PNG")
+        png.seek(0)
+        return Image(png, width=32 * mm, height=32 * mm)
+
+    async def _brand_for(self, db: AsyncSession, user_id: str, zh: bool) -> dict:
+        """分享卡品牌要素：水印 + 下载文案 + 带本人推荐码的深链（M4 / 决策点 3）。
+
+        副作用是刻意的：首次导出即生成并落库 referral_code（惰性，见 ensure_referral_code），
+        因此"分享卡 PDF 导出"这个读接口会写一行 users.referral_code。
+        """
+        user = await user_repository.get_user(db, user_id)
+        if user is None:
+            raise AppException(
+                ErrorCode.USER_NOT_FOUND, "用户不存在 / User not found"
+            )
+        code = await user_repository.ensure_referral_code(db, user)
+        return {
+            **_BRAND["zh" if zh else "en"],
+            "link": referral_link(settings.site_url, code),
+        }
 
     def _escape_xml(self, text: str) -> str:
         """转义 Paragraph 文本中的 XML 特殊字符。"""

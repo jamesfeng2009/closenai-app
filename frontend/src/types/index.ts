@@ -418,6 +418,7 @@ export interface PersonalityCard {
   unique_traits: string | null;
   streak_count: number;
   relationship_level: string;
+  // 带本人推荐码的分享深链（M4 / 决策点 3）；分享文案末尾同此链接，不要再指向 app_store_url
   share_url: string;
   exported_at: string;
   share_text: string;
@@ -511,7 +512,18 @@ export interface LifeArchiveResult {
   chapters: LifeArchiveChapter[];
   aigc_mark: string;
   aigc_notice: string;
+  // 刻意保持 App Store 直链、不带推荐码：Life Archive 是买断的个人档案，
+  // 不是引流分享卡（同一理由：它的 PDF 也不加品牌水印与二维码）。
   share_url: string;
+}
+
+// ═══ Share 深链（M4）═══
+
+/** GET /share/link：本人推荐码与深链，App 内各分享入口统一取这里，不各自拼 URL。 */
+export interface ShareLink {
+  referral_code: string;
+  link: string;
+  app_store_url: string;
 }
 
 // ═══ Auth ═══

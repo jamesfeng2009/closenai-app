@@ -10,6 +10,7 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import i18n from '../i18n';
+import { clearPendingReferral, peekPendingReferral } from './referral';
 import type {
   ChatStreamRequest, ChatHistoryItem, SSEEvent,
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
@@ -21,6 +22,7 @@ import type {
   UserProfile, UserSettings,
   DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
+  ShareLink,
   FirstReadAnswer, FirstReadCard,
   JourneyEventsResponse, MemoryRef,
   SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult, LifeArchiveResult,
@@ -582,6 +584,16 @@ export async function getShareReport(period: SharePeriod): Promise<ShareReport> 
   return request<ShareReport>(`/share/report/${period}?language=${langParam()}`);
 }
 
+/**
+ * 取本人分享深链与推荐码（M4）。
+ *
+ * 后端首次调用才生成 referral_code（惰性），所以不要在任何非分享场景预取，
+ * 否则会给从不分享的用户白占一个码。App 内分享文案一律用它，不要各自拼 URL。
+ */
+export async function getShareLink(): Promise<ShareLink> {
+  return request<ShareLink>('/share/link');
+}
+
 // ═══ Onboarding 性格初读卡 (P1-B01 · 架构方案 §二 M1) ═══
 
 /** 生成初读卡并落库（幂等 upsert；后端静态模板直出，零 LLM）。 */
@@ -694,6 +706,18 @@ export async function exportLifeArchive(
 // 认证端点。登录/注册/验证码登录/Apple 登录成功后自动持久化 token。
 // 公开端点不触发 401 刷新（登录态为空时 request 不走刷新分支）。
 
+/**
+ * M4 归因：把待消费的推荐码带到建号请求上（`ref`）。
+ *
+ * 三个会创建账号的端点都要带：密码注册、验证码登录（未注册自动建号）、Apple 首次
+ * 登录。后端对已存在的账号忽略 `ref`，所以这里不必区分新老用户；成功后一律清除，
+ * 避免残留码被下一个账号复用。归因上限见 services/referral.ts 头注释。
+ */
+async function referralBody(): Promise<{ ref?: string }> {
+  const code = await peekPendingReferral();
+  return code ? { ref: code } : {};
+}
+
 /** 邮箱 + 用户名 + 密码注册。 */
 export async function register(
   email: string,
@@ -703,9 +727,16 @@ export async function register(
 ): Promise<AuthResponse> {
   const resp = await request<AuthResponse>('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ email, username, password, language }),
+    body: JSON.stringify({
+      email,
+      username,
+      password,
+      language,
+      ...(await referralBody()),
+    }),
   });
   await setAuth(resp);
+  await clearPendingReferral();
   return resp;
 }
 
@@ -739,9 +770,10 @@ export async function loginWithEmailCode(
 ): Promise<AuthResponse> {
   const resp = await request<AuthResponse>('/auth/login-code', {
     method: 'POST',
-    body: JSON.stringify({ email, code, language }),
+    body: JSON.stringify({ email, code, language, ...(await referralBody()) }),
   });
   await setAuth(resp);
+  await clearPendingReferral();
   return resp;
 }
 
@@ -752,9 +784,14 @@ export async function appleLoginApi(
 ): Promise<AuthResponse> {
   const resp = await request<AuthResponse>('/auth/apple', {
     method: 'POST',
-    body: JSON.stringify({ identity_token: identityToken, language }),
+    body: JSON.stringify({
+      identity_token: identityToken,
+      language,
+      ...(await referralBody()),
+    }),
   });
   await setAuth(resp);
+  await clearPendingReferral();
   return resp;
 }
 

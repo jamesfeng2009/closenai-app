@@ -116,6 +116,11 @@ class Settings(BaseSettings):
 
     # 分享（P1-F04 §5：分享落地 → App Store 下载页）
     app_store_url: str = "https://apps.apple.com/app/closenai/id6740000000"
+    # 分享卡深链站点（M4 / 决策点 3）：https://closenai.app/r/{referral_code}
+    # Universal Links 生效需两件事同时成立：站点在 `site/` 部署后于
+    # /.well-known/apple-app-site-association 直出 JSON（见 site/_headers），
+    # 且 App 侧带 applinks 权限（frontend/app.json 的 ios.associatedDomains）。
+    site_url: str = "https://closenai.app"
 
     # 配额（每日额度判定统一由 services/quota_service.py 执行。双口径，PRD P1-F02 §2：
     # ① 对话轮数 = chat/stream 的 user 消息数；② 统一池 = 主动消息 + 签到解读。

@@ -1,0 +1,7 @@
+# Cloudflare Pages 重写规则（站点根 = 本目录）
+#
+# /r/{code} 是动态段，静态站没有对应文件；200 重写（不是 301/302）让浏览器地址栏
+# 保持 /r/{code}，落地页再从 location.pathname 里取码。跳转会把码丢在 history 里，
+# 也让 Apple 对 AASA 路径规则的判定多一层不确定性。
+/r       /r/index.html  200
+/r/*     /r/index.html  200

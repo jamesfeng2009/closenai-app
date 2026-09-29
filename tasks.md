@@ -10,7 +10,7 @@
 
 - Onboarding 文案改写（P0-1）：✅ 已完成（15 语言 i18n + 原型 Screen 7）
 - 后端 M1–M7 / P1-3 管线：**全部零实现**（grep 无 journey_events / onboarding_profiles / bedtime / curriculum）
-  - ↳ 2026-09-29 更新：M7（占星移除）、M1（初读卡）、M2（第一周剧本）、M3（情感回报进 LEVEL_UNLOCKS）、M6（Life Archive IAP）已落地，见 A/B 节勾选；bedtime / curriculum 仍零实现
+  - ↳ 2026-09-29 更新：M7（占星移除）、M1（初读卡）、M2（第一周剧本）、M3（情感回报进 LEVEL_UNLOCKS）、M4（分享卡深链与归因）、M6（Life Archive IAP）已落地，见 A/B 节勾选；bedtime / curriculum 仍零实现
 - 工作区在途（未提交）：~~九型人格 service、§5.18 承诺回访、discovery 融合、前端 Reflect/Insights/i18n~~ → 已在 `0ced5ac`/`48d37ed` 提交；2026-09-29 快照：B2 全套已提交，`closenai-prd` submodule 仍有未提交内容（归 D4）
 - ⚠️ **方向冲突**：近三次 commit（13313c3/efbd7ec/e89f19c）在**新增**本命星盘 + pyswisseph，而 M7 计划是整体移除占星——✅ 2026-09-28 已按 PRD v2.1「占星已移除」执行 A1，冲突关闭
 
@@ -84,9 +84,27 @@
   - 🔧 过程中修出的真实缺陷：`_format(gating=True)` 曾把原话替换为占位符后**无人回填**，所有含引用的消息会把 `⟦q⟧` 直接展示给用户；改为 `_gate_tpl()`（填充 → 过闸 → 回填）并在 12 处渲染点统一走该入口
 - [ ] **B3 · M5 演示档案**（前端 2d，零后端）｜架构方案 §二 M5
   - [ ] `demoArchive.ts` 小 A 30 天 + `DemoArchiveScreen` + is_demo 隔离 + 演示模式禁 AI 对话入口
-- [ ] **B4 · M4 分享卡体系 B03**（2d，依赖 B1）｜架构方案 §二 M4
-  - [ ] ShareService 模板 first_read / memory_card / year_in_review 占位
-  - [ ] 深链 closenai.app/r/{code} + AASA + CF Pages landing（决策点 3）
+- [x] **B4 · M4 分享卡体系 B03**（2d，依赖 B1）｜架构方案 §二 M4 ✅ 2026-09-29 完成
+  - [x] ShareService 模板 first_read / memory_card / year_in_review 占位
+    - 品牌区 = 水印 + 下载文案 + **带本人推荐码的深链二维码** + 明文短链（PDF 常被截图转发，扫不动时链接还在）；只加在分享类 PDF，**Life Archive 刻意不加**——买断的个人档案不是引流物料
+    - 初读卡全文静态直出、零 LLM → 不打 AIGC 元数据；周期报告与 Life Archive 打（`_render_pdf(aigc=True)` 落进 PDF `/Info`，实测字节可见）
+    - 记忆卡：某条记忆的原话 + 写下日期 + 品牌深链；原话**不过措辞闸**（闸是给 AI 产出兜底的，M2 同一结论）；不写"一年前的今天"——周年选取规则属 C4
+    - year_in_review 为 P2 占位：端点存在但恒 40402，前端可按同一链路接"尚未开放"而不是当 bug
+    - B1 登记的品牌区欠账（⚠️ 偏离）在此兑现，端点签名不变
+  - [x] 深链 closenai.app/r/{code} + AASA + CF Pages landing（决策点 3）
+    - 数据：`users.referral_code`（8 位、29 字符集，排除 0/O/1/I/L/8/9 这些手抄必混的形状）+ `referred_by_code`；迁移 `a7c1e9b4d2f8`（单 head）。**两列都不建外键**——referral 是归因标签不是关系引用，指向的人可能已注销，外键会把归因数据锁成删除约束
+    - **惰性生成**：注册路径不预生成；`GET /share/link`、分享卡 PDF 导出、初读卡落库三条路径首次取码即写（读接口带一次写，查重走 SELECT + UNIQUE 兜底并发）
+    - 归因入口：三个建号路径（密码注册 / 验证码登录未注册自动建号 / Apple 首登）新增 `ref`，非法码**静默丢弃而不是报错**——推广链接被截断不该让注册失败
+    - `GET /share/resolve/{code}`（公开）：只回「码是否有效 + 两个 URL」，不回分享者任何资料；未知码与非法码返回同形结果（否则成了"探测某人是否在用这个 App"的入口）
+    - 统一落点：性格名片与周期报告的 `share_url` 由 app_store_url 改为带码深链，且分享文案复用**同一个值**（两个落点并存时归因必断）；Life Archive 的 `share_url` 保持 app_store_url
+    - App 侧：`app.json` → `ios.associatedDomains: ["applinks:closenai.app"]`；`App.tsx` 冷启动 `Linking.getInitialURL()` + `url` 事件 → 取码存 AsyncStorage（跨冷启动，内存态必丢）；`api.ts` 三个建号请求带 `ref`、成功即清；`getShareLink()` 供 App 内分享文案统一取链接
+    - 静态站点产物（`site/`）：`.well-known/apple-app-site-association`（components 只接管 `/r/*`——写 `"*"` 会把整站变成唤起 App，落地页反而打不开）、`_headers`（Apple 要求 application/json 且不许 3xx，而这个文件刻意没有 .json 后缀）、`_redirects`（200 重写而非跳转，保住 pathname 里的码）、`r/index.html`（中英双语纯静态，按 `navigator.language` 分支）
+  - 验收实测：pytest **374 passed**（新增 `test_referral.py` 34 例：码表与归一化 / 惰性生成+幂等+跨用户不撞码 / resolve 不泄露资料 + 未知码与非法码同形 + 注销者失效 / 初读卡 PDF 含二维码且不含 AIGC / `share_url` 落库即带码且 `restore` 复现 / 记忆卡越权 40403 / 年报 40402 / AIGC 元数据只在声明时落进 /Info / 名片与报告的 share_url==深链且文案末尾同落点 / 4 个端点级）；jest **227 passed**（新增 `referral.test.ts` 20 例：路径段、查询参数、子域放行、伪装后缀域与无协议串拒绝、8 类非法输入、peek 读不删、后到覆盖、脏值不带上注册请求、**与 backend/core/referral.py 码表逐字对表**）；tsc exit 0；落地页中英两分支经浏览器渲染取证（DOM 快照正确、console 无报错）
+  - 🔧 补测时修掉两个真实缺陷：① `resolve_referral` 对非法码返回 `…/r/`（尾巴为空的坏链）→ 改回站点根；② `parseReferralFromUrl` 原实现对**任意域名**下的 `/r/xxxx` 都放行，任何人都能把自己的码强绑到别人的安装上 → 加品牌域白名单（仅 closenai.app 及子域）；③ 码表同步用例经变异验证（把 TS 侧字符集加回 `L` → 用例 ✕）
+  - ⚠️ 偏离 1：referral_code 取**惰性生成**（架构方案未指定时机）——迁移面对的是已有全量用户，预生成要么给老用户回填随机码、要么让从不分享的人永远挂着 NULL 走两条分支
+  - ⚠️ 偏离 2：**不做剪贴板 handoff、不做手工填码入口**，因此「落地页 → App Store → 装完打开」这条路径归因必断（Apple 不向第三方 App 透传任意 URL 参数）。v1 只有「已装 App → Universal Link 唤起」归因完整，**referral 统计口径是下界，不能当分享总数看**
+  - ⏳ 未取证（三项都要用户账号，代码侧已就绪）：① 站点未部署——`closenai.app` 当前 **DNS 无解析**（`dig +short closenai.app A` 空、curl 连接失败），需 Cloudflare 账号建 Pages 项目、以 `site/` 为 output；② AASA 的 `TEAMID` 是占位，须换真实 Apple Team ID，且 `.well-known` 必须 HTTPS 无跳转，验 Universal Links 需要 prebuild 产物（Expo Go 不生效）；③ 唤起→取码→注册带 `ref` 整条链路**没在设备上跑过**
+  - ⚠️ 顺带记录：`/share/resolve/{code}` 目前**无调用方且无限流**——落地页刻意做成纯静态不依赖后端，而 `api.ts` 的 `API_BASE` 仍是 localhost（生产 API 域未配，属 E3/D5）。提审前若要让落地页用上了这个端点，得先配生产域 + 加限流
 
 ## C. 内容供给管线（P1）
 

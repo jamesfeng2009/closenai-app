@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, StyleSheet, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
+import {
+  Linking,
+  SafeAreaView,
+  StyleSheet,
+  ActivityIndicator,
+  AppState,
+  type AppStateStatus,
+} from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -28,6 +35,7 @@ import HelpFeedbackScreen from './src/screens/HelpFeedbackScreen';
 import { Colors } from './src/theme/colors';
 import { initI18n, default as i18n } from './src/i18n';
 import { loadSession, updateUserSettings, isLoggedIn } from './src/services/api';
+import { parseReferralFromUrl, savePendingReferral } from './src/services/referral';
 import { flushAnalytics } from './src/services/analytics';
 import { registerForPushNotifications, subscribePushTokenChanges } from './src/services/push';
 import { onSessionReset } from './src/services/session';
@@ -89,6 +97,19 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(false);
 
   useEffect(() => {
+    // M4 Universal Links：已安装用户点别人分享的 closenai.app/r/{code} 会直接打开本 App，
+    // 路由解析不了这条链接（它不属于任何 screen），所以这里只做一件事——把推荐码存成
+    // 待消费引用，注册/首次登录时随 ref 上送。未安装时同一条链接落到 CF Pages 落地页。
+    // 归因上限（App Store 一跳丢参数）见 src/services/referral.ts 头注释。
+    const ingestReferral = (url: string | null): void => {
+      const code = parseReferralFromUrl(url);
+      if (code) savePendingReferral(code).catch(() => {});
+    };
+    Linking.getInitialURL()
+      .then(ingestReferral)
+      .catch(() => {});
+    const linkSubscription = Linking.addEventListener('url', ({ url }) => ingestReferral(url));
+
     // 时区上报为非关键路径：fire-and-forget，不阻塞启动
     // （出海规范：后端按用户本地时区计算配额重置/streak/主动消息时间）
     // 游客守卫：未登录不上报——production 无 Bearer 必 401、development 匿名身份必 40401，
@@ -144,6 +165,7 @@ export default function App() {
     const pushTokenCleanup = subscribePushTokenChanges();
 
     return () => {
+      linkSubscription.remove();
       subscription.remove();
       sessionCleanup();
       pushTokenCleanup();

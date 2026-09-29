@@ -17,6 +17,7 @@ import hashlib
 import re
 import secrets
 from datetime import timedelta, timezone
+from typing import Optional
 from uuid import uuid4
 
 import httpx
@@ -36,6 +37,7 @@ from backend.core.auth import (
 )
 from backend.core.errors import AppException, ErrorCode
 from backend.core.logging import get_logger
+from backend.core.referral import normalize_referral_code
 from backend.core.time_utils import utc_now
 from backend.models.schemas import AuthResponse, AuthUserResponse
 from backend.models.user import User
@@ -149,6 +151,7 @@ class AuthService:
         username: str,
         password: str,
         language: str = "en",
+        ref: Optional[str] = None,
     ) -> AuthResponse:
         self._validate_password(password)
         email = email.lower().strip()
@@ -165,6 +168,7 @@ class AuthService:
             password_hash=hash_password(password),
             language=language,
             email_verified=False,
+            referred_by_code=normalize_referral_code(ref),
         )
         try:
             async with db.begin_nested():
@@ -268,7 +272,12 @@ class AuthService:
         await redis_client.delete(self._attempts_key(email, purpose))
 
     async def login_with_email_code(
-        self, db: AsyncSession, email: str, code: str, language: str = "en"
+        self,
+        db: AsyncSession,
+        email: str,
+        code: str,
+        language: str = "en",
+        ref: Optional[str] = None,
     ) -> AuthResponse:
         email = email.lower().strip()
         await self._verify_code(email, code, "login")
@@ -281,6 +290,7 @@ class AuthService:
                 email=email,
                 language=language,
                 email_verified=True,
+                referred_by_code=normalize_referral_code(ref),
             )
         elif user.email_verified_at is None:
             await user_repository.mark_email_verified(db, user.id)
@@ -290,7 +300,11 @@ class AuthService:
     # ── Apple 登录 ──
 
     async def login_with_apple(
-        self, db: AsyncSession, identity_token: str, language: str = "en"
+        self,
+        db: AsyncSession,
+        identity_token: str,
+        language: str = "en",
+        ref: Optional[str] = None,
     ) -> AuthResponse:
         apple_id, _email, _is_private = await verify_apple_identity_token(identity_token)
         user = await user_repository.get_by_apple_id(db, apple_id)
@@ -310,6 +324,7 @@ class AuthService:
             email=_email,
             email_verified=bool(_email),
             language=language,
+            referred_by_code=normalize_referral_code(ref),
         )
         try:
             async with db.begin_nested():

@@ -13,6 +13,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.closenai.app",
       "usesAppleSignIn": true,
+      "associatedDomains": ["applinks:closenai.app"],
       "infoPlist": {
         "UIBackgroundModes": ["remote-notification"]
       }

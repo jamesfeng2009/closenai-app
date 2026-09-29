@@ -4,6 +4,10 @@
 端点：
     GET  /api/v1/share/personality-card    — 性格名片导出（JSON）
     POST /api/v1/share/first-read-card     — 初读卡分享（PDF，P1-B01）
+    POST /api/v1/share/memory-card         — 记忆卡分享（PDF，M4）
+    GET  /api/v1/share/year-in-review/pdf  — 年度报告卡（P2 占位，恒 40402）
+    GET  /api/v1/share/link                — 本人深链与推荐码（M4 归因）
+    GET  /api/v1/share/resolve/{code}      — 推荐码 → 落地信息（公开，落地页调用）
     GET  /api/v1/share/report/{period}     — 周期报告导出（JSON）
     GET  /api/v1/share/report/{period}/pdf — 周期报告导出（PDF）
     POST /api/v1/share/life-archive        — Life Archive 导出（JSON，权益校验 + 幂等）
@@ -16,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.auth import get_current_user
 from backend.core.response import success
 from backend.database import get_db
-from backend.models.schemas import LifeArchiveExportRequest
+from backend.models.schemas import LifeArchiveExportRequest, MemoryCardRequest
 from backend.services.share_service import ShareService, share_service
 
 router = APIRouter()
@@ -54,6 +58,68 @@ async def first_read_card_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="closenai_first_read.pdf"'},
     )
+
+
+@router.post("/share/memory-card")
+async def memory_card_pdf(
+    req: MemoryCardRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: ShareService = Depends(get_share_service),
+):
+    """记忆卡分享 PDF：某条记忆的原话 + 日期 + 带推荐码的深链（架构方案 §二 M4）。
+
+    memory_id 必须属于当前用户，否则 40403（归属校验在 repository 内强制）。
+    """
+    pdf = await service.export_memory_card_pdf(db, user_id, req.memory_id)
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="closenai_memory_card.pdf"'},
+    )
+
+
+@router.get("/share/year-in-review/pdf")
+async def year_in_review_pdf(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: ShareService = Depends(get_share_service),
+):
+    """年度报告卡导出（P2 占位）。
+
+    模板位已留（service 内 export_year_in_review_pdf），但 v1 用户还没有跨满一个
+    自然年的数据可回顾，恒返回 40402；前端按此码展示"尚未开放"而不是当 bug。
+    """
+    pdf = await service.export_year_in_review_pdf(db, user_id)
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="closenai_year_in_review.pdf"'},
+    )
+
+
+@router.get("/share/link")
+async def share_link(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: ShareService = Depends(get_share_service),
+):
+    """本人分享深链（App 内所有分享文案统一取这里，不各自拼 URL）。"""
+    return success(await service.get_share_link(db, user_id))
+
+
+@router.get("/share/resolve/{code}")
+async def resolve_share_code(
+    code: str,
+    db: AsyncSession = Depends(get_db),
+    service: ShareService = Depends(get_share_service),
+):
+    """推荐码 → 落地信息（公开端点，CF Pages 落地页与 App 冷启动共用）。
+
+    只回"该跳 App Store 还是打开 App"，不回分享者的任何资料——陌生码不该变成
+    一个探测他人是否在用这个 App 的入口。
+    """
+    return success(await service.resolve_referral(db, code))
 
 
 @router.get("/share/report/{period}")

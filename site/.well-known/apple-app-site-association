@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.com.closenai.app"],
+        "components": [
+          {
+            "/": "/r/*",
+            "comment": "分享深链唯一接管路径（M4）：/r/{referral_code}。App 内由 Linking 取码，见 frontend/src/services/referral.ts。刻意不写 \"/\": \"*\"——那会把品牌站整站都变成唤起 App，落地页反而打不开。"
+          }
+        ]
+      }
+    ]
+  }
+}
+

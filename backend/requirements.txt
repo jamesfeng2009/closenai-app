@@ -40,6 +40,8 @@ sse-starlette>=2.0.0
 
 # PDF 导出（P1-F04 社交分享）
 reportlab>=4.0.0
+# 分享卡引流二维码（M4 分享卡体系）：纯 Python，图像后端用已随 reportlab 在环的 Pillow
+qrcode>=7.4
 
 # 行为分析 + 错误追踪（PostHog Cloud·EU；未配置 API key 时服务内 no-op）
 posthog>=3.0.0

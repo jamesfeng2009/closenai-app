@@ -54,7 +54,9 @@ async def register(
 ):
     """邮箱 + 用户名 + 密码注册。"""
     return success(
-        await service.register_with_password(db, req.email, req.username, req.password, req.language)
+        await service.register_with_password(
+            db, req.email, req.username, req.password, req.language, req.ref
+        )
     )
 
 
@@ -85,7 +87,9 @@ async def login_code(
     service: AuthService = Depends(get_auth_service),
 ):
     """邮箱验证码登录（未注册自动建账号）。"""
-    return success(await service.login_with_email_code(db, req.email, req.code, req.language))
+    return success(
+        await service.login_with_email_code(db, req.email, req.code, req.language, req.ref)
+    )
 
 
 @router.post("/auth/apple")
@@ -95,7 +99,9 @@ async def apple_login(
     service: AuthService = Depends(get_auth_service),
 ):
     """Apple 登录（Sign in with Apple）。"""
-    return success(await service.login_with_apple(db, req.identity_token, req.language))
+    return success(
+        await service.login_with_apple(db, req.identity_token, req.language, req.ref)
+    )
 
 
 @router.post("/auth/refresh")

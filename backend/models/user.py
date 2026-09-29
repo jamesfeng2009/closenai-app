@@ -63,6 +63,16 @@ class User(Base):
     daily_quota_used: Mapped[int] = mapped_column(Integer, default=0)
     tier: Mapped[str] = mapped_column(String(20), default="free")
 
+    # ── 分享卡归因（M4 分享卡体系 / 决策点 3：深链 https://closenai.app/r/{code}）──
+    # 自己的推荐码。**惰性生成**：只在用户第一次导出分享卡时写入（见
+    # user_repository.ensure_referral_code），注册不预生成——绝大多数用户从不分享，
+    # 预生成要么给老用户做全表回填迁移、要么让新表长期空挂一列随机码。
+    # 唯一性由「随机 8 字符 base32 + 冲突重试 + 本 UNIQUE 索引」三层保证。
+    referral_code: Mapped[str | None] = mapped_column(String(12), nullable=True, unique=True)
+    # 经他人分享链接安装时带来的来源码（安装归因）；无外键——指向的用户可能已注销
+    # （软删除 + 同标识可重注册），外键会把归因标签变成删除约束
+    referred_by_code: Mapped[str | None] = mapped_column(String(12), nullable=True)
+
     # ── 认证（三种登录方式：Apple / 邮箱验证码 / 用户名密码；字段集互补，均 nullable）──
     # 邮箱（密码登录与验证码登录共用；唯一，partial index 仅约束非 NULL 行）
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)

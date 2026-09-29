@@ -1,0 +1,10 @@
+# Cloudflare Pages 响应头（站点根 = 本目录）
+#
+# Apple 抓取 AASA 有两个硬条件：Content-Type 必须是 application/json（不能是
+# text/plain），且整条链路不许 3xx 跳转。CF Pages 按扩展名推断 MIME，而这个文件
+# 刻意没有 .json 后缀（Apple 只认这个确切路径），因此这里显式覆盖——不写这段，
+# Universal Links 会静默失效，表现是"点了分享卡只在 Safari 打开网页"，很难归因。
+
+/.well-known/apple-app-site-association
+  Content-Type: application/json
+  Cache-Control: public, max-age=0, must-revalidate

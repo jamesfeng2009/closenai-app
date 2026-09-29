@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
+from backend.core.referral import referral_link
 from backend.core.time_utils import local_today, utc_now
 from backend.repositories import onboarding_repository, user_repository
 from backend.services.journey_service import journey_service
@@ -178,12 +179,18 @@ class FirstReadService:
     ) -> dict:
         """生成并落库（每用户一行，重复提交以最后一次为准；repository 内 flush）。"""
         card = self.build_first_read(answers, persona_type, language)
+        user = await user_repository.get_user(db, user_id)
+        if user is not None:
+            # 分享落地链接带本人推荐码（M4 归因）：点这张卡的人装完 App 能回溯到分享者。
+            # 必须在 upsert 之前写死——restore 按落库的 card_payload 复现，事后改不落盘。
+            card["card_payload"]["share_url"] = referral_link(
+                settings.site_url, await user_repository.ensure_referral_code(db, user)
+            )
         profile = await onboarding_repository.upsert(
             db, user_id, persona_type, answers, card, language
         )
         # 架构方案 §二 M2：第一周剧本在 **onboarding 完成事务内**预写 pending 行，
         # 不由 cron 现算。幂等：重放/重新做引导只更新计划时刻，不会产生第二条同类事件。
-        user = await user_repository.get_user(db, user_id)
         if user is not None:
             await journey_service.prefill(db, user, base_day=local_today(user.timezone))
         data = dict(card["card_payload"])
