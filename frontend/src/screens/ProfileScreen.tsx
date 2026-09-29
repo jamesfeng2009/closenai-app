@@ -20,11 +20,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
-  getUserProfile, updateUserSettings, setAiConsent, ApiError,
+  getUserProfile, updateUserSettings, setAiConsent, setAnalyticsConsent, ApiError,
   changePassword, updateUsername,
 } from '../services/api';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import AIConsentModal from '../components/AIConsentModal';
+import { SHARING_STATE_KEYS, sharingHasConsent, sharingState } from '../config/consent';
+import { clearAnalyticsQueue, setAnalyticsConsentAllowed } from '../services/analytics';
 import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n';
 import type { ConversationStyle, PrimaryFramework, UserProfile } from '../types';
 
@@ -54,6 +56,10 @@ export default function ProfileScreen({
   const [timeVisible, setTimeVisible] = useState(false);
   const [styleVisible, setStyleVisible] = useState(false);
   const [frameworkVisible, setFrameworkVisible] = useState(false);
+  // 撤回分析同意后的结果文案（后端按 PostHog 是否配置决定能否真的删除）：
+  // 「已删除」与「已停止上报」是两句不同的话，说错了就是向用户虚假承诺
+  const [analyticsNote, setAnalyticsNote] = useState<string | null>(null);
+  const [analyticsBusy, setAnalyticsBusy] = useState(false);
 
   // Tab 常驻不卸载：每次聚焦都刷新（仅登录态；游客跳过请求避免 401 噪声）
   useFocusEffect(
@@ -70,6 +76,9 @@ export default function ProfileScreen({
     try {
       const data = await getUserProfile();
       setProfile(data);
+      // 灌入分析同意：track() 的本地门闸靠这个值（api.ts 不能反向 import analytics，
+      // 两者互相依赖会成环，所以在拿到 profile 的调用点灌）
+      setAnalyticsConsentAllowed(data.analytics_consent);
     } catch (e) {
       console.warn('Failed to load profile:', e);
     } finally {
@@ -98,6 +107,33 @@ export default function ProfileScreen({
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), msg);
+    }
+  };
+
+  // 匿名行为分析同意：与 AI 共享分开的第二项同意，可单独撤回（合规 5.1.2(i)）
+  const onAnalyticsConsentChange = async (consent: boolean) => {
+    if (!requireAuth()) return;
+    if (analyticsBusy) return;
+    try {
+      setAnalyticsBusy(true);
+      const res = await setAnalyticsConsent(consent);
+      setAnalyticsConsentAllowed(res.analytics_consent);
+      if (!consent) {
+        // 撤回要连本地未上送的一起清掉：只改服务端标志位，队列里的历史事件
+        // 下次联网还会照样发出去
+        clearAnalyticsQueue();
+        setAnalyticsNote(
+          res.posthog_erased ? t('profile.analyticsErased') : t('profile.analyticsErasePending')
+        );
+      } else {
+        setAnalyticsNote(null);
+      }
+      setProfile((prev) => (prev ? { ...prev, analytics_consent: res.analytics_consent } : prev));
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    } finally {
+      setAnalyticsBusy(false);
     }
   };
 
@@ -344,11 +380,31 @@ export default function ProfileScreen({
         <TouchableOpacity style={styles.settingItem} onPress={() => setConsentVisible(true)}>
           <Text style={styles.settingIcon}>📋</Text>
           <Text style={styles.settingLabel}>{t('profile.dataSharing')}</Text>
-          <Text style={profile?.ai_consent ? styles.settingValueGreen : styles.settingValueSmall}>
-            {profile?.ai_consent ? t('profile.agreed') : t('profile.declined')}
+          <Text
+            style={
+              sharingHasConsent(sharingState(!!profile?.ai_consent, !!profile?.analytics_consent))
+                ? styles.settingValueGreen
+                : styles.settingValueSmall
+            }
+          >
+            {t(SHARING_STATE_KEYS[sharingState(!!profile?.ai_consent, !!profile?.analytics_consent)])}
           </Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
+        {/* 匿名行为分析：单独一项同意，单独一个撤回入口 */}
+        <TouchableOpacity
+          style={[styles.settingItem, analyticsBusy && styles.settingItemDisabled]}
+          disabled={analyticsBusy}
+          onPress={() => onAnalyticsConsentChange(!profile?.analytics_consent)}
+        >
+          <Text style={styles.settingIcon}>📊</Text>
+          <Text style={styles.settingLabel}>{t('profile.analyticsRow')}</Text>
+          <Text style={profile?.analytics_consent ? styles.settingValueGreen : styles.settingValueSmall}>
+            {profile?.analytics_consent ? t('profile.agreed') : t('profile.declined')}
+          </Text>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+        <Text style={styles.analyticsHint}>{analyticsNote ?? t('profile.analyticsHint')}</Text>
       </View>
 
       {/* 退出登录：可逆操作，降为次级灰字，不与注销同权重 */}
@@ -722,8 +778,20 @@ const styles = StyleSheet.create({
   settingIcon: { fontSize: 18, width: 24 },
   settingLabel: { fontSize: FontSize.title, color: Colors.textPrimary, flex: 1 },
   settingValue: { fontSize: FontSize.xl, color: Colors.textSecondary, marginRight: 8 },
-  settingValueSmall: { fontSize: FontSize.lg, color: Colors.textTertiary, marginRight: 8 },
-  settingValueGreen: { fontSize: FontSize.lg, color: Colors.success, marginRight: 8 },
+  settingValueSmall: {
+    fontSize: FontSize.lg, color: Colors.textTertiary, marginRight: 8,
+    // 四态文案比「已同意」长得多，且 15 语言长短不一：不给 flexShrink 会把箭头挤出屏
+    flexShrink: 1, textAlign: 'right',
+  },
+  settingValueGreen: {
+    fontSize: FontSize.lg, color: Colors.success, marginRight: 8,
+    flexShrink: 1, textAlign: 'right',
+  },
+  settingItemDisabled: { opacity: 0.5 },
+  analyticsHint: {
+    fontSize: FontSize.md, color: Colors.textTertiary, lineHeight: LineHeight.caption,
+    marginTop: Spacing.sm,
+  },
   arrow: { fontSize: 20, color: Colors.textTertiary },
   proBadge: {
     fontSize: FontSize.sm, fontWeight: '700', color: Colors.gold400,

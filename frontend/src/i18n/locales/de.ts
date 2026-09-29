@@ -287,6 +287,14 @@ const resource = {
     "aboutAIDisclaimer": "Haftungsausschluss: KI-generierte Inhalte können ungenau sein und dürfen nicht für medizinische, rechtliche oder finanzielle Entscheidungen verwendet werden. ClosenAI ist ein Tool zur persönlichen Wachstumsverfolgung; KI-Inhalte dienen nur der Selbsterkundung und Unterhaltung. Wenn Sie mit psychischen Problemen konfrontiert sind, suchen Sie bitte professionelle medizinische Hilfe.",
     "aboutAIModel": "KI-Modellquelle: Gemini API (Google). Die KI-Funktionen von ClosenAI werden von Google Gemini-Modellen unterstützt, darunter unter anderem Gemini 2.5 Flash (tiefes Reasoning / Echtzeitgespräche) und Gemini 2.5 Flash-Lite (asynchrone Aufgaben / leichtgewichtige Bewertungen). Alle KI-generierten Inhalte sind als „Von KI erstellt“ gekennzeichnet.",
     "dataSharing": "Datenaustausch-Einstellungen",
+    "sharingBoth": "AI processing + anonymous analytics",
+    "sharingAiOnly": "AI processing only",
+    "sharingAnalyticsOnly": "Anonymous analytics only",
+    "sharingNone": "Neither one agreed",
+    "analyticsRow": "Anonymous usage analytics",
+    "analyticsHint": "Only page and feature usage counts are reported - never what you write, your conversations, or your memories.",
+    "analyticsErased": "Reporting stopped and past analytics deleted.",
+    "analyticsErasePending": "Reporting stopped; past analytics are deleted once the provider confirms.",
     "agreed": "Zugestimmt",
     "declined": "Nicht zugestimmt",
     "logout": "Abmelden",
@@ -447,7 +455,7 @@ const resource = {
     "shareBtn": "Share Card",
     "streak": "{{count}}-day streak",
     "proGateTitle": "Pro Card",
-    "proGateMessage": "The combo card is a Pro benefit. Upgrade to unlock it.",
+    "proGateMessage": "The combo card pairs 16-type and Enneagram frameworks. It is a Pro benefit, unlocked when you upgrade.",
     "upgrade": "Upgrade"
   },
   "insights": {

@@ -77,6 +77,11 @@ export class AnalyticsEventsRepository {
     this.db.runSync('DELETE FROM analytics_events WHERE synced = 1');
   }
 
+  /** 清空全部事件（含未上送）：撤回匿名分析同意时的本地落地动作。 */
+  clearAll(): void {
+    this.db.runSync('DELETE FROM analytics_events');
+  }
+
   countPending(): number {
     const row = this.db.getFirstSync<{ count: number }>(
       'SELECT COUNT(*) AS count FROM analytics_events WHERE synced = 0'

@@ -352,6 +352,8 @@ export interface UserProfile {
   daily_quota_used: number;
   daily_quota_total: number;
   ai_consent: boolean;
+  // 匿名行为分析同意：与 ai_consent 独立，两件事分开同意也分开撤回
+  analytics_consent: boolean;
   push_time?: string | null;
   conversation_style?: ConversationStyle | null;
   primary_framework?: PrimaryFramework | null; // 主要性格框架（P0-F05）

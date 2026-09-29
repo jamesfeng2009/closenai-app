@@ -253,6 +253,13 @@ class UserRepository:
         )
         await db.flush()
 
+    async def set_analytics_consent(self, db: AsyncSession, user_id: str, consent: bool) -> None:
+        """更新匿名行为分析同意状态（与 ai_consent 独立的第二项同意）。"""
+        await db.execute(
+            update(User).where(User.id == user_id).values(analytics_consent=consent)
+        )
+        await db.flush()
+
     async def increment_special_push(self, db: AsyncSession, user_id: str, month: str) -> int:
         """特殊事件推送月度计数 +1（month 为用户本地 "YYYY-MM"，跨月重置为 1）。
 

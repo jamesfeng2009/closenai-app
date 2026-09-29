@@ -315,6 +315,9 @@ class UserProfileResponse(BaseModel):
     daily_quota_used: int
     daily_quota_total: int
     ai_consent: bool = False  # AI 数据共享同意状态（合规 5.1.2(i)）
+    # 匿名行为分析同意（GDPR/5.1.2(i) 的独立一项）：与 ai_consent 各管一件事，
+    # 只回 ai_consent 会让「数据共享」这一行把两件事说成一件事，用户也无从撤回分析。
+    analytics_consent: bool = False
     streak_freeze_count: int = 0  # 剩余 Streak 冻结券（PRD P0-F05）
     push_time: Optional[str] = None  # 主动消息时间 HH:MM（None 时后端按 09:00 调度）
     conversation_style: str = "warm"  # AI 对话风格（P1-F04）：warm | rational | philosophical

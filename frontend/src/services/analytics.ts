@@ -50,7 +50,30 @@ function sanitize(properties?: Record<string, unknown> | null): Record<string, u
 
 /** 记录一条行为事件（仅行为元数据，无敏感内容）。 */
 export function track(event: string, properties?: Record<string, unknown>): void {
+  if (!analyticsConsentAllowed) return;
   analyticsEventsRepo.enqueue(event, sanitize(properties), new Date().toISOString());
+}
+
+/**
+ * 匿名分析同意（users.analytics_consent，与 ai_consent 独立的一项同意）。
+ *
+ * 默认允许入队：本地队列只存匿名行为元数据，出网仍由后端按 analytics_consent 整批
+ * 丢弃（analytics_service.relay_batch），所以「尚未从 profile 灌入」这段时间不会有
+ * 任何数据离开设备；灌入 false 之后 track() 直接停，撤回才算真的生效。
+ */
+let analyticsConsentAllowed = true;
+
+export function setAnalyticsConsentAllowed(allowed: boolean): void {
+  analyticsConsentAllowed = allowed;
+}
+
+export function analyticsConsentAllowedValue(): boolean {
+  return analyticsConsentAllowed;
+}
+
+/** 撤回分析同意时清空本地未上送事件（连同 setAnalyticsConsentAllowed(false) 一起用）。 */
+export function clearAnalyticsQueue(): void {
+  analyticsEventsRepo.clearAll();
 }
 
 // 并发上送锁（防多入口同时 flush 重复发送）。

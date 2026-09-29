@@ -184,6 +184,7 @@ class UserService:
             daily_quota_used=quota_used,
             daily_quota_total=settings.free_daily_messages,
             ai_consent=user.ai_consent,
+            analytics_consent=user.analytics_consent,
             push_time=user.push_time,
             conversation_style=user.conversation_style,
         )
@@ -193,6 +194,22 @@ class UserService:
         await self._require_user(db, user_id)
         await user_repository.set_ai_consent(db, user_id, consent)
         return consent
+
+    async def set_analytics_consent(self, db: AsyncSession, user_id: str, consent: bool) -> dict:
+        """设置匿名行为分析同意（与 ai_consent 独立一项，可随时撤回）。
+
+        撤回必须真的停：
+        - 未上送的本地队列由前端清空（这里无从代劳）；
+        - 已中继到 PostHog 的历史事件由 erase_person_data 抹除——只翻标志位
+          等于「同意的瞬间收过数据，撤回后数据照旧留着」，那不叫可撤回。
+        erase 失败只回状态、不阻断撤回（分析平台抖动不能让合规动作卡住）。
+        """
+        await self._require_user(db, user_id)
+        await user_repository.set_analytics_consent(db, user_id, consent)
+        if not consent:
+            erased = await erase_person_data(user_id)
+            return {"analytics_consent": False, "posthog_erased": bool(erased.get("erased"))}
+        return {"analytics_consent": True, "posthog_erased": False}
 
     async def require_ai_consent(self, db: AsyncSession, user_id: str) -> None:
         """校验 AI 数据共享同意；未同意则抛 403 AI_CONSENT_REQUIRED（合规 5.1.2(i)）。"""

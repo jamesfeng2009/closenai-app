@@ -75,6 +75,21 @@ async def set_ai_consent(
     return success({"ai_consent": consent})
 
 
+@router.post("/user/analytics-consent")
+async def set_analytics_consent(
+    request: AIConsentUpdate,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: UserService = Depends(get_user_service),
+):
+    """设置匿名行为分析同意（独立于 AI 共享的第二项同意，可随时撤回）。
+
+    撤回时顺带抹除 PostHog 侧人物数据：只改标志位会让「撤回」停留在纸面上。
+    读取走 GET /users/profile 的 analytics_consent 字段，不另开只读端点。
+    """
+    return success(await service.set_analytics_consent(db, user_id, request.consent))
+
+
 @router.post("/user/push-token")
 async def register_push_token(
     request: PushTokenRequest,

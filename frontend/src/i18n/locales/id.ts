@@ -287,6 +287,14 @@ const resource = {
     "aboutAIDisclaimer": "Penafian: Konten yang dibuat AI mungkin tidak akurat dan tidak boleh digunakan untuk keputusan medis, hukum, atau keuangan. ClosenAI adalah alat pelacakan pertumbuhan pribadi; konten AI hanya untuk eksplorasi diri dan hiburan. Jika Anda menghadapi masalah kesehatan mental, silakan cari bantuan medis profesional.",
     "aboutAIModel": "Sumber model AI: Gemini API (Google). Fitur AI ClosenAI didukung oleh model Google Gemini, termasuk namun tidak terbatas pada Gemini 2.5 Flash (penalaran mendalam / percakapan real-time) dan Gemini 2.5 Flash-Lite (tugas asinkron / penilaian ringan). Semua konten yang dibuat AI diberi label \"Dibuat oleh AI\".",
     "dataSharing": "Pengaturan Berbagi Data",
+    "sharingBoth": "AI processing + anonymous analytics",
+    "sharingAiOnly": "AI processing only",
+    "sharingAnalyticsOnly": "Anonymous analytics only",
+    "sharingNone": "Neither one agreed",
+    "analyticsRow": "Anonymous usage analytics",
+    "analyticsHint": "Only page and feature usage counts are reported - never what you write, your conversations, or your memories.",
+    "analyticsErased": "Reporting stopped and past analytics deleted.",
+    "analyticsErasePending": "Reporting stopped; past analytics are deleted once the provider confirms.",
     "agreed": "Disetujui",
     "declined": "Belum disetujui",
     "logout": "Keluar",
@@ -447,7 +455,7 @@ const resource = {
     "shareBtn": "Share Card",
     "streak": "{{count}}-day streak",
     "proGateTitle": "Pro Card",
-    "proGateMessage": "The combo card is a Pro benefit. Upgrade to unlock it.",
+    "proGateMessage": "The combo card pairs 16-type and Enneagram frameworks. It is a Pro benefit, unlocked when you upgrade.",
     "upgrade": "Upgrade"
   },
   "insights": {

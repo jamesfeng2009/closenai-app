@@ -551,6 +551,20 @@ export async function setAiConsent(consent: boolean): Promise<boolean> {
   return res.ai_consent;
 }
 
+/**
+ * 设置匿名行为分析同意（独立于 AI 共享的第二项同意）。
+ * posthog_erased：撤回时后端是否已把 PostHog 侧人物数据排进删除队列——
+ * 界面要按这个值说话，不能一律宣称「已删除」（未配置 key 时后端只告警）。
+ */
+export async function setAnalyticsConsent(
+  consent: boolean
+): Promise<{ analytics_consent: boolean; posthog_erased: boolean }> {
+  return request<{ analytics_consent: boolean; posthog_erased: boolean }>(
+    '/user/analytics-consent',
+    { method: 'POST', body: JSON.stringify({ consent }) }
+  );
+}
+
 // ═══ Memory (P0-F02) ═══
 
 export async function listMemories(limit: number = 50): Promise<Memory[]> {

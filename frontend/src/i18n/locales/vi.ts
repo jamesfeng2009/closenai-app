@@ -287,6 +287,14 @@ const resource = {
     "aboutAIDisclaimer": "Tuyên bố miễn trừ trách nhiệm: Nội dung do AI tạo có thể không chính xác và không được sử dụng cho các quyết định y tế, pháp lý hoặc tài chính. ClosenAI là công cụ theo dõi sự phát triển cá nhân; nội dung AI chỉ nhằm mục đích tự khám phá và giải trí. Nếu bạn đang gặp vấn đề về sức khỏe tâm thần, vui lòng tìm kiếm sự trợ giúp y tế chuyên nghiệp.",
     "aboutAIModel": "Nguồn mô hình AI: Gemini API (Google). Các tính năng AI của ClosenAI được hỗ trợ bởi các mô hình Google Gemini, bao gồm nhưng không giới hạn ở Gemini 2.5 Flash (suy luận sâu / hội thoại thời gian thực) và Gemini 2.5 Flash-Lite (tác vụ không đồng bộ / đánh giá nhẹ). Tất cả nội dung do AI tạo đều được gắn nhãn \"Do AI tạo\".",
     "dataSharing": "Cài đặt Chia sẻ Dữ liệu",
+    "sharingBoth": "AI processing + anonymous analytics",
+    "sharingAiOnly": "AI processing only",
+    "sharingAnalyticsOnly": "Anonymous analytics only",
+    "sharingNone": "Neither one agreed",
+    "analyticsRow": "Anonymous usage analytics",
+    "analyticsHint": "Only page and feature usage counts are reported - never what you write, your conversations, or your memories.",
+    "analyticsErased": "Reporting stopped and past analytics deleted.",
+    "analyticsErasePending": "Reporting stopped; past analytics are deleted once the provider confirms.",
     "agreed": "Đã đồng ý",
     "declined": "Chưa đồng ý",
     "logout": "Đăng xuất",
@@ -447,7 +455,7 @@ const resource = {
     "shareBtn": "Share Card",
     "streak": "{{count}}-day streak",
     "proGateTitle": "Pro Card",
-    "proGateMessage": "The combo card is a Pro benefit. Upgrade to unlock it.",
+    "proGateMessage": "The combo card pairs 16-type and Enneagram frameworks. It is a Pro benefit, unlocked when you upgrade.",
     "upgrade": "Upgrade"
   },
   "insights": {

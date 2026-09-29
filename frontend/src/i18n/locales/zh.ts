@@ -288,6 +288,14 @@ const resource = {
     "aboutAIDisclaimer": "免责声明：AI 生成内容可能不准确，不用于医疗、法律或财务决策。ClosenAI 是个人成长追踪工具，AI 生成内容仅供自我探索和娱乐参考。如您遇到心理健康问题，请寻求专业医疗帮助。",
     "aboutAIModel": "AI 模型来源：Gemini 系列 API (Google)。ClosenAI 的 AI 功能由 Google Gemini 系列模型提供支持，包括但不限于 Gemini 2.5 Flash（深度推理/实时对话）、Gemini 2.5 Flash-Lite（异步任务/轻量级判断）。所有 AI 生成内容均标注「AI 生成」标识。",
     "dataSharing": "数据共享设置",
+    "sharingBoth": "AI 处理 + 匿名分析",
+    "sharingAiOnly": "仅同意 AI 处理",
+    "sharingAnalyticsOnly": "仅同意匿名分析",
+    "sharingNone": "两项都未同意",
+    "analyticsRow": "匿名使用分析",
+    "analyticsHint": "只上报页面与功能使用次数，不含你写的内容、对话与记忆。",
+    "analyticsErased": "已停止上报，并删除历史分析数据。",
+    "analyticsErasePending": "已停止上报；历史数据待分析平台确认后删除。",
     "agreed": "已同意",
     "declined": "未同意",
     "logout": "退出登录",
@@ -448,7 +456,7 @@ const resource = {
     "shareBtn": "分享名片",
     "streak": "连续 {{count}} 天",
     "proGateTitle": "Pro 专属名片",
-    "proGateMessage": "三维度组合名片为 Pro 订阅权益，升级后解锁。",
+    "proGateMessage": "双维度组合名片（16 型 × 九型）为 Pro 订阅权益，升级后解锁。",
     "upgrade": "升级"
   },
   "insights": {

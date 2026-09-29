@@ -39,4 +39,21 @@ describe('AnalyticsEventsRepository (分析事件队列)', () => {
     expect(repo.countPending()).toBe(2);
     db.closeSync();
   });
+
+  it('clearAll 连已上送（synced=1）的一起清掉：撤回同意不能只删未发送的', () => {
+    const db = createTestDb();
+    const repo = new AnalyticsEventsRepository(db);
+    repo.enqueue('a', { feature: 'mood' }, '2026-08-01T00:00:00Z');
+    repo.enqueue('b', null, '2026-08-02T00:00:00Z');
+    // b 标记为已上送：这些行留在本机，语义上仍属"我曾上报过"
+    const pending = repo.listPending();
+    repo.markSynced([pending[1].id]);
+    expect(db.getAllSync('SELECT * FROM analytics_events')).toHaveLength(2);
+
+    repo.clearAll();
+
+    expect(db.getAllSync('SELECT * FROM analytics_events')).toHaveLength(0);
+    expect(repo.countPending()).toBe(0);
+    db.closeSync();
+  });
 });

@@ -287,6 +287,14 @@ const resource = {
     "aboutAIDisclaimer": "免責事項：AI生成コンテンツは不正確な場合があり、医療・法律・財務上の判断には使用できません。ClosenAIは個人の成長記録ツールであり、AIコンテンツは自己探索と娯楽のみを目的としています。メンタルヘルスの問題に直面している場合は、専門の医療機関にご相談ください。",
     "aboutAIModel": "AIモデル情報源：Gemini API（Google）。ClosenAIのAI機能は、Gemini 2.5 Flash（深い推論・リアルタイム会話）やGemini 2.5 Flash-Lite（非同期タスク・軽量な判断）を含むGoogle Geminiモデルによって提供されています。AIが生成したすべてのコンテンツには「AI生成」と表示されます。",
     "dataSharing": "データ共有設定",
+    "sharingBoth": "AI processing + anonymous analytics",
+    "sharingAiOnly": "AI processing only",
+    "sharingAnalyticsOnly": "Anonymous analytics only",
+    "sharingNone": "Neither one agreed",
+    "analyticsRow": "Anonymous usage analytics",
+    "analyticsHint": "Only page and feature usage counts are reported - never what you write, your conversations, or your memories.",
+    "analyticsErased": "Reporting stopped and past analytics deleted.",
+    "analyticsErasePending": "Reporting stopped; past analytics are deleted once the provider confirms.",
     "agreed": "同意済み",
     "declined": "未同意",
     "logout": "ログアウト",
@@ -447,7 +455,7 @@ const resource = {
     "shareBtn": "Share Card",
     "streak": "{{count}}-day streak",
     "proGateTitle": "Pro Card",
-    "proGateMessage": "The combo card is a Pro benefit. Upgrade to unlock it.",
+    "proGateMessage": "The combo card pairs 16-type and Enneagram frameworks. It is a Pro benefit, unlocked when you upgrade.",
     "upgrade": "Upgrade"
   },
   "insights": {

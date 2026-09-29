@@ -287,6 +287,14 @@ const resource = {
     "aboutAIDisclaimer": "면책 조항: AI 생성 콘텐츠는 부정확할 수 있으며 의료, 법률 또는 재정 결정에 사용해서는 안 됩니다. ClosenAI는 개인 성장 추적 도구이며, AI 콘텐츠는 자기 탐색과 오락 목적으로만 제공됩니다. 정신 건강 문제를 겪고 있다면 전문 의료 기관의 도움을 받으세요.",
     "aboutAIModel": "AI 모델 출처: Gemini API (Google). ClosenAI의 AI 기능은 Gemini 2.5 Flash(심층 추론/실시간 대화)와 Gemini 2.5 Flash-Lite(비동기 작업/경량 판단)를 포함한 Google Gemini 모델로 구동됩니다. 모든 AI 생성 콘텐츠에는 \"AI 생성\" 라벨이 표시됩니다.",
     "dataSharing": "데이터 공유 설정",
+    "sharingBoth": "AI processing + anonymous analytics",
+    "sharingAiOnly": "AI processing only",
+    "sharingAnalyticsOnly": "Anonymous analytics only",
+    "sharingNone": "Neither one agreed",
+    "analyticsRow": "Anonymous usage analytics",
+    "analyticsHint": "Only page and feature usage counts are reported - never what you write, your conversations, or your memories.",
+    "analyticsErased": "Reporting stopped and past analytics deleted.",
+    "analyticsErasePending": "Reporting stopped; past analytics are deleted once the provider confirms.",
     "agreed": "동의함",
     "declined": "동의 안 함",
     "logout": "로그아웃",
@@ -447,7 +455,7 @@ const resource = {
     "shareBtn": "Share Card",
     "streak": "{{count}}-day streak",
     "proGateTitle": "Pro Card",
-    "proGateMessage": "The combo card is a Pro benefit. Upgrade to unlock it.",
+    "proGateMessage": "The combo card pairs 16-type and Enneagram frameworks. It is a Pro benefit, unlocked when you upgrade.",
     "upgrade": "Upgrade"
   },
   "insights": {
