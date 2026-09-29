@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal,
 } from 'react-native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { useTranslation } from 'react-i18next';
 
 export interface BadgeWallItem {
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
   modalName: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.textPrimary },
   modalCondition: {
     fontSize: FontSize.title, color: Colors.textSecondary,
-    marginTop: Spacing.sm, textAlign: 'center', lineHeight: 1.5,
+    marginTop: Spacing.sm, textAlign: 'center', lineHeight: LineHeight.body,
   },
   modalStatus: { fontSize: FontSize.md, marginTop: Spacing.md },
   statusUnlocked: { color: Colors.gold400, fontWeight: '600' },
