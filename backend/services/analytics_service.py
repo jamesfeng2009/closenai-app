@@ -12,15 +12,20 @@
 红线：
 - 仅行为元数据，禁止携带任何敏感内容（反思文本 / 记忆 / 对话原文 / 情绪具体值）
 - posthog 未安装 / 未配置（API key 为空）时服务内 no-op，不影响主流程
+- 注销（purge_user）必须连带抹除 PostHog 侧数据：见 erase_person_data
 """
 import logging
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.repositories import user_repository
 
 logger = logging.getLogger("closenai.analytics")
+
+# 注销抹除走 Personal API 的超时：purge 链路里同步等待，但绝不因外部平台抖动而卡住
+POSTHOG_ERASE_TIMEOUT_SECONDS = 10
 
 # 允许的匿名行为属性键（白名单）：仅保留行为元数据，剔除任何内容字段。
 # 前端可能携带 screen/feature/action/tier 等行为上下文，以及任何被误塞的文本内容。
@@ -96,6 +101,50 @@ def _relay_to_posthog(
         )
     except Exception as exc:  # noqa: BLE001  中继失败不阻塞主流程
         logger.warning("posthog 中继失败: %s", exc)
+
+
+async def erase_person_data(distinct_id: str) -> dict:
+    """注销第二步的收尾：将本人在 PostHog 侧的人物记录 + 事件 + 录屏一并删除。
+
+    为什么不能复用 capture 通道：posthog-python 客户端库根本不提供删除接口
+    （实测 wheel 7.60.1：模块级与 CapturedClient 均无 delete_person / delete_data），
+    删除只能走 Personal API —— POST {host}/api/person/bulk_delete/
+    body {"distinct_ids":[...], "delete_events":true, "delete_recordings":true}，
+    鉴权 Authorization: Bearer <personal_api_key>
+    （证据：posthog/api/person.py 的 PersonBulkDeleteRequestSerializer 支持
+     distinct_ids 直传、无需先查 person uuid；posthog/auth.py
+     PersonalAPIKeyAuthentication.keyword == "Bearer"）。
+
+    红线：
+    - 未配置 personal key → no-op 并告警（本地库已物理删除，外部平台残留要看得见）
+    - 任何异常/非 2xx 只记日志，绝不抛出——不能因分析平台抖动让注销失败
+    """
+    if not settings.posthog_personal_api_key:
+        logger.warning("PostHog Personal API key 未配置，跳过人物数据删除 user=%s", distinct_id)
+        return {"erased": False, "reason": "not_configured"}
+
+    url = f"{settings.posthog_host.rstrip('/')}/api/person/bulk_delete/"
+    try:
+        async with httpx.AsyncClient(timeout=POSTHOG_ERASE_TIMEOUT_SECONDS) as client:
+            res = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {settings.posthog_personal_api_key}"},
+                json={
+                    "distinct_ids": [distinct_id],
+                    "delete_events": True,
+                    "delete_recordings": True,
+                },
+            )
+    except Exception as exc:  # noqa: BLE001 - 外部平台故障不阻断注销
+        logger.warning("PostHog 数据删除请求失败 user=%s: %s", distinct_id, exc)
+        return {"erased": False, "reason": "request_failed"}
+
+    if res.status_code in (200, 202):
+        logger.info("PostHog 已排队删除人物数据 user=%s", distinct_id)
+        return {"erased": True, "status": res.status_code}
+    # 不回显响应体：可能包含其他账号标识
+    logger.warning("PostHog 数据删除返回非成功状态 user=%s status=%s", distinct_id, res.status_code)
+    return {"erased": False, "reason": f"http_{res.status_code}"}
 
 
 class AnalyticsService:

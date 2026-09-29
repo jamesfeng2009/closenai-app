@@ -38,8 +38,14 @@ const USER_TABLES = [
 // 语言/主题/通知等设备偏好保留。
 const USER_SETTING_KEYS = ['@closenai/dashboard_cache'];
 
-/** 清空 SQLite 用户级数据（单事务；失败不阻断会话重置）。 */
-function clearUserLocalData(): void {
+/** 清空 SQLite 用户级数据（单事务；失败不阻断会话重置）。
+ *
+ *  withAnalyticsEvents=true 仅注销使用：analytics_events 是设备级行为队列，
+ *  登出后新账号要继续用同一队列，但注销意味着「本机不再持有该身份的任何痕迹」——
+ *  未上送的本地事件 distinct_id 仍是那个已删除的 user_id，留着既无意义也违背
+ *  「全部记录彻底删除」的承诺。
+ */
+function clearUserLocalData(withAnalyticsEvents = false): void {
   try {
     const db = getDatabase();
     const stmts = [
@@ -47,6 +53,7 @@ function clearUserLocalData(): void {
       ...USER_SETTING_KEYS.map(
         (k) => `DELETE FROM app_settings WHERE key = '${k}';`
       ),
+      ...(withAnalyticsEvents ? ['DELETE FROM analytics_events;'] : []),
       // 重置同步水位，避免新账号复用上一账号的 last_synced_at
       'UPDATE sync_metadata SET last_synced_at = NULL, record_count = 0;',
     ];
@@ -63,10 +70,10 @@ export async function resetSession(): Promise<void> {
   notifySessionReset();
 }
 
-/** 注销账号：清除 token + 引导标记 + 全部用户级本地数据，回到引导页（新设备身份）。 */
+/** 注销账号：清除 token + 引导标记 + 全部用户级本地数据（含本地行为队列），回到引导页。 */
 export async function resetSessionFull(): Promise<void> {
   await clearAuth();
-  clearUserLocalData();
+  clearUserLocalData(true);
   try {
     await AsyncStorage.removeItem(ONBOARDED_KEY);
   } catch {

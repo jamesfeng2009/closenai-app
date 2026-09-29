@@ -5,7 +5,8 @@ ClosenAI FastAPI 应用入口。
 启动命令：
     uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 """
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,16 +57,71 @@ def _validate_startup_config() -> None:
         logger.warning("%s（development 仅告警）", msg)
 
 
+# 进程内 purge 兜底：扫描间隔 10 分钟，stale_hours=1 与外部 cron 口径一致
+PURGE_SWEEP_INTERVAL_SECONDS = 600
+PURGE_STALE_HOURS = 1
+
+
+async def _purge_sweep_once() -> int:
+    """跑一轮物理删除兜底扫描，返回本次删除的用户数。
+
+    独立成函数：lifespan 循环只做调度，扫描/提交口径与
+    /cron/purge-deleted-users 一致（同一 service 方法，逐用户 SAVEPOINT）。
+    """
+    from backend.database import SessionLocal
+    from backend.services.user_service import user_service
+
+    async with SessionLocal() as session:
+        purged = await user_service.purge_deleted_users(
+            session, stale_hours=PURGE_STALE_HOURS
+        )
+        await session.commit()
+    return len(purged)
+
+
+async def _purge_sweeper() -> None:
+    """进程内注销数据物理删除兜底循环。
+
+    注销链路是「软删除即时失效 + 异步 purge」：QStash 投递失败 / 未配置 /
+    Vercel Cron 未生效时，软删记录会永久残留（个人数据留存 = 合规风险）。
+    本循环每 10 分钟扫一次 stale 软删用户，与 /cron/purge-deleted-users 复用
+    同一实现（已删表 rowcount=0 天然幂等），多 worker 并发扫描无副作用，
+    外部 cron 保留作第二道。
+
+    单轮异常只告警不退出（循环必须活着）；CancelledError 必须透传以便停机。
+    """
+    while True:
+        try:
+            count = await _purge_sweep_once()
+            if count:
+                logger.info("进程内 purge 兜底：物理删除 %d 个用户", count)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 兜底循环不能因单轮失败终止
+            logger.warning("进程内 purge 兜底失败（下一轮重试）: %s", exc)
+        await asyncio.sleep(PURGE_SWEEP_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _validate_startup_config()
+    purge_task: asyncio.Task | None = None
+    if settings.purge_loop_enabled:
+        purge_task = asyncio.create_task(_purge_sweeper(), name="purge-sweeper")
     try:
         schedule_id = await cron_service.register_follow_up_schedule()
         if schedule_id:
             logger.info("lifespan 已注册 follow-up 调度 schedule=%s", schedule_id)
     except Exception as exc:  # noqa: BLE001 - 调度注册失败不影响应用启动
         logger.warning("lifespan follow-up 调度注册失败（可后续手动注册）: %s", exc)
-    yield
+    try:
+        yield
+    finally:
+        if purge_task:
+            purge_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await purge_task
+        logger.info("lifespan 已停止进程内 purge 兜底循环")
 
 
 app = FastAPI(

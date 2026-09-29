@@ -37,6 +37,7 @@ from backend.repositories import (
     milestone_repository,
     user_repository,
 )
+from backend.services.analytics_service import erase_person_data
 from backend.services.quota_service import quota_service
 from backend.config import settings
 
@@ -209,9 +210,6 @@ class UserService:
         self, db: AsyncSession, user_id: str, settings_update: UserSettingsUpdate
     ) -> UserProfileResponse:
         """更新用户设置。"""
-        birthday = (
-            date.fromisoformat(settings_update.birthday) if settings_update.birthday else None
-        )
         user = await user_repository.update_settings(
             db,
             user_id,
@@ -224,7 +222,6 @@ class UserService:
             push_frequency=settings_update.push_frequency,
             push_enabled=settings_update.push_enabled,
             mbti_type=settings_update.mbti_type,
-            birthday=birthday,
             enneagram_type=settings_update.enneagram_type,
         )
         if not user:
@@ -409,6 +406,8 @@ class UserService:
         分享导出 / 订阅与收据 / 买断权益 / 第一周剧本事件 / 初读卡档案 / 危机命中审计 /
         用户本体。
         已删除的表 rowcount=0，天然幂等（QStash 重试安全）。
+        表删完后调用 analytics_service.erase_person_data 抹除 PostHog 侧残留；
+        该调用失败只告警、不影响本方法返回（分析平台抖动不能让注销卡在半途）。
         """
         counts: dict = {}
         for table, key in (
@@ -434,6 +433,10 @@ class UserService:
                                       if table is not User else delete(User).where(User.id == user_id))
             counts[key] = result.rowcount or 0
         await db.flush()
+        # 库内删干净 ≠ 删除完成：事件还留在 PostHog（distinct_id = user_id）。
+        # 放在 flush 之后、且不并入 counts——counts 的口径是「各表 rowcount」，
+        # 幂等测试按 all(v == 0) 断言，塞入非数值键会让它恒假。
+        await erase_person_data(user_id)
         return counts
 
     async def purge_deleted_users(self, db: AsyncSession, stale_hours: int = 1) -> list[dict]:
