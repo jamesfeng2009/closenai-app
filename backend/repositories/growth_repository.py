@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Sequence
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import utc_now
@@ -106,6 +106,29 @@ class GrowthRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def count_between(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        start: datetime,
+        end: datetime,
+        record_type: Optional[str] = None,
+    ) -> int:
+        """统计 [start, end) 内的成长记录条数（record_type 为 None 时统计全部类型）。
+
+        用 COUNT 而不是 list_between 再取长度：年报卡上的数字必须精确，
+        而列表查询带 limit，超过 limit 就会静默少算。
+        """
+        stmt = select(func.count(GrowthRecord.id)).where(
+            GrowthRecord.user_id == user_id,
+            GrowthRecord.created_at >= start,
+            GrowthRecord.created_at < end,
+        )
+        if record_type is not None:
+            stmt = stmt.where(GrowthRecord.record_type == record_type)
+        result = await db.execute(stmt)
+        return int(result.scalar_one() or 0)
 
     async def list_pending_follow_ups(
         self,

@@ -135,7 +135,7 @@ _TIME_PATCH_TARGETS = {
     "backend.services.personality_service": ("local_day_start_utc", "local_now", "utc_now"),
     "backend.services.growth_service": ("local_day_start_utc", "local_now", "local_today", "utc_now"),
     "backend.services.cron_service": ("local_day_start_utc", "local_now", "local_today", "utc_now"),
-    "backend.services.share_service": ("local_today", "utc_now"),
+    "backend.services.share_service": ("local_day_start_utc", "local_now", "local_today", "utc_now"),
     "backend.services.message_generator": ("utc_now", "local_day_start_utc"),
     "backend.services.discovery_service": ("utc_now",),
     "backend.services.reflection_service": ("local_day_start_utc",),

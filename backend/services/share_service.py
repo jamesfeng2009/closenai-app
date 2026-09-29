@@ -12,7 +12,7 @@ PDF 使用 reportlab 的 UnicodeCIDFont（STSong-Light），无需嵌入字体�
 """
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from typing import List, Optional, Tuple
 
@@ -31,7 +31,13 @@ from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.referral import normalize_referral_code, referral_link
-from backend.core.time_utils import local_today, utc_now
+from backend.core.time_utils import (
+    local_day_start_utc,
+    local_now,
+    local_today,
+    safe_zoneinfo,
+    utc_now,
+)
 from backend.services.safety_service import safety_service
 from backend.models.user import User
 from backend.repositories import (
@@ -194,6 +200,20 @@ _ARCHIVE_TITLES = {
 _ARCHIVE_EMPTY = {
     "zh": "（这段时间还没有记录）",
     "en": "(Nothing recorded for this window yet)",
+}
+
+
+# ── 年度报告卡（架构方案 §二 M4 year_in_review 模板位）──
+# share_exports.period 列是 String(20)，"year_in_review" 14 字符放得下；
+# period_key 用 year_2025 而不是裸 2025：与周期报告的 yearly（键就是年份）区分开，
+# 否则年报卡会把「年度人生报告」的缓存吃掉。
+_YEAR_IN_REVIEW_PERIOD = "year_in_review"
+
+_YEAR_IN_REVIEW_EMPTY = {
+    "zh": (
+        "{year} 年还没有可回顾的记录 / Nothing to review yet for {year}"
+    ),
+    "en": "Nothing to review yet for {year} / {year} 年还没有可回顾的记录",
 }
 
 
@@ -375,15 +395,295 @@ class ShareService:
             date_label,
         ]
 
-    async def export_year_in_review_pdf(self, db: AsyncSession, user_id: str) -> bytes:
-        """年度报告卡模板占位（架构方案 §二 M4 把 year_in_review 标为 P2）。
+    async def export_year_in_review(
+        self, db: AsyncSession, user_id: str, year: Optional[int] = None, language: str = "en"
+    ) -> dict:
+        """年度报告卡（JSON）：一个自然年的确定性统计 + 分享深链（架构方案 §二 M4 的模板位）。
 
-        占位而非缺席：端点先存在，前端可以按同一条链路接好并展示"尚未开放"，
-        真数据要等跨满一个自然年（v1 用户还没有跨年记录可回顾）。
+        年度取哪一个（默认上一个完整自然年）与空年口径见 _resolve_review_year；
+        整年没有任何记录 → 40402 空态，不出数字全 0 的卡片。
+
+        同 (user, year) 命中 share_exports 缓存：卡上的数字全部来自落库事实，
+        一年内重算结果本就一致（新增记录也只在当年才会改变它），重算只是白读一遍库。
         """
-        raise AppException(
-            ErrorCode.RESOURCE_NOT_FOUND,
-            "年度报告尚未开放 / Year in review is not available yet",
+        user = await user_repository.require_user(db, user_id)
+        lang = language or user.language or "en"
+        target = self._resolve_review_year(user, year)
+        period_key = f"year_{target}"
+        cached = await share_repository.get_cached(
+            db, user_id, _YEAR_IN_REVIEW_PERIOD, period_key
+        )
+        if cached is not None:
+            return json.loads(cached.payload)
+
+        data = await self._build_year_in_review(db, user, target, lang)
+        data["share_url"] = await self._referral_link(db, user)
+        data["share_text"] = self._year_in_review_share_text(data)
+        await share_repository.save(
+            db, user_id, _YEAR_IN_REVIEW_PERIOD, period_key,
+            json.dumps(data, ensure_ascii=False),
+        )
+        return data
+
+    def _resolve_review_year(self, user: User, year: Optional[int]) -> int:
+        """要回顾哪一年。
+
+        缺省取**上一个完整自然年**：产品口径是 1 月 1 日推年度回顾
+        （competitive-analysis §Year in Review），过完的那一年才配叫「年度」。
+        但刚注册不满一年的用户没有"上一年"可看——回 400 是在怪用户提了一个他没提的
+        请求，所以这里退到当年（一张如实标注「进行中」的半年卡），有没有数据交给空态判。
+        显式传 year 时才是校验：早于注册那年或未来年，请求本身不成立 → 400。
+        """
+        now_local = local_now(user.timezone)
+        current = now_local.year
+        registered = _as_aware(user.created_at).astimezone(now_local.tzinfo).year
+        if year is None:
+            return max(current - 1, registered)
+        if year < registered or year > current:
+            raise AppException(
+                ErrorCode.INVALID_PARAMS,
+                f"无效的回顾年份: {year}（可用区间 {registered}–{current}）"
+                " / Review year is out of range",
+            )
+        return year
+
+    async def _build_year_in_review(
+        self, db: AsyncSession, user: User, year: int, language: str
+    ) -> dict:
+        """组装一个自然年的年报卡数据（全部为已落库事实的计数与聚合，零 LLM）。"""
+        from backend.services.user_service import user_service
+
+        today = local_today(user.timezone)
+        # 当年窗口只截到今天：写成 ~12-31 是在卡片上承诺一段还没发生的时间
+        in_progress = year == today.year
+        start = local_day_start_utc(user.timezone, date(year, 1, 1))
+        end = (
+            local_day_start_utc(user.timezone, today + timedelta(days=1))
+            if in_progress
+            else local_day_start_utc(user.timezone, date(year + 1, 1, 1))
+        )
+
+        checkins = await mood_repository.list_between(db, user.id, start, end)
+        chat_count = await chat_repository.count_between(db, user.id, start, end)
+        memory_count = await memory_repository.count_between(db, user.id, start, end)
+        reflection_count = await growth_repository.count_between(
+            db, user.id, start, end, record_type="reflection"
+        )
+        zh = (language or "").startswith("zh")
+        if not (checkins or chat_count or memory_count or reflection_count):
+            raise AppException(
+                ErrorCode.RESOURCE_NOT_FOUND,
+                _YEAR_IN_REVIEW_EMPTY["zh" if zh else "en"].format(year=year),
+            )
+
+        milestones = [
+            m
+            for m in await milestone_repository.list_for_user(db, user.id)
+            if _as_aware(m.achieved_at).astimezone(safe_zoneinfo(user.timezone)).year == year
+        ]
+        profile = await personality_service.get_profile(db, user.id)
+        day_counts = self._local_day_counts(checkins, user.timezone)
+        return {
+            "card_type": "year_in_review",
+            "year": year,
+            "language": language,
+            "in_progress": in_progress,
+            "period_label": self._year_in_review_label(year, in_progress, zh),
+            "range": f"{year}-01-01 ~ {today.isoformat() if in_progress else f'{year}-12-31'}",
+            "stats": {
+                "checkin_count": len(checkins),
+                "checkin_days": len(day_counts),
+                "chat_count": chat_count,
+                "memory_count": memory_count,
+                "reflection_count": reflection_count,
+                "milestone_count": len(milestones),
+                "longest_streak_days": self._longest_run(day_counts),
+            },
+            "top_moods": self._top_moods(checkins, language),
+            "busiest_day": self._busiest_day(day_counts),
+            "first_record_date": (min(day_counts).isoformat() if day_counts else None),
+            "milestones": [
+                {
+                    "type": m.milestone_type,
+                    "name": user_service.milestone_name(m.milestone_type, language),
+                    "achieved_on": _as_aware(m.achieved_at)
+                    .astimezone(safe_zoneinfo(user.timezone))
+                    .date()
+                    .isoformat(),
+                }
+                for m in milestones
+            ],
+            "personality": {
+                # 未测评的框架留 None，不猜类型：名片与年报同一个口径
+                "mbti": profile.mbti_type,
+                "enneagram": user.enneagram_type,
+            },
+            "exported_at": utc_now().isoformat(),
+        }
+
+    def _local_day_counts(self, checkins, tz: Optional[str]) -> dict:
+        """签到按用户本地日历日聚合成 {date: 次数}。
+
+        优先用 checkin_date 列（写入时已按用户本地日算好），历史回填行为 NULL
+        才回退 created_at 换算——两个口径不能混着用，否则跨时区用户的 streak 会断裂。
+        """
+        zone = safe_zoneinfo(tz)
+        counts: dict = {}
+        for c in checkins:
+            day = c.checkin_date or _as_aware(c.created_at).astimezone(zone).date()
+            counts[day] = counts.get(day, 0) + 1
+        return counts
+
+    def _longest_run(self, day_counts: dict) -> int:
+        """最长连续签到天数（本地日历日相邻即算连续；无签到为 0）。"""
+        if not day_counts:
+            return 0
+        days = sorted(day_counts)
+        best = run = 1
+        for prev, cur in zip(days, days[1:]):
+            run = run + 1 if (cur - prev).days == 1 else 1
+            best = max(best, run)
+        return best
+
+    def _top_moods(self, checkins, language: str, limit: int = 3) -> List[dict]:
+        """本年出现次数最多的情绪（标签按语言取，次数并列时按标签稳定排序）。"""
+        from backend.services.mood_service import mood_label_for
+
+        dist: dict = {}
+        for c in checkins:
+            label = c.mood_label or mood_label_for(c.mood_emoji, language)
+            dist[label] = dist.get(label, 0) + 1
+        ordered = sorted(dist.items(), key=lambda x: (-x[1], x[0]))
+        return [{"label": label, "count": count} for label, count in ordered[:limit]]
+
+    def _busiest_day(self, day_counts: dict) -> Optional[dict]:
+        """一年内签到最密的一天（并列取更早的那天；无签到为 None）。
+
+        不报「最活跃的月份」：按月计数会把「一个月天天记」和「一个月只记一次」判成
+        同一个结果，而这张卡要讲的恰恰是前者。
+        """
+        if not day_counts:
+            return None
+        peak = max(sorted(day_counts), key=lambda d: day_counts[d])
+        return {"day": peak.isoformat(), "count": day_counts[peak]}
+
+    def _year_in_review_label(self, year: int, in_progress: bool, zh: bool) -> str:
+        # 「到目前为止」不是修饰词：把没过完的一年印成 in Review，卡片上的区间就是假的
+        if in_progress:
+            return f"{year} 年 · 到目前为止" if zh else f"Your {year} so far"
+        return f"{year} 年度回顾" if zh else f"Your {year} in Review"
+
+    def _year_in_review_title(self, data: dict, zh: bool) -> str:
+        return data.get("period_label") or (
+            f"{data.get('year')} 年度回顾" if zh else f"Your {data.get('year')} in Review"
+        )
+
+    def _year_in_review_share_text(self, data: dict) -> str:
+        """分享文案：只有计数与类型，不带反思/记忆原文（这张卡会被发到公开社交平台）。"""
+        zh = (data.get("language") or "").startswith("zh")
+        stats = data.get("stats") or {}
+        year = data.get("year")
+        if zh:
+            body = (
+                f"{year} 年我在 ClosenAI 留下了 {stats.get('checkin_count', 0)} 次情绪签到、"
+                f"{stats.get('memory_count', 0)} 条记忆、{stats.get('reflection_count', 0)} 篇反思，"
+                f"最长连续 {stats.get('longest_streak_days', 0)} 天。"
+            )
+        else:
+            body = (
+                f"In {year} I logged {stats.get('checkin_count', 0)} mood check-ins, "
+                f"{stats.get('memory_count', 0)} memories and "
+                f"{stats.get('reflection_count', 0)} reflections on ClosenAI — "
+                f"longest streak {stats.get('longest_streak_days', 0)} days."
+            )
+        return f"{body} #ClosenAI {data.get('share_url', '')}".strip()
+
+    def _year_in_review_lines(self, data: dict, zh: bool) -> List[str]:
+        """PDF 文本行：区间 + 统计 + 情绪 + 里程碑 + 画像，全部是已落库事实。"""
+        stats = data.get("stats") or {}
+        lines: List[str] = [
+            (
+                f"统计区间：{data.get('range', '')}"
+                if zh
+                else f"Range: {data.get('range', '')}"
+            ),
+            (
+                f"情绪签到 {stats.get('checkin_count', 0)} 次 · "
+                f"留下记录 {stats.get('checkin_days', 0)} 天 · "
+                f"最长连续 {stats.get('longest_streak_days', 0)} 天"
+                if zh
+                else
+                f"{stats.get('checkin_count', 0)} mood check-ins · "
+                f"{stats.get('checkin_days', 0)} days recorded · "
+                f"longest streak {stats.get('longest_streak_days', 0)} days"
+            ),
+            (
+                f"对话 {stats.get('chat_count', 0)} 条 · 记忆 {stats.get('memory_count', 0)} 条 · "
+                f"反思 {stats.get('reflection_count', 0)} 篇"
+                if zh
+                else
+                f"{stats.get('chat_count', 0)} messages · "
+                f"{stats.get('memory_count', 0)} memories · "
+                f"{stats.get('reflection_count', 0)} reflections"
+            ),
+            "",
+        ]
+        first_day = data.get("first_record_date")
+        if first_day:
+            lines.append(
+                f"这一年的第一条记录：{first_day}" if zh else f"First record of the year: {first_day}"
+            )
+        busiest = data.get("busiest_day")
+        if busiest:
+            lines.append(
+                f"最密集的一天：{busiest.get('day')}（{busiest.get('count')} 次）"
+                if zh
+                else f"Densest day: {busiest.get('day')} ({busiest.get('count')} check-ins)"
+            )
+        top_moods = data.get("top_moods") or []
+        if top_moods:
+            unit = "次" if zh else "times"
+            lines.append("")
+            lines.append("最常见的情绪：" if zh else "Most frequent moods:")
+            lines.extend(
+                f"· {m.get('label')} × {m.get('count')} {unit}".strip() for m in top_moods
+            )
+        milestones = data.get("milestones") or []
+        if milestones:
+            lines.append("")
+            lines.append("这一年达成的里程碑：" if zh else "Milestones this year:")
+            lines.extend(
+                f"· {m.get('achieved_on')} · {m.get('name')}" for m in milestones
+            )
+        personality = data.get("personality") or {}
+        frameworks = [
+            str(v)
+            for v in (personality.get("mbti"), personality.get("enneagram"))
+            if v
+        ]
+        if frameworks:
+            lines.append("")
+            lines.append(
+                f"性格画像：{' · '.join(frameworks)}" if zh else f"Personality: {' · '.join(frameworks)}"
+            )
+        return lines
+
+    async def export_year_in_review_pdf(
+        self, db: AsyncSession, user_id: str, year: Optional[int] = None, language: str = "en"
+    ) -> bytes:
+        """年度报告卡 PDF：整年确定性统计 + 品牌深链（架构方案 §二 M4 的 year_in_review 模板位）。
+
+        不走 LLM：这张卡的卖点是「这一年你真的留下了这些」，每个数字都要能指回落库事实；
+        生成一段读不出证据的漂亮话，正是 D1 evidence_policy 要关掉的口子。
+        零 AI 产出 → 不打 AIGC 元数据标识（与初读卡同口径）。
+        """
+        data = await self.export_year_in_review(db, user_id, year, language)
+        zh = (data.get("language") or "").startswith("zh")
+        brand = await self._brand_for(db, user_id, zh)
+        return self._render_pdf(
+            self._year_in_review_title(data, zh),
+            self._year_in_review_lines(data, zh),
+            brand=brand,
         )
 
     async def export_report(

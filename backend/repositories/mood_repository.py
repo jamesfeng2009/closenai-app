@@ -164,6 +164,26 @@ class MoodRepository:
         )
         return list(result.scalars().all())
 
+    async def list_between(
+        self, db: AsyncSession, user_id: str, start: datetime, end: datetime
+    ) -> List[MoodCheckin]:
+        """查询 [start, end) 区间内的全部签到（按时间升序）。
+
+        与 get_history(days) 的区别是刻意的：自然年/季度这类日历窗口不能用「距今 N 天」
+        的滚动窗口近似——差几个小时就会把去年 12 月 31 日的签到算进今年。
+        不加 limit：一年的签到上限是 366 条（同本地日唯一约束），截断会让年报数字失真。
+        """
+        result = await db.execute(
+            select(MoodCheckin)
+            .where(
+                MoodCheckin.user_id == user_id,
+                MoodCheckin.created_at >= start,
+                MoodCheckin.created_at < end,
+            )
+            .order_by(MoodCheckin.created_at.asc())
+        )
+        return list(result.scalars().all())
+
     async def count_by_day(
         self, db: AsyncSession, user_id: str, days: int = 30, tz: Optional[str] = None
     ) -> List[tuple[datetime, str]]:

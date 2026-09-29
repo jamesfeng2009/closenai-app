@@ -146,6 +146,24 @@ class MemoryRepository:
         )
         return list(result.scalars().all())
 
+    async def count_between(
+        self, db: AsyncSession, user_id: str, start: datetime, end: datetime
+    ) -> int:
+        """统计创建时间落在 [start, end) 窗口内的记忆条数（不含已软删除）。
+
+        与 list_between 分开的理由同 growth_repository：卡片上的数字要精确，
+        列表查询带 limit，超过就静默少算。
+        """
+        result = await db.execute(
+            select(func.count(Memory.id)).where(
+                Memory.user_id == user_id,
+                Memory.created_at >= start,
+                Memory.created_at < end,
+                Memory.deleted == False,  # noqa: E712
+            )
+        )
+        return int(result.scalar_one() or 0)
+
     async def count_since(self, db: AsyncSession, user_id: str, start: datetime) -> int:
         """统计 start 之后创建的记忆条数（不含软删除；用于画像刷新新数据检测）。"""
         result = await db.execute(

@@ -5,7 +5,8 @@
     GET  /api/v1/share/personality-card    — 性格名片导出（JSON）
     POST /api/v1/share/first-read-card     — 初读卡分享（PDF，P1-B01）
     POST /api/v1/share/memory-card         — 记忆卡分享（PDF，M4）
-    GET  /api/v1/share/year-in-review/pdf  — 年度报告卡（P2 占位，恒 40402）
+    GET  /api/v1/share/year-in-review      — 年度报告卡（JSON，自然年统计 + 深链）
+    GET  /api/v1/share/year-in-review/pdf  — 年度报告卡（PDF）
     GET  /api/v1/share/link                — 本人深链与推荐码（M4 归因）
     GET  /api/v1/share/resolve/{code}      — 推荐码 → 落地信息（公开，落地页调用）
     GET  /api/v1/share/report/{period}     — 周期报告导出（JSON）
@@ -13,6 +14,8 @@
     POST /api/v1/share/life-archive        — Life Archive 导出（JSON，权益校验 + 幂等）
     GET  /api/v1/share/life-archive/pdf    — Life Archive 导出（PDF，含 AIGC 标识）
 """
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,18 +82,34 @@ async def memory_card_pdf(
     )
 
 
-@router.get("/share/year-in-review/pdf")
-async def year_in_review_pdf(
+@router.get("/share/year-in-review")
+async def year_in_review(
+    year: Optional[int] = Query(None, description="回顾哪一年；缺省为上一个完整自然年"),
+    language: str = Query("en", description="语言"),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
     service: ShareService = Depends(get_share_service),
 ):
-    """年度报告卡导出（P2 占位）。
+    """年度报告卡（JSON）：一个自然年的确定性统计 + 带推荐码的分享深链。
 
-    模板位已留（service 内 export_year_in_review_pdf），但 v1 用户还没有跨满一个
-    自然年的数据可回顾，恒返回 40402；前端按此码展示"尚未开放"而不是当 bug。
+    整年没有任何记录 → 40402 空态；请求早于注册年或未来年 → 400。
     """
-    pdf = await service.export_year_in_review_pdf(db, user_id)
+    return success(await service.export_year_in_review(db, user_id, year, language))
+
+
+@router.get("/share/year-in-review/pdf")
+async def year_in_review_pdf(
+    year: Optional[int] = Query(None, description="回顾哪一年；缺省为上一个完整自然年"),
+    language: str = Query("en", description="语言"),
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: ShareService = Depends(get_share_service),
+):
+    """年度报告卡（PDF）：统计行 + 情绪 + 里程碑 + 品牌水印与二维码。
+
+    内容零 LLM 生成，故不打 AIGC 元数据标识（与初读卡同口径）。
+    """
+    pdf = await service.export_year_in_review_pdf(db, user_id, year, language)
     return StreamingResponse(
         iter([pdf]),
         media_type="application/pdf",

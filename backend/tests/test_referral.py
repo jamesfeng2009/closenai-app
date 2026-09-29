@@ -5,7 +5,7 @@ B4 · M4 分享卡体系（架构方案 §二 M4 / 决策点 3）。
 1. 推荐码本体：字符集排除易混字符、格式校验、非法码不阻断注册。
 2. 惰性生成：从不分享的用户不占码；分享卡导出这个"读"接口会写一次 referral_code。
 3. 深链归因闭环：落地页解析推荐码 → 新用户注册时落 referred_by_code。
-4. 三张分享卡：初读卡/记忆卡带品牌区（水印 + 二维码），年报为 P2 占位；
+4. 三张分享卡：初读卡/记忆卡带品牌区（水印 + 二维码），年报卡的每个数字都要指回落库事实；
    AIGC 隐式标识只落在 AI 产出的 PDF 上。
 """
 import pytest
@@ -205,8 +205,8 @@ async def test_memory_card_pdf_owns_by_user(db, make_user):
     assert exc_info.value.code == ErrorCode.MEMORY_NOT_FOUND
 
 
-async def test_year_in_review_is_p2_placeholder(db, make_user):
-    """年报模板位存在但恒 40402：v1 用户还没跨满一个自然年。"""
+async def test_year_in_review_never_fabricates_a_card(db, make_user):
+    """年报卡已实装，但仍不许给零记录的用户出卡：没有落库事实就没有数字可印。"""
     await make_user("u1")
     with pytest.raises(AppException) as exc_info:
         await share_service.export_year_in_review_pdf(db, "u1")
@@ -304,6 +304,8 @@ async def test_memory_card_endpoint_requires_ownership(app, make_user):
 
 
 async def test_year_in_review_endpoint_returns_business_code(app, make_user):
+    """新用户还没有任何记录：端点返回业务码而不是 500，也不出空卡。"""
+    await make_user("u1")
     resp = await _get(app, "/api/v1/share/year-in-review/pdf")
     assert resp.json()["code"] == 40402
 
