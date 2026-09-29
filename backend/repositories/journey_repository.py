@@ -102,6 +102,26 @@ class JourneyRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def has_pending_due(
+        self, db: AsyncSession, user_id: str, now: Optional[datetime] = None
+    ) -> bool:
+        """该用户是否有到期未发的剧本事件。
+
+        用途：LLM 主动消息让路判定——同一天只留一条 AI 开场（§5.19.3 频控），
+        剧本是确定性编排、优先级更高，所以主动消息见到到期剧本就当日不发。
+        """
+        moment = now or utc_now()
+        result = await db.execute(
+            select(JourneyEvent.id)
+            .where(
+                JourneyEvent.user_id == user_id,
+                JourneyEvent.status == "pending",
+                JourneyEvent.scheduled_at <= moment,
+            )
+            .limit(1)
+        )
+        return result.first() is not None
+
     async def count_unseen(self, db: AsyncSession, user_id: str) -> int:
         """未消费事件数（App 内红点，§5.19.3 频控口径）。"""
         result = await db.execute(

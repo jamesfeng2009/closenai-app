@@ -10,8 +10,9 @@
 
 - Onboarding 文案改写（P0-1）：✅ 已完成（15 语言 i18n + 原型 Screen 7）
 - 后端 M1–M7 / P1-3 管线：**全部零实现**（grep 无 journey_events / onboarding_profiles / bedtime / curriculum）
-- 工作区在途（未提交）：九型人格 service、§5.18 承诺回访（follow_up 迁移+测试）、discovery 融合、前端 Reflect/Insights/i18n 改动
-- ⚠️ **方向冲突**：近三次 commit（13313c3/efbd7ec/e89f19c）在**新增**本命星盘 + pyswisseph，而 M7 计划是整体移除占星——提审前必须二选一，默认按 PRD v2.1"占星已移除"执行 M7
+  - ↳ 2026-09-29 更新：M7（占星移除）、M1（初读卡）、M2（第一周剧本）、M3（情感回报进 LEVEL_UNLOCKS）、M6（Life Archive IAP）已落地，见 A/B 节勾选；bedtime / curriculum 仍零实现
+- 工作区在途（未提交）：~~九型人格 service、§5.18 承诺回访、discovery 融合、前端 Reflect/Insights/i18n~~ → 已在 `0ced5ac`/`48d37ed` 提交；2026-09-29 快照：B2 全套已提交，`closenai-prd` submodule 仍有未提交内容（归 D4）
+- ⚠️ **方向冲突**：近三次 commit（13313c3/efbd7ec/e89f19c）在**新增**本命星盘 + pyswisseph，而 M7 计划是整体移除占星——✅ 2026-09-28 已按 PRD v2.1「占星已移除」执行 A1，冲突关闭
 
 ---
 
@@ -57,12 +58,30 @@
     - 入口：`HomeScreen` 顶部 D0 卡片入口（有缓存卡且未读时展示）→ `FirstReadCardScreen`；CTA「开始书写你自己的」→ Reflect Tab（PRD §5.19.2 漏斗第一环）
   - 验收实测：`backend/tests/test_first_read.py` 22 例（复述自述 / 零 LLM / 空答案兜底 / 上限 3 条 / 未知项跳过 / 按文案反查 / fr 回退 en / personas 无类型不出 summary / zh-en 同构 / 模板逐条过闸 / 违规槽位被丢弃 / upsert 幂等单行 / 语言不漂移 / 40402 / PDF `%PDF` 头）；`frontend/__tests__/firstRead.test.ts` 36 例（暂存 peek-clear 语义 / 脏缓存按 null / 已读标记 / 15 语言 × 26 键齐备）
   - 全量：pytest 315 passed；前端 tsc exit 0、jest 12 套件 124 passed
-- [ ] **B2 · M2 第一周剧本 B02**（后端 3d + 前端 1.5d + 文案 1d）｜架构方案 §二 M2
-  - [ ] 表 `journey_events`（7 种 event_kind，事务内预写 pending）
-  - [ ] `dispatch_journey_events` 挂 cron + 沉默降频
-  - [ ] D7《第一周观察报告》= memory 原话引用 + 周统计（v1 纯模板）
-  - [ ] **引用依据展示**：payload.memory_refs + CI 归属断言 + 前端 ChatBubble"记忆依据 ▾"（UI 原型 Screen 1 已加，前端未落地）
-  - 验收：pytest 强制 memory_refs 真实存在且属该用户
+- [x] **B2 · M2 第一周剧本 B02**（后端 3d + 前端 1.5d + 文案 1d）｜架构方案 §二 M2 ✅ 2026-09-29 完成
+  - [x] 表 `journey_events`（7 种 event_kind，事务内预写 pending）
+    - 预写在 onboarding 事务内一次算完（架构方案 §二 M2「不靠 cron 现算」）：D0/D1/D2/D3/D5/D7 六条 pending，`scheduled_at` 按用户本地时区落当日窗口；过期日直接标 `skipped`，**不补发**；同日重复调用幂等（不重复写行）
+    - 模板库 `backend/data/journey/{zh,en}.json`，零 LLM；非 zh 语言回退 en（与 B1 词表口径一致）
+  - [x] `dispatch_journey_events` 挂 cron + 沉默降频
+    - `GET /api/v1/cron/journey`（`verify_cron_secret` 守卫）→ `cron_service.dispatch_journey_events`
+    - 剧本事件写 `message_type="proactive"`，因此天然进既有主动消息去重与统一配额池；`deliver` 四条让路判定（今日已发 / 今日已发 LLM 主动消息 / 今日命中危机 / 静默 ≥2 天）→ 命中只 `defer`，**不删行**；反向让路：`journey_repository.has_pending_due` 使 LLM 主动消息在剧本到点时避让
+    - `ai_consent` 未同意则整条剧本不发（合规 5.1.2(i)）；D2 是唯一带 push 的 kind（`PUSH_KINDS`，复用 `push_copywriter.build_copy`）
+    - level_reward 正文由 `payload.reward_key` 分派进同一套调度（接 A3/#5 遗留项）
+  - [x] D7《第一周观察报告》= memory 原话引用 + 周统计（v1 纯模板）
+    - D7 需 ≥2 条可引用原话才发，不足则 `skipped`；统计口径进 `payload.evidence`，**不进** memory_refs
+  - [x] **引用依据展示**：payload.memory_refs + CI 归属断言 + 前端 ChatBubble「记忆依据 ▾」
+    - 硬不变量：`memory_refs` 非空 ⟺ 正文真的引了用户原话；`crisis_intercept` 过滤引用候选（危机内容永不复述回给用户）
+    - `GET /chat/history` 暴露 `memory_refs`，归属校验在 `memory_repository.list_by_ids` 内强制 user_id，解析不到的 ID 直接丢弃
+    - 前端：`Week1ReportScreen`（D0–D7 时间线 + 原话引用 + 统计）+ `HomeScreen` 红点入口 + `ReflectScreen` 气泡内「记忆依据 ▾」展开；15 语言 journey 文案键齐备
+  - 验收实测：`backend/tests/test_journey.py` 25 例（预写六条/幂等/过期 skipped/push 落用户本地窗口、**memory_refs 归属断言**（跨用户 memory 不可被引用）、D2 回填无占位符残留、D5 统计不造假引用、D7 需 2 条原话、危机不复述、频控四条让路 + LLM 反向避让、无 consent 不发、仅 D2 push、模板 zh/en 逐条过闸、events 接口 + acknowledge 清红点 + 越权 404）；`frontend/__tests__/journey.test.ts` 83 例（15 语言 × journey 12 顶层键 + 6 类 `day.*` + 4 类 `status.*` + `reflect.memoryRefs` + 占位符参数守卫；取数判定见 `src/config/journey.ts`）
+  - 🔧 前端补测时又抓出两个真实缺陷（均已修，且用变异测试证明用例非空跑）：
+    ① `Week1ReportScreen` 判据写死 `status === 'sent'`，而 `journey_repository.acknowledge()` 会把状态推成 `seen`——**第二次打开报告页只剩空态**，报告看完一次就消失；
+    ② 时间线按 `day_no ∈ [0,1,2,3,5,7]` 过滤，而 `level_reward` 的 day_no 也是 7（L2 门槛），会把没有文案键的 `journey.day.level_reward` **原样印在屏幕上**；改为按 6 类剧本 kind 过滤
+  - 全量：pytest 340 passed；前端 tsc exit 0、jest 13 套件 207 passed；journey i18n 键 15/15 齐备
+  - ⏳ 未取证：三个新 UI（Week1ReportScreen / 首页红点 / 「记忆依据 ▾」）**没在设备上跑过**——本机 Expo Go 不可用且工程无 react-native-web 依赖，node 环境无法渲染 RN 组件；当前证据只到类型 + 取数逻辑 + 文案键
+  - ⚠️ 偏离 1：D2 文案口径冲突——架构方案 §二 M2 写「D2 走模板直出」，PRD §5.19.3 表格写「复用主动消息四层公式」，实现取**模板直出**（与 M2 零 LLM 总方针一致，且避免剧本占 LLM 配额）
+  - ⚠️ 偏离 2：架构方案 §四接口清单只列 `GET /journey/events`，实现补了 `POST /journey/events/acknowledge`——红点徽标必须有消费口，否则 `unseen_count` 永不清零
+  - 🔧 过程中修出的真实缺陷：`_format(gating=True)` 曾把原话替换为占位符后**无人回填**，所有含引用的消息会把 `⟦q⟧` 直接展示给用户；改为 `_gate_tpl()`（填充 → 过闸 → 回填）并在 12 处渲染点统一走该入口
 - [ ] **B3 · M5 演示档案**（前端 2d，零后端）｜架构方案 §二 M5
   - [ ] `demoArchive.ts` 小 A 30 天 + `DemoArchiveScreen` + is_demo 隔离 + 演示模式禁 AI 对话入口
 - [ ] **B4 · M4 分享卡体系 B03**（2d，依赖 B1）｜架构方案 §二 M4

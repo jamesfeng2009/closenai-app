@@ -64,3 +64,7 @@ coverage.xml
 *.db
 *.sqlite3
 *.sqlite
+
+# 本地工具产物（第三方 agent 的工作目录/评审缓存，不入库）
+.vendor-review/
+.workbuddy/

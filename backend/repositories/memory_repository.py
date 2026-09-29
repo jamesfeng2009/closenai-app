@@ -109,6 +109,21 @@ class MemoryRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_by_ids(
+        self, db: AsyncSession, user_id: str, memory_ids: List[str]
+    ) -> List[Memory]:
+        """按 ID 批量取记忆（强制归属校验：只返回该用户名下的行，用于对话引用的批量解析）。"""
+        if not memory_ids:
+            return []
+        result = await db.execute(
+            select(Memory).where(
+                Memory.user_id == user_id,
+                Memory.id.in_(memory_ids),
+                Memory.deleted == False,  # noqa: E712
+            )
+        )
+        return list(result.scalars().all())
+
     async def list_between(
         self,
         db: AsyncSession,

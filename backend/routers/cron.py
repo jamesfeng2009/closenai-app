@@ -5,6 +5,7 @@
 
 端点：
     GET  /api/v1/cron/daily-message   — 主动消息生成（按时区分组）
+    GET  /api/v1/cron/journey         — 第一周剧本 D0–D7 到期事件投递（P1-B02）
     POST /api/v1/cron/process-user    — QStash 回调：单用户主动消息处理（验签）
     GET  /api/v1/cron/mood-reminder   — 签到轻提醒（偏好时间后 2 小时未签到则推送）
     GET  /api/v1/cron/care-push       — 连续负面 3 天关心推送（P1-F01，特殊事件 ≤4 次/月）
@@ -94,6 +95,22 @@ async def daily_message(
     verify_cron_secret(request)
     timezone_group = request.query_params.get("tz", "UTC+8")
     result = await service.dispatch_daily_messages(db, timezone_group)
+    return success(result)
+
+
+@router.get("/cron/journey")
+async def journey_dispatch(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """第一周剧本调度（PRD §5.19.3 P1-B02 / 架构方案 §二 M2，Vercel Cron 每小时触发）。
+
+    扫描 scheduled_at<=now 且 status=pending 的剧本事件并按日序投递：D0–D5 与 D7 报告
+    全部模板直出（零 LLM），仅 D2 走推送，其余只进 App 内红点。
+    """
+    verify_cron_secret(request)
+    result = await service.dispatch_journey_events(db)
     return success(result)
 
 

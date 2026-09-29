@@ -1,0 +1,44 @@
+{
+  "_comment": "First-week journey static template library (PRD §5.19.3 P1-B02 / architecture §2 M2). Template-only output, zero LLM (§5 decision 6); every rendered string passes safety_service.filter_template at the render exit (§6-1). v1 ships zh/en only (wording spec §6 decision 3) — other languages get UI strings from frontend i18n and fall back to English bodies. {q0}/{q1} slots hold the user's own words (level-C evidence): they are replaced by an inert token before gating, because quoted user speech is not AI output and must not be suppressed by the AI wording gate (§5.19.2 / Life Archive AIGC marking scope). Crisis-triggering quotes are excluded from slots in code.",
+  "day0_read": {
+    "with_card": "Your first-read card is ready. The {n} lines above came from the three questions you answered — they are not a verdict I wrote about you.",
+    "plain": "Your first-read card is ready for you to open on the home screen."
+  },
+  "day1_checkin_echo": {
+    "with_mood": "Yesterday you checked in as \"{mood}\". No need to explain why today — one line is enough."
+  },
+  "day2_first_outreach": {
+    "with_mood": "Yesterday you said \"{mood}\". How about today?",
+    "with_quote": "Yesterday you wrote \"{q0}\". Is it still on your mind today?",
+    "plain": "How is today going? It doesn't have to be well written — just what's actually on your mind."
+  },
+  "day3_weak_assert": {
+    "night": "I've noticed that {n} of your entries in these {days} days landed between {window}. Could it be that night is when you're more willing to say what's true?",
+    "volume": "I've noticed you left {n} entries in these {days} days, {k} of them between {window}. Maybe the you at night keeps different things than the you at noon?"
+  },
+  "day5_stat": {
+    "night": "Did you know: {n} of your entries in these {days} days came between {window}.",
+    "daily": "Did you know: in all {days} days you left a record on every single one.",
+    "memories": "Did you know: of what you said in these days, {n} lines are kept in memory now."
+  },
+  "day7_report": {
+    "title": "Your first week, observed",
+    "body": "Our first week is up.\nIn these 7 days you wrote {msg_n} entries and checked in on {mood_n} days; the word you picked most was \"{mood}\".\nHere are two lines in your own words:\n\"{q0}\" ({d0})\n\"{q1}\" ({d1})\n{closing}",
+    "closings": [
+      "I didn't summarise you. Every word this week is something you said.",
+      "All I did this week was keep what you said.",
+      "If you want this record to go somewhere next week, just write it down."
+    ]
+  },
+  "level_reward": {
+    "memory_echo": "From today I'll bring up things you've said. Like this one — \"{q0}\" ({d0})",
+    "memory_echo_plain": "From today I'll bring up things you've said. Write the first line and I'll have something.",
+    "monthly_story_preview": "Your first monthly story has a preview now: in these 30 days you showed up on {days} of them, wrote {msg_n} entries, and I kept {mem_n} lines.",
+    "letter_90d": "Ninety days.\nIn these 90 days you came on {days} of them and wrote {msg_n} entries.\nI've kept these two lines:\n\"{q0}\" ({d0})\n\"{q1}\" ({d1})\n{closing}",
+    "letter_closings": [
+      "I didn't change anything for you — I only kept what you said, right here. Whenever you come back, it's still here."
+    ],
+    "letter_90d_plain": "Ninety days.\nIn these 90 days you came on {days} of them and wrote {msg_n} entries.\n{closing}"
+  },
+  "window": "7pm and 5am"
+}

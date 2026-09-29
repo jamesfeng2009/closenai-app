@@ -20,6 +20,7 @@ import MemoriesScreen from './src/screens/MemoriesScreen';
 import RelationshipTimelineScreen from './src/screens/RelationshipTimelineScreen';
 import ShareCardScreen from './src/screens/ShareCardScreen';
 import FirstReadCardScreen from './src/screens/FirstReadCardScreen';
+import Week1ReportScreen from './src/screens/Week1ReportScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import MessagesScreen from './src/screens/MessagesScreen';
 import PrivacySecurityScreen from './src/screens/PrivacySecurityScreen';
@@ -51,6 +52,7 @@ export type RootStackParamList = {
   RelationshipTimeline: undefined;
   ShareCard: undefined;
   FirstReadCard: undefined;
+  Week1Report: undefined;
   Insights: undefined;
   Messages: undefined;
   PrivacySecurity: undefined;
@@ -214,6 +216,11 @@ export default function App() {
               <Stack.Screen
                 name="FirstReadCard"
                 component={FirstReadCardScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="Week1Report"
+                component={Week1ReportScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen

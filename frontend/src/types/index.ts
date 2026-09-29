@@ -11,12 +11,20 @@ export interface ChatStreamRequest {
   message_type: 'reply' | 'mood_checkin';
 }
 
+// 正文复述了用户原话时随消息附带的引用依据（PRD §5.19.3 全局规范）
+export interface MemoryRef {
+  memory_id: string;
+  created_at?: string | null;
+  excerpt: string;
+}
+
 export interface ChatHistoryItem {
   id: string;
   role: 'user' | 'ai';
   content: string;
   is_ai_generated?: boolean;
   created_at: string;
+  memory_refs?: MemoryRef[];
 }
 
 export interface SSEEvent {
@@ -25,6 +33,38 @@ export interface SSEEvent {
   memories?: Memory[];
   message?: string;
   code?: number;
+}
+
+// ═══ Journey（P1-B02 第一周剧本，PRD §5.19.3）═══
+
+export interface JourneyEventPayload {
+  kind?: string;
+  day_no?: number;
+  language?: string;
+  title?: string | null;
+  body?: string;
+  stats?: Record<string, unknown>;
+  quotes?: { memory_id: string; text: string; date: string }[];
+  evidence?: Record<string, unknown>;
+  reward_key?: string | null;
+  message_id?: string;
+}
+
+export interface JourneyEvent {
+  id: string;
+  day_no: number;
+  event_kind: string;
+  status: 'pending' | 'sent' | 'seen' | 'skipped';
+  scheduled_at: string;
+  sent_at?: string | null;
+  acknowledged: boolean;
+  payload: JourneyEventPayload;
+  memory_refs: MemoryRef[];
+}
+
+export interface JourneyEventsResponse {
+  events: JourneyEvent[];
+  unseen_count: number;
 }
 
 // ═══ Memory ═══

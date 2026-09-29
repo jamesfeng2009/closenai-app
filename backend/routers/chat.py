@@ -20,7 +20,7 @@ from backend.core.language import get_request_language
 from backend.core.response import success
 from backend.database import get_db
 from backend.models.schemas import ChatStreamRequest
-from backend.repositories import chat_repository
+from backend.repositories import chat_repository, memory_repository
 from backend.services.chat_service import chat_service
 from backend.services.memory_service import memory_service
 from backend.services.message_generator import MessageGenerator, message_generator
@@ -147,16 +147,42 @@ async def chat_history(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
 ):
-    """查询对话历史（role 映射为前端契约 user/ai，附 AI 生成标识用于合规标注）。"""
+    """查询对话历史（role 映射为前端契约 user/ai，附 AI 生成标识用于合规标注）。
+
+    memory_refs：正文引用了用户原话的消息（第一周剧本等模板直出触达）附引用依据，
+    前端据此渲染「记忆依据 ▾」（PRD §5.19.3 引用依据全局规范：每句可回溯到原话+日期）。
+    归属校验在 memory_repository.list_by_ids 内强制，解析不到的 ID 直接丢弃。
+    """
     messages = await chat_repository.get_history(db, user_id, limit=limit)
-    history = [
-        {
-            "id": m.id,
-            "role": "ai" if m.role == "assistant" else "user",
-            "content": m.content,
-            "is_ai_generated": bool(getattr(m, "ai_generated", m.role == "assistant")),
-            "created_at": m.created_at,
+
+    wanted = {
+        mid for m in messages for mid in (m.memory_ids or "").split(",") if mid
+    }
+    by_id = {}
+    if wanted:
+        by_id = {
+            mem.id: mem for mem in await memory_repository.list_by_ids(db, user_id, list(wanted))
         }
-        for m in reversed(messages)
-    ]
+
+    history = []
+    for m in reversed(messages):
+        refs = [
+            {
+                "memory_id": mem.id,
+                "created_at": mem.created_at,
+                "excerpt": " ".join(mem.content.split()),
+            }
+            for mem in (by_id.get(mid) for mid in (m.memory_ids or "").split(",") if mid)
+            if mem is not None
+        ]
+        history.append(
+            {
+                "id": m.id,
+                "role": "ai" if m.role == "assistant" else "user",
+                "content": m.content,
+                "is_ai_generated": bool(getattr(m, "ai_generated", m.role == "assistant")),
+                "created_at": m.created_at,
+                "memory_refs": refs,
+            }
+        )
     return success(history)

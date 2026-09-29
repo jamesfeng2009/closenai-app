@@ -506,8 +506,9 @@ class LifeArchiveExportRequest(BaseModel):
 class FirstReadAnswer(BaseModel):
     """单道快问的答案（q = 题目 id，option = 选项 id）。
 
-    选项 id 由前端从 `GET /onboarding/questions` 拿到的模板里取；后端只认模板内
-    已有的 id/文案，未知项在 first_read_service 里跳过并回退 filler。
+    选项 id 与前端 OnboardingScreen 的 QUICK_QUESTIONS 对齐（模板库在后端
+    `backend/data/first_read/{zh,en}.json`）；后端只认模板内已有的 id/文案，
+    未知项在 first_read_service 里跳过并回退 filler。
     """
     q: str = Field(..., max_length=30, description="题目 id：conflict / uncertainty / night")
     option: str = Field(..., max_length=40, description="选项 id")
@@ -538,6 +539,11 @@ class FirstReadResponse(BaseModel):
     summary: str = ""
     closer: str = ""
     card_payload: Dict = Field(default_factory=dict)
+
+
+class JourneyAckRequest(BaseModel):
+    """剧本事件已读回执（红点消费；非本人事件按 40402 处理）。"""
+    event_id: str = Field(..., max_length=36)
 
 
 # ═══ Auth ═══

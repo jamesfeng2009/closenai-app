@@ -43,6 +43,7 @@ from backend.models.user import User
 from backend.repositories import (
     chat_repository,
     growth_repository,
+    journey_repository,
     memory_repository,
     mood_repository,
     safety_repository,
@@ -50,6 +51,7 @@ from backend.repositories import (
     user_repository,
 )
 from backend.services.growth_service import growth_service
+from backend.services.journey_service import journey_service
 from backend.services.message_generator import message_generator
 from backend.services.mood_service import MOOD_MAP
 from backend.services.push import push_copywriter, push_service
@@ -58,6 +60,8 @@ from backend.services.quota_service import quota_service
 logger = logging.getLogger("closenai.cron")
 
 BATCH_SIZE = 50
+# 剧本调度单轮扫描上限（事件零 LLM，成本只在 DB 与写入，可比主动消息更宽）
+JOURNEY_BATCH_SIZE = 200
 
 # 渐变漂移检测（spec §3）：近 7 天 vs 前 7 天相似度差超过该阈值触发渐变提醒
 DRIFT_SCORE_THRESHOLD = 0.15
@@ -203,6 +207,31 @@ class CronService:
             "status": "completed",
             **result,
         }
+
+    async def dispatch_journey_events(
+        self, db: AsyncSession, limit: int = JOURNEY_BATCH_SIZE
+    ) -> Dict[str, Any]:
+        """第一周剧本调度（架构方案 §二 M2，Vercel Cron 每小时触发）。
+
+        扫描 `scheduled_at <= now AND status = pending` 的到期事件，逐事件交给
+        journey_service.deliver 做频控判定 + 模板渲染 + 投递；内容零 LLM。
+        每事件独立事务边界（单事件失败回滚不影响其余），与 process_batch 同口径。
+        """
+        events = await journey_repository.list_due(db, limit=limit)
+        result = {"due": len(events), "sent": 0, "skipped": 0, "deferred": 0, "failed": 0}
+        for event in events:
+            try:
+                status = await journey_service.deliver(db, event.id)
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                await db.rollback()
+                logger.warning("剧本事件投递失败 user=%s kind=%s: %s", event.user_id, event.event_kind, exc)
+                result["failed"] += 1
+                continue
+            if status in result:
+                result[status] += 1
+        result["status"] = "completed"
+        return result
 
     def _jitter_minutes(self, user: User, day: date) -> int:
         """每用户每日确定性抖动（-15..+15 分钟）。
@@ -382,6 +411,11 @@ class CronService:
         )
         if already_sent:
             return "already_sent"
+
+        # §5.19.3 频控：同一天只留一条 AI 开场。第一周剧本是确定性编排、优先级更高，
+        # 有到期剧本事件待发时本轮 LLM 主动消息让路（由 dispatch_journey_events 投递）。
+        if await journey_repository.has_pending_due(db, uid):
+            return "skipped"
 
         # §5.16 ④：危机转介命中当日，营销/升级类主动消息与推送整体挂起（含沉默唤回轻量关心）
         if await safety_repository.has_hit_since(db, uid, day_start):

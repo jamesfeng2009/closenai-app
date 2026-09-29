@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import auth, onboarding, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics
+from backend.routers import auth, onboarding, journey, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics
 from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
@@ -94,6 +94,7 @@ register_exception_handlers(app)
 # 注册路由
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(onboarding.router, prefix="/api/v1", tags=["onboarding"])
+app.include_router(journey.router, prefix="/api/v1", tags=["journey"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(memories.router, prefix="/api/v1", tags=["memories"])
 app.include_router(mood.router, prefix="/api/v1", tags=["mood"])

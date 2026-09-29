@@ -25,7 +25,7 @@ import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { chatRepo } from '../services/db/chatRepository';
 import { aiMessagesRepo } from '../services/db/aiMessagesRepository';
 import { track } from '../services/analytics';
-import type { MoodEmoji } from '../types';
+import type { MemoryRef, MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode.AI_CONSENT_REQUIRED 对齐
@@ -43,7 +43,12 @@ interface Message {
   created_at?: string;
   // 草稿关联的记忆 ID（保存 Reflection 时透传给后端）
   relatedMemoryIds?: string[] | null;
+  // 引用依据（PRD §5.19.3）：正文复述了用户原话的 AI 消息可回溯到原话+日期
+  memoryRefs?: MemoryRef[];
 }
+
+// 记忆依据折叠态（按消息 id 记录，会话内有效）
+type RefsExpanded = Record<string, boolean>;
 
 const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'];
 
@@ -76,6 +81,7 @@ export default function ReflectScreen() {
   const [consentVisible, setConsentVisible] = useState(false);
   // 消息中心未读数（本地 ai_messages 表，🔔 角标）
   const [unreadCount, setUnreadCount] = useState(0);
+  const [refsExpanded, setRefsExpanded] = useState<RefsExpanded>({});
   const scrollRef = useRef<ScrollView>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
 
@@ -118,6 +124,7 @@ export default function ReflectScreen() {
         role: h.role,
         content: h.content,
         created_at: h.created_at,
+        memoryRefs: h.memory_refs ?? [],
       }));
       // 本地与远端按 id 去重合并；远端为真相源（覆盖本地旧内容，写入本地缓存）
       const merged = mergeMessages(remote, local.map((h) => ({
@@ -404,6 +411,28 @@ export default function ReflectScreen() {
                 {msg.content}
               </Text>
               {msg.role === 'ai' && <Text style={styles.aiTag}>{t('reflect.aiTag')}</Text>}
+              {!!msg.memoryRefs?.length && (
+                <TouchableOpacity
+                  onPress={() =>
+                    setRefsExpanded((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))
+                  }
+                >
+                  <Text style={styles.memoryRefsToggle}>
+                    {t('reflect.memoryRefs', {
+                      n: msg.memoryRefs.length,
+                      arrow: refsExpanded[msg.id] ? '▲' : '▾',
+                    })}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {!!msg.memoryRefs?.length && refsExpanded[msg.id] && msg.memoryRefs.map((ref) => (
+                <Text key={ref.memory_id} style={styles.memoryRefItem}>
+                  「{ref.excerpt}」
+                  {ref.created_at
+                    ? ` · ${new Date(ref.created_at).toLocaleDateString()}`
+                    : ''}
+                </Text>
+              ))}
               {msg.isDraft && !msg.draftSaved && (
                 <TouchableOpacity style={styles.saveDraftBtn} onPress={() => onSaveDraft(msg)}>
                   <Text style={styles.saveDraftText}>{t('reflect.saveDraft')}</Text>
@@ -502,6 +531,12 @@ const styles = StyleSheet.create({
   },
   bubbleText: { fontSize: FontSize.title, color: Colors.textPrimary, lineHeight: 1.5 },
   bubbleTextUser: { color: Colors.textPrimary },
+  memoryRefsToggle: { fontSize: FontSize.sm, color: Colors.gold400, opacity: 0.8, marginTop: 6 },
+  memoryRefItem: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, fontStyle: 'italic',
+    lineHeight: 18, marginTop: 4, paddingLeft: 8,
+    borderLeftWidth: 2, borderLeftColor: 'rgba(255,215,0,0.25)',
+  },
   aiTag: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6, paddingTop: 4 },
   saveDraftBtn: {
     marginTop: 8, alignSelf: 'flex-start',

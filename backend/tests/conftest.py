@@ -122,6 +122,13 @@ def stub_semantic_search(monkeypatch):
 # 时间补丁点：模块 → 该模块内 import 绑定的时间函数名
 _TIME_PATCH_TARGETS = {
     "backend.services.quota_service": ("local_day_start_utc",),
+    "backend.services.journey_service": (
+        "local_day_start_utc",
+        "local_now",
+        "local_today",
+        "utc_now",
+    ),
+    "backend.services.first_read_service": ("local_today", "utc_now"),
     "backend.services.memory_service": ("local_day_start_utc", "utc_now"),
     "backend.services.mood_service": ("local_day_start_utc", "local_today"),
     "backend.services.user_service": ("local_today", "utc_now"),
@@ -134,6 +141,7 @@ _TIME_PATCH_TARGETS = {
     "backend.services.reflection_service": ("local_day_start_utc",),
     "backend.services.push.copy": ("local_today",),
     "backend.repositories.mood_repository": ("local_day_start_utc", "utc_now"),
+    "backend.repositories.journey_repository": ("utc_now",),
     "backend.repositories.chat_repository": ("local_day_start_utc",),
     "backend.repositories.growth_repository": ("utc_now",),
     "backend.repositories.personality_repository": ("utc_now",),

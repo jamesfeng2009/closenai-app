@@ -22,6 +22,7 @@ import type {
   DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
   FirstReadAnswer, FirstReadCard,
+  JourneyEventsResponse, MemoryRef,
   SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult, LifeArchiveResult,
   LifeArchiveScope,
   ReflectionDraft, ReflectionItem,
@@ -601,6 +602,21 @@ export async function postFirstRead(
 /** 重进 App 恢复初读卡（按生成时语言复现）；未生成 → 40402，由调用方兜底。 */
 export async function getFirstRead(): Promise<FirstReadCard> {
   return request<FirstReadCard>('/onboarding/first-read');
+}
+
+// ═══ Journey 第一周剧本 (P1-B02 · 架构方案 §二 M2) ═══
+
+/** D0–D7 全剧本状态 + 未读数（红点与 Week1ReportScreen 数据源）。 */
+export async function getJourneyEvents(): Promise<JourneyEventsResponse> {
+  return request<JourneyEventsResponse>('/journey/events');
+}
+
+/** 标记某条剧本事件已读（红点消费）。 */
+export async function acknowledgeJourneyEvent(eventId: string): Promise<{ acknowledged: string }> {
+  return request<{ acknowledged: string }>('/journey/events/acknowledge', {
+    method: 'POST',
+    body: JSON.stringify({ event_id: eventId }),
+  });
 }
 
 // ═══ Advanced Insights (P1-F03) ═══

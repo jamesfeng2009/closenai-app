@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { getGrowthDashboard, moodCheckin, ApiError } from '../services/api';
+import { getGrowthDashboard, moodCheckin, getJourneyEvents, ApiError } from '../services/api';
 import { isFirstReadUnseen, loadFirstReadCard } from '../services/firstRead';
 import { settingsRepo } from '../services/db/settingsRepository';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
@@ -96,6 +96,20 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     }, [])
   );
 
+  // 第一周剧本红点（P1-B02 · §5.19.3）：已投递未读的剧本事件 → App 内红点（除 D2 外不推送）
+  const [journeyUnseen, setJourneyUnseen] = useState(0);
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!isLoggedIn) {
+        setJourneyUnseen(0);
+        return;
+      }
+      getJourneyEvents()
+        .then((data) => setJourneyUnseen(data.unseen_count))
+        .catch(() => setJourneyUnseen(0));
+    }, [isLoggedIn])
+  );
+
   const onMoodPress = async (emoji: MoodEmoji) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     if (checkingIn || dashboard?.today_mood) return; // 已签到或请求中则忽略
@@ -159,6 +173,23 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           <View style={styles.firstReadTextBlock}>
             <Text style={styles.firstReadTitle}>🌱 {t('firstRead.homeEntryTitle')}</Text>
             <Text style={styles.firstReadHint}>{t('firstRead.homeEntry')}</Text>
+          </View>
+          <Text style={styles.detailArrow}>→</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* 第一周剧本红点（P1-B02：D0–D7 已投递未读 → App 内提示，不额外推送） */}
+      {journeyUnseen > 0 && (
+        <TouchableOpacity
+          style={styles.firstReadEntry}
+          onPress={() => navigation.navigate('Week1Report')}
+        >
+          <View style={styles.firstReadTextBlock}>
+            <Text style={styles.firstReadTitle}>📋 {t('journey.homeEntryTitle')}</Text>
+            <Text style={styles.firstReadHint}>{t('journey.homeEntry')}</Text>
+          </View>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{journeyUnseen}</Text>
           </View>
           <Text style={styles.detailArrow}>→</Text>
         </TouchableOpacity>
@@ -399,6 +430,11 @@ const styles = StyleSheet.create({
   yesterdayText: { fontSize: FontSize.lg, color: Colors.textSecondary },
   arrow: { fontSize: 16, color: Colors.textTertiary },
   detailArrow: { fontSize: FontSize.sm, color: Colors.textTertiary },
+  badge: {
+    minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 10,
+    backgroundColor: Colors.error, alignItems: 'center', justifyContent: 'center',
+  },
+  badgeText: { fontSize: FontSize.sm, fontWeight: '700', color: '#fff' },
   profileTitle: { fontSize: FontSize.xl, fontWeight: '600', color: Colors.textPrimary },
   profileDesc: { fontSize: FontSize.md, color: Colors.textTertiary, marginTop: 4 },
 });

@@ -20,8 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core.errors import AppException, ErrorCode
-from backend.core.time_utils import utc_now
-from backend.repositories import onboarding_repository
+from backend.core.time_utils import local_today, utc_now
+from backend.repositories import onboarding_repository, user_repository
+from backend.services.journey_service import journey_service
 from backend.services.safety_service import safety_service
 
 logger = logging.getLogger("closenai.first_read")
@@ -180,6 +181,11 @@ class FirstReadService:
         profile = await onboarding_repository.upsert(
             db, user_id, persona_type, answers, card, language
         )
+        # 架构方案 §二 M2：第一周剧本在 **onboarding 完成事务内**预写 pending 行，
+        # 不由 cron 现算。幂等：重放/重新做引导只更新计划时刻，不会产生第二条同类事件。
+        user = await user_repository.get_user(db, user_id)
+        if user is not None:
+            await journey_service.prefill(db, user, base_day=local_today(user.timezone))
         data = dict(card["card_payload"])
         data["id"] = profile.id
         return data
