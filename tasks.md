@@ -40,6 +40,7 @@
     - ⏳ 真机 sandbox 流程（购买→导出→卸载重装恢复）需 dev build，本机 Expo Go 不可用，留待提审前 D5 阶段
 - [x] **A3 · M3 §5.15a 情感回报进 LEVEL_UNLOCKS**（1.5d，依赖 A4 的 journey_events 表先建）✅ 2026-09-29 完成
   - [x] L2「AI 提起你说过的事」/ L3「Monthly Story 预览」/ L4「90 天信」（`LEVEL_REWARDS` + `_merge_level_unlocks` 把回报合到 `LEVEL_UNLOCKS` 首位；zh/en 先行，其余语言按架构方案 §二 M3 跟 i18n 批次）
+    - ↳ 2026-09-30 校正：这里的「跟 i18n 批次」**只兑了前端那一半**——13 个语言的 locale 已由 L1 清账；`LEVEL_UNLOCKS` / `LEVEL_REWARDS` / `MILESTONE_NAMES` 是后端 zh/en 二值字典，非 zh 用户至今仍拿英文，见 L1 的 ⏳ 与 #42
   - [x] level 变更检测写 journey_events（kind=level_reward，day_no=LEVEL_THRESHOLDS[level]=7/30/90，scheduled_at=下一个用户本地 push 窗口，payload.reward_key 供 B2 调度管线分派正文）
   - 验收实测：`backend/tests/test_level_reward.py` 7 例（L2/L3/L4 回报键与 day_no、scheduled_at 落本地 push 窗口、同日幂等不重复写行、庆祝消息不重复列回报、等级页逐档 reward）；全量 pytest 243 passed；前端 tsc exit 0 + jest 88 passed
   - ⏳ 交给 B2：level_reward 的**正文渲染**（L2 记忆引用 / L3 月报缩略 / L4 长信）与 memory_refs 引用依据，由 `dispatch_journey_events` 按 payload.reward_key 分派（架构方案 §二 M2/M3 同一张表、同一套调度）
@@ -203,6 +204,20 @@
   - ✅ **数据层两个待决项已由文档拍过，按文档执行**（`appstore-compliance-2026-09-05.md` 方案 A，:65）：「删除一切占星痕迹，性格框架只保留 MBTI + 九型。**数据库表保留（不写反向迁移），只删代码与 UI**」→ `natal_charts` 不 drop（历史迁移文件也不动，删了会让已 stamp 的库 `alembic upgrade` 报错）；`users.birthday` 列保留
     - 仍建议但**未执行**：把 `ProfileUpdateRequest.birthday` 从请求 schema 下线——它现在是零读取字段，继续收集生日却不声明用途会牵动隐私标签（Apple 5.1.1 数据最小化），与 4.3(b) 无关，属另一条线
   - 依据（为什么非删不可）：4.3(b) 2026-06-08 修订把 **fortune telling 与 dating 并列点名**（合规文档 :19 引原文）；判定标准是「相对 Co-Star 有没有明显不同的体验」而非「有没有占星」（:57）；实证——算命 App 连续四次被拒 4.3(b)，过审关键动作是**删掉"输入生日直接出解读"的页面**（:167），即触发点是该交互本身；反复硬提审会抬升 **3.2(f) 账号终止**风险（:171）。收益：4.3(b) 触发点归零（:99）
+
+## L. 15 语言文案真翻译（2026-09-30，三节「存在但降级」清账 #39）
+
+- [x] **L1 · 13 个语言的英文兜底清账**（前端 locale 全量）｜✅ 2026-09-30 完成
+  - 实测起点（脚本摊平 501 键逐语言比对）：`es/ko/ja/ru/id/ms/th/de/fr/it/pt/vi/km` **各有 267–271 个键的值逐字等于英文**（zh 只有 19 个，且全是语言自称呼 / `Pro` / `{{hour}}:00` / 版本号这类本该留原文的）；另有 `relationship.rewardTitle` 这 1 个键在 13 个文件里**根本不存在**。两类缺口都不报错——`fallbackLng: 'en'`（`src/i18n/index.ts:47`）让它们在真机上直接显英文，所以「支持 15 种语言」此前只在 en/zh 上成立
+  - **筛子口径换过一次**：第一版按「13 个语言同时同字」挑待译键，漏掉单语言残留（`ms.home.emotion`、`id/ms.explore.logician`、`km.reflect.quotaTitle/quotaUpgrade`，以及 `km.reflect.quotaMessage` 一整句只差几个词的英文）→ 正确口径是**逐语言比对**，守卫测试也按逐语言写
+  - 落库量：13 × 249 键 + 3 处单语言补译 + 1 处陈旧文案刷新；写回用自研就地替换器（只动被点名键的字面量，缩进 / 行内对象 / 键序 / 未点名键一律不碰）。替换器先过**恒等自检**（把文件现值当译文写回 → 15 个文件逐字节不变）再过**覆盖率断言**（扫描器看到的叶子键集合必须与 JS 求值摊平完全一致，501/501）——后者当场抓出扫描器对三层嵌套键把父段重复一次（`relationship.relationship.badgeName.*`），否则 50 个键会被静默跳过并造成重复键
+  - 顺手抓到一处**语义陈旧**，字节同字闸放不过它：`profile.deleteConfirmMessage` 的 en 源在 I1/J 批次改成「账号立即失效 + 24 小时内彻底删除」两段式，13 个语言还停在旧的一段式（zh 已同步）→ 由「换行个数逐键相等」这条断言钉住，13 个语言按各自既有术语重写
+  - ⚠️ 已知边界：译文由模型批量产出、**未经母语者审校**。机器可验的部分（键集 / 占位符 / 换行 / 文字集 / 不与英文同字）已全绿；措辞自然度只能靠人，列入 #17 提审前抽检
+  - ⏳ **不在这一次范围内的同类降级**：后端直出文案仍是 zh/en 二值字典（`lang = "zh" if … else "en"` 归一，实测 11 个 service 带 `"zh":` 块：`user_service`（等级名 / 解锁表 / 徽章名）、`growth_service`、`mood_service`、`reflection_service`、`share_service`、`push/copy`、`cron_service`、`message_generator`、`personality_service`、`enneagram_service`、`safety_service`）——非 zh 用户的**服务端生成内容**仍拿英文。它与前端 locale 不是一个成本口径（部分要 LLM 产出、部分要模板表扩列），另立新项 #42，不混进本轮
+  - 回归守卫：新增 `frontend/__tests__/i18nLocales.test.ts` **92 例** = ① 14 语言键集与 en 精确相等 ② 值非空 ③ `{{占位符}}` 名称与个数逐键相等 ④ 换行个数逐键相等 ⑤ 无逐字等于英文的值，除非落在逐条写了理由的同字白名单（语言自称呼 / `Pro` `Pro+` / `{{hour}}:00` / 版本号 / 厂商名 / 演示角色名）+ 同形词豁免表（es/fr/de/it/pt 的 `Social` `Details` `Stress` —— 这些语言本来就这么写），且**豁免表不许留死条目**（源文案一改就不再同字，留着等于给以后的漏翻预留合法位置） ⑥ 6 个非拉丁语言每个值必须含目标文字 ⑦ 任何语言都不许出现「连续 ≥3 个英文虚词」的整句英文
+  - 反向验证 7 条全部 CAUGHT、逐字节复原无 RESTORE-FAIL（恢复只走备份写回，不碰 `git checkout`）：英文兜底值 / 整键缺失 / 占位符改名 / 整句英文混进 km / 两段式并成一段 / 豁免表留死条目 / 非拉丁语言留纯英文标签。脚本 `/Users/fengyu/Downloads/myproject/tmp/i18n_guard_mutation.js`
+  - ⚠️ 改了一条既有断言的口径：`comboCard.test.ts` 原要求非 zh 语言的 `share.proGateMessage` 含英文 token `/16-type/` 与 `/Enneagram/`——那是**只有英文兜底存在时**才可能过的代理断言，真翻译之后 ms（`Sembilan Personaliti`）与 th（`นพลักษณ์`）的正经译名会被它判成漏写 → 改成「含数字 16 + 该语言的 Enneagram 译名」逐语言术语表
+  - 全量：jest 29 套件 **809 passed**（本轮 +92）；tsc exit 0；pytest **444 passed**（后端零改动）
 
 ## K. 外部待执行清单（代码侧已就绪，缺的是账号/域名/设备，不是代码）
 
