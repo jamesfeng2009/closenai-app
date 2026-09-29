@@ -408,7 +408,17 @@ class UserService:
         已删除的表 rowcount=0，天然幂等（QStash 重试安全）。
         表删完后调用 analytics_service.erase_person_data 抹除 PostHog 侧残留；
         该调用失败只告警、不影响本方法返回（分析平台抖动不能让注销卡在半途）。
+
+        删除举证走日志而不是墓碑表（J4 收口）：墓碑表要成立得有个消费方能拿新
+        user_id 关联到旧 user_id，而重新注册是全新 id、两者之间没有任何合法关联键
+        —— 一张只有孤立 id 的表谁都读不到，只会多留一份「谁注销了」的数据，
+        与「注销即删干净」的承诺相反。所以取证口径是：删前取 deleted_at、
+        删后打一行结构化 INFO（user_id + 时间戳 + 各表 rowcount + PostHog 结果）。
         """
+        # 必须在 DELETE 之前读：删完就再也拿不到注销时刻了
+        deleted_at = (
+            await db.execute(select(User.deleted_at).where(User.id == user_id))
+        ).scalar_one_or_none()
         counts: dict = {}
         for table, key in (
             (ChatMessage, "chat_messages"),
@@ -436,7 +446,15 @@ class UserService:
         # 库内删干净 ≠ 删除完成：事件还留在 PostHog（distinct_id = user_id）。
         # 放在 flush 之后、且不并入 counts——counts 的口径是「各表 rowcount」，
         # 幂等测试按 all(v == 0) 断言，塞入非数值键会让它恒假。
-        await erase_person_data(user_id)
+        posthog = await erase_person_data(user_id)
+        logger.info(
+            "purge 举证 user_id=%s deleted_at=%s total_rows=%d posthog=%s counts=%s",
+            user_id,
+            deleted_at.isoformat() if deleted_at else '-',
+            sum(counts.values()),
+            'erased' if posthog.get('erased') else f"pending:{posthog.get('reason', '?')}",
+            ','.join(f'{k}={v}' for k, v in counts.items()),
+        )
         return counts
 
     async def purge_deleted_users(self, db: AsyncSession, stale_hours: int = 1) -> list[dict]:

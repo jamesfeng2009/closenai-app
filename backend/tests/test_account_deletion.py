@@ -20,6 +20,8 @@ from sqlalchemy import select, update
 from backend.core.errors import AppException, ErrorCode
 from backend.core.time_utils import utc_now
 from backend.models.auth import RefreshToken
+from backend.models.chat import ChatMessage
+from backend.models.memory import Memory
 from backend.models.push import PushToken
 from backend.models.user import User
 from backend.repositories import auth_repository, user_repository
@@ -192,6 +194,94 @@ async def test_purge_user_deletes_related_data(db):
     assert counts["refresh_tokens"] == 1
     assert counts["push_tokens"] == 1
     assert counts["users"] == 1
+
+
+# ── purge 举证日志（J4：不建墓碑表，删除证明走结构化日志）──
+#
+# 为什么不建墓碑表：重新注册拿到的是全新 user_id，与老 id 之间没有任何合法关联键，
+# 一张只有孤立 id 的表没有消费方，却永久留着「谁注销了」这份数据。
+# 因此举证口径 = 一行 INFO：user_id + deleted_at + 各表 rowcount + PostHog 结果。
+
+
+def _purge_logs(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == "closenai.user" and "purge 举证" in r.getMessage()
+    ]
+
+
+async def test_purge_user_logs_deletion_proof(db, caplog):
+    """删完必须能事后回查：谁、什么时候注销、各表删了几行。"""
+    user = await _make_user(db)
+    await user_repository.soft_delete(db, user.id)
+    deleted_at = (
+        await db.execute(select(User.deleted_at).where(User.id == user.id))
+    ).scalar_one()
+
+    caplog.clear()
+    caplog.set_level("INFO")
+    await user_service.purge_user(db, user.id)
+
+    lines = _purge_logs(caplog)
+    assert len(lines) == 1
+    line = lines[0]
+    assert f"user_id={user.id}" in line
+    # 时间戳必须在 DELETE 之前取：这是唯一能证明「注销时刻」的字段
+    assert f"deleted_at={deleted_at.isoformat()}" in line
+    assert "counts=" in line
+    assert "users=1" in line
+    assert "push_tokens=0" in line
+
+
+async def test_purge_proof_log_carries_no_user_content(db, caplog):
+    """举证日志只准有元数据：对话原文与记忆原文都不得出现在日志里。"""
+    secret = "我最害怕的是妈妈知道我有多脆弱"
+    user = await _make_user(db)
+    db.add(
+        ChatMessage(
+            id=str(uuid4()), user_id=user.id, message_type="reply",
+            role="user", content=secret,
+        )
+    )
+    db.add(Memory(id=str(uuid4()), user_id=user.id, content=secret))
+    await db.flush()
+
+    caplog.clear()
+    caplog.set_level("INFO")
+    counts = await user_service.purge_user(db, user.id)
+
+    assert counts["chat_messages"] == 1
+    assert counts["memories"] == 1
+    joined = "\n".join(_purge_logs(caplog) + [r.getMessage() for r in caplog.records])
+    assert secret not in joined
+    # 数字要能对上，否则「删干净」只是自说自话
+    assert f"total_rows={sum(counts.values())}" in joined
+
+
+async def test_purge_proof_log_reports_pending_posthog(db, monkeypatch, caplog):
+    """PostHog 未配置 key 时本地照删，但举证行要写明还没抹除（不能显得已删干净）。"""
+    async def pending_erase(distinct_id: str) -> dict:
+        return {"erased": False, "reason": "not_configured"}
+
+    monkeypatch.setattr("backend.services.user_service.erase_person_data", pending_erase)
+    user = await _make_user(db)
+    caplog.clear()
+    caplog.set_level("INFO")
+    await user_service.purge_user(db, user.id)
+
+    assert "posthog=pending:not_configured" in _purge_logs(caplog)[0]
+
+
+async def test_purge_proof_log_emitted_on_idempotent_retry(db, caplog):
+    """QStash 重试第二次也出举证行且 total_rows=0 —— 「确实没有残留」同样需要证据。"""
+    user = await _make_user(db)
+    await user_service.purge_user(db, user.id)
+    caplog.clear()
+    caplog.set_level("INFO")
+    await user_service.purge_user(db, user.id)
+
+    assert "total_rows=0" in _purge_logs(caplog)[0]
 
 
 # ── 同标识符注销后可重新注册（逻辑层查重跳过 deleted）──
