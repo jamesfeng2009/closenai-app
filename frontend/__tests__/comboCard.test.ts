@@ -96,11 +96,37 @@ describe('文案：组合名片不再宣称三维度', () => {
     expect(zh.share.proGateMessage).toMatch(/九型/);
   });
 
-  it('非 zh 语言点名两个框架（16-type + Enneagram）', () => {
+  /**
+   * 非 zh 语言各自点名两个框架：数字 16 + 该语言对 Enneagram 的写法。
+   *
+   * ⚠️ 这条断言原先写的是英文 token（/16-type/ 与 /Enneagram/），那是**这 13 个语言还整句
+   * 挂着英文兜底**时才可能过的代理断言——它检查的是"文案没被本地化"，而不是"文案说清了是哪两个框架"。
+   * #39 真翻译之后必须逐语言指名，否则 ms（Sembilan Personaliti）与 th（นพลักษณ์）这种
+   * 正经译名会被判成漏写。
+   */
+  const ENNEAGRAM_TERM: Record<string, RegExp> = {
+    en: /Enneagram/,
+    es: /Eneagrama/,
+    ko: /에니어그램/,
+    ja: /エニアグラム/,
+    ru: /эннеаграмм/i,
+    id: /Enneagram/,
+    ms: /Sembilan Personaliti/,
+    th: /นพลักษณ์/,
+    de: /Enneagramm/,
+    fr: /Ennéagramme/,
+    it: /Enneagramma/,
+    pt: /Eneagrama/,
+    vi: /Enneagram/,
+    km: /Enneagram/,
+  };
+
+  it('非 zh 语言点名两个框架（16 型 + 该语言的 Enneagram 译名）', () => {
     for (const lng of langs.filter((l) => l !== 'zh')) {
       const v = (resources as any)[lng].translation.share.proGateMessage;
-      expect(v).toMatch(/16-type/);
-      expect(v).toMatch(/Enneagram/);
+      expect(v).toMatch(/16/);
+      expect(ENNEAGRAM_TERM[lng]).toBeDefined();
+      expect(v).toMatch(ENNEAGRAM_TERM[lng]);
     }
   });
 
