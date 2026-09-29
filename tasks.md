@@ -13,6 +13,7 @@
   - ↳ 2026-09-29 更新：M7（占星移除）、M1（初读卡）、M2（第一周剧本）、M3（情感回报进 LEVEL_UNLOCKS）、M4（分享卡深链与归因）、M5（演示档案，纯前端）、M6（Life Archive IAP）已落地，见 A/B 节勾选；bedtime / curriculum 仍零实现
 - 工作区在途（未提交）：~~九型人格 service、§5.18 承诺回访、discovery 融合、前端 Reflect/Insights/i18n~~ → 已在 `0ced5ac`/`48d37ed` 提交；2026-09-29 快照：B2 全套已提交，`closenai-prd` submodule 仍有未提交内容（归 D4）
 - ⚠️ **方向冲突**：近三次 commit（13313c3/efbd7ec/e89f19c）在**新增**本命星盘 + pyswisseph，而 M7 计划是整体移除占星——✅ 2026-09-28 已按 PRD v2.1「占星已移除」执行 A1，冲突关闭
+  - ↳ 2026-09-29 复核：A1 只删了运行时，推导链/响应字段/画像页展示/个人页「主要框架=占星」/15 语言星座文案仍在 → 见 G 节，已全面清理并加回归守卫
 
 ---
 
@@ -103,11 +104,12 @@
   - ⏳ 未取证：① 该屏**从未在任何设备/模拟器渲染过**——曲线观感、SafeAreaView 顶部避让、30 根条在窄屏的宽度、15 语言长文案换行，全部只有类型与逻辑证据；② 看完率的触底数学有 4 条用例（含"内容不足一屏也算看完"），但 RN 运行时是否真在 `onScroll.nativeEvent` 给 `contentSize` 未取证。RN 0.74 的 `NativeScrollEvent` 只有 `contentSize`，第一版按 `contentContainerSize` 写被 tsc 当场拦下（更高版本才有后者），现已抽成 `isScrollViewAtEnd` 供 node 断言
   - ⚠️ 顺带记录（本任务不改）：四个 `track()` 事件只进本地 SQLite 队列，**游客态能否 flush 成功未验证**——后端 analytics 有 consent 校验，若游客被丢弃，则演示漏斗三项指标在登录前全都拿不到；列进 #17 回归清单
 - [x] **B4 · M4 分享卡体系 B03**（2d，依赖 B1）｜架构方案 §二 M4 ✅ 2026-09-29 完成
-  - [x] ShareService 模板 first_read / memory_card / year_in_review 占位
+  - [x] ShareService 模板 first_read / memory_card / year_in_review（year_in_review 由占位转实装，见下）
     - 品牌区 = 水印 + 下载文案 + **带本人推荐码的深链二维码** + 明文短链（PDF 常被截图转发，扫不动时链接还在）；只加在分享类 PDF，**Life Archive 刻意不加**——买断的个人档案不是引流物料
     - 初读卡全文静态直出、零 LLM → 不打 AIGC 元数据；周期报告与 Life Archive 打（`_render_pdf(aigc=True)` 落进 PDF `/Info`，实测字节可见）
     - 记忆卡：某条记忆的原话 + 写下日期 + 品牌深链；原话**不过措辞闸**（闸是给 AI 产出兜底的，M2 同一结论）；不写"一年前的今天"——周年选取规则属 C4
-    - year_in_review 为 P2 占位：端点存在但恒 40402，前端可按同一链路接"尚未开放"而不是当 bug
+    - year_in_review 已实装（#35，2026-09-29）：`GET /share/year-in-review` + `/pdf` 取**上一个完整自然年**，首年用户退到当年并如实标 `in_progress`（区间只截到今天）、整年零记录才 40402。零 LLM → 不打 AIGC 标识；数字全部走 COUNT（`mood.list_between` / `chat·memory·growth.count_between`），streak 按用户本地日历日算、`checkin_date` 为 NULL 的回填行回退 created_at；缓存键 `period=year_in_review` + `period_key=year_{yyyy}`（避开 yearly 报告的裸年份键互吃缓存）。⚠️ 两处自定决策、文档无口径：① **不做 Pro 门控**（当引流免费卡，AI 年度长文报告仍走 Pro 40302）；② 缓存键不含 language，同一用户同年换语言拿到的是首次生成的语种
+    - 前端无这张卡的入口（`ShareCardScreen` 只有 personality_card）——本轮只补后端能力，未新增展示面；接线属 #17 之后的产品决策
     - B1 登记的品牌区欠账（⚠️ 偏离）在此兑现，端点签名不变
   - [x] 深链 closenai.app/r/{code} + AASA + CF Pages landing（决策点 3）
     - 数据：`users.referral_code`（8 位、29 字符集，排除 0/O/1/I/L/8/9 这些手抄必混的形状）+ `referred_by_code`；迁移 `a7c1e9b4d2f8`（单 head）。**两列都不建外键**——referral 是归因标签不是关系引用，指向的人可能已注销，外键会把归因数据锁成删除约束
@@ -123,7 +125,7 @@
   - ⚠️ 偏离 2：架构方案 §二 M4 给 memory_card 的文案是「一年前的今天 + 原话 + 日期」，实现**不写周年框**（只印原话 + 写下那天）。"一年前的今天"是一个选取规则（哪条记忆有资格被分享），属 C4 §10.1 记忆考古；本方法拿不到"被选中的记忆有多旧"的假设，硬写会造出假周年
   - ⚠️ 偏离 3：架构方案 §五-决策点 3 原文「landing 页由 CF Pages 承载、**参数归因（utm + referral code）**」预设了链接参数能跟着用户走完安装，实测口径做不到——**不做剪贴板 handoff、不做手工填码入口**，「落地页 → App Store → 装完打开」这一跳参数必丢（Apple 不向第三方 App 透传任意 URL 参数）。v1 只有「已装 App → Universal Link 唤起」归因完整，**referral 统计口径是下界，不能当分享总数看**
   - ⏳ 未取证（三项都要用户账号，代码侧已就绪）：① 站点未部署——`closenai.app` 当前 **DNS 无解析**（`dig +short closenai.app A` 空、curl 连接失败），需 Cloudflare 账号建 Pages 项目、以 `site/` 为 output；② AASA 的 `TEAMID` 是占位，须换真实 Apple Team ID，且 `.well-known` 必须 HTTPS 无跳转，验 Universal Links 需要 prebuild 产物（Expo Go 不生效）；③ 唤起→取码→注册带 `ref` 整条链路**没在设备上跑过**
-  - ⚠️ 顺带记录：`/share/resolve/{code}` 目前**无调用方且无限流**——落地页刻意做成纯静态不依赖后端，而 `api.ts` 的 `API_BASE` 仍是 localhost（生产 API 域未配，属 E3/D5）。提审前若要让落地页用上这个端点，得先配生产域 + 加限流
+  - ✅ 顺带记录的两处欠账已由 #38 收口（2026-09-29）：`/share/resolve/{code}` 加了单 IP 固定窗口限流（默认 60 次/5 分钟，超限 42903→HTTP 429）；`api.ts` 的 `API_BASE` 与 `referral.ts` 的品牌域改走 `EXPO_PUBLIC_API_BASE` / `EXPO_PUBLIC_SITE_HOST` 注入，缺省才回落本机
 
 ## C. 内容供给管线（P1）
 
@@ -185,6 +187,48 @@
 
 - [ ] **F1 · 洞察可视化分级**（模糊 vs 清晰，锁呈现不锁原始数据）——先核验代码现状再拆
 - [ ] **F2 · Pro 7 天试用 + D5/D7 损失转化触点**——依赖 B2 剧本触点
+
+## G. 占星残留清理（2026-09-29，A1 的欠账）
+
+- [x] **G1 · 星座代码全面移除**（后端 + 前端 + 15 语言文案）｜PRD v2.1「占星已移除」｜✅ 2026-09-29 完成
+  - 背景：A1（2026-09-28）声明"占星模块移除"，实测只删掉了 pyswisseph 运行时与本命星盘页面，**推导链与展示面全留着**——`zodiac_sign_for()` 仍在由生日推星座、`GET /personality/profile` 仍回 `zodiac`、Pro 组合报告仍把「太阳星座：未知（未填生日）」喂进 LLM prompt、个人页「主要框架」三选项里仍有**占星**。定位声明与代码不一致，属提审风险
+  - 后端：删 `_ZODIAC_PERIODS` + `zodiac_sign_for`（`services/personality_service.py`）；`PersonalityProfileResponse.zodiac` / `ComboReportResponse.zodiac` 下线（`models/schemas.py`）；组合报告由「三框架」改「16 型 × 九型」两框架（prompt 与 `_fallback_combo` 同步）；组合名片 `dimensions` 去 zodiac（`services/share_service.py`）；路由与注释措辞同步
+  - 前端：`PrimaryFramework` 收为 `'mbti' | 'enneagram'`（`types/index.ts:243`）；`ProfileScreen` 框架选择器去占星选项；`PersonalityScreen` 画像页星座块 + 组合报告星座 meta 删除；`ExploreScreen`/`PersonalityScreen` 的 `zodiac_sign ↔ zodiac` 映射拆除；SQLite `users` / `personality_profile` 建表去 `zodiac_sign` 列；`personalityProfileRepository` 行类型同步
+  - 文案：15 语言 × 4 处（`zodiac` 12 键块、`personality.zodiacLabel`、`profile.frameworkOption.astrology`、`comboDesc` 改两框架），逐文件脚本化并断言每步恰好命中一次
+  - **刻意保留（重要）**：`services/safety_service.py` 黑名单里的「星座配对 / 星座运势 / zodiac compatibility / star sign」与 `tests/test_evidence_policy.py` 的对应断言——那是 D1 措辞闸门的**禁语清单**，删掉等于拆掉"不许讲星座"的执行力。守卫因此只扫前端与 i18n，不扫后端
+  - 回归守卫：新增 `frontend/__tests__/noAstrology.test.ts` **39 例**（15 语言键集 + 15 语言译文值 + 6 个源文件标识符扫描 + `PrimaryFramework` 枚举集 + SQLite 列）。变异验证 2 处均被捕获且用 `cmp` 逐字节复原：① 把 `'astrology'` 塞回 `PrimaryFramework` → 2 failed；② 往 `zh.ts` 塞回 `"zodiac": { aries }` → 1 failed
+  - 全量：pytest **374 passed**；jest 16 套件 **430 passed**；tsc exit 0
+  - ⚠️ 偏离：PRD P0-F06 §8 原文写组合报告 = 「16 型人格 × 星座 × 九型」，实现取两框架——与 PRD v2.1 总纲「占星已移除」一致，取总纲
+  - ⏳ 未取证：改后未在真机上看过画像页与组合报告（本机 Expo Go 不可用）；证据止于类型 + 单测 + 文案键
+  - ✅ **数据层两个待决项已由文档拍过，按文档执行**（`appstore-compliance-2026-09-05.md` 方案 A，:65）：「删除一切占星痕迹，性格框架只保留 MBTI + 九型。**数据库表保留（不写反向迁移），只删代码与 UI**」→ `natal_charts` 不 drop（历史迁移文件也不动，删了会让已 stamp 的库 `alembic upgrade` 报错）；`users.birthday` 列保留
+    - 仍建议但**未执行**：把 `ProfileUpdateRequest.birthday` 从请求 schema 下线——它现在是零读取字段，继续收集生日却不声明用途会牵动隐私标签（Apple 5.1.1 数据最小化），与 4.3(b) 无关，属另一条线
+  - 依据（为什么非删不可）：4.3(b) 2026-06-08 修订把 **fortune telling 与 dating 并列点名**（合规文档 :19 引原文）；判定标准是「相对 Co-Star 有没有明显不同的体验」而非「有没有占星」（:57）；实证——算命 App 连续四次被拒 4.3(b)，过审关键动作是**删掉"输入生日直接出解读"的页面**（:167），即触发点是该交互本身；反复硬提审会抬升 **3.2(f) 账号终止**风险（:171）。收益：4.3(b) 触发点归零（:99）
+
+## K. 外部待执行清单（代码侧已就绪，缺的是账号/域名/设备，不是代码）
+
+> 这一节是 2026-09-29 收口「做到代码就绪 + 附待执行清单」这条授权时登记的。
+> 判据：每条都对应一个**已在代码里留好接口**的动作，做完只需回填值；未做完期间 App 表现为
+> 「按开发口径可用、按生产口径不可用」。逐条都要用户账号或真机，代理无法代为完成。
+
+- [ ] **K1 · Cloudflare Pages 部署 `site/`**（B4/#38）
+  - 待做：用 closenai.app 所属 CF 账号建 Pages 项目，output 目录 = `site/`；`closenai.app` 当前 **DNS 无解析**（`dig +short closenai.app A` 空、curl 连接失败，实测于 2026-09-29）
+  - 验收：`curl -sSI https://closenai.app/.well-known/apple-app-site-association` 返回 200 且 `Content-Type: application/json`、无 3xx
+- [ ] **K2 · 真实 Apple Team ID 注入 AASA**（#38）
+  - 待做：`APPLE_TEAM_ID=<10 位> node site/scripts/build-aasa.mjs` 后再部署；把同一步加进 Pages 的 Build command
+  - 守卫：`node site/scripts/build-aasa.mjs --check` 在未替换占位时**非零退出**（占位串的表现是 Universal Links 静默不唤起，两端都不报错）
+  - 需 prebuild 产物验证；Expo Go 不生效
+- [ ] **K3 · 生产 API 域注入**（#38 / E3 / D5）
+  - 待做：给构建配 `EXPO_PUBLIC_API_BASE=https://<生产域>/api/v1`（见 `frontend/.env.example`）；缺失时前端回落 localhost，即「漏配看得见」而不是静默打本机
+  - 若给落地页用上 `/share/resolve`，同时决定 `EXPO_PUBLIC_SITE_HOST`（预览域与生产域不同值时必须注入）
+- [ ] **K4 · 真实 App Store 链接回填两处**（D5）
+  - 待做：提审拿到 id 后，`backend/config.py` 的 `app_store_url` 与 `site/r/index.html` 的 `APP_STORE_URL` **两处同改**（当前均为占位 id6740000000）
+- [ ] **K5 · 密钥类：Sentry DSN、PostHog 两个 key、JWT_SECRET/CRON_SECRET 生产值**（H1/H3/A 节）
+  - 代码侧已留配置口并且缺值时降级可用；上线前必须注入，否则崩溃上报与埋点静默空转
+- [ ] **K6 · 真机取证三档**（A2 / E3）
+  - Life Archive IAP sandbox 三档购买、唤起→取码→注册带 `ref` 全链路、分享卡系统分享面板——都要设备安装 prebuild 包后手工验
+- [ ] **K7 · Android 侧 assetlinks.json**（若上 Android）
+  - iOS 有 `site/.well-known/apple-app-site-association`，Android App Links 需等价的 `/.well-known/assetlinks.json`（含 SHA-256 指纹，只能由签名产物算出）——当前**未生成**，v1 只上 iOS 时可搁置
+  - ⚠️ 顺带：`.git/config` 的 origin/gitee URL 内嵌明文 token，属仓库外动作（轮换凭证 + 改走 SSH/credential helper）
 
 ## 依赖与顺序总览
 
