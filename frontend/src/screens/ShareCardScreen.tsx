@@ -3,7 +3,7 @@
  *
  * 性格画像详情（给自己看）vs 性格名片（给别人看）：
  * - 名片做"减法"：类型 + 标语 + 特质，可系统分享（微信/Ins/Twitter）
- * - 变体：classic 完整 / minimal 极简 / combo Pro 三维度组合
+ * - 变体：classic 完整 / minimal 极简 / combo Pro 双维度组合（16 型 × 九型）
  * - combo 为 Pro 权益（40302 → 引导 Paywall）
  */
 import React, { useEffect, useState } from 'react';
@@ -135,6 +135,18 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
             {card.layout !== 'compact' && !!card.unique_traits && (
               <Text style={styles.cardTraits}>💎 {card.unique_traits}</Text>
             )}
+            {card.layout === 'combo' && !!(card.dimensions?.mbti || card.dimensions?.enneagram) && (
+              <View style={styles.dimRow}>
+                {!!card.dimensions?.mbti && (
+                  <Text style={styles.dimChip}>16 {card.dimensions.mbti}</Text>
+                )}
+                {!!card.dimensions?.enneagram && (
+                  <Text style={styles.dimChip}>
+                    {t('personality.enneagramLabel')} {card.dimensions.enneagram}
+                  </Text>
+                )}
+              </View>
+            )}
             {card.layout === 'combo' && !!card.combo_insight && (
               <Text style={styles.cardCombo}>{card.combo_insight}</Text>
             )}
@@ -215,6 +227,11 @@ const styles = StyleSheet.create({
   cardCombo: {
     fontSize: FontSize.md, color: Colors.textTertiary, marginTop: Spacing.md,
     textAlign: 'center', lineHeight: LineHeight.caption,
+  },
+  dimRow: { flexDirection: 'row', justifyContent: 'center', gap: Spacing.sm, marginTop: Spacing.md },
+  dimChip: {
+    fontSize: FontSize.sm, color: Colors.gold400, paddingHorizontal: Spacing.sm,
+    paddingVertical: 2, borderWidth: 1, borderColor: Colors.borderGold, borderRadius: BorderRadius.sm,
   },
   cardFooter: {
     alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

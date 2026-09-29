@@ -244,10 +244,11 @@ class ShareService:
         if variant in ("classic", "combo"):
             card["observations"] = profile.observations
         if variant == "combo":
-            # 九型数据源待 P1-F03 接线后填充；当前以内置 MBTI 跨框架解读表给出组合洞察
+            # 组合名片 = 16 型 × 九型两框架（占星已随 M7 下线）。九型取 users.enneagram_type
+            # ——那是 36 题评估完成时写回的真值；填 None 会让「组合」卡退化成单框架还挂着两框架的名头。
             card["dimensions"] = {
                 "mbti": profile.mbti_type,
-                "enneagram": None,
+                "enneagram": user.enneagram_type,
             }
             card["combo_insight"] = self._combo_insight(profile.mbti_type, language)
         card["share_text"] = self._personality_share_text(card, language)
