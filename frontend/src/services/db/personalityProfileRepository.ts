@@ -4,7 +4,6 @@ import { BaseRepository } from './repository';
 export interface PersonalityProfileRow {
   id: string;
   mbti: string | null;
-  zodiac_sign: string | null;
   enneagram: string | null;
   summary: string | null;
   refreshed_at: string | null;

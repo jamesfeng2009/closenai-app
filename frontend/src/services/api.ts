@@ -485,7 +485,7 @@ export async function answerAssessment(
   });
 }
 
-/** 生成 Pro 组合报告（16 型人格 × 星座 × 九型交叉解读；每月 1 份缓存）。 */
+/** 生成 Pro 组合报告（16 型人格 × 九型交叉解读；每月 1 份缓存）。 */
 export async function generateComboReport(): Promise<ComboReport> {
   return request<ComboReport>('/personality/combo-report', { method: 'POST' });
 }

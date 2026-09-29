@@ -51,7 +51,8 @@ class User(Base):
     streak_freeze_count: Mapped[int] = mapped_column(Integer, default=0)
     # 冻结券月度发放标记（用户本地月份 YYYY-MM，新月首次活跃时重置配额）
     streak_freeze_grant_month: Mapped[str | None] = mapped_column(String(7), nullable=True)
-    # 生日（PRD P0-F06：推导太阳星座，用户主动输入）
+    # 生日：原唯一用途「推导太阳星座」已随占星移除，API 字段亦已下线（不再可写）。
+    # 列保留——存量数据不删，将来若做生日回顾直接加回字段即可。
     birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
     # 九型人格编号（PRD P0-F06：用户主动输入 1-9；P1 接入 36 题测试）
     enneagram_type: Mapped[str | None] = mapped_column(String(2), nullable=True)

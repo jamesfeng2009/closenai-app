@@ -153,7 +153,6 @@ class UserRepository:
         push_frequency: Optional[str] = None,
         push_enabled: Optional[bool] = None,
         mbti_type: Optional[str] = None,
-        birthday: Optional[date] = None,
         enneagram_type: Optional[str] = None,
     ) -> Optional[User]:
         """更新用户设置（仅更新传入的非空字段）。"""
@@ -176,8 +175,6 @@ class UserRepository:
             values["push_enabled"] = push_enabled
         if mbti_type is not None:
             values["mbti_type"] = mbti_type
-        if birthday is not None:
-            values["birthday"] = birthday
         if enneagram_type is not None:
             values["enneagram_type"] = enneagram_type
         if not values:

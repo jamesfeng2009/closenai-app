@@ -15,7 +15,6 @@ export function migrateV1(db: SqliteDb): void {
       language          TEXT NOT NULL DEFAULT 'zh',
       timezone          TEXT NOT NULL DEFAULT 'Asia/Shanghai',
       mbti              TEXT,
-      zodiac_sign       TEXT,
       enneagram         TEXT,
       current_streak    INTEGER NOT NULL DEFAULT 0,
       longest_streak    INTEGER NOT NULL DEFAULT 0,
@@ -172,7 +171,6 @@ export function migrateV2(db: SqliteDb): void {
     CREATE TABLE IF NOT EXISTS personality_profile (
       id           TEXT PRIMARY KEY NOT NULL,
       mbti         TEXT,
-      zodiac_sign  TEXT,
       enneagram    TEXT,
       summary      TEXT,
       refreshed_at TEXT,

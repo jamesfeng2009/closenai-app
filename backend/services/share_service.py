@@ -86,7 +86,7 @@ except Exception:  # noqa: BLE001
 ALLOWED_PERIODS = REPORT_PERIODS
 PRO_PERIODS = PRO_REPORT_PERIODS
 
-# 名片变体（PRD P1-F04 §6）：classic 完整 / minimal 轻量 / combo Pro 三维度组合
+# 名片变体（PRD P1-F04 §6）：classic 完整 / minimal 轻量 / combo Pro 双维度组合
 CARD_VARIANTS = ("classic", "minimal", "combo")
 PRO_CARD_VARIANTS = ("combo",)  # PRD P1-F04 §4：组合名片为 Pro 权益
 CARD_LAYOUTS = {"classic": "full", "minimal": "compact", "combo": "combo"}
@@ -208,7 +208,7 @@ class ShareService:
         variant（PRD P1-F04 §6 名片变体，用户可生成多张挑选分享）：
         - classic：完整名片（含 AI 观察），layout=full
         - minimal：轻量名片（类型 + 标语），layout=compact
-        - combo：Pro 三维度组合名片（MBTI + 星座 + 九型 + 跨框架解读），layout=combo
+        - combo：Pro 双维度组合名片（MBTI + 九型 + 跨框架解读），layout=combo
         """
         if variant not in CARD_VARIANTS:
             raise AppException(
@@ -219,7 +219,7 @@ class ShareService:
         if variant in PRO_CARD_VARIANTS and user.tier == FREE_TIER:
             raise AppException(
                 ErrorCode.PRO_REQUIRED,
-                "三维度组合名片为 Pro 订阅权益 / Combo card requires Pro subscription",
+                "双维度组合名片为 Pro 订阅权益 / Combo card requires Pro subscription",
             )
         profile = await personality_service.get_profile(db, user_id)
         tagline = await self._generate_tagline(profile, variant, language)
@@ -244,10 +244,9 @@ class ShareService:
         if variant in ("classic", "combo"):
             card["observations"] = profile.observations
         if variant == "combo":
-            # 星座/九型数据源待 P0-F06 扩展后填充；当前以内置 MBTI 跨框架解读表给出组合洞察
+            # 九型数据源待 P1-F03 接线后填充；当前以内置 MBTI 跨框架解读表给出组合洞察
             card["dimensions"] = {
                 "mbti": profile.mbti_type,
-                "zodiac": None,
                 "enneagram": None,
             }
             card["combo_insight"] = self._combo_insight(profile.mbti_type, language)

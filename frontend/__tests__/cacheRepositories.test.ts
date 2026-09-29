@@ -9,7 +9,7 @@ describe('Tier 2 / Tier 3 缓存仓储', () => {
     const db = createTestDb();
     const repo = new PersonalityProfileRepository(db);
     await repo.cache({
-      id: 'u1', mbti: 'INTP', zodiac_sign: 'Leo', enneagram: '5',
+      id: 'u1', mbti: 'INTP', enneagram: '5',
       summary: '理性分析型', refreshed_at: '2026-08-01T00:00:00Z',
       created_at: '2026-08-01T00:00:00Z', updated_at: '2026-08-01T00:00:00Z',
     });

@@ -2,7 +2,7 @@
 性格画像服务 (P0-F06)。
 
 对话式性格发现：冷启动进度 + 16 型人格画像生成 + 刷新配额 +
-8 题对话式评估 + 星座/九型维度 + Pro 组合报告。
+8 题对话式评估 + 九型维度 + Pro 组合报告。
 
 冷启动阶段（依据数据丰富度）：
     破冰 → 观察 → 探索 → 揭示 → 运用
@@ -172,28 +172,6 @@ NEUTRAL_OPTION_LABEL = {
 
 ASSESSMENT_TOTAL = len(ASSESSMENT_QUESTIONS)
 
-# 太阳星座区间表（按起始月日升序，3/21 起；1-2 月在 zodiac_sign_for 中单独处理）
-_ZODIAC_PERIODS = [
-    (3, 21, "aries"), (4, 20, "taurus"), (5, 21, "gemini"), (6, 21, "cancer"),
-    (7, 23, "leo"), (8, 23, "virgo"), (9, 23, "libra"), (10, 23, "scorpio"),
-    (11, 22, "sagittarius"), (12, 22, "capricorn"),
-]
-
-
-def zodiac_sign_for(birthday) -> str | None:
-    """由生日（月/日）推导太阳星座 key（aries 等）；无生日返回 None。"""
-    if not birthday:
-        return None
-    md = (birthday.month, birthday.day)
-    for month, day, sign in reversed(_ZODIAC_PERIODS):
-        if md >= (month, day):
-            return sign
-    if md >= (2, 19):
-        return "pisces"
-    if md >= (1, 20):
-        return "aquarius"
-    return "capricorn"
-
 
 class PersonalityService:
     """性格画像服务。"""
@@ -204,7 +182,6 @@ class PersonalityService:
         profile = await personality_repository.get_latest(db, user_id)
         quota_remaining = await self._refresh_quota_remaining(db, user_id)
         progress, stage = await self._cold_start(db, user_id)
-        zodiac = zodiac_sign_for(user.birthday if user else None)
         enneagram = user.enneagram_type if user else None
 
         if profile:
@@ -219,7 +196,6 @@ class PersonalityService:
                 refresh_quota_remaining=quota_remaining,
                 cold_start_progress=progress,
                 cold_start_stage=stage,
-                zodiac=zodiac,
                 enneagram_type=enneagram,
                 created_at=profile.created_at,
             )
@@ -235,7 +211,6 @@ class PersonalityService:
             refresh_quota_remaining=quota_remaining,
             cold_start_progress=progress,
             cold_start_stage=stage,
-            zodiac=zodiac,
             enneagram_type=enneagram,
             created_at=utc_now(),
         )
@@ -500,7 +475,7 @@ class PersonalityService:
         )
         return await self.get_profile(db, user.id)
 
-    # ── Pro 组合报告（PRD P0-F06 §8：16 型人格 × 星座 × 九型交叉解读）──
+    # ── Pro 组合报告（PRD P0-F06 §8：16 型人格 × 九型交叉解读）──
 
     async def generate_combo_report(self, db: AsyncSession, user_id: str) -> ComboReportResponse:
         """生成 Pro 组合报告（每月 1 份，按用户本地月缓存控成本；LLM lite，失败回退模板）。"""
@@ -511,7 +486,6 @@ class PersonalityService:
         if not profile or not profile.mbti_type:
             raise AppException(ErrorCode.BAD_REQUEST, "请先完成性格评估生成画像")
 
-        zodiac = zodiac_sign_for(user.birthday)
         enneagram = user.enneagram_type
 
         # 月度缓存：本月已生成则直接返回
@@ -524,7 +498,6 @@ class PersonalityService:
                 cached=True,
                 generated_at=cached.created_at,
                 personality_type=profile.mbti_type,
-                zodiac=zodiac,
                 enneagram_type=enneagram,
             )
 
@@ -532,19 +505,17 @@ class PersonalityService:
         zh = language.startswith("zh")
         mbti_label = mbti_label_for(profile.mbti_type, language)
         observations = self._parse_observations(profile.observations)
-        zodiac_desc = zodiac or ("未知（未填生日）" if zh else "unknown (birthday not set)")
         enneagram_desc = (
             f"{enneagram} 号" if zh and enneagram
             else f"Type {enneagram}" if enneagram
             else "未知" if zh else "unknown"
         )
         prompt = (
-            "你是一位温暖、有洞察力的成长教练。请把用户的三个性格框架做交叉解读（3-5 句话），"
+            "你是一位温暖、有洞察力的成长教练。请把用户的两个性格框架做交叉解读（3-5 句话），"
             "指出它们共同指向的特质与一条成长建议。只做性格框架解读，不做运势预测，不使用算命/占卜措辞：\n"
             f"{safety_service.boundary(language)}\n"
             f"{safety_service.evidence_policy(language)}\n"
             f"16 型人格：{profile.mbti_type}（{mbti_label or ''}）\n"
-            f"太阳星座：{zodiac_desc}\n"
             f"九型人格：{enneagram_desc}\n"
             f"AI 观察：{'；'.join(observations) or '暂无'}\n"
             f"独特之处：{profile.unique_traits or '暂无'}"
@@ -557,27 +528,26 @@ class PersonalityService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("组合报告 LLM 失败，回退模板: %s", exc)
         if not content:
-            content = self._fallback_combo(profile.mbti_type, mbti_label, zodiac_desc, enneagram_desc, zh)
+            content = self._fallback_combo(profile.mbti_type, mbti_label, enneagram_desc, zh)
         record = await growth_repository.create(db, user_id, "combo_report", content)
         return ComboReportResponse(
             content=content,
             cached=False,
             generated_at=record.created_at,
             personality_type=profile.mbti_type,
-            zodiac=zodiac,
             enneagram_type=enneagram,
         )
 
-    def _fallback_combo(self, mbti_type, mbti_label, zodiac_desc, enneagram_desc, zh: bool) -> str:
+    def _fallback_combo(self, mbti_type, mbti_label, enneagram_desc, zh: bool) -> str:
         """组合报告回退模板（LLM 不可用时；措辞合规：只讲性格框架，不谈运势）。"""
         if zh:
             return (
-                f"你的性格类型是 {mbti_label or mbti_type}，九型 {enneagram_desc}，太阳星座 {zodiac_desc}。"
-                "三个框架从不同角度描述你的思考与感受方式——继续记录和对话，画像会越来越准。"
+                f"你的性格类型是 {mbti_label or mbti_type}，九型 {enneagram_desc}。"
+                "两个框架从不同角度描述你的思考与感受方式——继续记录和对话，画像会越来越准。"
             )
         return (
-            f"Your personality type is {mbti_label or mbti_type}, Enneagram {enneagram_desc}, "
-            f"Sun sign {zodiac_desc}. Each framework describes your way of thinking and feeling "
+            f"Your personality type is {mbti_label or mbti_type}, Enneagram {enneagram_desc}. "
+            "Each framework describes your way of thinking and feeling "
             "from a different angle — keep recording and chatting, and your profile will keep sharpening."
         )
 

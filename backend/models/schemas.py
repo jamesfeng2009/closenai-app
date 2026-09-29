@@ -5,14 +5,13 @@ Pydantic 数据模型定义。
 所有模型使用 Pydantic v2 语法。
 """
 import re
-from datetime import date, datetime, time
+from datetime import datetime, time
 from typing import Optional, List, Literal, Dict
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.config import settings
-from backend.core.time_utils import local_today
 from backend.models.user import CONVERSATION_STYLES
 
 
@@ -206,7 +205,6 @@ class PersonalityProfileResponse(BaseModel):
     refresh_quota_remaining: int
     cold_start_progress: Optional[float]  # 0.0-1.0, 冷启动进度
     cold_start_stage: Optional[int]       # 阶段下标 0-4（破冰|观察|探索|揭示|运用），前端按下标高亮，避免多语言文案比较
-    zodiac: Optional[str] = None          # 太阳星座 key（aries 等，由生日推导；前端按 i18n 翻译）
     enneagram_type: Optional[str] = None  # 九型人格编号（1-9，用户主动输入）
     created_at: datetime
 
@@ -258,12 +256,11 @@ class AssessmentAnswerResponse(BaseModel):
 
 
 class ComboReportResponse(BaseModel):
-    """Pro 组合报告响应（16 型人格 × 星座 × 九型交叉解读）。"""
+    """Pro 组合报告响应（16 型人格 × 九型交叉解读）。"""
     content: str
     cached: bool               # 本月已生成过则命中缓存
     generated_at: datetime
     personality_type: Optional[str] = None
-    zodiac: Optional[str] = None
     enneagram_type: Optional[str] = None
 
 
@@ -339,20 +336,7 @@ class UserSettingsUpdate(BaseModel):
     push_enabled: Optional[bool] = None  # 推送总开关
     mbti_type: Optional[str] = None  # 引导流程中用户已知的 MBTI 类型（P1-F05）
     conversation_style: Optional[str] = None  # AI 对话风格（P1-F04）：warm | rational | philosophical
-    birthday: Optional[str] = None   # 生日 YYYY-MM-DD（P0-F06：推导太阳星座）
     enneagram_type: Optional[str] = None  # 九型人格编号 1-9（P0-F06：用户主动输入）
-
-    @field_validator("birthday")
-    @classmethod
-    def _validate_birthday(cls, v: Optional[str]) -> Optional[str]:
-        """校验 YYYY-MM-DD 格式（日期范围校验在 _validate_birthday_past 中按用户时区进行）。"""
-        if v is None:
-            return v
-        try:
-            date.fromisoformat(v)
-        except ValueError:
-            raise ValueError(f"birthday 必须为 YYYY-MM-DD 格式: {v}")
-        return v
 
     @field_validator("enneagram_type")
     @classmethod
@@ -408,19 +392,6 @@ class UserSettingsUpdate(BaseModel):
         if hour > 23 or minute > 59:
             raise ValueError(f"push_time 时分越界: {v}")
         return v
-
-    @model_validator(mode="after")
-    def _validate_birthday_past(self):
-        """生日必须为过去日期（按用户本地时区判定「今日」，禁 naive date.today()）。
-
-        timezone 缺省时 local_today 回退 UTC（保守安全）；同请求带 timezone 时按用户本地日。
-        """
-        if self.birthday is None:
-            return self
-        d = date.fromisoformat(self.birthday)
-        if d >= local_today(self.timezone):
-            raise ValueError("birthday 必须是过去的日期")
-        return self
 
 
 class PushTokenRequest(BaseModel):

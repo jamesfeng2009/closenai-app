@@ -1,7 +1,7 @@
 """add conversation_style to users (PRD P1-F04 三种 AI 对话风格)
 
 Revision ID: c6d8e0f2a4b6
-Revises: b8d0e2f4a6c8
+Revises: e4f6a8b0c2d4
 Create Date: 2026-08-08
 
 枚举值：warm 温暖知心 / rational 理性分析 / philosophical 哲学思辨，默认 warm。
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "c6d8e0f2a4b6"
-down_revision = "b8d0e2f4a6c8"
+down_revision = "e4f6a8b0c2d4"
 branch_labels = None
 depends_on = None
 

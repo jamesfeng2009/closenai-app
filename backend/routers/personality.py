@@ -7,7 +7,7 @@
     GET  /api/v1/personality/assessment       — 查询对话式评估状态
     POST /api/v1/personality/assessment/start — 开始/续答评估
     POST /api/v1/personality/assessment/answer— 提交当前题答案
-    POST /api/v1/personality/combo-report     — Pro 组合报告（16 型 × 星座 × 九型）
+    POST /api/v1/personality/combo-report     — Pro 组合报告（16 型 × 九型）
     GET  /api/v1/personality/enneagram        — 查询九型渐进式评估状态/结果
     POST /api/v1/personality/enneagram/start  — 开始/续答九型评估（36 题）
     POST /api/v1/personality/enneagram/answer — 提交九型当前题答案
@@ -103,7 +103,7 @@ async def combo_report(
     user_id: str = Depends(get_current_user),
     service: PersonalityService = Depends(get_personality_service),
 ):
-    """生成 Pro 组合报告（16 型人格 × 星座 × 九型交叉解读；每月 1 份，本月内命中缓存）。"""
+    """生成 Pro 组合报告（16 型人格 × 九型交叉解读；每月 1 份，本月内命中缓存）。"""
     await user_service.require_ai_consent(db, user_id)
     return success(await service.generate_combo_report(db, user_id))
 

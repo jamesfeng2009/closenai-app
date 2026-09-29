@@ -240,8 +240,8 @@ export interface ReflectionItem {
 
 // ═══ Personality ═══
 
-/** 主要性格框架（P0-F05：画像页与解读以所选框架为主）。 */
-export type PrimaryFramework = 'mbti' | 'enneagram' | 'astrology';
+/** 主要性格框架（P0-F05：画像页与解读以所选框架为主）。占星已按 PRD v2.1 移除，不在选项内。 */
+export type PrimaryFramework = 'mbti' | 'enneagram';
 
 export interface PersonalityProfile {
   id: string;
@@ -253,7 +253,6 @@ export interface PersonalityProfile {
   refresh_quota_remaining: number;
   cold_start_progress: number | null;
   cold_start_stage: number | null; // 阶段下标 0-4，前端按下标高亮
-  zodiac: string | null;           // 太阳星座 key（aries 等，前端按 i18n 翻译）
   enneagram_type: string | null;   // 九型人格编号（1-9）
   created_at: string;
   // ── 对话式发现（P0-F05）渐进字段：后端逐步补齐，前端缺省降级到 cold_start_* ──
@@ -299,7 +298,6 @@ export interface ComboReport {
   cached: boolean;
   generated_at: string;
   personality_type: string | null;
-  zodiac: string | null;
   enneagram_type: string | null;
 }
 
@@ -423,7 +421,7 @@ export interface PersonalityCard {
   exported_at: string;
   share_text: string;
   observations?: string[];
-  dimensions?: { mbti: string | null; zodiac: string | null; enneagram: string | null };
+  dimensions?: { mbti: string | null; enneagram: string | null };
   combo_insight?: string | null;
 }
 
