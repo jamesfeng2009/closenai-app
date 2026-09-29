@@ -11,22 +11,21 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { getPersonalityProfile } from '../services/api';
 import type { PersonalityProfile } from '../types';
 import { personalityProfileRepo } from '../services/db/personalityProfileRepository';
-import { useAuth, useRequireAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 
 /** 本地画像快照 → 前端 Profile（缺省字段用安全默认值，其余待远端补齐）。 */
 function profileRowToState(row: {
-  id: string; mbti: string | null; zodiac_sign: string | null; enneagram: string | null; created_at: string;
+  id: string; mbti: string | null; enneagram: string | null; created_at: string;
 }): PersonalityProfile {
   return {
     id: row.id,
     mbti_type: row.mbti,
     mbti_label: null,
-    zodiac: row.zodiac_sign,
     enneagram_type: row.enneagram,
     observations: [],
     unique_traits: null,
@@ -42,7 +41,6 @@ function profileStateToRow(p: PersonalityProfile) {
   return {
     id: p.id,
     mbti: p.mbti_type,
-    zodiac_sign: p.zodiac,
     enneagram: p.enneagram_type,
     summary: null,
     refreshed_at: new Date().toISOString(),
@@ -54,9 +52,10 @@ function profileStateToRow(p: PersonalityProfile) {
 export default function ExploreScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const { isLoggedIn } = useAuth();
-  const requireAuth = useRequireAuth();
   const [profile, setProfile] = useState<PersonalityProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  // 远端画像拉取失败且本地无缓存 → 显式失败态；只渲染「—」会让用户以为还没有画像
+  const [failed, setFailed] = useState(false);
 
   // Tab 常驻不卸载：每次聚焦都刷新画像（评估/刷新后返回不过期；mount 时也会触发一次）
   // 游客态跳过请求（401 噪声），展示空画像
@@ -81,9 +80,11 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
       // 后台拉取远端最新，覆盖本地缓存并刷新 UI
       const data = await getPersonalityProfile();
       setProfile(data);
+      setFailed(false);
       personalityProfileRepo.cache(profileStateToRow(data)).catch(() => {});
     } catch (e) {
       console.warn('Failed to load profile:', e);
+      if (!cached) setFailed(true);
     }
   };
 
@@ -101,6 +102,15 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{t('explore.title')}</Text>
+
+      {failed && !profile && (
+        <View style={styles.failBox}>
+          <Text style={styles.failText}>{t('common.loadFailed')}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadProfile}>
+            <Text style={styles.retryText}>{t('common.retry')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* 性格画像主体卡片 */}
       <TouchableOpacity
@@ -173,6 +183,17 @@ const styles = StyleSheet.create({
   content: { padding: Spacing.lg, paddingBottom: 80 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary },
   title: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.md },
+  failBox: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md,
+    borderWidth: 1, borderColor: Colors.borderLight, borderRadius: BorderRadius.lg,
+    padding: Spacing.md, marginBottom: Spacing.md, backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  failText: { flex: 1, fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption },
+  retryBtn: {
+    paddingHorizontal: 16, paddingVertical: 6, borderRadius: BorderRadius.pill,
+    backgroundColor: 'rgba(255,215,0,0.12)', borderWidth: 1, borderColor: Colors.gold400,
+  },
+  retryText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
   personalityCard: {
     backgroundColor: 'rgba(255,215,0,0.06)',
     borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
@@ -181,7 +202,7 @@ const styles = StyleSheet.create({
   personalityIcon: { fontSize: 32, textAlign: 'center', marginBottom: 8 },
   mbtiType: { fontSize: 28, fontWeight: '800', color: Colors.gold400, textAlign: 'center' },
   mbtiLabel: { fontSize: FontSize.lg, color: Colors.textSecondary, textAlign: 'center', marginBottom: 12 },
-  observation: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.6, marginBottom: 4 },
+  observation: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption, marginBottom: 4 },
   viewFull: { fontSize: FontSize.md, color: Colors.gold400, marginTop: 8, textAlign: 'right' },
   coldStartCard: {
     backgroundColor: 'rgba(99,102,241,0.04)',

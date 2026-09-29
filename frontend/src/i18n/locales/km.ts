@@ -7,6 +7,11 @@ const resource = {
   },
   "common": {
     "loading": "កំពុងផ្ទុក...",
+    "saving": "Saving…",
+    "loadFailed": "Failed to load. Check your connection and try again.",
+    "retry": "Retry",
+    "back": "Back",
+    "close": "Close",
     "done": "រួចរាល់",
     "days": "ថ្ងៃ",
     "times": "ដង",
@@ -27,7 +32,10 @@ const resource = {
     "submitFailed": "Submit failed. Please try again later.",
     "sessionExpired": "Session expired. Please log in again.",
     "sendCodeFailed": "Failed to send verification code. Please try again.",
-    "appleFailed": "Apple sign-in failed. Please try again"
+    "appleFailed": "Apple sign-in failed. Please try again",
+    "crashTitle": "This page could not be opened",
+    "crashBody": "Something went wrong, but your entries are safe. Restarting usually fixes it.",
+    "crashRetry": "Try again"
   },
   "memories": {
     "title": "ការគ្រប់គ្រងអនុស្សាវរីយ៍",
@@ -148,10 +156,9 @@ const resource = {
     "assessmentProgress": "Question {{index}} of {{total}}",
     "assessmentInputPlaceholder": "Or answer in your own words…",
     "assessmentSend": "Send",
-    "zodiacLabel": "Sun sign",
     "enneagramLabel": "Enneagram",
     "comboTitle": "Combo Report",
-    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboDesc": "16-type × Enneagram cross-reading (Pro only, 1 per month)",
     "comboGenerate": "Generate Combo Report",
     "discoveryTitle": "Personality Discovery",
     "currentStage": "Current stage",
@@ -174,11 +181,6 @@ const resource = {
     "manualTitle": "Manual Assessment",
     "backToOverview": "Back to overview"
   },
-  "zodiac": {
-    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
-    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
-    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
-  },
   "mbti": {
     "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
     "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
@@ -186,6 +188,8 @@ const resource = {
     "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
+    "autoRenewNote": "Subscription renews automatically until you cancel in your App Store subscription settings. Payment is charged to your Apple account within 24 hours before the end of the current period.",
+    "oneTimeNote": "This is a one-time purchase. It does not renew automatically and will not charge you again.",
     "title": "ដំឡើងកំណែទៅ ClosenAI Pro",
     "subtitle": "ដោះសោការសន្ទនាគ្មានដែនកំណត់ និងការយល់ដឹងកាន់តែស៊ីជម្រៅ",
     "currentPlan": "ផែនការបច្ចុប្បន្ន",
@@ -252,8 +256,7 @@ const resource = {
     "framework": "Primary Framework",
     "frameworkOption": {
       "mbti": "16 Types",
-      "enneagram": "Enneagram",
-      "astrology": "Astrology"
+      "enneagram": "Enneagram"
     },
     "activeTime": "ពេលវេលាផ្ញើសារសកម្ម",
     "pushTimeTitle": "Choose Active Message Time",
@@ -290,6 +293,7 @@ const resource = {
     "logoutConfirmTitle": "ចាកចេញ",
     "logoutConfirmMessage": "Logging out clears the login state on this device. You can log in again anytime to access your data.",
     "deleteAccount": "លុបគណនី",
+    "deleteHint": "Irreversible — this deletes your account and every record.",
     "deleteConfirmTitle": "លុបគណនី",
     "deleteConfirmMessage": "សកម្មភាពនេះនឹងលុបទិន្នន័យទាំងអស់របស់អ្នកជាអចិន្ត្រៃយ៍ (ការសន្ទនា អនុស្សាវរីយ៍ ការកត់ត្រាអារម្មណ៍ កំណត់ត្រាការលូតលាស់ ការជាវ) ហើយមិនអាចត្រឡប់វិញបានទេ។ បន្តមែនទេ?",
     "deleteDone": "បានលុបគណនីហើយ",
@@ -320,6 +324,7 @@ const resource = {
     "km": "ខ្មែរ"
   },
   "onboarding": {
+    "finishFailed": "We could not save your onboarding answers. Check your connection and try again.",
     "step1Tagline": "វាចងចាំអ្វីៗទាំងអស់ដែលអ្នកប្រាប់វា",
     "step1Feature1Title": "វាចងចាំអ្នក",
     "step1Feature1Desc": "រាល់ការតាមដានប្រចាំថ្ងៃ និងការជជែកគ្នា កសាងការយល់ដឹងរបស់វាអំពីអ្នក",
@@ -430,6 +435,10 @@ const resource = {
     },
   },
   "share": {
+    "manifestTitle": "What will be shared",
+    "manifestLink": "App download link (with my referral code)",
+    "manifestTextNote": "The actual share is plain text; layout differs from this preview.",
+    "empty": "No personality profile is available for a card yet. Finish the first-read card or an assessment first.",
     "cardTitle": "Personality Card",
     "cardEntry": "Create Personality Card",
     "classic": "Classic",
@@ -507,6 +516,8 @@ const resource = {
     "passwordChangedMessage": "For security, you have been logged out. Please log in with your new password."
   },
   "privacy": {
+    "retry": "Retry",
+    "deletionAction": "Delete account",
     "sectionLegal": "Legal",
     "policy": "Privacy Policy",
     "terms": "Terms of Service",

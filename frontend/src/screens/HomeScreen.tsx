@@ -15,7 +15,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { getGrowthDashboard, moodCheckin, getJourneyEvents, ApiError } from '../services/api';
 import { isFirstReadUnseen, loadFirstReadCard } from '../services/firstRead';
 import { settingsRepo } from '../services/db/settingsRepository';
@@ -40,6 +40,8 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   const [dashboard, setDashboard] = useState<GrowthDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
+  // 签到后的 AI 解读：屏内卡片承载（旧写法塞进 Alert，长文读不完）
+  const [checkinNote, setCheckinNote] = useState<{ emoji: string; label: string; text: string } | null>(null);
   // 标记网络请求是否已完成，防止缓存 setDashboard 覆盖网络新数据（F8 竞态修复）
   const networkLoaded = useRef(false);
 
@@ -123,10 +125,15 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           : prev,
       );
       if (res.ai_interpretation) {
-        const text = res.deep_interpretation
-          ? `${res.ai_interpretation}\n\n${res.deep_interpretation}`
-          : res.ai_interpretation;
-        Alert.alert(`${res.mood_emoji} ${res.mood_label}`, text);
+        // 长文不进 Alert：系统弹窗会截断、无法滚动，用户读不到半句解读。
+        // 改为屏内卡片，签到后就留在本页慢慢看。
+        setCheckinNote({
+          emoji: res.mood_emoji,
+          label: res.mood_label,
+          text: res.deep_interpretation
+            ? `${res.ai_interpretation}\n\n${res.deep_interpretation}`
+            : res.ai_interpretation,
+        });
       }
     } catch (e) {
       // 配额耗尽（40301）：引导付费，与 ReflectScreen 行为一致
@@ -266,6 +273,20 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
             );
           })}
         </View>
+
+        {checkinNote && (
+          <View style={styles.checkinNote}>
+            <View style={styles.checkinNoteHeader}>
+              <Text style={styles.checkinNoteTitle}>
+                {checkinNote.emoji} {checkinNote.label}
+              </Text>
+              <TouchableOpacity onPress={() => setCheckinNote(null)}>
+                <Text style={styles.checkinNoteClose}>{t('common.close')}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.checkinNoteBody}>{checkinNote.text}</Text>
+          </View>
+        )}
       </View>
 
       {/* Growth This Week（点击进入高级洞察页 P1-F03） */}
@@ -321,9 +342,12 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         </TouchableOpacity>
       )}
 
-      {/* 昨天记录延续 */}
+      {/* 昨天记录延续（点开直达复盘 Tab，箭头不是装饰） */}
       {dashboard?.yesterday_record && (
-        <TouchableOpacity style={styles.yesterdayCard}>
+        <TouchableOpacity
+          style={styles.yesterdayCard}
+          onPress={() => navigation.navigate('Tabs', { screen: 'Reflect' })}
+        >
           <Text style={styles.yesterdayText}>{dashboard.yesterday_record}</Text>
           <Text style={styles.arrow}>→</Text>
         </TouchableOpacity>
@@ -406,6 +430,21 @@ const styles = StyleSheet.create({
   cardSubtitle: { fontSize: FontSize.md, color: Colors.textTertiary, marginBottom: 10 },
   doneTag: { fontSize: FontSize.sm, color: Colors.success, backgroundColor: 'rgba(16,185,129,0.1)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   moodRow: { flexDirection: 'row', justifyContent: 'space-around', gap: 8 },
+  checkinNote: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderGold,
+  },
+  checkinNoteHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  checkinNoteTitle: { fontSize: FontSize.md, fontWeight: '600', color: Colors.gold400 },
+  checkinNoteClose: { fontSize: FontSize.sm, color: Colors.textTertiary, paddingHorizontal: Spacing.xs },
+  checkinNoteBody: {
+    marginTop: Spacing.sm,
+    fontSize: FontSize.lg,
+    color: Colors.textSecondary,
+    lineHeight: LineHeight.small,
+  },
   moodBtn: { flex: 1, alignItems: 'center', padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10 },
   moodBtnSelected: { backgroundColor: 'rgba(255,215,0,0.18)', borderWidth: 1, borderColor: Colors.gold400 },
   moodEmoji: { fontSize: 22 },
@@ -421,7 +460,7 @@ const styles = StyleSheet.create({
   miniTimeline: { flexDirection: 'row', gap: 2, height: 20, marginTop: 10 },
   timelineDot: { flex: 1, borderRadius: 2 },
   timelineHint: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 4 },
-  insightText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.5 },
+  insightText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption },
   yesterdayCard: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.02)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',

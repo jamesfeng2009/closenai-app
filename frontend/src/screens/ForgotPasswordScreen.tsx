@@ -8,7 +8,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, SafeAreaView,
-  Alert, Keyboard,
+  KeyboardAvoidingView, Alert, Keyboard, Platform,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useNavigation } from '@react-navigation/native';
@@ -109,6 +109,11 @@ export default function ForgotPasswordScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* iOS：验证码 + 两次密码输入都在屏幕下半部，键盘弹出会盖住下一步按钮 */}
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>{t('auth.resetPassword')}</Text>
         <Text style={styles.stepText}>
@@ -198,12 +203,14 @@ export default function ForgotPasswordScreen() {
           </>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  kav: { flex: 1 },
   content: { padding: Spacing.xl, paddingBottom: 48 },
   title: {
     fontSize: 22, fontWeight: '700', color: Colors.textPrimary,

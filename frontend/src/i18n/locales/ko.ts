@@ -7,6 +7,11 @@ const resource = {
   },
   "common": {
     "loading": "로딩 중...",
+    "saving": "Saving…",
+    "loadFailed": "Failed to load. Check your connection and try again.",
+    "retry": "Retry",
+    "back": "Back",
+    "close": "Close",
     "done": "완료",
     "days": "일",
     "times": "회",
@@ -27,7 +32,10 @@ const resource = {
     "submitFailed": "Submit failed. Please try again later.",
     "sessionExpired": "Session expired. Please log in again.",
     "sendCodeFailed": "Failed to send verification code. Please try again.",
-    "appleFailed": "Apple sign-in failed. Please try again"
+    "appleFailed": "Apple sign-in failed. Please try again",
+    "crashTitle": "This page could not be opened",
+    "crashBody": "Something went wrong, but your entries are safe. Restarting usually fixes it.",
+    "crashRetry": "Try again"
   },
   "memories": {
     "title": "기억 관리",
@@ -148,10 +156,9 @@ const resource = {
     "assessmentProgress": "Question {{index}} of {{total}}",
     "assessmentInputPlaceholder": "Or answer in your own words…",
     "assessmentSend": "Send",
-    "zodiacLabel": "Sun sign",
     "enneagramLabel": "Enneagram",
     "comboTitle": "Combo Report",
-    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboDesc": "16-type × Enneagram cross-reading (Pro only, 1 per month)",
     "comboGenerate": "Generate Combo Report",
     "discoveryTitle": "Personality Discovery",
     "currentStage": "Current stage",
@@ -174,11 +181,6 @@ const resource = {
     "manualTitle": "Manual Assessment",
     "backToOverview": "Back to overview"
   },
-  "zodiac": {
-    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
-    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
-    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
-  },
   "mbti": {
     "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
     "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
@@ -186,6 +188,8 @@ const resource = {
     "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
+    "autoRenewNote": "Subscription renews automatically until you cancel in your App Store subscription settings. Payment is charged to your Apple account within 24 hours before the end of the current period.",
+    "oneTimeNote": "This is a one-time purchase. It does not renew automatically and will not charge you again.",
     "title": "ClosenAI Pro로 업그레이드",
     "subtitle": "무제한 대화와 더 깊은 인사이트 잠금 해제",
     "currentPlan": "현재 플랜",
@@ -252,8 +256,7 @@ const resource = {
     "framework": "Primary Framework",
     "frameworkOption": {
       "mbti": "16 Types",
-      "enneagram": "Enneagram",
-      "astrology": "Astrology"
+      "enneagram": "Enneagram"
     },
     "activeTime": "능동 메시지 시간",
     "pushTimeTitle": "Choose Active Message Time",
@@ -290,6 +293,7 @@ const resource = {
     "logoutConfirmTitle": "로그아웃",
     "logoutConfirmMessage": "Logging out clears the login state on this device. You can log in again anytime to access your data.",
     "deleteAccount": "계정 삭제",
+    "deleteHint": "Irreversible — this deletes your account and every record.",
     "deleteConfirmTitle": "계정 삭제",
     "deleteConfirmMessage": "모든 데이터(대화, 기억, 체크인, 성장 기록, 구독)가 영구적으로 삭제되며 되돌릴 수 없습니다. 계속하시겠습니까?",
     "deleteDone": "계정이 삭제되었습니다",
@@ -320,6 +324,7 @@ const resource = {
     "km": "ខ្មែរ"
   },
   "onboarding": {
+    "finishFailed": "We could not save your onboarding answers. Check your connection and try again.",
     "step1Tagline": "당신이 말한 모든 것을 기억해요",
     "step1Feature1Title": "당신을 기억해요",
     "step1Feature1Desc": "매일의 기록과 대화가 쌓여 당신을 이해해요",
@@ -430,6 +435,10 @@ const resource = {
     },
   },
   "share": {
+    "manifestTitle": "What will be shared",
+    "manifestLink": "App download link (with my referral code)",
+    "manifestTextNote": "The actual share is plain text; layout differs from this preview.",
+    "empty": "No personality profile is available for a card yet. Finish the first-read card or an assessment first.",
     "cardTitle": "Personality Card",
     "cardEntry": "Create Personality Card",
     "classic": "Classic",
@@ -507,6 +516,8 @@ const resource = {
     "passwordChangedMessage": "For security, you have been logged out. Please log in with your new password."
   },
   "privacy": {
+    "retry": "Retry",
+    "deletionAction": "Delete account",
     "sectionLegal": "Legal",
     "policy": "Privacy Policy",
     "terms": "Terms of Service",

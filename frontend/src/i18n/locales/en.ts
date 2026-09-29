@@ -7,6 +7,11 @@ const resource = {
   },
   "common": {
     "loading": "Loading...",
+    "saving": "Saving…",
+    "loadFailed": "Failed to load. Check your connection and try again.",
+    "retry": "Retry",
+    "back": "Back",
+    "close": "Close",
     "done": "Done",
     "days": "days",
     "times": "times",
@@ -27,7 +32,10 @@ const resource = {
     "submitFailed": "Submit failed. Please try again later.",
     "sessionExpired": "Session expired. Please log in again.",
     "sendCodeFailed": "Failed to send verification code. Please try again.",
-    "appleFailed": "Apple sign-in failed. Please try again"
+    "appleFailed": "Apple sign-in failed. Please try again",
+    "crashTitle": "This page could not be opened",
+    "crashBody": "Something went wrong, but your entries are safe. Restarting usually fixes it.",
+    "crashRetry": "Try again"
   },
   "memories": {
     "title": "Memory Management",
@@ -149,10 +157,9 @@ const resource = {
     "assessmentProgress": "Question {{index}} of {{total}}",
     "assessmentInputPlaceholder": "Or answer in your own words…",
     "assessmentSend": "Send",
-    "zodiacLabel": "Sun sign",
     "enneagramLabel": "Enneagram",
     "comboTitle": "Combo Report",
-    "comboDesc": "16-type × zodiac × Enneagram cross-reading (Pro only, 1 per month)",
+    "comboDesc": "16-type × Enneagram cross-reading (Pro only, 1 per month)",
     "comboGenerate": "Generate Combo Report",
     "discoveryTitle": "Personality Discovery",
     "currentStage": "Current stage",
@@ -175,11 +182,6 @@ const resource = {
     "manualTitle": "Manual Assessment",
     "backToOverview": "Back to overview"
   },
-  "zodiac": {
-    "aries": "Aries", "taurus": "Taurus", "gemini": "Gemini", "cancer": "Cancer",
-    "leo": "Leo", "virgo": "Virgo", "libra": "Libra", "scorpio": "Scorpio",
-    "sagittarius": "Sagittarius", "capricorn": "Capricorn", "aquarius": "Aquarius", "pisces": "Pisces"
-  },
   "mbti": {
     "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
     "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
@@ -187,6 +189,8 @@ const resource = {
     "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer"
   },
   "paywall": {
+    "autoRenewNote": "Subscription renews automatically until you cancel in your App Store subscription settings. Payment is charged to your Apple account within 24 hours before the end of the current period.",
+    "oneTimeNote": "This is a one-time purchase. It does not renew automatically and will not charge you again.",
     "title": "Upgrade to ClosenAI Pro",
     "subtitle": "Unlock unlimited chat & deeper insights",
     "currentPlan": "Current plan",
@@ -253,8 +257,7 @@ const resource = {
     "framework": "Primary Framework",
     "frameworkOption": {
       "mbti": "16 Types",
-      "enneagram": "Enneagram",
-      "astrology": "Astrology"
+      "enneagram": "Enneagram"
     },
     "activeTime": "Active Message Time",
     "pushTimeTitle": "Choose Active Message Time",
@@ -291,8 +294,9 @@ const resource = {
     "logoutConfirmTitle": "Log Out",
     "logoutConfirmMessage": "Logging out clears the login state on this device. You can log in again anytime to access your data.",
     "deleteAccount": "Delete Account",
+    "deleteHint": "Irreversible — this deletes your account and every record.",
     "deleteConfirmTitle": "Delete Account",
-    "deleteConfirmMessage": "This permanently deletes all your data (conversations, memories, check-ins, growth records, subscription) and cannot be undone. Continue?",
+    "deleteConfirmMessage": "Your account stops working immediately and you can no longer sign in.\nAll records are permanently deleted within 24 hours and cannot be recovered. Continue?",
     "deleteDone": "Account deleted",
     "defaultName": "Guest",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
@@ -321,6 +325,7 @@ const resource = {
     "km": "ខ្មែរ"
   },
   "onboarding": {
+    "finishFailed": "We could not save your onboarding answers. Check your connection and try again.",
     "step1Tagline": "It remembers everything you tell it",
     "step1Feature1Title": "It remembers you",
     "step1Feature1Desc": "Every check-in and conversation builds its understanding of you",
@@ -431,6 +436,10 @@ const resource = {
     },
   },
   "share": {
+    "manifestTitle": "What will be shared",
+    "manifestLink": "App download link (with my referral code)",
+    "manifestTextNote": "The actual share is plain text; layout differs from this preview.",
+    "empty": "No personality profile is available for a card yet. Finish the first-read card or an assessment first.",
     "cardTitle": "Personality Card",
     "cardEntry": "Create Personality Card",
     "classic": "Classic",
@@ -508,6 +517,8 @@ const resource = {
     "passwordChangedMessage": "For security, you have been logged out. Please log in with your new password."
   },
   "privacy": {
+    "retry": "Retry",
+    "deletionAction": "Delete account",
     "sectionLegal": "Legal",
     "policy": "Privacy Policy",
     "terms": "Terms of Service",

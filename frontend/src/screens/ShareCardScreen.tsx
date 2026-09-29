@@ -11,8 +11,9 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { getPersonalityCard, ApiError } from '../services/api';
+import ShareManifest from '../components/ShareManifest';
 import type { PersonalityCard, ShareCardVariant } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -26,6 +27,10 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
   const [variant, setVariant] = useState<ShareCardVariant>('classic');
   const [card, setCard] = useState<PersonalityCard | null>(null);
   const [loading, setLoading] = useState(true);
+  // 失败态必须与「还在加载」「没有数据」分开呈现：旧写法 loading||!card 让请求
+  // 失败后永远停在转圈，用户既不知道出错也没有重试入口。
+  const [error, setError] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
   // variant 变化时发起新请求；用 stale 闭包标志防止竞态（旧请求结果覆盖新状态）
   useEffect(() => {
@@ -33,6 +38,7 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
     (async () => {
       try {
         setLoading(true);
+        setError(null);
         const data = await getPersonalityCard(variant);
         if (!stale) setCard(data);
       } catch (e) {
@@ -48,14 +54,13 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
           );
           return;
         }
-        const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
-        Alert.alert(t('common.error'), msg);
+        if (!stale) setError(e instanceof ApiError ? e.message : t('common.loadFailed'));
       } finally {
         if (!stale) setLoading(false);
       }
     })();
     return () => { stale = true; };
-  }, [variant]);
+  }, [variant, reloadTick]);
 
   // 系统分享（分享文案由后端按语言生成，含 App Store 落地链接）
   const onShare = async () => {
@@ -74,7 +79,8 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
         {VARIANTS.map((v) => (
           <TouchableOpacity
             key={v}
-            style={[styles.variantBtn, variant === v && styles.variantBtnActive]}
+            style={[styles.variantBtn, variant === v && styles.variantBtnActive, loading && styles.variantBtnDisabled]}
+            disabled={loading}
             onPress={() => setVariant(v)}
           >
             <Text style={[styles.variantText, variant === v && styles.variantTextActive]}>
@@ -85,8 +91,17 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
         ))}
       </View>
 
-      {loading || !card ? (
+      {loading ? (
         <ActivityIndicator color={Colors.gold400} style={styles.loading} />
+      ) : error ? (
+        <View style={styles.stateBox}>
+          <Text style={styles.stateText}>{error}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => setReloadTick((n) => n + 1)}>
+            <Text style={styles.retryText}>{t('common.retry')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !card ? (
+        <Text style={styles.stateText}>{t('share.empty')}</Text>
       ) : (
         <>
           {/* 名片预览（布局随 variant：full / compact / combo；宇宙渐变底 + 金边） */}
@@ -127,6 +142,18 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
             </View>
           </LinearGradient>
 
+          {/* 分享内容清单：名片是图片预览，分享出去的是后端拼的纯文本，逐项对齐 */}
+          <ShareManifest
+            items={[
+              card.user_name,
+              card.mbti_type
+                ? `${card.mbti_type}${card.mbti_label ? ` · ${card.mbti_label}` : ''}`
+                : '',
+              card.tagline,
+              t('share.manifestLink'),
+            ]}
+          />
+
           {/* 系统分享 */}
           <TouchableOpacity style={styles.shareBtn} onPress={onShare}>
             <Text style={styles.shareBtnText}>📤 {t('share.shareBtn')}</Text>
@@ -141,6 +168,16 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
   content: { padding: Spacing.lg, paddingBottom: 40 },
   loading: { marginTop: 80 },
+  stateBox: { alignItems: 'center', marginTop: 60, gap: Spacing.md },
+  stateText: {
+    color: Colors.textTertiary, textAlign: 'center', marginTop: 60,
+    fontSize: FontSize.md, lineHeight: LineHeight.caption,
+  },
+  retryBtn: {
+    paddingHorizontal: 20, paddingVertical: 8, borderRadius: BorderRadius.pill,
+    backgroundColor: 'rgba(255,215,0,0.12)', borderWidth: 1, borderColor: Colors.gold400,
+  },
+  retryText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
   variantRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
   variantBtn: {
     flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4,
@@ -148,6 +185,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: Colors.borderLight,
   },
   variantBtnActive: { backgroundColor: 'rgba(255,215,0,0.12)', borderColor: Colors.gold400 },
+  variantBtnDisabled: { opacity: 0.5 },
   variantText: { fontSize: FontSize.md, color: Colors.textSecondary },
   variantTextActive: { color: Colors.gold400, fontWeight: '600' },
   proBadge: {
@@ -164,14 +202,14 @@ const styles = StyleSheet.create({
   cardType: { fontSize: 24, fontWeight: '800', color: Colors.gold400, letterSpacing: 2, marginTop: 4 },
   cardTagline: {
     fontSize: FontSize.md, color: Colors.textSecondary, fontStyle: 'italic',
-    textAlign: 'center', marginTop: Spacing.sm, lineHeight: 1.5,
+    textAlign: 'center', marginTop: Spacing.sm, lineHeight: LineHeight.caption,
   },
   cardSection: { alignSelf: 'stretch', marginTop: Spacing.md },
-  cardObs: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.6, marginBottom: 4 },
+  cardObs: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption, marginBottom: 4 },
   cardTraits: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: Spacing.md, textAlign: 'center' },
   cardCombo: {
     fontSize: FontSize.md, color: Colors.textTertiary, marginTop: Spacing.md,
-    textAlign: 'center', lineHeight: 1.6,
+    textAlign: 'center', lineHeight: LineHeight.caption,
   },
   cardFooter: {
     alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

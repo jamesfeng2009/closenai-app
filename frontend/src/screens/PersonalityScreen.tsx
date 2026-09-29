@@ -13,13 +13,13 @@
  *
  * 游客守卫：所有写操作（开始/答题/刷新/组合报告）先过 useRequireAuth。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
   TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getPersonalityProfile, refreshPersonality,
   getAssessment, startAssessment, answerAssessment, generateComboReport,
@@ -55,13 +55,12 @@ type ScreenMode = 'overview' | 'assessment' | 'enneagram';
 
 /** 本地画像快照 → 前端 Profile（缺省字段用安全默认值，其余待远端补齐）。 */
 function profileRowToState(row: {
-  id: string; mbti: string | null; zodiac_sign: string | null; enneagram: string | null; created_at: string;
+  id: string; mbti: string | null; enneagram: string | null; created_at: string;
 }): PersonalityProfile {
   return {
     id: row.id,
     mbti_type: row.mbti,
     mbti_label: null,
-    zodiac: row.zodiac_sign,
     enneagram_type: row.enneagram,
     observations: [],
     unique_traits: null,
@@ -78,7 +77,6 @@ function profileStateToRow(p: PersonalityProfile) {
   return {
     id: p.id,
     mbti: p.mbti_type,
-    zodiac_sign: p.zodiac,
     enneagram: p.enneagram_type,
     summary: null,
     refreshed_at: new Date().toISOString(),
@@ -136,13 +134,10 @@ export default function PersonalityScreen() {
   // Pro 组合报告
   const [combo, setCombo] = useState<ComboReport | null>(null);
   const [comboLoading, setComboLoading] = useState(false);
+  // 远端画像拉取失败且本地无缓存 → 失败态；不能与「还没有画像」的空态混成一句话
+  const [profileFailed, setProfileFailed] = useState(false);
 
-  useEffect(() => {
-    loadInitial();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn]);
-
-  const loadInitial = async () => {
+  const loadInitial = useCallback(async () => {
     // 首屏秒开：先读本地画像缓存 + 两项评估进度（Tier 2 展示缓存 + Tier 1 离线续答）
     setLoading(true);
     const [cachedProfile, cachedAssessment, cachedEnneagram] = await Promise.all([
@@ -175,11 +170,17 @@ export default function PersonalityScreen() {
 
     try {
       // 后台拉取远端最新，合并刷新（Tier 2 远端为准，覆盖本地缓存）
+      let remoteProfileFailed = false;
       const [p, a, e] = await Promise.all([
-        getPersonalityProfile().catch(() => null),
+        getPersonalityProfile().catch(() => {
+          remoteProfileFailed = true;
+          return null;
+        }),
         getAssessment().catch(() => null),
         getEnneagram().catch(() => null),
       ]);
+      // 远端画像挂了且本地无缓存 → 失败态（不能落到「还没有画像」的空态文案上）
+      setProfileFailed(remoteProfileFailed && !cachedProfile);
       if (p) {
         setProfile(p);
         personalityProfileRepo.cache(profileStateToRow(p)).catch(() => {});
@@ -215,8 +216,17 @@ export default function PersonalityScreen() {
       }
     } catch (err) {
       console.warn('Failed to load personality:', err);
+      setProfileFailed(true);
     }
-  };
+  }, [isLoggedIn]);
+
+  // 栈页会被重复进入（答题、手动补充、Paywall 返回），聚焦即重新加载
+  // loadInitial 是 async，useFocusEffect 需要「同步返回 cleanup」的回调，所以包一层
+  useFocusEffect(
+    useCallback(() => {
+      loadInitial();
+    }, [loadInitial])
+  );
 
   const onRefresh = async () => {
     if (!requireAuth() || refreshing) return; // 游客拦截 → 跳 AuthScreen
@@ -586,6 +596,14 @@ export default function PersonalityScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {profileFailed && !profile?.mbti_type && (
+          <View style={styles.failBox}>
+            <Text style={styles.failText}>{t('common.loadFailed')}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={loadInitial}>
+              <Text style={styles.retryText}>{t('common.retry')}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {/* 顶部：发现阶段 + 进度 */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>🧭 {t('personality.discoveryTitle')}</Text>
@@ -729,19 +747,12 @@ export default function PersonalityScreen() {
               {profile?.mbti_label || t('explore.coldStartTitle')}
             </Text>
             <Text style={styles.version}>v{profile?.version || 1}</Text>
-            {/* 星座 / 九型维度（用户主动输入生日与九型编号后展示） */}
-            {(profile?.zodiac || profile?.enneagram_type) && (
+            {/* 九型维度（用户在个人页主动输入九型编号后展示） */}
+            {!!profile?.enneagram_type && (
               <View style={styles.dimensionRow}>
-                {!!profile?.zodiac && (
-                  <Text style={styles.dimensionText}>
-                    ♈ {t('personality.zodiacLabel')} · {t(`zodiac.${profile.zodiac}`)}
-                  </Text>
-                )}
-                {!!profile?.enneagram_type && (
-                  <Text style={styles.dimensionText}>
-                    🔢 {t('personality.enneagramLabel')} · {profile.enneagram_type}
-                  </Text>
-                )}
+                <Text style={styles.dimensionText}>
+                  🔢 {t('personality.enneagramLabel')} · {profile.enneagram_type}
+                </Text>
               </View>
             )}
           </View>
@@ -816,17 +827,16 @@ export default function PersonalityScreen() {
           </View>
         )}
 
-        {/* Pro 组合报告（16 型 × 星座 × 九型交叉解读） */}
+        {/* Pro 组合报告（16 型 × 九型交叉解读） */}
         {!!profile?.mbti_type && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>🌌 {t('personality.comboTitle')}</Text>
             {combo ? (
               <>
                 <Text style={styles.traitText}>{combo.content}</Text>
-                {!!combo.zodiac && (
+                {!!combo.enneagram_type && (
                   <Text style={styles.comboMeta}>
-                    {t(`zodiac.${combo.zodiac}`)}
-                    {combo.enneagram_type ? ` · ${t('personality.enneagramLabel')} ${combo.enneagram_type}` : ''}
+                    {t('personality.enneagramLabel')} · {combo.enneagram_type}
                   </Text>
                 )}
               </>
@@ -895,6 +905,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: Colors.borderLight,
     borderRadius: BorderRadius.xl, padding: Spacing.lg, marginBottom: Spacing.md,
   },
+  failBox: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md,
+    borderWidth: 1, borderColor: Colors.borderLight, borderRadius: BorderRadius.lg,
+    padding: Spacing.md, marginBottom: Spacing.md, backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  failText: { flex: 1, fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption },
+  retryBtn: {
+    paddingHorizontal: 16, paddingVertical: 6, borderRadius: BorderRadius.pill,
+    backgroundColor: 'rgba(255,215,0,0.12)', borderWidth: 1, borderColor: Colors.gold400,
+  },
+  retryText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
   cardTitle: { fontSize: FontSize.xl, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.sm },
   coldStatus: { fontSize: FontSize.md, color: Colors.textSecondary, marginBottom: Spacing.md },
   stageCurrent: { fontSize: FontSize.title, fontWeight: '600', color: Colors.gold400, marginBottom: 4 },
@@ -920,7 +941,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl, padding: Spacing.lg, marginBottom: Spacing.md,
   },
   guidanceText: {
-    fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: 1.6, marginBottom: Spacing.md,
+    fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: LineHeight.body, marginBottom: Spacing.md,
   },
   enneagramResult: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.gold400, marginBottom: 4 },
   enneagramCombo: { fontSize: FontSize.title, color: Colors.textSecondary, marginBottom: Spacing.sm },
@@ -929,7 +950,7 @@ const styles = StyleSheet.create({
   manualArrow: { fontSize: 20, color: Colors.textTertiary },
   backRow: { paddingVertical: Spacing.sm, marginBottom: Spacing.sm },
   backText: { fontSize: FontSize.title, color: Colors.gold400, fontWeight: '600' },
-  assessmentDesc: { fontSize: FontSize.md, color: Colors.textTertiary, marginBottom: Spacing.md, lineHeight: 1.5 },
+  assessmentDesc: { fontSize: FontSize.md, color: Colors.textTertiary, marginBottom: Spacing.md, lineHeight: LineHeight.caption },
   assessmentBtn: {
     backgroundColor: Colors.gold400, borderRadius: BorderRadius.lg,
     paddingVertical: 12, alignItems: 'center',
@@ -942,7 +963,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg, borderTopLeftRadius: 4,
     padding: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.md,
   },
-  questionText: { fontSize: FontSize.title, color: Colors.textPrimary, lineHeight: 1.5 },
+  questionText: { fontSize: FontSize.title, color: Colors.textPrimary, lineHeight: LineHeight.body },
   optionBtn: {
     backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: Colors.borderLight,
     borderRadius: BorderRadius.lg, padding: Spacing.md, marginBottom: Spacing.sm,
@@ -964,8 +985,8 @@ const styles = StyleSheet.create({
   comboMeta: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.sm },
   obsRow: { flexDirection: 'row', gap: 8, marginBottom: 6 },
   obsBullet: { color: Colors.gold400, fontSize: FontSize.title },
-  obsText: { flex: 1, fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: 1.5 },
-  traitText: { fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: 1.6 },
+  obsText: { flex: 1, fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: LineHeight.body },
+  traitText: { fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: LineHeight.body },
   refreshBtn: {
     backgroundColor: Colors.gold400, borderRadius: BorderRadius.lg,
     paddingVertical: 14, alignItems: 'center', marginTop: Spacing.sm,

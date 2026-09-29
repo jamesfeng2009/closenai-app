@@ -453,6 +453,9 @@ export default function PaywallScreen() {
         )}
       </TouchableOpacity>
 
+      {/* 自动续订声明（App Store 3.1.2：续订条款须在购买界面直接可见，不能只在隐私政策里） */}
+      <Text style={styles.renewNote}>{t('paywall.autoRenewNote')}</Text>
+
       {/* ── 第四区块：Life Archive 一次性买断（M6 / 架构方案 §二 M6）──
           与订阅区用分隔线 + 独立卡片底分离：§九-4 口径"订阅卖活体、买断卖标本"，
           两者是互不影响的权益链路，UI 上不能被读成"第三个订阅档位"。 */}
@@ -465,6 +468,8 @@ export default function PaywallScreen() {
           </View>
         </View>
         <Text style={styles.archiveSubtitle}>{t('paywall.archiveSubtitle')}</Text>
+        {/* 买断与订阅的计费差异要说清（3.1.2：不能让用户误以为买断也会续订扣费） */}
+        <Text style={styles.archiveOneTimeNote}>{t('paywall.oneTimeNote')}</Text>
 
         {ARCHIVE_SCOPES.map(({ scope, sku, nameKey }) => {
           const price = archivePrice(sku);
@@ -610,6 +615,11 @@ const styles = StyleSheet.create({
   subscribeText: { fontSize: FontSize.title, fontWeight: '700', color: Colors.bgPrimary },
   subscribeBtnDisabled: { opacity: 0.6 },
   priceText: { fontSize: FontSize.md, color: Colors.bgPrimary, marginTop: 2, opacity: 0.85 },
+  // 自动续订声明（3.1.2）：紧随订阅按钮，字号小但不可省略
+  renewNote: {
+    alignSelf: 'stretch', marginTop: Spacing.md,
+    fontSize: FontSize.md, color: Colors.textTertiary, textAlign: 'center', lineHeight: 18,
+  },
   restoreBtn: { marginTop: Spacing.lg, paddingVertical: 10 },
   unavailableBox: {
     alignSelf: 'stretch', marginTop: Spacing.md, padding: Spacing.md,
@@ -642,6 +652,9 @@ const styles = StyleSheet.create({
   archiveOneTimeText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
   archiveSubtitle: {
     fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 6, lineHeight: 20,
+  },
+  archiveOneTimeNote: {
+    fontSize: FontSize.md, color: Colors.textTertiary, marginTop: 4, lineHeight: 18,
   },
   archiveRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

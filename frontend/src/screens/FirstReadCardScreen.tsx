@@ -14,9 +14,10 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { getFirstRead, ApiError } from '../services/api';
 import { loadFirstReadCard, markFirstReadSeen, saveFirstReadCard } from '../services/firstRead';
+import ShareManifest from '../components/ShareManifest';
 import type { FirstReadCard } from '../types';
 
 export default function FirstReadCardScreen({ navigation }: { navigation: any }) {
@@ -128,6 +129,16 @@ export default function FirstReadCardScreen({ navigation }: { navigation: any })
         <Text style={styles.primaryBtnText}>{t('firstRead.cta')}</Text>
       </TouchableOpacity>
 
+      {/* 分享内容清单：本地拼的是纯文本（标题 + 断言 + 小结 + 带码链接），逐项摊开 */}
+      <ShareManifest
+        items={[
+          t('firstRead.cardTitle'),
+          ...card.assertions,
+          card.summary,
+          t('share.manifestLink'),
+        ]}
+      />
+
       <TouchableOpacity style={styles.shareBtn} onPress={onShare}>
         <Text style={styles.shareBtnText}>📤 {t('firstRead.share')}</Text>
       </TouchableOpacity>
@@ -154,19 +165,19 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: FontSize.xl, fontWeight: '700', color: Colors.gold400 },
   cardNote: {
     fontSize: FontSize.sm, color: Colors.textTertiary, textAlign: 'center',
-    marginTop: 4, marginBottom: Spacing.lg, lineHeight: 1.5,
+    marginTop: 4, marginBottom: Spacing.lg, lineHeight: LineHeight.caption,
   },
   assertionList: { alignSelf: 'stretch' },
   assertionText: {
-    fontSize: FontSize.md, color: Colors.textPrimary, lineHeight: 1.7, marginBottom: Spacing.sm,
+    fontSize: FontSize.md, color: Colors.textPrimary, lineHeight: LineHeight.caption, marginBottom: Spacing.sm,
   },
   summaryText: {
     alignSelf: 'stretch', fontSize: FontSize.md, color: Colors.textSecondary,
-    fontStyle: 'italic', lineHeight: 1.6, marginTop: Spacing.xs,
+    fontStyle: 'italic', lineHeight: LineHeight.caption, marginTop: Spacing.xs,
   },
   closerText: {
     alignSelf: 'stretch', fontSize: FontSize.sm, color: Colors.textTertiary,
-    lineHeight: 1.6, marginTop: Spacing.md, paddingTop: Spacing.md,
+    lineHeight: LineHeight.caption, marginTop: Spacing.md, paddingTop: Spacing.md,
     borderTopWidth: 1, borderTopColor: 'rgba(255,215,0,0.15)',
   },
   cardFooter: {

@@ -5,11 +5,12 @@
  * - 消息列表（按 scheduled_date 倒序）
  * - 未读高亮，点击标记已读（更新 is_read/read_at）
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { useFocusEffect } from '@react-navigation/native';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { aiMessagesRepo, type AiMessageRow } from '../services/db/aiMessagesRepository';
 import { useTranslation } from 'react-i18next';
 
@@ -17,15 +18,21 @@ export default function MessagesScreen() {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<AiMessageRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // 本地表读取失败与「真的没有消息」分开呈现：前者给重试，后者给空态文案
+  const [failed, setFailed] = useState(false);
 
-  // Stack 页：mount 加载即可
-  useEffect(() => {
-    aiMessagesRepo
-      .getAll()
-      .then(setMessages)
-      .catch(() => {})
+  const load = useCallback(() => {
+    aiMessagesRepo.getAll()
+      .then((rows) => {
+        setMessages(rows);
+        setFailed(false);
+      })
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false));
   }, []);
+
+  // 消息在别处（Reflect 主动消息）写入本地表，聚焦时重新读，而不是只在 mount 读一次
+  useFocusEffect(load);
 
   // 点击标记已读（本地写，无需登录拦截）
   const onPressMessage = (item: AiMessageRow) => {
@@ -48,6 +55,14 @@ export default function MessagesScreen() {
 
   return (
     <View style={styles.container}>
+      {failed && messages.length === 0 ? (
+        <View style={styles.stateBox}>
+          <Text style={styles.empty}>{t('common.loadFailed')}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={load}>
+            <Text style={styles.retryText}>{t('common.retry')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
       <FlatList
         data={messages}
         keyExtractor={(item) => item.id}
@@ -72,6 +87,7 @@ export default function MessagesScreen() {
           </TouchableOpacity>
         )}
       />
+      )}
     </View>
   );
 }
@@ -81,7 +97,13 @@ const styles = StyleSheet.create({
   content: { padding: Spacing.lg, paddingBottom: 40 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary },
   title: { fontSize: FontSize.h3, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.md },
-  empty: { textAlign: 'center', color: Colors.textTertiary, fontSize: FontSize.title, marginTop: 60 },
+  empty: { textAlign: 'center', color: Colors.textTertiary, fontSize: FontSize.title, marginTop: 60, lineHeight: LineHeight.body },
+  stateBox: { alignItems: 'center', gap: Spacing.md, paddingHorizontal: Spacing.lg },
+  retryBtn: {
+    paddingHorizontal: 20, paddingVertical: 8, borderRadius: BorderRadius.pill,
+    backgroundColor: 'rgba(255,215,0,0.12)', borderWidth: 1, borderColor: Colors.gold400,
+  },
+  retryText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
   card: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
     backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: Colors.borderLight,
@@ -92,7 +114,7 @@ const styles = StyleSheet.create({
   },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.error },
   body: { flex: 1 },
-  text: { fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: 1.5 },
+  text: { fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: LineHeight.body },
   textUnread: { color: Colors.textPrimary, fontWeight: '600' },
   meta: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 4 },
 });

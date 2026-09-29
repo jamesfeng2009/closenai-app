@@ -17,7 +17,7 @@ import {
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { buildDemoArchive, isScrollViewAtEnd, DEMO_PERSONA_KEY } from '../config/demoPersona';
 import type { DemoPattern } from '../config/demoPersona';
 import { track } from '../services/analytics';
@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
   title: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.textPrimary, marginTop: Spacing.sm },
   subtitle: {
     fontSize: FontSize.md, color: Colors.textSecondary, marginTop: Spacing.xs, marginBottom: Spacing.lg,
-    lineHeight: 1.5,
+    lineHeight: LineHeight.caption,
   },
   card: {
     backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: Colors.borderLight,
@@ -203,16 +203,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,215,0,0.05)', borderRadius: BorderRadius.lg,
     padding: Spacing.md, marginBottom: Spacing.sm,
   },
-  patternText: { fontSize: FontSize.md, color: Colors.textPrimary, lineHeight: 1.6 },
+  patternText: { fontSize: FontSize.md, color: Colors.textPrimary, lineHeight: LineHeight.caption },
   patternBasis: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.xs },
   timelineRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md, marginBottom: Spacing.md },
   timelineDot: {
     width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.gold400, marginTop: 5,
   },
   timelineBody: { flex: 1 },
-  bodyText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.6 },
+  bodyText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption },
   quoteText: {
-    fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.6, marginBottom: Spacing.sm,
+    fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption, marginBottom: Spacing.sm,
   },
   disclaimer: {
     fontSize: FontSize.sm, color: Colors.textTertiary, textAlign: 'center', marginBottom: Spacing.md,

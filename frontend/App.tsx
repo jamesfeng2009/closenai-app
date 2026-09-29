@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
   Linking,
@@ -8,7 +8,8 @@ import {
   AppState,
   type AppStateStatus,
 } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { I18nextProvider, useTranslation } from 'react-i18next';
@@ -36,22 +37,31 @@ import { Colors } from './src/theme/colors';
 import { initI18n, default as i18n } from './src/i18n';
 import { loadSession, updateUserSettings, isLoggedIn } from './src/services/api';
 import { parseReferralFromUrl, savePendingReferral } from './src/services/referral';
-import { flushAnalytics } from './src/services/analytics';
+import { flushAnalytics, track } from './src/services/analytics';
+import { getActiveRouteName, screenViewProperties } from './src/services/screenTracking';
 import { registerForPushNotifications, subscribePushTokenChanges } from './src/services/push';
 import { onSessionReset } from './src/services/session';
+import { runColdStart } from './src/services/coldStart';
+import { startMonitoring } from './src/services/monitoring';
 import { AuthProvider } from './src/context/AuthContext';
+import CrashBoundary from './src/components/CrashBoundary';
 
 const ONBOARDED_KEY = '@closenai/onboarded';
+
+// 崩溃监控须在首次渲染前初始化（DSN 留空时为 no-op，见 src/services/monitoring.ts）
+startMonitoring();
 
 export type RootTabParamList = {
   Growth: undefined;
   Explore: undefined;
   Reflect: undefined;
-  Profile: undefined;
+  // openDelete=1 表示进入本页后立即弹出注销确认（合规 5.1.1：隐私页可直达注销）
+  Profile: { openDelete?: number } | undefined;
 };
 
 export type RootStackParamList = {
-  Tabs: undefined;
+  // 支持 navigate('Tabs', { screen: 'Profile', params: {...} }) 跳到指定 Tab
+  Tabs: NavigatorScreenParams<RootTabParamList> | undefined;
   Auth: undefined;
   ForgotPassword: undefined;
   Personality: undefined;
@@ -92,9 +102,23 @@ function TabNavigator() {
   );
 }
 
-export default function App() {
+function AppRoot() {
   const [ready, setReady] = useState(false);
   const [onboarded, setOnboarded] = useState(false);
+
+  // 页面埋点（H2）：导航就绪与状态变化各检一次，落到本地队列由 flushAnalytics 批量上送
+  const navRef = useNavigationContainerRef();
+  const lastScreenRef = useRef<string | null>(null);
+  const emitScreenView = useCallback(() => {
+    if (!navRef.isReady()) return;
+    const props = screenViewProperties(
+      lastScreenRef.current,
+      getActiveRouteName(navRef.getRootState())
+    );
+    if (!props) return;
+    lastScreenRef.current = props.screen;
+    track('screen_view', props);
+  }, [navRef]);
 
   useEffect(() => {
     // M4 Universal Links：已安装用户点别人分享的 closenai.app/r/{code} 会直接打开本 App，
@@ -124,24 +148,25 @@ export default function App() {
       }
     };
 
-    (async () => {
-      // 冷启动关键路径：i18n / 登录态恢复 / 引导标记 三者无依赖，并行加载
-      // loadSession 从 SecureStore 读 access/refresh token（替代旧 initApiUser 设备身份）
-      const [, , stored] = await Promise.all([
-        initI18n(),
-        loadSession(),
-        AsyncStorage.getItem(ONBOARDED_KEY).catch(() => null),
-      ]);
-      setOnboarded(stored === '1');
-      setReady(true);
-      // 首帧渲染之后上报时区（仅已登录用户；游客被守卫跳过）
-      reportTimezone();
-      // 首帧后注册推送 token（fire-and-forget，不阻塞 ready 门闸；
-      // 游客/模拟器/权限被拒由 push.ts 内静默跳过；登录成功后由 AuthContext.login 补报）
-      registerForPushNotifications().catch(() => {});
-      // 首帧后上送本地分析事件队列（仅已登录；后端校验 consent + 匿名化转发 PostHog）
-      if (isLoggedIn()) flushAnalytics().catch(() => {});
-    })();
+    // 冷启动关键路径：i18n / 登录态恢复 / 引导标记 三者无依赖并行加载，整体 4s 上限
+    // （loadSession 从 SecureStore 读 access/refresh token；原生侧挂起时强制放行，
+    //  详见 src/services/coldStart.ts 的超时与「向上修正」口径）
+    const coldStart = runColdStart({
+      initI18n,
+      loadSession,
+      readOnboarded: () => AsyncStorage.getItem(ONBOARDED_KEY),
+      onReady: () => {
+        setReady(true);
+        // 首帧渲染之后上报时区（仅已登录用户；游客被守卫跳过）
+        reportTimezone();
+        // 首帧后注册推送 token（fire-and-forget，不阻塞 ready 门闸；
+        // 游客/模拟器/权限被拒由 push.ts 内静默跳过；登录成功后由 AuthContext.login 补报）
+        registerForPushNotifications().catch(() => {});
+        // 首帧后上送本地分析事件队列（仅已登录；后端校验 consent + 匿名化转发 PostHog）
+        if (isLoggedIn()) flushAnalytics().catch(() => {});
+      },
+      onOnboarded: setOnboarded,
+    });
 
     // App 从后台回到前台时重新检测时区（跨时区旅行场景：streak 重置/push 时间需按新时区）
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
@@ -165,6 +190,7 @@ export default function App() {
     const pushTokenCleanup = subscribePushTokenChanges();
 
     return () => {
+      coldStart.cancel();
       linkSubscription.remove();
       subscription.remove();
       sessionCleanup();
@@ -197,7 +223,7 @@ export default function App() {
       <StatusBar style="light" />
       <I18nextProvider i18n={i18n}>
         <AuthProvider>
-          <NavigationContainer>
+          <NavigationContainer ref={navRef} onReady={emitScreenView} onStateChange={emitScreenView}>
             <Stack.Navigator screenOptions={{ headerShown: false }}>
               <Stack.Screen name="Tabs" component={TabNavigator} />
               <Stack.Screen
@@ -282,3 +308,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+/**
+ * 根导出 = 崩溃兜底边界 + 真正的 App。
+ * 边界在最外层，因此引导页/导航/任一屏的渲染异常都会落到本地化兜底页，
+ * 而不是白屏或闪退（未捕获异常同时被 Sentry 捕获，前提是配了 DSN）。
+ */
+export default function App() {
+  return (
+    <CrashBoundary>
+      <AppRoot />
+    </CrashBoundary>
+  );
+}

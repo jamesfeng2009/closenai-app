@@ -11,6 +11,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, SafeAreaView,
+  KeyboardAvoidingView,
   Keyboard, Alert, Platform,
 } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -170,6 +171,11 @@ export default function AuthScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* iOS：注册态 4 个输入框 + 提交按钮在下半屏，键盘弹出会盖住目标（Android 由 adjustResize 处理） */}
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.appName}>ClosenAI</Text>
         <Text style={styles.subtitle}>{t('auth.subtitle')}</Text>
@@ -337,12 +343,14 @@ export default function AuthScreen() {
           <Text style={styles.guestText}>{t('auth.guestBrowse')}</Text>
         </TouchableOpacity>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
+  kav: { flex: 1 },
   content: { padding: Spacing.xl, paddingBottom: 48 },
   appName: {
     fontSize: 28, fontWeight: '700', color: Colors.gold400,

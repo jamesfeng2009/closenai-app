@@ -12,13 +12,13 @@
  *
  * 游客态（未登录）：展示登录引导 CTA，不加载用户资料。
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Modal, FlatList, Alert, TextInput,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getUserProfile, updateUserSettings, setAiConsent, ApiError,
   changePassword, updateUsername,
@@ -32,10 +32,15 @@ import type { ConversationStyle, PrimaryFramework, UserProfile } from '../types'
 const PUSH_HOURS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
 // 对话风格三枚举（与后端 CONVERSATION_STYLES 一致，展示顺序即默认排序）
 const CONVERSATION_STYLES: ConversationStyle[] = ['warm', 'rational', 'philosophical'];
-// 主要性格框架三枚举（P0-F05：画像页与解读以所选框架为主）
-const PRIMARY_FRAMEWORKS: PrimaryFramework[] = ['mbti', 'enneagram', 'astrology'];
+// 主要性格框架两枚举（P0-F05：画像页与解读以所选框架为主；占星已按 PRD v2.1 移除）
+const PRIMARY_FRAMEWORKS: PrimaryFramework[] = ['mbti', 'enneagram'];
 
-export default function ProfileScreen({ navigation }: { navigation: any }) {
+export default function ProfileScreen({
+  navigation, route,
+}: {
+  navigation: any;
+  route?: { params?: { openDelete?: number } };
+}) {
   const { t, i18n } = useTranslation();
   const { isLoggedIn, logout, deleteMyAccount } = useAuth();
   const requireAuth = useRequireAuth();
@@ -180,6 +185,15 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
     );
   };
 
+  // 隐私与安全页可直达注销（App Store 5.1.1：删除账号入口须应用内可达）。
+  // 参数一次性消费后立刻清空：Tab 常驻不卸载，否则每次切回「我的」都会重复弹窗。
+  useEffect(() => {
+    if (!isLoggedIn || !route?.params?.openDelete) return;
+    navigation.setParams?.({ openDelete: undefined });
+    onDeleteAccount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, route?.params?.openDelete]);
+
   // ── 游客态：登录引导 CTA ──
   if (!isLoggedIn) {
     return (
@@ -283,14 +297,14 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
           <Text style={styles.proBadge}>PRO</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.settingItem}>
+        {/* 只读信息：额度展示，无跳转目标，不做成可点行（避免死目标） */}
+        <View style={styles.settingItem}>
           <Text style={styles.settingIcon}>📊</Text>
           <Text style={styles.settingLabel}>{t('profile.usage')}</Text>
           <Text style={styles.settingValue}>
             {profile?.daily_quota_used || 0}/{profile?.daily_quota_total || 5} {t('profile.today')}
           </Text>
-          <Text style={styles.arrow}>›</Text>
-        </TouchableOpacity>
+        </View>
       </View>
 
       {/* 其他设置 */}
@@ -337,15 +351,18 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         </TouchableOpacity>
       </View>
 
-      {/* 退出登录 */}
+      {/* 退出登录：可逆操作，降为次级灰字，不与注销同权重 */}
       <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
         <Text style={styles.logoutText}>{t('profile.logout')}</Text>
       </TouchableOpacity>
 
-      {/* 注销账号（合规：数据删除权） */}
-      <TouchableOpacity style={styles.logoutBtn} onPress={onDeleteAccount}>
-        <Text style={styles.deleteText}>{t('profile.deleteAccount')}</Text>
-      </TouchableOpacity>
+      {/* 注销账号（合规：数据删除权）——独立危险区，描边与登出分离，先讲清不可逆 */}
+      <View style={styles.dangerSection}>
+        <TouchableOpacity style={styles.deleteBtn} onPress={onDeleteAccount}>
+          <Text style={styles.deleteText}>{t('profile.deleteAccount')}</Text>
+        </TouchableOpacity>
+        <Text style={styles.deleteHint}>{t('profile.deleteHint')}</Text>
+      </View>
 
       {/* Version */}
       <Text style={styles.version}>{t('profile.version')}</Text>
@@ -485,7 +502,7 @@ export default function ProfileScreen({ navigation }: { navigation: any }) {
         </View>
       </Modal>
 
-      {/* 主要框架选择（mbti / enneagram / astrology） */}
+      {/* 主要框架选择（mbti / enneagram） */}
       <Modal
         visible={frameworkVisible}
         transparent
@@ -685,7 +702,7 @@ const styles = StyleSheet.create({
   guestContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary, padding: Spacing.xl },
   guestAvatar: { fontSize: 64, marginBottom: Spacing.lg },
   guestTitle: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm },
-  guestDesc: { fontSize: FontSize.lg, color: Colors.textSecondary, textAlign: 'center', marginBottom: Spacing.xl, lineHeight: 1.6 },
+  guestDesc: { fontSize: FontSize.lg, color: Colors.textSecondary, textAlign: 'center', marginBottom: Spacing.xl, lineHeight: LineHeight.caption },
   primaryBtn: {
     backgroundColor: Colors.gold400, borderRadius: BorderRadius.pill,
     paddingVertical: 14, paddingHorizontal: 48, alignItems: 'center',
@@ -716,10 +733,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md,
     paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
-  complianceText: { fontSize: FontSize.lg, color: Colors.textSecondary, lineHeight: 1.6, flex: 1 },
+  complianceText: { fontSize: FontSize.lg, color: Colors.textSecondary, lineHeight: LineHeight.caption, flex: 1 },
   logoutBtn: { justifyContent: 'center', alignItems: 'center', paddingVertical: 14 },
-  logoutText: { fontSize: FontSize.title, color: Colors.error },
-  deleteText: { fontSize: FontSize.title, color: Colors.textMuted },
+  logoutText: { fontSize: FontSize.lg, color: Colors.textTertiary },
+  dangerSection: {
+    marginTop: Spacing.md, marginBottom: Spacing.md,
+    borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.borderError,
+  },
+  deleteBtn: { justifyContent: 'center', alignItems: 'center', paddingVertical: 14 },
+  deleteText: { fontSize: FontSize.title, fontWeight: '600', color: Colors.error },
+  deleteHint: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, textAlign: 'center',
+    paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, lineHeight: LineHeight.caption,
+  },
   aboutText: {
     fontSize: FontSize.title, color: Colors.textSecondary, lineHeight: 22, marginBottom: Spacing.md,
   },

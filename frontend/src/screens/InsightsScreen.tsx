@@ -8,11 +8,11 @@
  * - 周期报告（周报免费；月/季/年报 Pro，走后端同周期缓存）
  * - 年度热力图（365 天情绪值）
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share,
 } from 'react-native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getWeeklyInsight, getPatternDiscovery, getShareReport, getTimeline,
   getUserProfile, ApiError,
@@ -21,6 +21,7 @@ import type {
   GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
 import { useAuth } from '../context/AuthContext';
+import ShareManifest from '../components/ShareManifest';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode 对齐
@@ -54,27 +55,37 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
 
   // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
   // 游客态跳过请求（接口均需登录，游客必 401），展示空态
-  useEffect(() => {
+  // 周报是本页主数据源：它的失败要单独记（不能和「本周还没有周报」共用一句文案）
+  const [weeklyFailed, setWeeklyFailed] = useState(false);
+
+  const load = useCallback(async () => {
     if (!isLoggedIn) {
       setLoading(false);
       return;
     }
-    (async () => {
-      try {
-        setLoading(true);
-        const [w, tl, p] = await Promise.all([
-          getWeeklyInsight().catch(() => null),
-          getTimeline(365).catch(() => null),
-          getUserProfile().catch(() => null),
-        ]);
-        setWeekly(w);
-        setTimeline(tl);
-        setProfile(p);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    try {
+      setLoading(true);
+      let wFailed = false;
+      const [w, tl, p] = await Promise.all([
+        getWeeklyInsight().catch(() => {
+          wFailed = true;
+          return null;
+        }),
+        getTimeline(365).catch(() => null),
+        getUserProfile().catch(() => null),
+      ]);
+      setWeeklyFailed(wFailed);
+      setWeekly(w);
+      setTimeline(tl);
+      setProfile(p);
+    } finally {
+      setLoading(false);
+    }
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const isPro = !!profile && profile.tier !== 'free';
 
@@ -167,6 +178,13 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
             {!!weekly.period && <Text style={styles.metaText}>{weekly.period}</Text>}
             <Text style={styles.bodyText}>{weekly.content}</Text>
           </>
+        ) : weeklyFailed ? (
+          <View style={styles.failRow}>
+            <Text style={styles.emptyText}>{t('common.loadFailed')}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={load}>
+              <Text style={styles.retryText}>{t('common.retry')}</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <Text style={styles.emptyText}>{t('insights.weeklyEmpty')}</Text>
         )}
@@ -243,6 +261,15 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
               <Text style={styles.metaText}>{t('insights.chatCount', { count: report.chat_count })}</Text>
             )}
             <Text style={styles.bodyText}>{report.content}</Text>
+            {/* 分享内容清单：与 onShareReport 拼装的字段严格一致，不含昵称 */}
+            <ShareManifest
+              items={[
+                `${report.period_label} · ${report.range}`,
+                report.mood_trend || '',
+                report.content,
+                t('share.manifestLink'),
+              ]}
+            />
             <TouchableOpacity style={styles.shareReportBtn} onPress={onShareReport}>
               <Text style={styles.shareReportText}>📤 {t('insights.shareReport')}</Text>
             </TouchableOpacity>
@@ -286,8 +313,14 @@ const styles = StyleSheet.create({
   entryRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   entryBody: { flex: 1 },
   entryChevron: { fontSize: FontSize.h3, color: Colors.textTertiary },
-  bodyText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 1.6, marginTop: 4 },
-  emptyText: { fontSize: FontSize.md, color: Colors.textTertiary, lineHeight: 1.6 },
+  bodyText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption, marginTop: 4 },
+  emptyText: { fontSize: FontSize.md, color: Colors.textTertiary, lineHeight: LineHeight.caption },
+  failRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md },
+  retryBtn: {
+    paddingHorizontal: 16, paddingVertical: 6, borderRadius: BorderRadius.pill,
+    backgroundColor: 'rgba(255,215,0,0.12)', borderWidth: 1, borderColor: Colors.gold400,
+  },
+  retryText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
   actionBtn: {
     backgroundColor: Colors.gold400, borderRadius: BorderRadius.lg,
     paddingVertical: 10, alignItems: 'center', marginTop: Spacing.md,

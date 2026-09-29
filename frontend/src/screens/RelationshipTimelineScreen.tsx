@@ -8,11 +8,12 @@
  * 数据：/growth/level、/growth/badges、/growth/relationship-timeline、/growth/timeline/day。
  * 等级名/说明、统计与徽章条件走 i18n；等级解锁能力/说明、徽章与时间线标题为后端本地化内容。
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { useFocusEffect } from '@react-navigation/native';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getLevelDetail, getBadges, getRelationshipTimeline, getTimelineDay, getGrowthDashboard,
 } from '../services/api';
@@ -58,30 +59,34 @@ export default function RelationshipTimelineScreen() {
   const [timeline, setTimeline] = useState<RelationshipTimeline | null>(null);
   const [wallBadges, setWallBadges] = useState<BadgeWallItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // 时间轴拉取失败与「确实还没有事件」是两回事：后者可以展示空态文案，
+  // 前者必须显式报错并给出重试，否则用户以为自己的关系记录丢了。
+  const [error, setError] = useState<string | null>(null);
   // 单日摘要展开态：expandedDate 当前展开日，dayCache 按日期缓存结果
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
   const [dayCache, setDayCache] = useState<Record<string, TimelineDaySummary>>({});
   const [dayLoading, setDayLoading] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (isLoggedIn) {
-      load();
-    } else {
+  const load = useCallback(async () => {
+    if (!isLoggedIn) {
       setLoading(false);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn]);
-
-  const load = async () => {
     try {
       setLoading(true);
+      setError(null);
+      let timelineFailed = false;
       const [levelRes, badgesRes, timelineRes, dashboardRes] = await Promise.all([
         getLevelDetail().catch(() => null),
         getBadges().catch(() => null),
-        getRelationshipTimeline().catch(() => null),
+        getRelationshipTimeline().catch(() => {
+          timelineFailed = true;
+          return null;
+        }),
         // dashboard 仅用于推导 first_mood（streak>0 说明至少签到过一次）
         getGrowthDashboard().catch(() => null),
       ]);
+      setError(timelineFailed ? t('common.loadFailed') : null);
       setLevel(levelRes);
       setTimeline(timelineRes);
       setWallBadges(buildBadgeWall(
@@ -92,10 +97,21 @@ export default function RelationshipTimelineScreen() {
       ));
     } catch (e) {
       console.warn('Failed to load relationship timeline:', e);
+      setError(t('common.loadFailed'));
     } finally {
       setLoading(false);
     }
-  };
+  // buildBadgeWall 是每次渲染重建的闭包，不入 deps（否则 useFocusEffect 每次聚焦都换回调、重复请求）
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, t]);
+
+  // 栈页会重复进入（从 Paywall/画像返回等），聚焦即刷新
+  // load 是 async，useFocusEffect 需要「同步返回 cleanup」的回调，所以包一层
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   // 徽章墙数据：streak 徽章（后端）+ 等级徽章（按当前等级推导）+ first_chat/first_mood（按统计推导）
   const buildBadgeWall = (
@@ -292,7 +308,15 @@ export default function RelationshipTimelineScreen() {
       {/* 里程碑时间线（倒序） */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('relationship.timelineTitle')}</Text>
-        {!timeline?.events.length && (
+        {!timeline?.events.length && error && (
+          <View style={styles.stateBox}>
+            <Text style={styles.empty}>{error}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={load}>
+              <Text style={styles.retryText}>{t('common.retry')}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {!timeline?.events.length && !error && (
           <Text style={styles.empty}>{t('relationship.emptyTimeline')}</Text>
         )}
         {timeline?.events.map((e, idx) => (
@@ -325,6 +349,12 @@ const styles = StyleSheet.create({
   content: { padding: Spacing.lg, paddingBottom: 40 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary, padding: Spacing.xl },
   empty: { textAlign: 'center', color: Colors.textTertiary, fontSize: FontSize.title, marginTop: 20 },
+  stateBox: { alignItems: 'center', gap: Spacing.md },
+  retryBtn: {
+    paddingHorizontal: 20, paddingVertical: 8, borderRadius: BorderRadius.pill,
+    backgroundColor: 'rgba(255,215,0,0.12)', borderWidth: 1, borderColor: Colors.gold400,
+  },
+  retryText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
   // ── 等级卡片 ──
   levelCard: {
     backgroundColor: 'rgba(255,215,0,0.06)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
@@ -358,7 +388,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.pill, paddingHorizontal: 10, paddingVertical: 4,
   },
   unlockText: { fontSize: FontSize.sm, color: Colors.gold400 },
-  levelNote: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: Spacing.md, lineHeight: 1.5 },
+  levelNote: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: Spacing.md, lineHeight: LineHeight.caption },
   // ── 统计概览 ──
   statsRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
   statItem: {
@@ -381,7 +411,7 @@ const styles = StyleSheet.create({
   eventBody: { flex: 1 },
   eventDate: { fontSize: FontSize.xs, color: Colors.textTertiary },
   eventTitle: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textPrimary, marginTop: 2 },
-  eventContent: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 4, lineHeight: 1.5 },
+  eventContent: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 4, lineHeight: LineHeight.caption },
   // ── 单日摘要 ──
   dayLoading: { marginTop: Spacing.sm },
   dayEmpty: { fontSize: FontSize.md, color: Colors.textTertiary, marginTop: Spacing.sm },
@@ -392,6 +422,6 @@ const styles = StyleSheet.create({
   moodColor: { width: 12, height: 12, borderRadius: 3 },
   dayText: { fontSize: FontSize.md, color: Colors.textPrimary },
   dayMeta: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 4 },
-  dayInsight: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 4, lineHeight: 1.5 },
+  dayInsight: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 4, lineHeight: LineHeight.caption },
   dayBadge: { fontSize: FontSize.md, color: Colors.gold400, marginTop: 4 },
 });

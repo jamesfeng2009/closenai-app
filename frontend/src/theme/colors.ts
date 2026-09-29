@@ -38,6 +38,8 @@ export const Colors = {
   borderGold: 'rgba(255, 215, 0, 0.1)',
   borderGoldStrong: 'rgba(255, 215, 0, 0.3)',
   borderLight: 'rgba(255, 255, 255, 0.1)',
+  // 危险区（注销账号）描边：error 色的低透明度版本，与 borderGold 同一口径
+  borderError: 'rgba(239, 68, 68, 0.35)',
 
   // Semantic
   success: '#10B981',
@@ -69,6 +71,15 @@ export const FontSize = {
   xxl: 14,
   title: 15,
   h3: 18,
+} as const;
+
+// RN 的 lineHeight 单位是 pt，不是倍数（写成 1.6 会把行高压到 1.6pt，文字重叠）。
+// 按 FontSize 就近取整：≥1.4 倍行距，小字号留相对更大的呼吸。
+export const LineHeight = {
+  caption: 18, // fontSize 9–12
+  small: 20,   // fontSize 13
+  body: 22,    // fontSize 14–15
+  heading: 26, // fontSize ≥16
 } as const;
 
 export const BorderRadius = {

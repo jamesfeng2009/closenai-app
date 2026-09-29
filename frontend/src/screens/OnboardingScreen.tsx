@@ -19,12 +19,12 @@
  */
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, Alert,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { savePendingFirstRead } from '../services/firstRead';
 import { track } from '../services/analytics';
 import DemoArchiveScreen from './DemoArchiveScreen';
@@ -78,6 +78,32 @@ const QUICK_QUESTIONS: {
   },
 ];
 
+/**
+ * 三步进度点。三屏是串行流程，没有进度指示时用户不知道还剩几步、也无处后退。
+ * 计数用「1/3」这种数字形式，不需要文案。
+ */
+function StepDots({ step }: { step: 1 | 2 | 3 }) {
+  return (
+    <View style={styles.dotsRow}>
+      <View style={styles.dotsGroup}>
+        {[1, 2, 3].map((n) => (
+          <View key={n} style={[styles.dot, n <= step && styles.dotActive]} />
+        ))}
+      </View>
+      <Text style={styles.dotsCount}>{`${step}/3`}</Text>
+    </View>
+  );
+}
+
+/** 步骤内后退：Step1 是介绍页，Step2/3 各退一步（原来只能一路向前）。 */
+function StepBack({ onPress, label }: { onPress: () => void; label: string }) {
+  return (
+    <TouchableOpacity style={styles.backBtn} onPress={onPress}>
+      <Text style={styles.backText}>‹ {label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 export default function OnboardingScreen({ onComplete }: { onComplete: () => void }) {
   const { t } = useTranslation();
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -93,29 +119,42 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
     setShowDemo(true);
   };
 
+  const [finishing, setFinishing] = useState(false);
+
   const finish = async (withType: string | null) => {
-    // 保存引导完成标记
+    if (finishing) return; // 单飞：写入是异步的，连点会重复落库/重复进主界面
+    setFinishing(true);
     try {
-      await AsyncStorage.setItem(ONBOARDED_KEY, '1');
-    } catch {
-      // ignore
-    }
-    // 若用户选择了已知性格类型，先暂存本地（引导阶段必为游客，无 token 调 API 必失败）；
-    // 登录/注册成功后由 AuthContext 读取该 key 补调 updateUserSettings 并清除
-    if (withType) {
+      // 保存引导完成标记：本项失败不阻断后面的答案暂存（标记可由下次冷启动重写）
       try {
-        await AsyncStorage.setItem(PENDING_MBTI_KEY, withType);
+        await AsyncStorage.setItem(ONBOARDED_KEY, '1');
       } catch {
         // ignore
       }
+      // 若用户选择了已知性格类型，先暂存本地（引导阶段必为游客，无 token 调 API 必失败）；
+      // 登录/注册成功后由 AuthContext 读取该 key 补调 updateUserSettings 并清除
+      if (withType) {
+        try {
+          await AsyncStorage.setItem(PENDING_MBTI_KEY, withType);
+        } catch {
+          // ignore
+        }
+      }
+      // 快问答案同样暂存：AuthContext 登录后补调 POST /onboarding/first-read。
+      // 空答案也要写入——PRD §5.19.2 要求 onboarding → 初读卡生成率 100%（后端 filler 兜底）
+      const payload: FirstReadAnswer[] = QUICK_QUESTIONS
+        .filter((q) => answers[q.id])
+        .map((q) => ({ q: q.id, option: answers[q.id] }));
+      await savePendingFirstRead(payload, withType);
+      onComplete();
+    } catch (e) {
+      // 原来整条链路没有兜底：savePendingFirstRead 抛错就是未捕获 Promise rejection，
+      // 用户停在第 3 步且不知道发生了什么。失败要提示并保持按钮可点。
+      console.warn('Failed to finish onboarding:', e);
+      Alert.alert(t('common.error'), t('onboarding.finishFailed'));
+    } finally {
+      setFinishing(false);
     }
-    // 快问答案同样暂存：AuthContext 登录后补调 POST /onboarding/first-read。
-    // 空答案也要写入——PRD §5.19.2 要求 onboarding → 初读卡生成率 100%（后端 filler 兜底）
-    const payload: FirstReadAnswer[] = QUICK_QUESTIONS
-      .filter((q) => answers[q.id])
-      .map((q) => ({ q: q.id, option: answers[q.id] }));
-    await savePendingFirstRead(payload, withType);
-    onComplete();
   };
 
   const features = [
@@ -132,6 +171,7 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
+          <StepDots step={1} />
           <Text style={styles.tagline}>{t('onboarding.step1Tagline')}</Text>
 
           <View style={styles.featureList}>
@@ -165,6 +205,8 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
+          <StepDots step={2} />
+          <StepBack onPress={() => setStep(1)} label={t('common.back')} />
           <Text style={styles.step2Title}>{t('onboarding.step2Title')}</Text>
           <Text style={styles.step2Subtitle}>{t('onboarding.step2Subtitle')}</Text>
 
@@ -202,6 +244,8 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
+        <StepDots step={3} />
+        <StepBack onPress={() => setStep(2)} label={t('common.back')} />
         <Text style={styles.step2Title}>{t('onboarding.step3Title')}</Text>
         <Text style={styles.step2Subtitle}>{t('onboarding.step3Subtitle')}</Text>
 
@@ -225,11 +269,21 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
           </View>
         ))}
 
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => finish(selectedType)}>
-          <Text style={styles.primaryBtnText}>{t('onboarding.step3Confirm')}</Text>
+        <TouchableOpacity
+          style={[styles.primaryBtn, finishing && styles.primaryBtnDisabled]}
+          disabled={finishing}
+          onPress={() => finish(selectedType)}
+        >
+          <Text style={styles.primaryBtnText}>
+            {finishing ? t('common.saving') : t('onboarding.step3Confirm')}
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.skipBtn} onPress={() => finish(selectedType)}>
+        <TouchableOpacity
+          style={[styles.skipBtn, finishing && styles.primaryBtnDisabled]}
+          disabled={finishing}
+          onPress={() => finish(selectedType)}
+        >
           <Text style={styles.skipBtnText}>{t('onboarding.step2SkipCta')}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -240,6 +294,16 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
   content: { padding: Spacing.xl, paddingBottom: 48 },
+  dotsRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
+    marginTop: Spacing.md, marginBottom: Spacing.md,
+  },
+  dotsGroup: { flexDirection: 'row', gap: 6 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.18)' },
+  dotActive: { backgroundColor: Colors.gold400 },
+  dotsCount: { fontSize: FontSize.sm, color: Colors.textTertiary },
+  backBtn: { alignSelf: 'flex-start', paddingVertical: Spacing.xs, marginBottom: Spacing.sm },
+  backText: { fontSize: FontSize.md, color: Colors.textTertiary },
   tagline: {
     fontSize: FontSize.h3,
     fontWeight: '700',
@@ -276,7 +340,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textTertiary,
     textAlign: 'center',
-    lineHeight: 1.5,
+    lineHeight: LineHeight.caption,
   },
   step2Title: {
     fontSize: FontSize.h3,

@@ -7,6 +7,11 @@ const resource = {
   },
   "common": {
     "loading": "加载中...",
+    "saving": "保存中…",
+    "loadFailed": "加载失败，请检查网络后重试",
+    "retry": "重试",
+    "back": "返回",
+    "close": "关闭",
     "done": "已完成",
     "days": "天",
     "times": "次",
@@ -27,7 +32,10 @@ const resource = {
     "submitFailed": "提交失败，请稍后重试",
     "sessionExpired": "登录已过期，请重新登录。",
     "sendCodeFailed": "验证码发送失败，请稍后重试。",
-    "appleFailed": "Apple 登录失败，请重试"
+    "appleFailed": "Apple 登录失败，请重试",
+    "crashTitle": "这一页打不开",
+    "crashBody": "应用出了点问题，你的记录都还在。退出重进通常就能恢复。",
+    "crashRetry": "重试"
   },
   "memories": {
     "title": "记忆管理",
@@ -149,10 +157,9 @@ const resource = {
     "assessmentProgress": "第 {{index}}/{{total}} 题",
     "assessmentInputPlaceholder": "也可以用自己的话回答…",
     "assessmentSend": "发送",
-    "zodiacLabel": "太阳星座",
     "enneagramLabel": "九型人格",
     "comboTitle": "组合报告",
-    "comboDesc": "16 型人格 × 星座 × 九型交叉解读（Pro 专属，每月 1 份）",
+    "comboDesc": "16 型人格 × 九型人格交叉解读（Pro 专属，每月 1 份）",
     "comboGenerate": "生成组合报告",
     "discoveryTitle": "性格发现之旅",
     "currentStage": "当前阶段",
@@ -175,11 +182,6 @@ const resource = {
     "manualTitle": "手动补充测试",
     "backToOverview": "返回总览"
   },
-  "zodiac": {
-    "aries": "白羊座", "taurus": "金牛座", "gemini": "双子座", "cancer": "巨蟹座",
-    "leo": "狮子座", "virgo": "处女座", "libra": "天秤座", "scorpio": "天蝎座",
-    "sagittarius": "射手座", "capricorn": "摩羯座", "aquarius": "水瓶座", "pisces": "双鱼座"
-  },
   "mbti": {
     "INTP": "逻辑学家", "INTJ": "建筑师", "ENTP": "辩论家", "ENTJ": "指挥官",
     "INFP": "调停者", "INFJ": "提倡者", "ENFP": "竞选者", "ENFJ": "主人公",
@@ -187,6 +189,8 @@ const resource = {
     "ISTJ": "物流师", "ISFP": "探险家", "ESTJ": "总经理", "ESFP": "表演者"
   },
   "paywall": {
+    "autoRenewNote": "订阅会自动续订，直到你在 App Store 订阅设置中取消。费用将在当前订阅期结束前 24 小时内从你的 Apple 账户扣除。",
+    "oneTimeNote": "这是一次性买断，不会自动续订，也不会再次扣费。",
     "title": "升级 ClosenAI Pro",
     "subtitle": "解锁无限对话与深度洞察",
     "currentPlan": "当前方案",
@@ -253,8 +257,7 @@ const resource = {
     "framework": "主要框架",
     "frameworkOption": {
       "mbti": "16 型人格",
-      "enneagram": "九型人格",
-      "astrology": "占星"
+      "enneagram": "九型人格"
     },
     "activeTime": "主动消息时间",
     "pushTimeTitle": "选择主动消息时间",
@@ -291,8 +294,9 @@ const resource = {
     "logoutConfirmTitle": "退出登录",
     "logoutConfirmMessage": "退出后将清除本设备上的登录状态。你可以随时重新登录以访问账号数据。",
     "deleteAccount": "注销账号",
+    "deleteHint": "不可逆操作：账号与全部记录将被彻底删除",
     "deleteConfirmTitle": "注销账号",
-    "deleteConfirmMessage": "注销后将永久删除您的全部数据（对话、记忆、签到、成长记录、订阅），且不可恢复。确定继续吗？",
+    "deleteConfirmMessage": "注销后账号立即失效，无法再登录。\n全部记录将在 24 小时内彻底删除，不可恢复。确定继续吗？",
     "deleteDone": "账号已注销",
     "defaultName": "用户",
     "version": "ClosenAI v1.0.0\nBuild 2026.08.03"
@@ -321,6 +325,7 @@ const resource = {
     "km": "ខ្មែរ"
   },
   "onboarding": {
+    "finishFailed": "没有保存住引导结果，请检查网络后重试。",
     "step1Tagline": "你说过的每一句，它都记得",
     "step1Feature1Title": "它记得你",
     "step1Feature1Desc": "每一次签到与对话，都在累积它对你的理解",
@@ -431,6 +436,10 @@ const resource = {
     },
   },
   "share": {
+    "manifestTitle": "将分享的内容",
+    "manifestLink": "App 下载链接（带我的推荐码）",
+    "manifestTextNote": "实际分享为纯文本版，排版与本屏预览不同。",
+    "empty": "还没有可用于名片的画像，先完成性格初读或评估。",
     "cardTitle": "性格名片",
     "cardEntry": "生成性格名片",
     "classic": "完整",
@@ -508,6 +517,8 @@ const resource = {
     "passwordChangedMessage": "为保障安全，已退出登录，请使用新密码重新登录。"
   },
   "privacy": {
+    "retry": "重试",
+    "deletionAction": "去注销",
     "sectionLegal": "法律条款",
     "policy": "隐私政策",
     "terms": "用户协议",

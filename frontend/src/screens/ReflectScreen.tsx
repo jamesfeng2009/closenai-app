@@ -15,7 +15,7 @@ import {
   Platform, ActivityIndicator, Alert,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
+import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   streamChat, moodCheckin, getChatHistory, getGrowthDashboard,
   generateReflectionDraft, saveReflection, getUserProfile, setAiConsent, ApiError,
@@ -79,6 +79,8 @@ export default function ReflectScreen() {
   const [streak, setStreak] = useState(0);
   const [levelLabel, setLevelLabel] = useState('');
   const [consentVisible, setConsentVisible] = useState(false);
+  // 草稿入库进行中（按消息 id 锁定）：无反馈时用户会以为按钮没反应而连点
+  const [savingId, setSavingId] = useState<string | null>(null);
   // 消息中心未读数（本地 ai_messages 表，🔔 角标）
   const [unreadCount, setUnreadCount] = useState(0);
   const [refsExpanded, setRefsExpanded] = useState<RefsExpanded>({});
@@ -309,6 +311,8 @@ export default function ReflectScreen() {
 
   const onSaveDraft = async (msg: Message) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
+    if (savingId) return; // 单条进行中：忽略连点，避免同一草稿重复入库
+    setSavingId(msg.id);
     try {
       await saveReflection(msg.content, msg.relatedMemoryIds);
       setMessages((prev) =>
@@ -317,6 +321,8 @@ export default function ReflectScreen() {
     } catch (e) {
       const text = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), text);
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -434,8 +440,14 @@ export default function ReflectScreen() {
                 </Text>
               ))}
               {msg.isDraft && !msg.draftSaved && (
-                <TouchableOpacity style={styles.saveDraftBtn} onPress={() => onSaveDraft(msg)}>
-                  <Text style={styles.saveDraftText}>{t('reflect.saveDraft')}</Text>
+                <TouchableOpacity
+                  style={[styles.saveDraftBtn, savingId === msg.id && styles.saveDraftBtnPending]}
+                  disabled={savingId === msg.id}
+                  onPress={() => onSaveDraft(msg)}
+                >
+                  <Text style={styles.saveDraftText}>
+                    {savingId === msg.id ? t('common.saving') : t('reflect.saveDraft')}
+                  </Text>
                 </TouchableOpacity>
               )}
               {msg.isDraft && msg.draftSaved && (
@@ -453,7 +465,8 @@ export default function ReflectScreen() {
           value={input}
           onChangeText={setInput}
           placeholder={t('reflect.placeholder')}
-          placeholderTextColor={Colors.textMuted}
+          // placeholder 用 textTertiary（#71717A）：textMuted（#4A4A5A）在深色输入框上对比度不足
+          placeholderTextColor={Colors.textTertiary}
           multiline
           onSubmitEditing={sendMessage}
         />
@@ -529,7 +542,7 @@ const styles = StyleSheet.create({
   bubbleDraft: {
     backgroundColor: 'rgba(255,215,0,0.08)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
   },
-  bubbleText: { fontSize: FontSize.title, color: Colors.textPrimary, lineHeight: 1.5 },
+  bubbleText: { fontSize: FontSize.title, color: Colors.textPrimary, lineHeight: LineHeight.body },
   bubbleTextUser: { color: Colors.textPrimary },
   memoryRefsToggle: { fontSize: FontSize.sm, color: Colors.gold400, opacity: 0.8, marginTop: 6 },
   memoryRefItem: {
@@ -544,6 +557,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.pill,
   },
   saveDraftText: { fontSize: FontSize.sm, color: Colors.gold400, fontWeight: '600' },
+  saveDraftBtnPending: { opacity: 0.5 },
   draftSavedTag: { fontSize: FontSize.sm, color: Colors.success, marginTop: 8 },
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
