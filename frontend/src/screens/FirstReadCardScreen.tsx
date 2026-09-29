@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { getFirstRead, ApiError } from '../services/api';
+import { trackFunnelOnce, trackFunnelShare } from '../services/funnel';
 import { loadFirstReadCard, markFirstReadSeen, saveFirstReadCard } from '../services/firstRead';
 import ShareManifest from '../components/ShareManifest';
 import type { FirstReadCard } from '../types';
@@ -52,6 +53,11 @@ export default function FirstReadCardScreen({ navigation }: { navigation: any })
     return () => { stale = true; };
   }, []);
 
+  // 漏斗第一段：卡片真的渲染出来了才算「看到初读卡」，取数失败/空态不计
+  useEffect(() => {
+    if (card) void trackFunnelOnce('first_read_opened');
+  }, [card]);
+
   const onShare = async () => {
     if (!card) return;
     // 分享文案本地拼装：断言是后端模板产出的纯文本，PDF/深链归因卡随 M4 分享卡体系（B4）
@@ -62,7 +68,10 @@ export default function FirstReadCardScreen({ navigation }: { navigation: any })
       `#ClosenAI ${card.share_url ?? ''}`,
     ].filter(Boolean).join('\n');
     try {
-      await Share.share({ message: body });
+      trackFunnelShare('share_tapped', 'first_read');
+      const res = await Share.share({ message: body });
+      // 只把「真的发出去了」算完成：iOS 取消分享同样 resolve，用 action 区分才不把取消率算成完成率
+      if (res.action === Share.sharedAction) trackFunnelShare('share_completed', 'first_read');
     } catch {
       // 用户取消分享不提示
     }

@@ -17,6 +17,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { getGrowthDashboard, moodCheckin, getJourneyEvents, ApiError } from '../services/api';
+import { trackFunnelOnce } from '../services/funnel';
 import { isFirstReadUnseen, loadFirstReadCard } from '../services/firstRead';
 import { settingsRepo } from '../services/db/settingsRepository';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
@@ -118,6 +119,9 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     try {
       setCheckingIn(true);
       const res = await moodCheckin(emoji);
+      // 漏斗第三段：PRD 的 D1 节点。客户端拿不到注册日（UserProfile 无 created_at，
+      // types/index.ts:342-358），所以口径取「本设备首次签到成功」，由门闸保证只报一次。
+      void trackFunnelOnce('first_checkin');
       // 本地立即更新：标记今日已签到 + 刷新 streak
       setDashboard((prev) =>
         prev

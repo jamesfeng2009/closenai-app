@@ -20,6 +20,7 @@ import {
 import type {
   GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
+import { trackFunnelShare } from '../services/funnel';
 import { useAuth } from '../context/AuthContext';
 import ShareManifest from '../components/ShareManifest';
 import { useTranslation } from 'react-i18next';
@@ -151,7 +152,11 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
       report.share_url,
     ].filter(Boolean).join('\n\n');
     try {
-      await Share.share({ message: text });
+      trackFunnelShare('share_tapped', 'period_report');
+      const res = await Share.share({ message: text });
+      if (res.action === Share.sharedAction) {
+        trackFunnelShare('share_completed', 'period_report');
+      }
     } catch {
       // 用户取消分享不提示
     }

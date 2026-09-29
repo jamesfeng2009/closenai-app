@@ -13,6 +13,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { getPersonalityCard, ApiError } from '../services/api';
+import { trackFunnelShare } from '../services/funnel';
 import ShareManifest from '../components/ShareManifest';
 import type { PersonalityCard, ShareCardVariant } from '../types';
 import { useTranslation } from 'react-i18next';
@@ -66,7 +67,11 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
   const onShare = async () => {
     if (!card) return;
     try {
-      await Share.share({ message: card.share_text });
+      trackFunnelShare('share_tapped', 'personality_card');
+      const res = await Share.share({ message: card.share_text });
+      if (res.action === Share.sharedAction) {
+        trackFunnelShare('share_completed', 'personality_card');
+      }
     } catch {
       // 用户取消分享不提示
     }

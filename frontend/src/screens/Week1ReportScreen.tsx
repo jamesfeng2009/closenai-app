@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { acknowledgeJourneyEvent, getJourneyEvents } from '../services/api';
 import { getAckPending, getReport, getTimeline } from '../config/journey';
+import { trackFunnelOnce } from '../services/funnel';
 import type { JourneyEvent } from '../types';
 
 export default function Week1ReportScreen({ navigation }: { navigation: any }) {
@@ -43,6 +44,11 @@ export default function Week1ReportScreen({ navigation }: { navigation: any }) {
 
   const report = getReport(events);
   const timeline = getTimeline(events);
+
+  // 漏斗第四段：报告确实投递到了才计数（pending/skipped 的空态不算看到过）
+  useEffect(() => {
+    if (report) void trackFunnelOnce('week1_report_opened');
+  }, [report]);
 
   if (loading) {
     return (

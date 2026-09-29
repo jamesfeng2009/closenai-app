@@ -25,6 +25,7 @@ import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { chatRepo } from '../services/db/chatRepository';
 import { aiMessagesRepo } from '../services/db/aiMessagesRepository';
 import { track } from '../services/analytics';
+import { trackFunnelOnce } from '../services/funnel';
 import type { MemoryRef, MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -249,6 +250,8 @@ export default function ReflectScreen() {
     setIsStreaming(true);
     // 行为事件：用户发送对话（仅行为元数据，无内容）
     track('chat_message_sent', { feature: 'chat', action: 'send' });
+    // 漏斗第二段：本设备第一条书写记录（trackFunnelOnce 内部门闸，只报一次）
+    if (messages.length === 0) void trackFunnelOnce('first_record_created');
 
     cancelStreamRef.current = streamChat(
       { content: text, message_type: 'reply' },
