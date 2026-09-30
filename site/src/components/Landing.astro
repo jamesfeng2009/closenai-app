@@ -42,7 +42,7 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
     <div class="nav-right">
       <a class="lang-link" href={other} hreflang={lang === 'zh' ? 'en' : 'zh'}>{otherLabel}</a>
       <!-- K4：App Store 上架后把 href 换成真实链接（tasks.md K4） -->
-      <a class="btn-store" href="#download">{icon('download')}<span>{t.nav.get}</span></a>
+      <a class="btn-store" href="#download"><Fragment set:html={icon('download')} /><span>{t.nav.get}</span></a>
     </div>
   </div>
 </nav>
@@ -54,7 +54,7 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
       <h1 set:html={t.hero.h1Html} />
       <p class="hero-sub">{t.hero.sub}</p>
       <div class="cta-row">
-        <a class="btn-primary" href="#download">{icon('download')}<span>{t.hero.cta1}</span></a>
+        <a class="btn-primary" href="#download"><Fragment set:html={icon('download')} /><span>{t.hero.cta1}</span></a>
         <a class="btn-ghost" href="#memory">{t.hero.cta2}</a>
       </div>
       <p class="hero-note">{t.hero.note}</p>
@@ -66,7 +66,7 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
           <div class="msg ai">{t.mock.ai1}</div>
           <div class="msg me">{t.mock.me1}</div>
           <div class="msg ai">{t.mock.ai2}</div>
-          <div class="mem-chip">{icon('brain')}<span>{t.mock.chip1}</span></div>
+          <div class="mem-chip"><Fragment set:html={icon('brain')} /><span>{t.mock.chip1}</span></div>
           <div class="mem-list">
             <div class="mem-item"><i></i><span>{t.mock.mem1}</span><span class="when">Apr 12</span></div>
             <div class="mem-item"><i></i><span>{t.mock.mem2}</span><span class="when">Apr 7</span></div>
@@ -165,7 +165,7 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
     <div class="faq-list reveal">
       {t.faq.items.map((item) => (
         <details>
-          <summary><span>{item.q}</span>{icon('plus')}</summary>
+          <summary><span>{item.q}</span><Fragment set:html={icon('plus')} /></summary>
           <div class="ans">{item.a}</div>
         </details>
       ))}
@@ -178,7 +178,7 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
     <span class="kicker">{t.fin.kicker}</span>
     <h2>{t.fin.h2}</h2>
     <div class="cta-row" style="justify-content:center;margin-top:34px">
-      <a class="btn-primary" href="#" rel="noopener">{icon('download')}<span>{t.fin.cta}</span></a>
+      <a class="btn-primary" href="#" rel="noopener"><Fragment set:html={icon('download')} /><span>{t.fin.cta}</span></a>
     </div>
     <p class="hero-note">{t.fin.note}</p>
   </div>
