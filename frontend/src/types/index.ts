@@ -143,6 +143,8 @@ export interface GrowthDashboard {
   mbti_type: string | null;
   milestones: MilestoneItem[];
   streak_freeze_count: number;
+  /** 洞察分级呈现（§5.20）：免费态模糊 + 解锁角标；旧缓存缺省按免费 */
+  is_pro?: boolean;
 }
 
 export interface WeeklyInsight {

@@ -25,14 +25,14 @@ const resource = {
     "unknown": "Lỗi không xác định",
     "requestFailed": "Yêu cầu thất bại",
     "httpFailed": "Yêu cầu thất bại (HTTP {{status}})",
-    "checkinFailed": "Check-in thất bại. Vui lòng thử lại sau.",
-    "saveFailed": "Lưu thất bại. Vui lòng thử lại sau.",
-    "deleteFailed": "Xóa thất bại. Vui lòng thử lại sau.",
-    "refreshFailed": "Làm mới thất bại. Vui lòng thử lại sau.",
-    "submitFailed": "Gửi đi thất bại. Vui lòng thử lại sau.",
+    "checkinFailed": "Không check-in được. Vui lòng thử lại sau.",
+    "saveFailed": "Không lưu được. Vui lòng thử lại sau.",
+    "deleteFailed": "Không xóa được. Vui lòng thử lại sau.",
+    "refreshFailed": "Không làm mới được. Vui lòng thử lại sau.",
+    "submitFailed": "Không gửi được. Vui lòng thử lại sau.",
     "sessionExpired": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
     "sendCodeFailed": "Không gửi được mã xác minh. Vui lòng thử lại.",
-    "appleFailed": "Đăng nhập với Apple thất bại. Vui lòng thử lại",
+    "appleFailed": "Không đăng nhập được với Apple. Vui lòng thử lại",
     "crashTitle": "Không mở được trang này",
     "crashBody": "Đã xảy ra sự cố, nhưng các bản ghi của bạn vẫn an toàn. Thoát rồi vào lại thường là khắc phục được.",
     "crashRetry": "Thử lại lần nữa"
@@ -55,7 +55,7 @@ const resource = {
     "statsDay": "Ngày bên nhau",
     "statsChats": "Cuộc trò chuyện",
     "statsMoments": "Khoảnh khắc chung",
-    "toNextLevel": "Còn {{days}} ngày hoạt động nữa để lên cấp kế tiếp",
+    "toNextLevel_other": "Còn {{days}} ngày hoạt động nữa để lên cấp kế tiếp",
     "maxLevel": "Đã đạt cấp cao nhất",
     "unlocksTitle": "Những khả năng đã mở khóa",
     "rewardTitle": "Điều gắn kết hai ta",
@@ -66,7 +66,7 @@ const resource = {
     "dayMood": "Tâm trạng",
     "dayInsight": "Thông tin chi tiết",
     "dayBadges": "Huy hiệu",
-    "dayChats": "{{count}} tin nhắn",
+    "dayChats_other": "{{count}} tin nhắn",
     "dayEmpty": "Ngày này chưa có bản ghi nào",
     "badgeLocked": "Chưa mở khóa",
     "badgeUnlockedAt": "Đã mở khóa vào {{date}}",
@@ -124,8 +124,9 @@ const resource = {
     "yesterday": "Bản ghi Hôm qua",
     "personality": "Tính cách",
     "personalityDesc": "được khám phá trong 7 ngày",
+    "revealUnlocked": "Đã mở khóa phân tích sắc nét",
     "streakFreeze": "vé đóng băng",
-    "milestoneStreak": "{{days}} ngày"
+    "milestoneStreak_other": "{{days}} ngày"
   },
   "explore": {
     "title": "Khám phá",
@@ -148,7 +149,7 @@ const resource = {
     "observations": "Quan sát của AI",
     "uniqueTraits": "Đặc điểm Độc đáo",
     "refresh": "Làm mới Hồ sơ",
-    "quotaLeft": "Còn {{count}} lần",
+    "quotaLeft_other": "Còn {{count}} lần",
     "assessmentTitle": "Đánh giá qua trò chuyện",
     "assessmentDesc": "8 câu hỏi tình huống, không có đáp án đúng — AI ghép câu trả lời của bạn với những đoạn trò chuyện gần đây để dựng hồ sơ",
     "assessmentStart": "Bắt đầu đánh giá",
@@ -157,7 +158,7 @@ const resource = {
     "assessmentProgress": "Câu hỏi {{index}} trên {{total}}",
     "assessmentInputPlaceholder": "Hoặc trả lời theo cách của riêng bạn…",
     "assessmentSend": "Gửi",
-    "enneagramLabel": "9 Kiểu Tính Cách",
+    "enneagramLabel": "Enneagram",
     "comboTitle": "Báo cáo Kết hợp",
     "comboDesc": "Đọc chéo 16 kiểu tính cách × Enneagram (chỉ dành cho Pro, 1 báo cáo mỗi tháng)",
     "comboGenerate": "Tạo báo cáo kết hợp",
@@ -167,11 +168,11 @@ const resource = {
     "profileReady": "Hồ sơ đã sẵn sàng",
     "signalsTitle": "Tín hiệu theo chiều tính cách",
     "signalsEmpty": "Cứ tiếp tục trò chuyện — AI sẽ dần quan sát thấy xu hướng ở từng chiều của bạn.",
-    "signalsCount": "Đã thu thập {{count}} tín hiệu",
-    "stageEta": "Còn khoảng {{days}} ngày nữa là hoàn tất hồ sơ của bạn",
+    "signalsCount_other": "Đã thu thập {{count}} tín hiệu",
+    "stageEta_other": "Còn khoảng {{days}} ngày nữa là hoàn tất hồ sơ của bạn",
     "guidanceText": "Cứ trò chuyện với mình nhé — càng nói chuyện, mình càng hiểu bạn.",
     "guidanceCta": "Trò chuyện ngay",
-    "enneagramTitle": "9 Kiểu Tính Cách",
+    "enneagramTitle": "Enneagram",
     "enneagramDesc": "36 câu hỏi dạng phát biểu, bạn có thể tạm dừng và tiếp tục bất cứ lúc nào — hoàn tất để mở khóa kiểu Enneagram của mình.",
     "enneagramProgress": "Đã trả lời {{index}}/{{total}} câu",
     "enneagramStart": "Bắt đầu",
@@ -183,10 +184,10 @@ const resource = {
     "backToOverview": "Quay lại tổng quan"
   },
   "mbti": {
-    "INTP": "Nhà logic học", "INTJ": "Nhà kiến tạo", "ENTP": "Nhà tranh biện", "ENTJ": "Nhà chỉ huy",
+    "INTP": "Nhà logic học", "INTJ": "Nhà kiến trúc sư", "ENTP": "Nhà tranh biện", "ENTJ": "Nhà chỉ huy",
     "INFP": "Người hòa giải", "INFJ": "Người biện hộ", "ENFP": "Nhà truyền cảm hứng", "ENFJ": "Người dẫn dắt",
     "ISTP": "Nghệ nhân", "ISFJ": "Người bảo vệ", "ESTP": "Nhà kinh doanh", "ESFJ": "Nhà ngoại giao",
-    "ISTJ": "Nhà tổ chức", "ISFP": "Nhà thám hiểm", "ESTJ": "Nhà quản trị", "ESFP": "Người biểu diễn"
+    "ISTJ": "Nhà tổ chức", "ISFP": "Nhà mạo hiểm", "ESTJ": "Nhà quản trị", "ESFP": "Người biểu diễn"
   },
   "paywall": {
     "autoRenewNote": "Gói đăng ký sẽ tự động gia hạn cho đến khi bạn hủy trong phần cài đặt đăng ký trên App Store. Phí được trừ vào tài khoản Apple của bạn trong vòng 24 giờ trước khi kết thúc chu kỳ hiện tại.",
@@ -209,6 +210,10 @@ const resource = {
     "featurePersonalityRefresh": "Thêm lượt làm mới tính cách",
     "featureTimeline": "Dòng thời gian phát triển 365 ngày",
     "trialBadge": "Đang dùng thử",
+    "trialButton": "Bắt đầu dùng thử miễn phí {{days}} ngày",
+    "trialThen": "Sau dùng thử, {{price}}",
+    "compareTitle": "Thấy sự khác biệt",
+    "compareSample": "Năm ngày liên tiếp ghi chép khuya — đêm bạn viết thành thật hơn.",
     "timeoutPending": "Mua hàng đã hết thời gian nhưng có thể vẫn đang được xử lý. Nếu bạn đã bị tính phí, hãy nhấn Khôi phục mua hàng.",
     "productsUnavailable": "Không có sản phẩm nào. Vui lòng thử lại sau.",
     "planPro": "Pro",
@@ -217,7 +222,7 @@ const resource = {
     "periodYearly": "Hàng năm",
     "saveBadge": "Tiết kiệm ~{{percent}}%",
     "planUpgrade": "Nâng cấp",
-    "planDowngrade": "Hạ cấp",
+    "planDowngrade": "Hạ gói",
     "plusFeatureAllPro": "Mọi quyền lợi của Pro",
     "plusFeatureChat": "100 cuộc trò chuyện AI mỗi ngày",
     "plusFeatureRefresh": "Không giới hạn lượt làm mới hồ sơ tính cách",
@@ -257,7 +262,7 @@ const resource = {
     "framework": "Khung tính cách chính",
     "frameworkOption": {
       "mbti": "16 kiểu tính cách",
-      "enneagram": "9 kiểu tính cách"
+      "enneagram": "Enneagram"
     },
     "activeTime": "Thởi gian Tin nhắn Chủ động",
     "pushTimeTitle": "Chọn giờ gửi tin nhắn chủ động",
@@ -291,7 +296,7 @@ const resource = {
     "sharingBoth": "AI xử lý + phân tích ẩn danh",
     "sharingAiOnly": "Chỉ đồng ý cho AI xử lý",
     "sharingAnalyticsOnly": "Chỉ đồng ý phân tích ẩn danh",
-    "sharingNone": "Chưa đồng ý cả hai",
+    "sharingNone": "Không đồng ý cả hai",
     "analyticsRow": "Phân tích sử dụng ẩn danh",
     "analyticsHint": "Chỉ số lượt dùng trang và tính năng được gửi đi — tuyệt đối không gồm nội dung bạn viết, hội thoại hay ký ức của bạn.",
     "analyticsErased": "Đã ngừng gửi báo cáo và xóa dữ liệu phân tích trước đó.",
@@ -333,7 +338,7 @@ const resource = {
     "km": "ខ្មែរ"
   },
   "onboarding": {
-    "finishFailed": "Mình chưa lưu được các câu trả lời trong phần hướng dẫn. Hãy kiểm tra kết nối và thử lại.",
+    "finishFailed": "Không lưu được các câu trả lời trong phần hướng dẫn. Hãy kiểm tra kết nối và thử lại.",
     "step1Tagline": "Nó ghi nhớ mọi điều bạn kể",
     "step1Feature1Title": "Nó ghi nhớ bạn",
     "step1Feature1Desc": "Mỗi lần ghi chép và trò chuyện giúp nó hiểu bạn hơn",
@@ -427,6 +432,8 @@ const resource = {
     "statEntries": "{{n}} dòng ghi",
     "statCheckins": "{{n}} ngày check-in",
     "evidenceNote": "Trích dẫn chỉ lấy từ dòng bạn đã viết; quan sát thống kê không bịa trích dẫn.",
+    "trialTail": "Sau khi dùng thử kết thúc, những mô hình này sẽ tiếp tục lớn lên.",
+    "trialUpgradeBtn": "Mở khóa toàn bộ phân tích sắc nét",
     "timelineTitle": "Kịch bản của tuần",
     "day": {
       "day0_read": "Ngày 0 · Đọc lần đầu",
@@ -450,18 +457,22 @@ const resource = {
     "empty": "Chưa có hồ sơ tính cách nào để làm thẻ. Hãy hoàn thành thẻ đọc đầu hoặc một bài đánh giá trước.",
     "cardTitle": "Thẻ Tính cách",
     "cardEntry": "Tạo thẻ tính cách",
-    "classic": "Đầy đủ",
+    "classic": "Kinh điển",
     "minimal": "Tối giản",
     "combo": "Kết hợp",
     "shareBtn": "Chia sẻ thẻ",
-    "streak": "Chuỗi {{count}} ngày",
+    "streak_other": "Chuỗi {{count}} ngày",
     "proGateTitle": "Thẻ Pro",
     "proGateMessage": "Thẻ kết hợp ghép hai khung 16 kiểu tính cách và Enneagram. Đây là quyền lợi của Pro, sẽ mở khóa khi bạn nâng cấp.",
     "upgrade": "Nâng cấp"
   },
   "insights": {
+    "unlockHd": "Mở khóa HD",
+    "patternPreview": "Các mô típ lặp lại đang hiện ra từ hội thoại của bạn — mở khóa bản phân tích HD đầy đủ.",
+    "heatmapFullYear": "Xem cả năm",
+    "heatmap90": "90 ngày gần nhất",
     "weeklyTitle": "Thông tin chi tiết hằng tuần",
-    "weeklyEmpty": "Hãy ghi lại tâm trạng và trò chuyện vài ngày — bản tổng kết hằng tuần sẽ có vào cuối tuần.",
+    "weeklyEmpty": "Hãy ghi lại tâm trạng và trò chuyện vài ngày — thông tin chi tiết hằng tuần sẽ có vào cuối tuần.",
     "messagesTitle": "Tin nhắn từ AI",
     "messagesDesc": "Các phát hiện mỗi ngày giờ được gửi dưới dạng tin nhắn AI — chạm để xem lịch sử",
     "patternTitle": "Phát hiện quy luật",
@@ -475,7 +486,7 @@ const resource = {
     "proTitle": "Báo cáo Pro",
     "proMessage": "Báo cáo hằng tháng, hằng quý và hằng năm là quyền lợi của Pro. Hãy nâng cấp để mở khóa.",
     "upgrade": "Nâng cấp",
-    "chatCount": "{{count}} cuộc trò chuyện",
+    "chatCount_other": "{{count}} cuộc trò chuyện",
     "shareReport": "Chia sẻ báo cáo",
     "timelineTitle": "Bản đồ nhiệt cả năm"
   },
@@ -532,7 +543,7 @@ const resource = {
     "terms": "Điều khoản Dịch vụ",
     "openFailed": "Không mở được liên kết. Vui lòng thử lại sau.",
     "sectionData": "Dữ liệu của bạn",
-    "consentStatus": "Sự đồng ý chia sẻ dữ liệu cho AI",
+    "consentStatus": "Đồng ý chia sẻ dữ liệu cho AI",
     "consentReadonlyHint": "Để thay đổi lựa chọn, hãy vào Hồ sơ → Cài đặt chia sẻ dữ liệu.",
     "deletionTitle": "Xóa dữ liệu",
     "deletionDesc": "Bạn có thể xóa vĩnh viễn tài khoản và toàn bộ dữ liệu (hội thoại, ký ức, lượt check-in, bản ghi phát triển) bất cứ lúc nào trong Hồ sơ → Xóa tài khoản. Hành động này không thể hoàn tác."
@@ -552,7 +563,7 @@ const resource = {
     "faqContactQ": "Báo lỗi hoặc gửi góp ý ở đâu?",
     "faqContactA": "Hãy gửi email cho chúng tôi bất cứ lúc nào theo địa chỉ bên dưới. Chúng tôi thường phản hồi trong vòng 2 ngày làm việc.",
     "contact": "Liên hệ với chúng tôi",
-    "mailFailed": "Không mở được ứng dụng mail. Vui lòng gửi email cho chúng tôi tới {{email}}."
+    "mailFailed": "Không mở được ứng dụng email. Vui lòng gửi email cho chúng tôi tới {{email}}."
   }
 };
 

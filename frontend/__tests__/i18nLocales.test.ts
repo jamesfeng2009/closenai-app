@@ -32,6 +32,33 @@ const tables: Record<string, Record<string, string>> = Object.fromEntries(
 );
 
 /**
+ * 复数形态键（P0-2）：count 驱动 i18next 的 CLDR 类别选择。
+ * 这 8 个键拆成 `_one`/`_few`/`_many`/`_other` 变体后，扁平键名因语言而异
+ * （zh 只有 `_other`，ru 有四档），键集断言必须按逻辑键归一，否则全红。
+ */
+const PLURAL_KEYS = new Set([
+  'relationship.toNextLevel',
+  'relationship.dayChats',
+  'home.milestoneStreak',
+  'personality.quotaLeft',
+  'personality.signalsCount',
+  'personality.stageEta',
+  'share.streak',
+  'insights.chatCount',
+]);
+
+const PLURAL_SUFFIXES = ['one', 'two', 'few', 'many', 'other'];
+
+function pluralLogicalKey(key: string): string {
+  const idx = key.lastIndexOf('_');
+  if (idx < 0) return key;
+  const suffix = key.slice(idx + 1);
+  if (!PLURAL_SUFFIXES.includes(suffix)) return key;
+  const base = key.slice(0, idx);
+  return PLURAL_KEYS.has(base) ? base : key;
+}
+
+/**
  * 允许与英文同字的键：品牌与套餐名、语言自称呼（enonyms 一律不译）、
  * 纯格式串、厂商名。逐条给理由，防止这张表变成懒人兜底区。
  */
@@ -44,13 +71,45 @@ const SHARED_BY_DESIGN = [
   /^demo\.personaName$/, // 演示角色名（罗马字）
 ];
 
-/** 与英文拼写完全撞车的同形词：不是漏翻，是该语言本来就这么写。 */
+/**
+ * 与英文拼写完全撞车的同形词：不是漏翻，是该语言本来就这么写。
+ *
+ * 这张表在 2026-09-30 的母语审校轮（L2）里补全过：13 个语言逐键复核后，
+ * 审校认定「该用英文原词」的都进了这里，理由逐条写死——
+ * 主要是 Enneagram / Insight / Combo / FAQ / Password 这类 app 界面通用借词，
+ * 以及 16personalities 官方译名本身就是拉丁词（id 的 Virtuoso）。
+ * 下面的「不许留死条目」用例保证：此刻仍逐字同英文才算数。
+ */
 const HOMOGRAPHS: Record<string, string[]> = {
-  es: ['home.social', 'reflect.aiError'],
-  pt: ['home.social'],
-  fr: ['home.social', 'home.stress'],
-  de: ['home.details', 'home.stress'],
-  it: ['home.stress'],
+  es: ['home.social', 'reflect.aiError', 'relationship.dayInsight'], // 界面同款词 Insight
+  pt: ['home.social', 'share.combo'], // Combo 是葡语正字，不是漏翻
+  fr: [
+    'home.social',
+    'home.stress',
+    'relationship.badgesTitle',
+    'relationship.dayBadges',
+    'personality.enneagramResult',
+    'insights.chatCount_one',
+    'insights.chatCount_other',
+  ], // Badges / Type / conversations 均为法语 app 常规写法
+  de: ['home.details', 'home.stress', 'share.combo', 'help.sectionFaq'],
+  it: ['home.stress', 'relationship.dayInsight', 'auth.password'], // Password / Insight 意大利语直接借用
+  id: ['personality.enneagramTitle', 'profile.frameworkOption.enneagram', 'mbti.ISTP'], // Virtuoso 是 16P 印尼语官方译名
+  ms: [
+    'personality.enneagramLabel',
+    'personality.enneagramTitle',
+    'profile.frameworkOption.enneagram',
+  ],
+  vi: [
+    'personality.enneagramLabel',
+    'personality.enneagramTitle',
+    'profile.frameworkOption.enneagram',
+  ],
+  km: [
+    'personality.enneagramLabel',
+    'personality.enneagramTitle',
+    'profile.frameworkOption.enneagram',
+  ],
 };
 
 function isSharedByDesign(key: string): boolean {
@@ -66,9 +125,11 @@ describe('15 语言文案表与英文源表同构', () => {
     expect(LANGUAGES).toHaveLength(14);
   });
 
-  it.each(LANGUAGES)('%s：键集合与 en 完全一致（漏键会静默回退成英文）', (lng) => {
+  it.each(LANGUAGES)('%s：键集合与 en 完全一致（漏键会静默回退成英文；复数键按逻辑键归一去重）', (lng) => {
     const table = tables[lng];
-    expect(Object.keys(table).sort()).toEqual(Object.keys(en).sort());
+    const logical = (tbl: Record<string, string>): string[] =>
+      [...new Set(Object.keys(tbl).map(pluralLogicalKey))].sort();
+    expect(logical(table)).toEqual(logical(en));
   });
 
   it.each(LANGUAGES)('%s：每个值都是非空字符串', (lng) => {
@@ -78,9 +139,17 @@ describe('15 语言文案表与英文源表同构', () => {
     }
   });
 
-  it.each(LANGUAGES)('%s：{{占位符}}名称与个数逐键相等（少一个就是运行时渲染出裸花括号）', (lng) => {
-    const bad = Object.keys(en).filter(
-      (k) => k in tables[lng] && placeholders(tables[lng][k]).join(',') !== placeholders(en[k]).join(',')
+  it.each(LANGUAGES)('%s：{{占位符}}名称与个数逐键相等（复数键按逻辑键聚合；少一个就是运行时渲染出裸花括号）', (lng) => {
+    const table = tables[lng];
+    const unionFor = (tbl: Record<string, string>, logicalKey: string): string[] => [
+      ...new Set(
+        Object.keys(tbl)
+          .filter((k) => pluralLogicalKey(k) === logicalKey)
+          .flatMap((k) => placeholders(tbl[k]))
+      ),
+    ].sort();
+    const bad = [...new Set(Object.keys(en).map(pluralLogicalKey))].filter(
+      (logicalKey) => unionFor(en, logicalKey).join(',') !== unionFor(table, logicalKey).join(',')
     );
     expect(bad).toEqual([]);
   });
@@ -90,6 +159,34 @@ describe('15 语言文案表与英文源表同构', () => {
       (k) => k in tables[lng] && (tables[lng][k].match(/\n/g) ?? []).length !== (en[k].match(/\n/g) ?? []).length
     );
     expect(bad).toEqual([]);
+  });
+});
+
+describe('复数键的 CLDR 类别齐备（P0-2）', () => {
+  // i18next v23 按 Intl.PluralRules 选类别，解析链只有 [基础键, 命中类别键] 两级——
+  // 命中类别缺键时不会回退到 _other，而是裸键名直出。所以每个语言必须备齐
+  // 自己的全部类别：en/de/es/fr/it/pt = one+other；ru = one/few/many/other；
+  // zh/ja/ko/th/vi/km/id/ms（CLDR 单形态语言）= 仅 other。
+  const CATEGORIES: Record<string, string[]> = {
+    en: ['one', 'other'],
+    de: ['one', 'other'],
+    es: ['one', 'other'],
+    fr: ['one', 'other'],
+    it: ['one', 'other'],
+    pt: ['one', 'other'],
+    ru: ['one', 'few', 'many', 'other'],
+  };
+  const allTables: Record<string, Record<string, string>> = { en, ...tables };
+
+  it.each(Object.keys(allTables))('%s：8 个复数键的变体键恰好等于该语言的类别集（缺档=裸键名，多档=死键）', (lng) => {
+    const table = allTables[lng];
+    for (const base of PLURAL_KEYS) {
+      const present = Object.keys(table).filter(
+        (k) => k.startsWith(`${base}_`) && PLURAL_SUFFIXES.includes(k.slice(base.length + 1))
+      );
+      const expected = (CATEGORIES[lng] ?? ['other']).map((c) => `${base}_${c}`);
+      expect(present.sort()).toEqual(expected.sort());
+    }
   });
 });
 
@@ -125,9 +222,12 @@ describe('非拉丁文字语言必须真的落成该文字', () => {
     ru: /[\u0400-\u04ff]/,
   };
 
-  it.each(Object.entries(SCRIPTS))('%s：每个值都含目标文字（同字白名单除外）', (lng, re) => {
+  it.each(Object.entries(SCRIPTS))('%s：每个值都含该语言文字（同形词豁免除外）', (lng, re) => {
+    // Enneagram / Insight 这类借词按审校认定就该写拉丁文，所以两道闸共用同一张豁免表，
+    // 免得「不许与英文同字」和「必须含本文字」互相把借词逼成生造词。
+    const allowed = new Set(HOMOGRAPHS[lng] ?? []);
     const missing = Object.keys(en).filter(
-      (k) => k in tables[lng] && !isSharedByDesign(k) && !re.test(tables[lng][k])
+      (k) => k in tables[lng] && !isSharedByDesign(k) && !allowed.has(k) && !re.test(tables[lng][k])
     );
     expect(missing).toEqual([]);
   });

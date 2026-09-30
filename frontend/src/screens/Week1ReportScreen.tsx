@@ -12,7 +12,9 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
-import { acknowledgeJourneyEvent, getJourneyEvents } from '../services/api';
+import {
+  acknowledgeJourneyEvent, getJourneyEvents, getSubscriptionStatus,
+} from '../services/api';
 import { getAckPending, getReport, getTimeline } from '../config/journey';
 import { trackFunnelOnce } from '../services/funnel';
 import type { JourneyEvent } from '../types';
@@ -21,14 +23,20 @@ export default function Week1ReportScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const [events, setEvents] = useState<JourneyEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  // F2 · PRD §5.21 D7 触点：试用用户在报告尾部看到「模式继续生长」+ 升级入口
+  const [isTrial, setIsTrial] = useState(false);
 
   useEffect(() => {
     let stale = false;
     (async () => {
       try {
-        const data = await getJourneyEvents();
+        const [data, sub] = await Promise.all([
+          getJourneyEvents(),
+          getSubscriptionStatus().catch(() => null),
+        ]);
         if (stale) return;
         setEvents(data.events);
+        setIsTrial(!!sub?.is_trial && !!sub?.is_active);
         // 打开即消费红点：已投递但未回执的剧本事件逐条回执
         await Promise.all(
           getAckPending(data.events).map((e) => acknowledgeJourneyEvent(e.id).catch(() => null)),
@@ -119,6 +127,19 @@ export default function Week1ReportScreen({ navigation }: { navigation: any }) {
         </View>
       ))}
 
+      {/* F2 · PRD §5.21 D7：试用用户尾部正向提示 + 升级入口（不倒计时、不恐吓） */}
+      {isTrial && (
+        <>
+          <Text style={styles.trialTail}>{t('journey.trialTail')}</Text>
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            onPress={() => navigation.navigate('Paywall')}
+          >
+            <Text style={styles.primaryBtnText}>{t('journey.trialUpgradeBtn')}</Text>
+          </TouchableOpacity>
+        </>
+      )}
+
       <TouchableOpacity
         style={styles.primaryBtn}
         onPress={() => navigation.navigate('Tabs', { screen: 'Reflect' })}
@@ -172,6 +193,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14, alignItems: 'center', marginTop: Spacing.xl,
   },
   primaryBtnText: { fontSize: FontSize.xl, fontWeight: '700', color: '#050508' },
+  // 试用尾部提示（F2）：正向口径「模式继续生长」，弱化交易感
+  trialTail: {
+    fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 22,
+    textAlign: 'center', marginTop: Spacing.xl,
+  },
   emptyWrap: { paddingTop: 80, paddingHorizontal: Spacing.xl },
   emptyText: {
     fontSize: FontSize.md, color: Colors.textSecondary, textAlign: 'center', marginBottom: Spacing.xl,

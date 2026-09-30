@@ -18,11 +18,13 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Linking,
 } from 'react-native';
 import type { Product, Subscription } from 'react-native-iap';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { ARCHIVE_SCOPES, isScopeOwned } from '../config/archive';
 import { PRIVACY_POLICY_URL, TERMS_URL } from '../config/links';
 import { getEntitlements, getSubscriptionStatus, ApiError } from '../services/api';
+import { parseIntroTrialOffer } from '../services/introOffer';
 import {
   getLifeArchiveProducts, getProducts, initIAP, isUserCancelled, purchaseLifeArchive,
   purchaseSubscription, restorePurchases,
@@ -191,6 +193,9 @@ export default function PaywallScreen() {
 
   const selectedSku = SKU_MAP[selectedTier][selectedPeriod];
   const selectedPrice = localizedPrice(selectedSku);
+  // F2 · PRD §5.21：选中 SKU 带 7 天免费试用 intro offer 且用户免费时，主按钮切试用文案
+  const introDays = parseIntroTrialOffer(findProduct(selectedSku))?.days ?? null;
+  const showTrialIntro = currentTier === 'free' && introDays !== null;
   // 已订阅且选中的正是当前生效 SKU：按钮置为"当前方案"并禁用（重复购买无意义）。
   const isCurrentPlan = !!status?.is_active && status.product_id === selectedSku;
   // 订阅与档案买断共用 busy 语义：任一流程进行中时两条链路都禁用，避免并发交易互相覆盖 listener。
@@ -433,6 +438,32 @@ export default function PaywallScreen() {
         ))}
       </View>
 
+      {/* 免费 vs Pro 对比区块（F2 · PRD §5.20 划入：左模糊右高清，免费用户可见） */}
+      {!isPro && (
+        <View style={styles.compareCard}>
+          <Text style={styles.compareTitle}>{t('paywall.compareTitle')}</Text>
+          <View style={styles.compareRow}>
+            <View style={styles.compareCol}>
+              <Text style={styles.compareColLabel}>Free</Text>
+              <View style={styles.compareSampleBox}>
+                <Text style={styles.compareSample}>{t('paywall.compareSample')}</Text>
+                <BlurView intensity={30} tint="dark" style={styles.compareBlur}>
+                  <Text style={styles.compareLock}>🔒 {t('insights.unlockHd')}</Text>
+                </BlurView>
+              </View>
+            </View>
+            <View style={[styles.compareCol, styles.compareColPro]}>
+              <Text style={[styles.compareColLabel, styles.compareColLabelPro]}>Pro</Text>
+              <View style={[styles.compareSampleBox, styles.compareSampleBoxPro]}>
+                <Text style={[styles.compareSample, styles.compareSamplePro]}>
+                  {t('paywall.compareSample')}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* 订阅按钮（购买前展示本地化价格，App Store 合规；价格缺失时禁用，防止无价格购买） */}
       <TouchableOpacity
         style={[styles.subscribeBtn, !canPurchase && styles.subscribeBtnDisabled]}
@@ -444,10 +475,16 @@ export default function PaywallScreen() {
         ) : (
           <>
             <Text style={styles.subscribeText}>
-              {isCurrentPlan ? t('paywall.currentPlan') : t('paywall.subscribe')}
+              {isCurrentPlan
+                ? t('paywall.currentPlan')
+                : showTrialIntro
+                  ? t('paywall.trialButton', { days: introDays })
+                  : t('paywall.subscribe')}
             </Text>
             {!!selectedPrice && !isCurrentPlan && (
-              <Text style={styles.priceText}>{selectedPrice}</Text>
+              <Text style={styles.priceText}>
+                {showTrialIntro ? t('paywall.trialThen', { price: selectedPrice }) : selectedPrice}
+              </Text>
             )}
           </>
         )}
@@ -615,6 +652,27 @@ const styles = StyleSheet.create({
   subscribeText: { fontSize: FontSize.title, fontWeight: '700', color: Colors.bgPrimary },
   subscribeBtnDisabled: { opacity: 0.6 },
   priceText: { fontSize: FontSize.md, color: Colors.bgPrimary, marginTop: 2, opacity: 0.85 },
+  // 免费 vs Pro 对比区块（F2）：左列模糊样张（BlurView 盖字 + 🔒），右列 Pro 高清全文
+  compareCard: {
+    alignSelf: 'stretch', marginTop: Spacing.lg, padding: Spacing.lg,
+    backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: Colors.borderLight,
+    borderRadius: BorderRadius.xl,
+  },
+  compareTitle: { fontSize: FontSize.title, fontWeight: '700', color: Colors.textPrimary },
+  compareRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
+  compareCol: { flex: 1 },
+  compareColPro: { borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: 'rgba(255,215,0,0.4)' },
+  compareColLabel: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textTertiary, marginBottom: 6 },
+  compareColLabelPro: { color: Colors.gold400 },
+  compareSampleBox: {
+    flex: 1, overflow: 'hidden', borderRadius: BorderRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.03)', padding: Spacing.md, minHeight: 96,
+  },
+  compareSampleBoxPro: { backgroundColor: 'rgba(255,215,0,0.06)' },
+  compareSample: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: 20 },
+  compareSamplePro: { color: Colors.textPrimary },
+  compareBlur: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  compareLock: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.gold400 },
   // 自动续订声明（3.1.2）：紧随订阅按钮，字号小但不可省略
   renewNote: {
     alignSelf: 'stretch', marginTop: Spacing.md,

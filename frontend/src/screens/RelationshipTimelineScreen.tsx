@@ -253,7 +253,7 @@ export default function RelationshipTimelineScreen() {
           </View>
           <Text style={styles.progressHint}>
             {current.days_to_next > 0
-              ? t('relationship.toNextLevel', { days: current.days_to_next })
+              ? t('relationship.toNextLevel', { days: current.days_to_next, count: current.days_to_next })
               : t('relationship.maxLevel')}
           </Text>
           {/* §5.15a 情感回报：等级页先讲"关系变了什么"，再列功能解锁 */}

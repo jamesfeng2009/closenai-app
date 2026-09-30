@@ -21,8 +21,15 @@ import type {
   GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
 import { trackFunnelShare } from '../services/funnel';
+import { memoriesWithinDays } from '../services/evidence';
+import type { MemoryRef } from '../types';
 import { useAuth } from '../context/AuthContext';
 import ShareManifest from '../components/ShareManifest';
+import InsightBlurGate from '../components/InsightBlurGate';
+import MoodLineChart from '../components/charts/MoodLineChart';
+import HeatGrid from '../components/charts/HeatGrid';
+import { isProTier } from '../services/insightTier';
+import type { ChartDay } from '../components/charts/transforms';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode 对齐
@@ -31,20 +38,21 @@ const CODE_PRO_REQUIRED = 40302;
 const PERIODS: SharePeriod[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
 const PRO_PERIODS: SharePeriod[] = ['monthly', 'quarterly', 'yearly'];
 
-// 热力图配色（与后端 MOOD_COLORS 同语义：1 低落 → 5 开心，0 无数据）
-const HEAT_COLORS: Record<number, string> = {
-  0: 'rgba(255,255,255,0.06)',
-  1: '#EF9A9A',
-  2: '#FFCC80',
-  3: '#FFF59D',
-  4: '#A5D6A7',
-  5: '#66BB6A',
-};
+// 热力图默认近 90 天（PRD Growth Timeline：13 周一行放得下），「查看全年」切 365 天
+const HEAT_DEFAULT_DAYS = 90;
+const HEAT_FULL_DAYS = 365;
+
+/** 按日期升序取最近 N 天（后端窗口顺序不做假设，本地排序保证折线/矩阵方向） */
+const recentDays = (days: { date: string; value: number }[], n: number): ChartDay[] =>
+  [...days].sort((a, b) => a.date.localeCompare(b.date)).slice(-n);
 
 export default function InsightsScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const { isLoggedIn } = useAuth();
   const [weekly, setWeekly] = useState<WeeklyInsight | null>(null);
+  // 周洞察的期间级依据（#34）：/growth/insights 不带引用 id，用 period 聚合当期记忆
+  const [weeklyRefs, setWeeklyRefs] = useState<MemoryRef[]>([]);
+  const [refsOpen, setRefsOpen] = useState(false);
   const [timeline, setTimeline] = useState<GrowthTimeline | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +61,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [report, setReport] = useState<ShareReport | null>(null);
   const [reportPeriod, setReportPeriod] = useState<SharePeriod | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  // E2：热力图默认近 90 天，「查看全年」展开 365 天（横向滑动）
+  const [heatFull, setHeatFull] = useState(false);
 
   // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
   // 游客态跳过请求（接口均需登录，游客必 401），展示空态
@@ -79,6 +89,11 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
       setWeekly(w);
       setTimeline(tl);
       setProfile(p);
+      // #34 期间级依据：周报正文在才聚合当期记忆；取不到就不显示这一栏
+      setRefsOpen(false);
+      setWeeklyRefs(
+        w?.content ? await memoriesWithinDays(7, w.period).catch(() => []) : []
+      );
     } finally {
       setLoading(false);
     }
@@ -88,7 +103,7 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     load();
   }, [load]);
 
-  const isPro = !!profile && profile.tier !== 'free';
+  const isPro = isProTier(profile?.tier);
 
   // Pro 权益门（月/季/年报）：前端先按 tier 拦截，后端 40302 兜底
   const showProAlert = () => {
@@ -102,9 +117,14 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     );
   };
 
-  // 模式发现：LLM 实时生成（有成本），点击触发而非自动加载
+  // 模式发现：LLM 实时生成（有成本），点击触发而非自动加载。
+  // 免费态不调 LLM（§5.20：模糊卡是「变清晰的邀请」，样张静态模板，不花生成成本）
   const onGeneratePattern = async () => {
     if (patternLoading) return;
+    if (!isPro) {
+      navigation.navigate('Paywall');
+      return;
+    }
     try {
       setPatternLoading(true);
       const res = await getPatternDiscovery();
@@ -182,6 +202,31 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
           <>
             {!!weekly.period && <Text style={styles.metaText}>{weekly.period}</Text>}
             <Text style={styles.bodyText}>{weekly.content}</Text>
+            {!!weeklyRefs.length && (
+              <>
+                <TouchableOpacity onPress={() => setRefsOpen((v) => !v)}>
+                  <Text style={styles.refsToggle}>
+                    {t('reflect.memoryRefs', {
+                      n: weeklyRefs.length,
+                      arrow: refsOpen ? '▲' : '▾',
+                    })}
+                  </Text>
+                </TouchableOpacity>
+                {refsOpen && (
+                  <>
+                    <Text style={styles.refsNote}>{t('journey.evidenceNote')}</Text>
+                    {weeklyRefs.map((r) => (
+                      <Text key={r.memory_id} style={styles.refsItem}>
+                        「{r.excerpt}」
+                        {r.created_at
+                          ? ` · ${new Date(r.created_at).toLocaleDateString()}`
+                          : ''}
+                      </Text>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
           </>
         ) : weeklyFailed ? (
           <View style={styles.failRow}>
@@ -210,12 +255,12 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         </View>
       </TouchableOpacity>
 
-      {/* 模式发现（点击触发，LLM 成本） */}
+      {/* 模式发现（Pro 高清；免费 = 模糊样张 + 解锁角标，不调 LLM） */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>🔍 {t('insights.patternTitle')}</Text>
         {pattern ? (
           <Text style={styles.bodyText}>{pattern}</Text>
-        ) : (
+        ) : isPro ? (
           <>
             <Text style={styles.emptyText}>{t('insights.patternDesc')}</Text>
             <TouchableOpacity
@@ -230,6 +275,10 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
               )}
             </TouchableOpacity>
           </>
+        ) : (
+          <InsightBlurGate locked onPressUnlock={() => navigation.navigate('Paywall')}>
+            <Text style={styles.bodyText}>{t('insights.patternPreview')}</Text>
+          </InsightBlurGate>
         )}
       </View>
 
@@ -282,18 +331,24 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         )}
       </View>
 
-      {/* 年度热力图（365 天情绪值） */}
+      {/* 情绪趋势 + 年度热力图（E2 SVG 图表；免费 = 模糊 + 解锁角标，聚合摘要保留在周报卡） */}
       {!!timeline?.days?.length && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>🗓️ {t('insights.timelineTitle')}</Text>
-          <View style={styles.heatGrid}>
-            {timeline.days.map((d) => (
-              <View
-                key={d.date}
-                style={[styles.heatDot, { backgroundColor: HEAT_COLORS[d.value] ?? HEAT_COLORS[0] }]}
-              />
-            ))}
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>🗓️ {t('insights.timelineTitle')}</Text>
+            <TouchableOpacity onPress={() => setHeatFull((v) => !v)}>
+              <Text style={styles.heatToggle}>
+                {heatFull ? t('insights.heatmap90') : t('insights.heatmapFullYear')}
+              </Text>
+            </TouchableOpacity>
           </View>
+          <InsightBlurGate locked={!isPro} onPressUnlock={() => navigation.navigate('Paywall')}>
+            {/* 近 7 天折线（X=日期，Y=情绪值；未签到断线不插值） */}
+            <MoodLineChart days={recentDays(timeline.days, 7)} width={340} height={56} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <HeatGrid days={recentDays(timeline.days, heatFull ? HEAT_FULL_DAYS : HEAT_DEFAULT_DAYS)} />
+            </ScrollView>
+          </InsightBlurGate>
         </View>
       )}
     </ScrollView>
@@ -315,6 +370,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(192,132,252,0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
   },
   metaText: { fontSize: FontSize.sm, color: Colors.textTertiary, marginBottom: Spacing.xs },
+  refsToggle: { fontSize: FontSize.sm, color: Colors.gold400, opacity: 0.8, marginTop: 6, lineHeight: 18 },
+  refsNote: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 6, lineHeight: 16 },
+  refsItem: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, fontStyle: 'italic',
+    lineHeight: 18, marginTop: 4, paddingLeft: 8,
+    borderLeftWidth: 2, borderLeftColor: 'rgba(255,215,0,0.25)',
+  },
   entryRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   entryBody: { flex: 1 },
   entryChevron: { fontSize: FontSize.h3, color: Colors.textTertiary },
@@ -350,6 +412,5 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.gold400,
   },
   shareReportText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.gold400 },
-  heatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, marginTop: 4 },
-  heatDot: { width: 12, height: 12, borderRadius: 3 },
+  heatToggle: { fontSize: FontSize.sm, color: Colors.gold400, opacity: 0.85 },
 });

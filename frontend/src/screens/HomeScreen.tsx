@@ -12,7 +12,7 @@
  */
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Animated,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
@@ -21,6 +21,7 @@ import { trackFunnelOnce } from '../services/funnel';
 import { isFirstReadUnseen, loadFirstReadCard } from '../services/firstRead';
 import { settingsRepo } from '../services/db/settingsRepository';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
+import InsightBlurGate from '../components/InsightBlurGate';
 import type { GrowthDashboard, MoodEmoji } from '../types';
 import { useTranslation } from 'react-i18next';
 
@@ -113,6 +114,41 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     }, [isLoggedIn])
   );
 
+  // F2 · PRD §5.20 揭幕动画：首次发现 is_pro=true 时的一次性庆祝遮罩
+  // （本地标记只打一次，之后不再打扰；闪烁感来自淡入→停留→淡出，全程不可交互）
+  const REVEAL_FLAG_KEY = '@closenai/pro_reveal_celebrated';
+  const [revealUnlocked, setRevealUnlocked] = useState(false);
+  const revealAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (dashboard?.is_pro !== true) return;
+    let cancelled = false;
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+    (async () => {
+      try {
+        const celebrated = await settingsRepo.get(REVEAL_FLAG_KEY);
+        if (celebrated || cancelled) return;
+        await settingsRepo.set(REVEAL_FLAG_KEY, '1');
+        if (cancelled) return;
+        setRevealUnlocked(true);
+        Animated.timing(revealAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+        hideTimer = setTimeout(() => {
+          Animated.timing(revealAnim, { toValue: 0, duration: 600, useNativeDriver: true }).start(
+            () => {
+              if (!cancelled) setRevealUnlocked(false);
+            },
+          );
+        }, 2200);
+      } catch {
+        // 本地存储失败：跳过庆祝，不影响主流程
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (hideTimer) clearTimeout(hideTimer);
+    };
+  }, [dashboard?.is_pro, revealAnim]);
+
   const onMoodPress = async (emoji: MoodEmoji) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     if (checkingIn || dashboard?.today_mood) return; // 已签到或请求中则忽略
@@ -168,7 +204,8 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* 日期 + 问候 */}
       <View style={styles.header}>
         <Text style={styles.date}>{dashboard?.date || '...'}</Text>
@@ -243,7 +280,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
             <View key={m.milestone_type} style={[styles.milestoneItem, !m.achieved && styles.milestoneLocked]}>
               <Text style={styles.milestoneIcon}>{m.achieved ? '🏅' : '🔒'}</Text>
               <Text style={[styles.milestoneDays, m.achieved && styles.milestoneDaysAchieved]}>
-                {t('home.milestoneStreak', { days: m.days })}
+                {t('home.milestoneStreak', { days: m.days, count: m.days })}
               </Text>
             </View>
           ))}
@@ -299,37 +336,44 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           <Text style={styles.cardTitlePurple}>📈 {t('home.growthThisWeek')}</Text>
           <Text style={styles.detailArrow}>{t('home.details')} →</Text>
         </View>
-        <View style={styles.metricsRow}>
-          {dashboard?.growth_metrics && ([
-            ['😌', t('home.emotion'), dashboard.growth_metrics.emotion_change],
-            ['💛', t('home.social'), dashboard.growth_metrics.social_change],
-            ['💪', t('home.confidence'), dashboard.growth_metrics.confidence_change],
-            ['⚡', t('home.stress'), dashboard.growth_metrics.stress_change],
-            ['🔍', t('home.curiosity'), dashboard.growth_metrics.curiosity_change],
-            ['🎯', t('home.goals'), dashboard.growth_metrics.goals_change],
-          ] as [string, string, string | number][]).map(([emoji, name, value]) => {
-            const isPositive = typeof value === 'number' ? value > 0 : value === '↑';
-            const isNegative = typeof value === 'number' ? value < 0 : value === '↓';
-            const color = isPositive ? Colors.success : isNegative ? Colors.error : Colors.warning;
-            const arrow = isPositive ? '↑' : isNegative ? '↓' : '→';
-            const displayValue = typeof value === 'number' ? `${Math.abs(value)}%` : '';
-            return (
-              <View key={name} style={styles.metricItem}>
-                <Text style={styles.metricEmoji}>{emoji}</Text>
-                <Text style={styles.metricName}>{name}</Text>
-                <Text style={[styles.metricValue, { color }]}>
-                  {arrow}{displayValue}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-        {/* 迷你热力图 */}
-        <View style={styles.miniTimeline}>
-          {(dashboard?.mood_timeline || []).map((color, i) => (
-            <View key={i} style={[styles.timelineDot, { backgroundColor: color }]} />
-          ))}
-        </View>
+        {/* 指标 + 迷你热力图是「理解的呈现」（§5.20）：免费模糊 + 解锁角标（点击进 Paywall）；
+            聚合最小洞察（weekly_insight 卡）保留在闸门外，锁呈现不锁原始数据 */}
+        <InsightBlurGate
+          locked={!dashboard?.is_pro}
+          onPressUnlock={() => navigation.navigate('Paywall')}
+        >
+          <View style={styles.metricsRow}>
+            {dashboard?.growth_metrics && ([
+              ['😌', t('home.emotion'), dashboard.growth_metrics.emotion_change],
+              ['💛', t('home.social'), dashboard.growth_metrics.social_change],
+              ['💪', t('home.confidence'), dashboard.growth_metrics.confidence_change],
+              ['⚡', t('home.stress'), dashboard.growth_metrics.stress_change],
+              ['🔍', t('home.curiosity'), dashboard.growth_metrics.curiosity_change],
+              ['🎯', t('home.goals'), dashboard.growth_metrics.goals_change],
+            ] as [string, string, string | number][]).map(([emoji, name, value]) => {
+              const isPositive = typeof value === 'number' ? value > 0 : value === '↑';
+              const isNegative = typeof value === 'number' ? value < 0 : value === '↓';
+              const color = isPositive ? Colors.success : isNegative ? Colors.error : Colors.warning;
+              const arrow = isPositive ? '↑' : isNegative ? '↓' : '→';
+              const displayValue = typeof value === 'number' ? `${Math.abs(value)}%` : '';
+              return (
+                <View key={name} style={styles.metricItem}>
+                  <Text style={styles.metricEmoji}>{emoji}</Text>
+                  <Text style={styles.metricName}>{name}</Text>
+                  <Text style={[styles.metricValue, { color }]}>
+                    {arrow}{displayValue}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+          {/* 迷你热力图 */}
+          <View style={styles.miniTimeline}>
+            {(dashboard?.mood_timeline || []).map((color, i) => (
+              <View key={i} style={[styles.timelineDot, { backgroundColor: color }]} />
+            ))}
+          </View>
+        </InsightBlurGate>
         <Text style={styles.timelineHint}>
           {t('common.days')} {dashboard?.streak_count || 0} · {t('home.timelineHint')} →
         </Text>
@@ -370,7 +414,16 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           {dashboard?.mbti_type || '—'} · {t('home.personalityDesc')}
         </Text>
       </TouchableOpacity>
-    </ScrollView>
+      </ScrollView>
+
+      {/* F2 · PRD §5.20 揭幕动画：一次性庆祝遮罩（淡入→停留→淡出，不可交互） */}
+      {revealUnlocked && (
+        <Animated.View style={[styles.revealOverlay, { opacity: revealAnim }]} pointerEvents="none">
+          <Text style={styles.revealEmoji}>✨</Text>
+          <Text style={styles.revealText}>{t('home.revealUnlocked')}</Text>
+        </Animated.View>
+      )}
+    </>
   );
 }
 
@@ -378,6 +431,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bgPrimary },
   content: { padding: Spacing.lg, paddingBottom: 80 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary },
+  // F2 揭幕动画遮罩：盖住整屏，深色底 + 金色文案（与 Splash/主题同色系）
+  revealOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(5,5,8,0.92)',
+  },
+  revealEmoji: { fontSize: 48, marginBottom: Spacing.md },
+  revealText: { fontSize: FontSize.xl, fontWeight: '700', color: Colors.gold400 },
   header: { marginBottom: Spacing.md },
   date: { fontSize: FontSize.md, color: Colors.textTertiary },
   greeting: { fontSize: FontSize.h3, fontWeight: '700', color: Colors.gold400, marginTop: Spacing.xs },

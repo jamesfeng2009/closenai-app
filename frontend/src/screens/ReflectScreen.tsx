@@ -23,6 +23,7 @@ import {
 import AIConsentModal from '../components/AIConsentModal';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { chatRepo } from '../services/db/chatRepository';
+import { resolveMemoryRefs } from '../services/evidence';
 import { aiMessagesRepo } from '../services/db/aiMessagesRepository';
 import { track } from '../services/analytics';
 import { trackFunnelOnce } from '../services/funnel';
@@ -167,6 +168,27 @@ export default function ReflectScreen() {
           // 草稿生成失败不阻塞对话
         }
       }
+
+      // #34 洞察依据回链：/reflections/generate 只给 related_memory_ids，不给原话，
+      // 这里按 id 聚合读路径补上「记忆依据 ▾」；解析不到的 id 丢弃而非猜测
+      const pendingIds = msgs.flatMap((m) => m.relatedMemoryIds ?? []);
+      if (pendingIds.length > 0) {
+        const refs = await resolveMemoryRefs(pendingIds).catch(() => []);
+        if (refs.length > 0) {
+          const byId = new Map(refs.map((r) => [r.memory_id, r]));
+          msgs = msgs.map((m) =>
+            m.relatedMemoryIds?.length
+              ? {
+                  ...m,
+                  memoryRefs: m.relatedMemoryIds
+                    .map((id) => byId.get(id))
+                    .filter((r): r is MemoryRef => !!r),
+                }
+              : m
+          );
+        }
+      }
+
       setMessages(msgs);
     } catch (e) {
       console.warn('Failed to load reflect screen:', e);

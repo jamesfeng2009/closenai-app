@@ -55,7 +55,7 @@ const resource = {
     "statsDay": "共に過ごした日数",
     "statsChats": "会話",
     "statsMoments": "共にした瞬間",
-    "toNextLevel": "次のレベルまで、アクティブ{{days}}日",
+    "toNextLevel_other": "次のレベルまで、アクティブ{{days}}日",
     "maxLevel": "到達済みの最高レベル",
     "unlocksTitle": "解放済みの機能",
     "rewardTitle": "ふたりの関係を深めるもの",
@@ -66,13 +66,13 @@ const resource = {
     "dayMood": "気分",
     "dayInsight": "インサイト",
     "dayBadges": "バッジ",
-    "dayChats": "{{count}}件のメッセージ",
+    "dayChats_other": "{{count}}件のメッセージ",
     "dayEmpty": "この日の記録はありません",
     "badgeLocked": "未解放",
     "badgeUnlockedAt": "{{date}}に解放",
     "badgeName": {
-      "first_chat": "はじめての会話",
-      "first_mood": "はじめてのチェックイン"
+      "first_chat": "初めての会話",
+      "first_mood": "初めてのチェックイン"
     },
     "badgeCondition": {
       "first_chat": "初めてのメッセージを送信する",
@@ -87,9 +87,9 @@ const resource = {
     },
     "level": {
       "L1": { "name": "顔見知り", "desc": "AIがあなたのことを知り始めたばかり" },
-      "L2": { "name": "身近な存在", "desc": "AIから積極的に話しかけてくれるようになる" },
+      "L2": { "name": "身近な存在", "desc": "AIの方から積極的に話しかけてくれるようになる" },
       "L3": { "name": "打ち明けられる存在", "desc": "AIが記憶を引用し、あなたのパターンを見つけてくれる" },
-      "L4": { "name": "魂の友", "desc": "AIがあなたのことを深く理解し、ともに成長していく" }
+      "L4": { "name": "心が通じ合う存在", "desc": "AIがあなたのことを深く理解し、ともに成長していく" }
     }
   },
   "messages": {
@@ -124,8 +124,9 @@ const resource = {
     "yesterday": "昨日の記録",
     "personality": "性格分析",
     "personalityDesc": "7日間で発見",
+    "revealUnlocked": "高精細インサイトの解錠",
     "streakFreeze": "連続キープ券",
-    "milestoneStreak": "{{days}}日"
+    "milestoneStreak_other": "{{days}}日"
   },
   "explore": {
     "title": "探索",
@@ -148,7 +149,7 @@ const resource = {
     "observations": "AIの観察",
     "uniqueTraits": "あなた独自の特徴",
     "refresh": "プロフィールを更新",
-    "quotaLeft": "残り{{count}}回",
+    "quotaLeft_other": "残り{{count}}回",
     "assessmentTitle": "会話型の性格診断",
     "assessmentDesc": "正解のない8つの状況質問に答えると、AIがあなたの回答と最近の会話とをあわせてプロフィールを作り上げます",
     "assessmentStart": "診断を始める",
@@ -165,10 +166,10 @@ const resource = {
     "currentStage": "現在のステージ",
     "stageDay": "{{day}}/7日目",
     "profileReady": "プロフィール完成",
-    "signalsTitle": "次元のサイン",
-    "signalsEmpty": "会話を続けると、AIが少しずつあなたの各次元の傾向を観察していきます。",
-    "signalsCount": "{{count}}個のサインを集めました",
-    "stageEta": "プロフィール完成まであと{{days}}日ほど",
+    "signalsTitle": "4つの軸のサイン",
+    "signalsEmpty": "会話を続けると、AIが少しずつあなたの各軸の傾向を観察していきます。",
+    "signalsCount_other": "{{count}}個のサインを集めました",
+    "stageEta_other": "プロフィール完成まであと{{days}}日ほど",
     "guidanceText": "私ともっとおしゃべりしましょう。話すほど、あなたへの理解が深まります。",
     "guidanceCta": "今すぐ会話",
     "enneagramTitle": "エニアグラム",
@@ -189,7 +190,7 @@ const resource = {
     "ISTJ": "管理者", "ISFP": "冒険家", "ESTJ": "幹部", "ESFP": "エンターテイナー"
   },
   "paywall": {
-    "autoRenewNote": "App Storeのサブスクリプション設定でキャンセルするまで、購読は自動更新されます。料金は現在の期間の終了前24時間以内にAppleアカウントに請求されます。",
+    "autoRenewNote": "App Storeのサブスクリプション設定でキャンセルするまで、自動更新されます。料金は現在の期間の終了前24時間以内にAppleアカウントに請求されます。",
     "oneTimeNote": "これは一度きりの買い切り購入です。自動更新されないため、再び課金されることはありません。",
     "title": "ClosenAI Proにアップグレード",
     "subtitle": "無制限の会話とより深いインサイトをアンロック",
@@ -209,6 +210,10 @@ const resource = {
     "featurePersonalityRefresh": "性格分析の更新回数アップ",
     "featureTimeline": "365日の成長タイムライン",
     "trialBadge": "無料トライアル中",
+    "trialButton": "{{days}}日間の無料トライアルを開始",
+    "trialThen": "トライアル後は{{price}}",
+    "compareTitle": "違いを確かめる",
+    "compareSample": "5日連続で深夜の記録 — 夜のほうが正直に書けるようです。",
     "timeoutPending": "購入がタイムアウトしましたが、まだ処理中の可能性があります。課金されている場合は購入を復元をタップしてください。",
     "productsUnavailable": "利用可能な商品がありません。後でもう一度お試しください。",
     "planPro": "Pro",
@@ -254,7 +259,7 @@ const resource = {
     "sectionAI": "AIと記憶",
     "memoryManagement": "記憶管理",
     "chatStyle": "対話スタイル",
-    "framework": "主なフレームワーク",
+    "framework": "メインの性格診断",
     "frameworkOption": {
       "mbti": "16タイプ",
       "enneagram": "エニアグラム"
@@ -293,9 +298,9 @@ const resource = {
     "sharingAnalyticsOnly": "匿名の利用統計のみ同意",
     "sharingNone": "どちらも未同意",
     "analyticsRow": "匿名の利用統計",
-    "analyticsHint": "ページと機能の利用回数だけを通知します。あなたが書いた内容、会話、記憶は送信しません。",
-    "analyticsErased": "通知を停止し、過去の利用統計を削除しました。",
-    "analyticsErasePending": "通知は停止しました。過去の利用統計は、提供元の確認が取れ次第削除されます。",
+    "analyticsHint": "ページと機能の利用回数だけを記録します。あなたが書いた内容、会話、記憶は送信しません。",
+    "analyticsErased": "送信を停止し、過去の利用統計を削除しました。",
+    "analyticsErasePending": "送信は停止しました。過去の利用統計は、提供元の確認が取れ次第削除されます。",
     "agreed": "同意済み",
     "declined": "未同意",
     "logout": "ログアウト",
@@ -333,7 +338,7 @@ const resource = {
     "km": "ខ្មែរ"
   },
   "onboarding": {
-    "finishFailed": "ガイドでの入力を保存できませんでした。接続を確認してもう一度お試しください。",
+    "finishFailed": "オンボーディングでの回答を保存できませんでした。接続を確認してもう一度お試しください。",
     "step1Tagline": "あなたの言葉を、ぜんぶ覚えている",
     "step1Feature1Title": "あなたを覚えている",
     "step1Feature1Desc": "毎日の記録と会話が、あなたへの理解を積み重ねる",
@@ -427,6 +432,8 @@ const resource = {
     "statEntries": "{{n}} 件の記録",
     "statCheckins": "{{n}} 日チェックイン",
     "evidenceNote": "引用はあなたが書いた文だけ。統計的な観察は引用を作りません。",
+    "trialTail": "トライアルが終わっても、これらのパターンは育ち続けます。",
+    "trialUpgradeBtn": "高精細インサイトをすべて解錠",
     "timelineTitle": "今週のスケジュール",
     "day": {
       "day0_read": "0日目 · ファーストリード",
@@ -445,7 +452,7 @@ const resource = {
   },
   "share": {
     "manifestTitle": "共有される内容",
-    "manifestLink": "アプリのダウンロードリンク（私の紹介コード付き）",
+    "manifestLink": "アプリのダウンロードリンク（あなたの紹介コード付き）",
     "manifestTextNote": "実際に共有されるのは文字のみのテキストで、レイアウトはこのプレビューとは異なります。",
     "empty": "カードに使えるプロフィールがまだありません。まず初期カードを作るか、診断を完了してください。",
     "cardTitle": "性格カード",
@@ -454,18 +461,22 @@ const resource = {
     "minimal": "シンプル",
     "combo": "組み合わせ",
     "shareBtn": "カードを共有",
-    "streak": "{{count}}日連続",
+    "streak_other": "{{count}}日連続",
     "proGateTitle": "Pro専用カード",
     "proGateMessage": "組み合わせカードは16タイプとエニアグラムを突き合わせるPro特典のカードです。アップグレードすると解放されます。",
     "upgrade": "アップグレード"
   },
   "insights": {
+    "unlockHd": "HD を解除",
+    "patternPreview": "あなたの会話に繰り返し現れるパターンが浮かび上がっています — アップグレードして完全な HD 解説を表示。",
+    "heatmapFullYear": "1 年間を表示",
+    "heatmap90": "直近 90 日",
     "weeklyTitle": "週間インサイト",
     "weeklyEmpty": "気分と会話を数日分記録すると、週末までに週間インサイトが届きます。",
     "messagesTitle": "AIメッセージ",
     "messagesDesc": "毎日の発見はAIメッセージとして届きます。タップして履歴を見られます",
     "patternTitle": "パターン発見",
-    "patternDesc": "AIが過去90日間の実際のデータから、次元をまたいだパターンを見つけ出します。",
+    "patternDesc": "AIが過去90日間の実際のデータから、複数の軸にまたがるパターンを見つけ出します。",
     "patternGenerate": "分析する",
     "reportTitle": "レポート",
     "weekly": "週間",
@@ -475,7 +486,7 @@ const resource = {
     "proTitle": "Proのレポート",
     "proMessage": "月間・四半期・年間のレポートはProの特典です。アップグレードで解放されます。",
     "upgrade": "アップグレード",
-    "chatCount": "{{count}}件の会話",
+    "chatCount_other": "{{count}}件の会話",
     "shareReport": "レポートを共有",
     "timelineTitle": "年間ヒートマップ"
   },
@@ -544,7 +555,7 @@ const resource = {
     "faqQuotaQ": "AI会話はどのくらい利用できますか？",
     "faqQuotaA": "無料アカウントには1日あたりのメッセージ回数上限があり、あなたのタイムゾーンの深夜0時にリセットされます。Proにアップグレードすると無制限で会話できます。",
     "faqSubscriptionQ": "Proには何が含まれますか？",
-    "faqSubscriptionA": "Proでは無制限のAI会話、優先モデル応答、性格分析の更新回数アップ、365日の成長タイムラインが解放されます。購読の管理や復元は「プロフィール → Proにアップグレード」で行えます。",
+    "faqSubscriptionA": "Proでは無制限のAI会話、優先モデル応答、性格分析の更新回数アップ、365日の成長タイムラインが解放されます。サブスクリプションの管理や復元は「プロフィール → Proにアップグレード」で行えます。",
     "faqDataQ": "私のデータは安全ですか？",
     "faqDataA": "会話は暗号化されてClosenAIのデータベースに保存され、返信の生成のためにのみAIプロバイダー（Google Gemini）に送信されます。AIが記憶した内容は「プロフィール → 記憶管理」でいつでも確認・削除できます。",
     "faqDeleteQ": "アカウントを削除するにはどうすればいいですか？",

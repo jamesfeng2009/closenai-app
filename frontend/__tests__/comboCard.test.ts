@@ -101,8 +101,9 @@ describe('文案：组合名片不再宣称三维度', () => {
    *
    * ⚠️ 这条断言原先写的是英文 token（/16-type/ 与 /Enneagram/），那是**这 13 个语言还整句
    * 挂着英文兜底**时才可能过的代理断言——它检查的是"文案没被本地化"，而不是"文案说清了是哪两个框架"。
-   * #39 真翻译之后必须逐语言指名，否则 ms（Sembilan Personaliti）与 th（นพลักษณ์）这种
-   * 正经译名会被判成漏写。
+   * #39 真翻译之后改成逐语言指名。表里 ms/id/vi/km 四行是拉丁词不是漏翻：这四个语言里
+   * Enneagram 本就按借词书写，母语审校（L2）据此把生造的「Sembilan Personaliti」「9 Kiểu
+   * Tính Cách」改回 Enneagram。每一行都由下面那条用例逐语言对着 proGateMessage 现值校验。
    */
   const ENNEAGRAM_TERM: Record<string, RegExp> = {
     en: /Enneagram/,
@@ -111,7 +112,8 @@ describe('文案：组合名片不再宣称三维度', () => {
     ja: /エニアグラム/,
     ru: /эннеаграмм/i,
     id: /Enneagram/,
-    ms: /Sembilan Personaliti/,
+    // 审校轮 L2 把 ms 的生造词「Sembilan Personaliti」改回通用借词 Enneagram
+    ms: /Enneagram/,
     th: /นพลักษณ์/,
     de: /Enneagramm/,
     fr: /Ennéagramme/,

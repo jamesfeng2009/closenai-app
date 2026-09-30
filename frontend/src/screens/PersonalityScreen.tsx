@@ -634,7 +634,7 @@ export default function PersonalityScreen() {
           )}
           {typeof profile?.estimated_completion_days === 'number' && !profileReady && (
             <Text style={styles.stageMeta}>
-              {t('personality.stageEta', { days: profile.estimated_completion_days })}
+              {t('personality.stageEta', { days: profile.estimated_completion_days, count: profile.estimated_completion_days })}
             </Text>
           )}
         </View>
