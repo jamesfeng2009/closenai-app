@@ -29,9 +29,17 @@ class JourneyRepository:
         scheduled_at: datetime,
         payload: Optional[dict] = None,
         memory_refs: Optional[List[dict]] = None,
+        dedupe: bool = True,
     ) -> JourneyEvent:
-        """预写一条 pending 事件（幂等：同 user+kind+day 命中既有行则更新计划时刻与负载）。"""
-        existing = await self.get_by_kind(db, user_id, event_kind, day_no)
+        """预写一条 pending 事件（幂等：同 user+kind+day 命中既有行则更新计划时刻与负载）。
+
+        dedupe=False：承诺回访（§5.18）不同承诺同日捕获的 day_no 相同、同一承诺
+        第二条的 day_no 递增，幂等键不适用——防重写由 commitment_service 按
+        payload.memory_id 查重保证（models/journey.py 表注释的事务内查重口径）。
+        """
+        existing = (
+            await self.get_by_kind(db, user_id, event_kind, day_no) if dedupe else None
+        )
         if existing is not None:
             existing.scheduled_at = scheduled_at
             if payload is not None:
@@ -100,6 +108,29 @@ class JourneyRepository:
             limit
         )
         result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_kind_between(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        event_kind: str,
+        start: datetime,
+        end: datetime,
+        limit: int = 50,
+    ) -> List[JourneyEvent]:
+        """某用户某 kind 在 [start, end) 计划窗口内的事件（curriculum 周视图查询用）。"""
+        result = await db.execute(
+            select(JourneyEvent)
+            .where(
+                JourneyEvent.user_id == user_id,
+                JourneyEvent.event_kind == event_kind,
+                JourneyEvent.scheduled_at >= start,
+                JourneyEvent.scheduled_at < end,
+            )
+            .order_by(JourneyEvent.scheduled_at.asc())
+            .limit(limit)
+        )
         return list(result.scalars().all())
 
     async def has_pending_due(
@@ -201,6 +232,54 @@ class JourneyRepository:
             )
         )
         return [r[0] for r in result.all()]
+
+    async def pending_events_for_kind(
+        self, db: AsyncSession, user_id: str, event_kind: str, limit: int = 50
+    ) -> List[JourneyEvent]:
+        """某用户某 kind 的 pending 事件（按计划时刻正序；承诺回访防重写查重用）。"""
+        result = await db.execute(
+            select(JourneyEvent)
+            .where(
+                JourneyEvent.user_id == user_id,
+                JourneyEvent.event_kind == event_kind,
+                JourneyEvent.status == "pending",
+            )
+            .order_by(JourneyEvent.scheduled_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def count_sent_kind_since(
+        self, db: AsyncSession, user_id: str, event_kind: str, start: datetime
+    ) -> int:
+        """某时刻以来已投递的某 kind 事件数（承诺回访周频控依据）。"""
+        result = await db.execute(
+            select(func.count())
+            .select_from(JourneyEvent)
+            .where(
+                JourneyEvent.user_id == user_id,
+                JourneyEvent.event_kind == event_kind,
+                JourneyEvent.status.in_(("sent", "seen")),
+                JourneyEvent.sent_at >= start,
+            )
+        )
+        return int(result.scalar() or 0)
+
+    async def last_sent_kind(
+        self, db: AsyncSession, user_id: str, event_kind: str
+    ) -> Optional[JourneyEvent]:
+        """最近一条已投递的某 kind 事件（负向退出让承诺 muted 的定位依据）。"""
+        result = await db.execute(
+            select(JourneyEvent)
+            .where(
+                JourneyEvent.user_id == user_id,
+                JourneyEvent.event_kind == event_kind,
+                JourneyEvent.status.in_(("sent", "seen")),
+            )
+            .order_by(JourneyEvent.sent_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
 
 
 journey_repository = JourneyRepository()

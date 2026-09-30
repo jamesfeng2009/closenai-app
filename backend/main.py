@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import auth, onboarding, journey, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics
+from backend.routers import auth, onboarding, journey, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics, bedtime, curriculum
 from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
@@ -155,6 +155,8 @@ app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(memories.router, prefix="/api/v1", tags=["memories"])
 app.include_router(mood.router, prefix="/api/v1", tags=["mood"])
 app.include_router(growth.router, prefix="/api/v1", tags=["growth"])
+app.include_router(bedtime.router, prefix="/api/v1", tags=["bedtime"])
+app.include_router(curriculum.router, prefix="/api/v1", tags=["curriculum"])
 app.include_router(personality.router, prefix="/api/v1", tags=["personality"])
 app.include_router(user.router, prefix="/api/v1", tags=["user"])
 app.include_router(discovery.router, prefix="/api/v1", tags=["discovery"])

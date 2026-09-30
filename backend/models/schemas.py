@@ -60,6 +60,7 @@ class MemoryResponse(BaseModel):
     transition_reason: Optional[str] = None
     similarity: Optional[float] = None  # 语义搜索命中时的相似度
     regressed: bool = False  # 本次检索触发了回归识别（[回归信念] 标注）
+    labels: Optional[List[str]] = None  # 结构化标签（§5.18：["commitment"]），无标签为 None
 
 
 class MemorySearchRequest(BaseModel):
@@ -84,6 +85,12 @@ class MoodCheckinRequest(BaseModel):
     """情绪签到请求。"""
     emoji: str = Field(..., description="表情符号: 😊😌😰😢😡😴")
     note: Optional[str] = Field(None, max_length=1000, description="可选文字备注")
+
+
+class BedtimeStepRequest(BaseModel):
+    """睡前复盘逐步提交请求（PRD §5.16 S1）。"""
+    step: int = Field(..., ge=1, le=3, description="步骤: 1=今天的一句话 2=值得记下的 3=留给明天")
+    text: Optional[str] = Field(None, max_length=1000, description="用户输入（step1 一句话，可空=跳过）")
 
 
 class MoodCheckinResponse(BaseModel):
@@ -156,6 +163,7 @@ class GrowthDashboardResponse(BaseModel):
     mbti_type: Optional[str] = None   # 性格画像入口展示
     milestones: List[MilestoneItem] = []   # 里程碑徽章（含未达成占位）
     streak_freeze_count: int = 0           # 剩余 Streak 冻结券
+    is_pro: bool = False                   # 洞察分级呈现（§5.20）：免费态模糊 + 解锁角标
 
 
 class WeeklyInsightResponse(BaseModel):
@@ -163,6 +171,7 @@ class WeeklyInsightResponse(BaseModel):
     level: str                 # L2 Pattern
     content: Optional[str]     # 无已生成周报时为 None（GET 只读，不触发生成）
     period: str                # 本周日期范围
+    related_memory_ids: Optional[List[str]] = None  # 周报引用的记忆 ID（前端回链证据）
 
 
 # ═══ Reflection Card (P0-F04) ═══

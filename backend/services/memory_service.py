@@ -44,6 +44,19 @@ VALID_CATEGORIES = {"values", "preference", "relationship", "goal", "factual"}
 VALID_SOURCES = {"self", "others", "hypothetical"}
 
 
+def _parse_labels(raw: Optional[str]) -> Optional[List[str]]:
+    """memories.labels JSON → 标签数组（无标签/坏数据返回 None，不空数组）。"""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get("labels"), list):
+        return [str(item) for item in data["labels"]] or None
+    return None
+
+
 def _to_response(memory: Memory) -> MemoryResponse:
     """ORM → 响应模型。"""
     return MemoryResponse(
@@ -57,6 +70,7 @@ def _to_response(memory: Memory) -> MemoryResponse:
         created_at=memory.created_at,
         superseded_at=memory.superseded_at,
         transition_reason=memory.transition_reason,
+        labels=_parse_labels(memory.labels),
     )
 
 
@@ -73,6 +87,7 @@ def _to_response_from_row(row) -> MemoryResponse:
         created_at=row["created_at"],
         superseded_at=row["superseded_at"],
         transition_reason=row["transition_reason"],
+        labels=_parse_labels(row.get("labels")),
         similarity=row.get("similarity"),
     )
 

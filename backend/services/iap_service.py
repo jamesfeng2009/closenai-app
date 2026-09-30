@@ -18,7 +18,7 @@ import asyncio
 import base64
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -31,8 +31,13 @@ from backend.repositories import (
     subscription_repository,
     user_repository,
 )
+from backend.services.journey_service import journey_service
 
 logger = logging.getLogger("closenai.iap")
+
+# 试用时长（天，PRD §5.21：Pro 主订阅 7 天免费试用 / intro offer）。
+# 用于由 expires_at 反推试用开始时刻，安排 D5 资产盘点触点。
+TRIAL_LENGTH_DAYS = 7
 
 # App Store verifyReceipt 端点
 VERIFY_PROD_URL = "https://buy.itunes.apple.com/verifyReceipt"
@@ -419,6 +424,9 @@ class IAPService:
             transaction_id=original_tx,
         )
         await user_repository.update_tier(db, user_id, tier)
+        # §5.21 D5 触点：试用收据 → 预写第 5 天资产盘点（幂等，失败不阻断购买主流程）
+        if is_trial:
+            await self._schedule_trial_touchpoint(db, user_id, expires_at)
 
         return {
             "valid": True,
@@ -431,6 +439,27 @@ class IAPService:
             "entitlements": entitlements,
             "message": "校验通过",
         }
+
+    async def _schedule_trial_touchpoint(
+        self, db, user_id: str, expires_at: Optional[datetime]
+    ) -> None:
+        """试用 D5 资产盘点触点预写（PRD §5.21 D5，事务边界由调用方控制）。
+
+        试用开始时刻 = expires_at - TRIAL_LENGTH_DAYS；Apple intro offer 一人一次，
+        幂等由 journey 仓库 (user, trial_d5, day_no) 查重保证。预写属触达编排而非
+        权益本体，失败只告警降级，不阻断购买主流程。
+        """
+        if expires_at is None:
+            return
+        try:
+            user = await user_repository.get_user(db, user_id)
+            if user is None:
+                return
+            await journey_service.schedule_trial_d5(
+                db, user, expires_at - timedelta(days=TRIAL_LENGTH_DAYS)
+            )
+        except Exception as exc:  # noqa: BLE001 - 触点预写失败不影响权益生效
+            logger.warning("试用 D5 触点预写失败 user=%s: %s", user_id, exc)
 
     async def _grant_non_consumables(
         self, db, user_id: str, transactions: List[Dict[str, Any]]

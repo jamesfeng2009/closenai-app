@@ -47,6 +47,15 @@ class MemoryRepository:
         await db.flush()
         return memory
 
+    async def update_labels(self, db: AsyncSession, memory_id: str, user_id: str, labels: str) -> None:
+        """更新结构化标签 JSON（§5.18 承诺回访：标签与调度状态随记忆行，无新表）。"""
+        await db.execute(
+            update(Memory)
+            .where(Memory.id == memory_id, Memory.user_id == user_id)
+            .values(labels=labels)
+        )
+        await db.flush()
+
     async def get(self, db: AsyncSession, memory_id: str, user_id: str) -> Optional[Memory]:
         """按主键查询记忆（强制归属校验，防 IDOR 越权读取；不含已软删除）。"""
         result = await db.execute(

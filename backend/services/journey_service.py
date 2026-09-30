@@ -46,6 +46,7 @@ from backend.repositories import (
     user_repository,
 )
 from backend.repositories.journey_repository import parse_json
+from backend.services.commitment_service import commitment_service
 from backend.services.mood_service import mood_label_for
 from backend.services.push import push_copywriter, push_service
 from backend.services.safety_service import safety_service
@@ -67,8 +68,14 @@ SCRIPT_EVENTS: Tuple[Tuple[str, int], ...] = (
     ("day7_report", 7),
 )
 
-# 唯一走推送的一条（§5.19.3 频控：其余仅 App 内红点，避免推送轰炸）
-PUSH_KINDS = ("day2_first_outreach",)
+# 走推送的事件（§5.19.3 剧本仅 D2；§5.18 承诺回访 push 深链到对话页，周频控 ≤2 条；
+# §5.21 试用 D5 资产盘点也是触达，受同一条频控链约束）
+PUSH_KINDS = ("day2_first_outreach", "commitment_follow_up", "trial_d5")
+
+# 试用 D5 触点（PRD §5.21）：试用第 5 天资产盘点；盘点窗口 = 试用一周
+TRIAL_D5_OFFSET = 5
+TRIAL_D5_WINDOW_DAYS = 7
+TRIAL_D5_MAX_MOODS = 3
 
 # 沉默降频：连续 N 天未留下记录 → 剧本顺延隔天（§5.19.3「降频为隔天，永不删除」）
 SILENT_DEFER_DAYS = 2
@@ -193,6 +200,32 @@ class JourneyService:
             return
         await self.prefill(db, user, base_day=_local_date(base, safe_zoneinfo(user.timezone)))
 
+    async def schedule_trial_d5(self, db: AsyncSession, user: User, trial_start: datetime) -> None:
+        """试用第 5 天资产盘点触点预写（PRD §5.21 D5）。
+
+        trial_start = 试用开始时刻（UTC，iap 侧按 expires_at - TRIAL_LENGTH_DAYS 折算）；
+        落点 = 开始日（用户本地日）+5 天的本地推送窗口。时刻已过（恢复购买时试用已过
+        第 5 天）不追溯补发；幂等由 (user, trial_d5, 5) 仓库查重保证——Apple intro
+        offer 一人一次，重放 verify 不产生第二条。
+        """
+        aware = trial_start if trial_start.tzinfo else trial_start.replace(tzinfo=timezone.utc)
+        start_day = _local_date(aware, safe_zoneinfo(user.timezone))
+        scheduled_at = self._push_moment(user, start_day + timedelta(days=TRIAL_D5_OFFSET))
+        if scheduled_at <= utc_now():
+            return
+        await journey_repository.schedule(
+            db,
+            user_id=user.id,
+            event_kind="trial_d5",
+            day_no=TRIAL_D5_OFFSET,
+            scheduled_at=scheduled_at,
+            payload={
+                "kind": "trial_d5",
+                "day_no": TRIAL_D5_OFFSET,
+                "language": user.language or "en",
+            },
+        )
+
     def _push_moment(self, user: User, day: date) -> datetime:
         """剧本日 `day` 的用户本地推送窗口时刻（UTC）。
 
@@ -253,6 +286,13 @@ class JourneyService:
         # 沉默降频（§5.19.3）
         if await self._days_silent(db, user) >= SILENT_DEFER_DAYS:
             return await self._defer(db, event, user, "用户沉默，降频为隔天")
+        # 承诺回访（§5.18）周频控：每用户每周 ≤2 条，超出顺延一周（pending 保留）
+        if (
+            event.event_kind == "commitment_follow_up"
+            and await commitment_service.weekly_sent_count(db, user)
+            >= commitment_service.COMMITMENT_WEEKLY_LIMIT
+        ):
+            return await self._defer(db, event, user, "承诺回访周频控", days=7)
 
         rendered = await self.render(db, event, user)
         if rendered is None:
@@ -273,6 +313,8 @@ class JourneyService:
             db,
             event.id,
             payload={
+                # 保留预写期的承诺定位键（memory_id/captured_day 等），投递期字段覆盖
+                **(parse_json(event.payload, {}) if isinstance(event.payload, str) else {}),
                 "kind": event.event_kind,
                 "day_no": event.day_no,
                 "language": locale_for(user.language),
@@ -288,16 +330,24 @@ class JourneyService:
         )
         await journey_repository.mark_sent(db, event.id, utc_now())
 
+        if event.event_kind == "commitment_follow_up":
+            # §5.18：回访计数 +1 并按同型间隔预写下一条（同承诺 ≤2 次，muted 即止）
+            await commitment_service.on_follow_up_delivered(db, user, event)
+            # 消费面在对话流（研发标注"前端零新界面"）：发送即已读，不进报告页红点
+            await journey_repository.acknowledge(db, event.id)
+
         if event.event_kind in PUSH_KINDS and user.push_enabled and user.push_frequency != "off":
             await self._push(db, user, rendered.text)
         return "sent"
 
-    async def _defer(self, db: AsyncSession, event, user: User, reason: str) -> str:
-        """顺延一条事件（永不删行）。"""
+    async def _defer(
+        self, db: AsyncSession, event, user: User, reason: str, days: int = DEFER_DAYS
+    ) -> str:
+        """顺延一条事件（永不删行）。days=7 用于承诺回访周频控（顺延一周）。"""
         until = event.scheduled_at
         if until is not None:
             aware = until if until.tzinfo else until.replace(tzinfo=timezone.utc)
-            until = aware + timedelta(days=DEFER_DAYS)
+            until = aware + timedelta(days=days)
         now = utc_now()
         if until is None or until <= now:
             until = self._next_window(user)
@@ -348,7 +398,11 @@ class JourneyService:
             return await self._render_day7(db, user)
         if kind == "level_reward":
             return await self._render_level_reward(db, event, user)
-        # commitment_follow_up（§5.18）等其它 kind 由各自任务分派，不在此处兜底发文案
+        if kind == "commitment_follow_up":
+            return await self._render_commitment_follow_up(db, event, user)
+        if kind == "trial_d5":
+            return await self._render_trial_d5(db, user)
+        # 其它 kind 由各自任务分派，不在此处兜底发文案
         logger.info("未知剧本事件 kind=%s，跳过 user=%s", kind, user.id)
         return None
 
@@ -474,6 +528,44 @@ class JourneyService:
         }
 
     # ── 各日渲染 ──────────────────────────────────────────────────────
+
+    async def _render_trial_d5(self, db: AsyncSession, user: User) -> Optional[Rendered]:
+        """试用第 5 天资产盘点（PRD §5.21 D5）：盘点式正向损失，禁到期/续订恐吓。
+
+        「模式」= 盘点窗口内签到情绪词的重复出现（确定性统计，不编造）；无签到数据
+        回退纯记录数盘点；两者皆无走 plain（零 LLM，模板直出）。
+        """
+        tpl = self._t(user.language)["trial_d5"]
+        activity = await self._activity(db, user, TRIAL_D5_WINDOW_DAYS)
+        entries = activity["entries"]
+        checkins = await mood_repository.get_history(db, user.id, days=TRIAL_D5_WINDOW_DAYS)
+        labels: List[str] = []
+        for emoji, _count in Counter(c.mood_emoji for c in checkins).most_common():
+            label = mood_label_for(emoji, user.language)
+            if label and label not in labels:
+                labels.append(label)
+            if len(labels) >= TRIAL_D5_MAX_MOODS:
+                break
+
+        stats = {"entries": entries, "mood_patterns": len(labels)}
+        if labels:
+            sep = "、" if locale_for(user.language) == "zh" else ", "
+            text = self._gate_tpl(
+                tpl["with_moods"],
+                {"n": entries, "m": len(labels), "moods": sep.join(labels)},
+                user.language,
+            )
+        elif entries > 0:
+            text = self._gate_tpl(tpl["with_stats"], {"n": entries}, user.language)
+        else:
+            text = self._gate(tpl["plain"], user.language)
+        if not text:
+            return None
+        return Rendered(
+            text=text,
+            evidence={"source": "trial_inventory", "window_days": TRIAL_D5_WINDOW_DAYS},
+            stats=stats,
+        )
 
     async def _render_day0(self, db: AsyncSession, user: User) -> Optional[Rendered]:
         """D0 性格初读卡（M1 已生成，这里只把"卡已就绪"落到对话流与红点）。"""
@@ -738,6 +830,54 @@ class JourneyService:
             stats=act,
             evidence={"source": "memory+activity", "reward_key": reward_key},
             reward_key=reward_key,
+        )
+
+    async def _render_commitment_follow_up(
+        self, db: AsyncSession, event, user: User
+    ) -> Optional[Rendered]:
+        """§5.18 承诺回访（四层公式：问候 → 承诺回放 → 关心提问 → 开放 CTA）。
+
+        模板直出零 LLM；承诺原话是 C 级证据，memory_refs 硬不变量照常成立。
+        已 muted（负向退出）或原话命中危机词 → 返回 None（skip，沉默陪伴，永不删行）。
+        """
+        payload = parse_json(event.payload, {})
+        memory_id = payload.get("memory_id") if isinstance(payload, dict) else None
+        memory = await memory_repository.get(db, memory_id, user.id) if memory_id else None
+        if memory is None:
+            return None
+        commitment = commitment_service.parse_labels(memory.labels).get("commitment")
+        if not isinstance(commitment, dict) or commitment.get("muted"):
+            return None
+        if safety_service.crisis_intercept(memory.content, user.language, user.timezone):
+            return None
+        kind_key = "event" if commitment.get("kind") == "event" else "habit"
+        tpl = self._t(user.language)["commitment_follow_up"]
+        excerpt = _clean(memory.content)
+        d0 = None
+        captured_day = payload.get("captured_day") if isinstance(payload, dict) else None
+        if captured_day:
+            try:
+                day = date.fromisoformat(str(captured_day))
+                d0 = f"{day.month}/{day.day}"  # 捕获时已按用户本地日历日落 ISO
+            except ValueError:
+                d0 = None
+        text = self._gate_tpl(
+            tpl[kind_key], {"q0": excerpt, "d0": d0 or self._date_label(memory, user)}, user.language
+        )
+        if not text:
+            return None
+        picked = [(memory, excerpt)]
+        return Rendered(
+            text=text,
+            memory_refs=self._refs(picked),
+            quotes=self._quotes_payload(picked, user),
+            evidence={
+                "source": "commitment",
+                "kind": kind_key,
+                "memory_id": memory.id,
+                "follow_up_count": int(commitment.get("follow_up_count") or 0),
+            },
+            stats={"commitment_kind": kind_key},
         )
 
     # ── 前端消费 ──────────────────────────────────────────────────────

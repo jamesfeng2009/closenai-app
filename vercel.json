@@ -16,6 +16,14 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/v1/cron/bedtime",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/v1/cron/curriculum",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/v1/cron/care-push",
       "schedule": "0 * * * *"
     },

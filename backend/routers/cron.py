@@ -8,6 +8,7 @@
     GET  /api/v1/cron/journey         — 第一周剧本 D0–D7 到期事件投递（P1-B02）
     POST /api/v1/cron/process-user    — QStash 回调：单用户主动消息处理（验签）
     GET  /api/v1/cron/mood-reminder   — 签到轻提醒（偏好时间后 2 小时未签到则推送）
+    GET  /api/v1/cron/bedtime         — 睡前复盘提醒（PRD §5.16 S1，本地 22:00–23:30 窗口）
     GET  /api/v1/cron/care-push       — 连续负面 3 天关心推送（P1-F01，特殊事件 ≤4 次/月）
     GET  /api/v1/cron/trial-reminder  — 试用到期 24h 提醒（P1-F02）
     GET  /api/v1/cron/daily-insight   — 每日洞察生成
@@ -150,6 +151,38 @@ async def mood_reminder(
     """
     verify_cron_secret(request)
     result = await service.dispatch_mood_reminders(db)
+    return success(result)
+
+
+@router.get("/cron/bedtime")
+async def bedtime_reminder(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """睡前复盘提醒（PRD §5.16 S1，Vercel Cron 每小时触发）。
+
+    用户本地 22:00–23:30 固定窗口推送复盘入口；危机命中 24h 内停推、
+    当日已完成复盘不打扰。纯推送（模板文案），不写对话流、不计配额。
+    """
+    verify_cron_secret(request)
+    result = await service.dispatch_bedtime_reminders(db)
+    return success(result)
+
+
+@router.get("/cron/curriculum")
+async def curriculum_generation(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: CronService = Depends(get_cron_service),
+):
+    """Growth Curriculum 周规划（PRD §5.17，Vercel Cron 每小时触发）。
+
+    用户本地周日 21 点桶预生成下周 7 张主题卡（Rule 优先 + LLM 周规划）。
+    拉取式消费：只落 journey_events 首页池，不推送、不计配额。
+    """
+    verify_cron_secret(request)
+    result = await service.dispatch_curriculum_generation(db)
     return success(result)
 
 

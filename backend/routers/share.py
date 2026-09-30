@@ -5,6 +5,7 @@
     GET  /api/v1/share/personality-card    — 性格名片导出（JSON）
     POST /api/v1/share/first-read-card     — 初读卡分享（PDF，P1-B01）
     POST /api/v1/share/memory-card         — 记忆卡分享（PDF，M4）
+    GET  /api/v1/share/on-this-day         — 记忆考古候选（§10.1 ①「N 年前的今天」）
     GET  /api/v1/share/year-in-review      — 年度报告卡（JSON，自然年统计 + 深链）
     GET  /api/v1/share/year-in-review/pdf  — 年度报告卡（PDF）
     GET  /api/v1/share/link                — 本人深链与推荐码（M4 归因）
@@ -103,6 +104,20 @@ async def memory_card_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="closenai_memory_card.pdf"'},
     )
+
+
+@router.get("/share/on-this-day")
+async def on_this_day(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: ShareService = Depends(get_share_service),
+):
+    """记忆考古候选（§10.1 ①）：「N 年前的今天」原话列表，首页每日主位用。
+
+    按用户本地时区逐往年窗口查询（近 3 年），零 LLM；无周年记忆 → 空候选。
+    选中某条后走 POST /share/memory-card 导出 PDF（周年标题由该端点自动判定）。
+    """
+    return success(await service.on_this_day(db, user_id))
 
 
 @router.get("/share/year-in-review")

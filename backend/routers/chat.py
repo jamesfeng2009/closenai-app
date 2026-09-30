@@ -22,6 +22,7 @@ from backend.database import get_db
 from backend.models.schemas import ChatStreamRequest
 from backend.repositories import chat_repository, memory_repository
 from backend.services.chat_service import chat_service
+from backend.services.commitment_service import commitment_service
 from backend.services.memory_service import memory_service
 from backend.services.message_generator import MessageGenerator, message_generator
 from backend.services.user_service import user_service
@@ -123,6 +124,9 @@ async def stream_chat(
             # 对话后自动提取记忆（P0-F02）：token 流已结束，不阻塞 SSE；
             # 内部全程 try/except 降级，失败仅记日志
             await memory_service.extract_and_store(db, user_id, request.content, language)
+
+            # 承诺捕获与负向退出（§5.18）：Rule 抽取零 LLM，内部降级不阻断
+            await commitment_service.on_user_message(db, user_id, request.content)
 
             yield _sse_event("done", {})
 

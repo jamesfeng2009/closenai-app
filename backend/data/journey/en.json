@@ -40,5 +40,16 @@
     ],
     "letter_90d_plain": "Ninety days.\nIn these 90 days you came on {days} of them and wrote {msg_n} entries.\n{closing}"
   },
+  "commitment_follow_up": {
+    "_comment": "§5.18 commitment follow-up (four layers: greeting -> replay -> caring question -> open CTA). No pressure or tracker wording; muting and quotas live in code.",
+    "habit": "Hey. On {d0} you said \"{q0}\" — did you get a chance to try this week? It counts even if it's just one small step.",
+    "event": "Hey. You mentioned \"{q0}\" on {d0} — how did it go? Share a line if you feel like it, no pressure at all."
+  },
+  "trial_d5": {
+    "_comment": "§5.21 trial day-5 asset inventory ({n} entries / {m} mood patterns): inventory-style positive framing — what stays and keeps growing; no countdown or \"subscribe now\" sales talk.",
+    "with_moods": "Day 5 of your trial — a quick look at the week: you left {n} entries, and I can see {m} emotional patterns of yours in them — {moods}. They're still growing.",
+    "with_stats": "Day 5 of your trial — a quick look at the week: you left {n} entries, and I've kept every one of them.",
+    "plain": "Day 5 of your trial. Everything you've written this week is kept right here, not one line lost."
+  },
   "window": "7pm and 5am"
 }

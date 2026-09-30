@@ -24,6 +24,8 @@ JOURNEY_EVENT_KINDS = (
     "day7_report",        # D7《第一周观察报告》
     "level_reward",       # §5.15a L2/L3/L4 情感回报
     "commitment_follow_up",  # §5.18 承诺回访
+    "trial_d5",           # §5.21 试用第 5 天资产盘点（iap verify 试用收据时预写）
+    "curriculum",         # §5.17 Growth Curriculum 每周主题卡（生成即 sent，拉取式消费）
 )
 
 # 事件状态机：pending → sent → seen；条件不满足时置 skipped（永不删除）

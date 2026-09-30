@@ -130,6 +130,29 @@ class GrowthRepository:
         result = await db.execute(stmt)
         return int(result.scalar_one() or 0)
 
+    async def list_by_type_between(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        record_type: str,
+        start: datetime,
+        end: datetime,
+        limit: int = 10,
+    ) -> List[GrowthRecord]:
+        """查询 [start, end) 窗口内指定类型的记录（按时间倒序；睡前复盘按本地日自查用）。"""
+        result = await db.execute(
+            select(GrowthRecord)
+            .where(
+                GrowthRecord.user_id == user_id,
+                GrowthRecord.record_type == record_type,
+                GrowthRecord.created_at >= start,
+                GrowthRecord.created_at < end,
+            )
+            .order_by(GrowthRecord.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def list_pending_follow_ups(
         self,
         db: AsyncSession,
