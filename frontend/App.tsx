@@ -39,7 +39,8 @@ import { loadSession, updateUserSettings, isLoggedIn } from './src/services/api'
 import { parseReferralFromUrl, savePendingReferral } from './src/services/referral';
 import { flushAnalytics, track } from './src/services/analytics';
 import { getActiveRouteName, screenViewProperties } from './src/services/screenTracking';
-import { registerForPushNotifications, subscribePushTokenChanges } from './src/services/push';
+import { registerForPushNotifications, subscribePushTokenChanges, subscribeProactiveMessageSync } from './src/services/push';
+import { getDatabase } from './src/services/db/database';
 import { onSessionReset } from './src/services/session';
 import { runColdStart } from './src/services/coldStart';
 import { startMonitoring } from './src/services/monitoring';
@@ -148,13 +149,15 @@ function AppRoot() {
       }
     };
 
-    // 冷启动关键路径：i18n / 登录态恢复 / 引导标记 三者无依赖并行加载，整体 4s 上限
+    // 冷启动关键路径：i18n / 登录态恢复 / 引导标记 / SQLite 预热 四者无依赖并行加载，整体 4s 上限
     // （loadSession 从 SecureStore 读 access/refresh token；原生侧挂起时强制放行，
     //  详见 src/services/coldStart.ts 的超时与「向上修正」口径）
+    // SQLite 预热：打开 + 迁移在 ready 前完成，首屏 SWR 缓存读/热力图/消息中心不再碰首查开销
     const coldStart = runColdStart({
       initI18n,
       loadSession,
       readOnboarded: () => AsyncStorage.getItem(ONBOARDED_KEY),
+      initDatabase: async () => getDatabase(),
       onReady: () => {
         setReady(true);
         // 首帧渲染之后上报时区（仅已登录用户；游客被守卫跳过）
@@ -188,6 +191,8 @@ function AppRoot() {
 
     // APNs/FCM device token 轮换时重新上报后端（游客态在 push.ts 内守卫）
     const pushTokenCleanup = subscribePushTokenChanges();
+    // 主动消息推送落库（前台收到/点击通知/冷启动拉起三时机），消息中心离线可见
+    const proactiveSyncCleanup = subscribeProactiveMessageSync();
 
     return () => {
       coldStart.cancel();
@@ -195,6 +200,7 @@ function AppRoot() {
       subscription.remove();
       sessionCleanup();
       pushTokenCleanup();
+      proactiveSyncCleanup();
     };
   }, []);
 

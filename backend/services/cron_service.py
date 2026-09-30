@@ -438,7 +438,7 @@ class CronService:
             if message is None:
                 return "skipped"
 
-        await chat_repository.create(
+        chat_msg = await chat_repository.create(
             db, uid, "assistant", message, message_type="proactive", ai_generated=True
         )
         # 人格化推送：按频率档位 + 特殊事件月度上限过滤（PRD P1-F01 §6）
@@ -454,7 +454,8 @@ class CronService:
                         db, user, "milestone", milestone=milestone
                     )
                     await push_service.send_to_user(
-                        db, uid, title, body, data={"type": "milestone"}
+                        db, uid, title, body,
+                        data={"type": "milestone", "message_id": chat_msg.id},
                     )
                     await user_repository.increment_special_push(
                         db, uid, self._special_month(user)
@@ -465,8 +466,10 @@ class CronService:
                 title, body = await push_copywriter.build_copy(
                     db, user, "proactive", message=message
                 )
+                # message_id 随推送下发：前端收到即落库本地 ai_messages（消息中心离线可见）
                 await push_service.send_to_user(
-                    db, uid, title, body, data={"type": "proactive"}
+                    db, uid, title, body,
+                    data={"type": "proactive", "message_id": chat_msg.id},
                 )
         return "sent"
 

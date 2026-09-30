@@ -1,5 +1,6 @@
 import type { SqliteDb } from './types';
 import { BaseRepository } from './repository';
+import { toLocalDate } from '../../utils/datetime';
 
 export interface AiMessageRow {
   id: string;
@@ -37,6 +38,35 @@ export class AiMessagesRepository extends BaseRepository<AiMessageRow> {
       new Date().toISOString(),
       id,
     ]);
+  }
+
+  /** 推送到达落库（按 message_id upsert，后续 /chat/history 同步覆盖为全文）。 */
+  async upsertFromPush(id: string, title: string, body: string, receivedAt?: string): Promise<void> {
+    const created_at = receivedAt ?? new Date().toISOString();
+    this.upsert({
+      id,
+      scheduled_date: toLocalDate(created_at),
+      content_preview: body || title,
+      full_content_url: null,
+      priority: 'normal',
+      is_read: 0,
+      read_at: null,
+      created_at,
+    });
+  }
+
+  /** /chat/history 同步落库（message_type=proactive 的消息，id 与服务端一致）。 */
+  async upsertFromRemote(id: string, content: string, createdAt: string): Promise<void> {
+    this.upsert({
+      id,
+      scheduled_date: toLocalDate(createdAt),
+      content_preview: content,
+      full_content_url: null,
+      priority: 'normal',
+      is_read: 0,
+      read_at: null,
+      created_at: createdAt,
+    });
   }
 }
 

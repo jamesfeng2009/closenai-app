@@ -185,6 +185,8 @@ async def chat_history(
                 "role": "ai" if m.role == "assistant" else "user",
                 "content": m.content,
                 "is_ai_generated": bool(getattr(m, "ai_generated", m.role == "assistant")),
+                # message_type=proactive 标记主动消息，前端据此同步进本地 ai_messages 表（消息中心）
+                "message_type": getattr(m, "message_type", None),
                 "created_at": m.created_at,
                 "memory_refs": refs,
             }

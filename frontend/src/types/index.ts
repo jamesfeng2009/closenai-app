@@ -23,6 +23,8 @@ export interface ChatHistoryItem {
   role: 'user' | 'ai';
   content: string;
   is_ai_generated?: boolean;
+  // proactive 标记主动消息（服务端 cron 生成），前端据此同步进本地 ai_messages 表
+  message_type?: string | null;
   created_at: string;
   memory_refs?: MemoryRef[];
 }

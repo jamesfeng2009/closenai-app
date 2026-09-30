@@ -144,6 +144,8 @@ const resource = {
     "stageReveal": "Reveal",
     "stageApply": "Apply",
     "moreTitle": "More to Explore",
+    "reflectionsTitle": "My Reflections",
+    "reflectionsEmpty": "Saved reflections will appear here",
     "personCard": "Personality Card",
     "personCardDesc": "Generate a shareable card",
     "comingSoon": "Coming soon"

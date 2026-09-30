@@ -141,6 +141,8 @@ const resource = {
     "stageReveal": "เปิดเผย",
     "stageApply": "นำไปใช้",
     "moreTitle": "สำรวจเพิ่มเติม",
+    "reflectionsTitle": "My Reflections",
+    "reflectionsEmpty": "Saved reflections will appear here",
     "personCard": "การ์ดบุคลิกภาพ",
     "personCardDesc": "สร้างการ์ดสำหรับแชร์",
     "comingSoon": "เร็วๆ นี้"

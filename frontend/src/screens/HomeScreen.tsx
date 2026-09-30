@@ -16,10 +16,12 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
-import { getGrowthDashboard, moodCheckin, getJourneyEvents, ApiError } from '../services/api';
+import { getGrowthDashboard, getMoodHistory, moodCheckin, getJourneyEvents, ApiError } from '../services/api';
 import { trackFunnelOnce } from '../services/funnel';
 import { isFirstReadUnseen, loadFirstReadCard } from '../services/firstRead';
 import { settingsRepo } from '../services/db/settingsRepository';
+import { moodCheckinRepo, type MoodCheckinRow } from '../services/db/moodCheckinRepository';
+import { toLocalDate } from '../utils/datetime';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import InsightBlurGate from '../components/InsightBlurGate';
 import type { GrowthDashboard, MoodEmoji } from '../types';
@@ -35,6 +37,43 @@ const DASHBOARD_CACHE_KEY = '@closenai/dashboard_cache';
 // 与后端 ErrorCode.QUOTA_EXCEEDED 对齐（免费配额耗尽 → 引导付费）
 const CODE_QUOTA_EXCEEDED = 40301;
 
+/** 签到历史落库：服务端记录 → 本地 mood_checkins（同 id upsert 幂等）。 */
+async function syncMoodHistory(): Promise<void> {
+  try {
+    const { checkins } = await getMoodHistory();
+    for (const c of checkins) {
+      const row: MoodCheckinRow = {
+        id: c.id,
+        date: toLocalDate(c.created_at),
+        emoji: c.mood_emoji,
+        intensity: 0.5,
+        note: null,
+        ai_interpretation: c.ai_interpretation || null,
+        created_at: c.created_at,
+      };
+      moodCheckinRepo.save(row).catch(() => {});
+    }
+  } catch {
+    // 同步失败不影响仪表盘主流程
+  }
+}
+
+const HEAT_DAYS = 14;
+
+/** 最近 14 天热力图格子（今日在最右）：有签到显示 emoji，无签到显示暗格。 */
+function buildHeatCells(checkins: MoodCheckinRow[]): { date: string; emoji: string | null }[] {
+  const byDate = new Map(checkins.map((c) => [c.date, c.emoji]));
+  const cells: { date: string; emoji: string | null }[] = [];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  for (let i = HEAT_DAYS - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    cells.push({ date, emoji: byDate.get(date) ?? null });
+  }
+  return cells;
+}
+
 export default function HomeScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const { isLoggedIn } = useAuth();
@@ -46,12 +85,23 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   const [checkinNote, setCheckinNote] = useState<{ emoji: string; label: string; text: string } | null>(null);
   // 标记网络请求是否已完成，防止缓存 setDashboard 覆盖网络新数据（F8 竞态修复）
   const networkLoaded = useRef(false);
+  // 本地签到热力图（Tier 1 用户原创，纯本地读秒开；网络同步后台覆盖）
+  const [localCheckins, setLocalCheckins] = useState<MoodCheckinRow[]>([]);
+
+  const refreshLocalCheckins = React.useCallback(() => {
+    moodCheckinRepo
+      .getRecentDays(14)
+      .then(setLocalCheckins)
+      .catch(() => {});
+  }, []);
 
   const loadDashboard = React.useCallback(async () => {
     try {
       const data = await getGrowthDashboard();
       setDashboard(data);
       settingsRepo.setJson(DASHBOARD_CACHE_KEY, data).catch(() => {});
+      // 签到历史同步进本地表（fire-and-forget，失败不影响仪表盘）
+      syncMoodHistory();
     } catch (e) {
       console.warn('Failed to load dashboard:', e);
     } finally {
@@ -80,13 +130,15 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   // 游客态跳过请求（401 噪声），显示空仪表盘
   useFocusEffect(
     React.useCallback(() => {
+      // 本地热力图每次聚焦刷新（纯 SQLite 读，秒级返回）
+      refreshLocalCheckins();
       if (isLoggedIn) {
         loadDashboard();
       } else {
         setDashboard(null);
         setLoading(false);
       }
-    }, [loadDashboard, isLoggedIn])
+    }, [loadDashboard, refreshLocalCheckins, isLoggedIn])
   );
 
   // D0 初读卡入口（P1-B01）：卡已生成且未打开过时展示，打开后进 FirstReadCardScreen
@@ -164,6 +216,19 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           ? { ...prev, today_mood: res.mood_emoji, streak_count: res.streak_updated }
           : prev,
       );
+      // 本地签到记录落库（Tier 1 用户原创；热力图离线可用）
+      moodCheckinRepo
+        .save({
+          id: res.id,
+          date: toLocalDate(res.created_at),
+          emoji: res.mood_emoji,
+          intensity: 0.5,
+          note: null,
+          ai_interpretation: res.ai_interpretation || null,
+          created_at: res.created_at,
+        })
+        .then(refreshLocalCheckins)
+        .catch(() => {});
       if (res.ai_interpretation) {
         // 长文不进 Alert：系统弹窗会截断、无法滚动，用户读不到半句解读。
         // 改为屏内卡片，签到后就留在本页慢慢看。
@@ -314,6 +379,20 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
             );
           })}
         </View>
+
+        {/* 最近 14 天签到热力图（本地 SQLite 读，离线秒开） */}
+        {localCheckins.length > 0 && (
+          <View style={styles.heatRow}>
+            {buildHeatCells(localCheckins).map((cell) => (
+              <View
+                key={cell.date}
+                style={[styles.heatCell, !cell.emoji && styles.heatCellEmpty]}
+              >
+                {!!cell.emoji && <Text style={styles.heatEmoji}>{cell.emoji}</Text>}
+              </View>
+            ))}
+          </View>
+        )}
 
         {checkinNote && (
           <View style={styles.checkinNote}>
@@ -495,6 +574,15 @@ const styles = StyleSheet.create({
   cardSubtitle: { fontSize: FontSize.md, color: Colors.textTertiary, marginBottom: 10 },
   doneTag: { fontSize: FontSize.sm, color: Colors.success, backgroundColor: 'rgba(16,185,129,0.1)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   moodRow: { flexDirection: 'row', justifyContent: 'space-around', gap: 8 },
+  // 14 天签到热力图条（本地数据渲染，无签到日为暗格）
+  heatRow: { flexDirection: 'row', gap: 3, marginTop: Spacing.md },
+  heatCell: {
+    flex: 1, height: 22, borderRadius: 4,
+    backgroundColor: 'rgba(255,215,0,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  heatCellEmpty: { backgroundColor: 'rgba(255,255,255,0.04)' },
+  heatEmoji: { fontSize: 12 },
   checkinNote: {
     marginTop: Spacing.md,
     paddingTop: Spacing.md,

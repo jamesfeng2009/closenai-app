@@ -19,6 +19,8 @@ export interface ColdStartDeps {
   initI18n: () => Promise<unknown>;
   loadSession: () => Promise<unknown>;
   readOnboarded: () => Promise<string | null>;
+  /** SQLite 打开 + 迁移预热（幂等；repo 模块单例兜底，此处显式化时序语义）。 */
+  initDatabase: () => Promise<unknown>;
   /** 到点强制放行（打开 ready 门闸），只触发一次。 */
   onReady: () => void;
   /** 引导标记落定；超时放行后的迟到值只允许 true。 */
@@ -41,11 +43,12 @@ export function runColdStart(deps: ColdStartDeps): ColdStartHandle {
     deps.onReady();
   }, timeoutMs);
 
-  // 三项无依赖、并行；各自吞掉失败（挂了/报错的项不该让整条链路永不 settle）
-  const tasks: [Promise<unknown>, Promise<unknown>, Promise<string | null>] = [
+  // 四项无依赖、并行；各自吞掉失败（挂了/报错的项不该让整条链路永不 settle）
+  const tasks: [Promise<unknown>, Promise<unknown>, Promise<string | null>, Promise<unknown>] = [
     deps.initI18n().catch(() => undefined),
     deps.loadSession().catch(() => undefined),
     deps.readOnboarded().catch(() => null),
+    deps.initDatabase().catch(() => undefined),
   ];
 
   Promise.all(tasks)

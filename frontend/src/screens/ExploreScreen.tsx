@@ -12,9 +12,11 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
-import { getPersonalityProfile } from '../services/api';
+import { getPersonalityProfile, listReflections } from '../services/api';
 import type { PersonalityProfile } from '../types';
 import { personalityProfileRepo } from '../services/db/personalityProfileRepository';
+import { reflectionRepo, type ReflectionRow } from '../services/db/reflectionRepository';
+import { toLocalDate } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 
@@ -56,15 +58,47 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
   const [loading, setLoading] = useState(true);
   // 远端画像拉取失败且本地无缓存 → 显式失败态；只渲染「—」会让用户以为还没有画像
   const [failed, setFailed] = useState(false);
+  // 我的反思列表（Tier 1 用户原创：本地 SQLite 秒开，网络同步后台覆盖）
+  const [reflections, setReflections] = useState<ReflectionRow[]>([]);
 
   // Tab 常驻不卸载：每次聚焦都刷新画像（评估/刷新后返回不过期；mount 时也会触发一次）
   // 游客态跳过请求（401 噪声），展示空画像
   useFocusEffect(
     React.useCallback(() => {
+      // 反思列表先读本地（纯 SQLite 读，秒级返回）
+      reflectionRepo
+        .getRecent(5)
+        .then(setReflections)
+        .catch(() => {});
       if (isLoggedIn) {
         loadProfile();
+        // 反思记录网络同步：远端 → 本地表（同 id upsert 幂等）→ 刷新 UI
+        listReflections(20)
+          .then((items) =>
+            Promise.all(
+              items.map((r) =>
+                reflectionRepo
+                  .save({
+                    id: r.id,
+                    date: toLocalDate(r.created_at),
+                    mood: null,
+                    mood_emoji: null,
+                    summary: r.content,
+                    full_content_url: null,
+                    is_ai_generated: 0,
+                    created_at: r.created_at,
+                    updated_at: r.created_at,
+                  })
+                  .catch(() => {}),
+              ),
+            ),
+          )
+          .then(() => reflectionRepo.getRecent(5))
+          .then(setReflections)
+          .catch(() => {});
       } else {
         setProfile(null);
+        setReflections([]);
         setLoading(false);
       }
     }, [isLoggedIn])
@@ -159,6 +193,23 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
         </View>
       )}
 
+      {/* 我的反思（Tier 1 用户原创，本地 SQLite 秒开；来自 Reflect 页保存的草稿） */}
+      <View style={styles.reflectionSection}>
+        <Text style={styles.sectionTitle}>{t('explore.reflectionsTitle')}</Text>
+        {reflections.length === 0 ? (
+          <Text style={styles.reflectionEmpty}>{t('explore.reflectionsEmpty')}</Text>
+        ) : (
+          reflections.map((r) => (
+            <View key={r.id} style={styles.reflectionItem}>
+              <Text style={styles.reflectionDate}>{r.date}</Text>
+              <Text style={styles.reflectionSummary} numberOfLines={3}>
+                {r.summary}
+              </Text>
+            </View>
+          ))
+        )}
+      </View>
+
       {/* 更多探索 */}
       <View style={styles.moreSection}>
         <Text style={styles.sectionTitle}>{t('explore.moreTitle')}</Text>
@@ -183,6 +234,15 @@ const styles = StyleSheet.create({
   content: { padding: Spacing.lg, paddingBottom: 80 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bgPrimary },
   title: { fontSize: FontSize.title, fontWeight: '600', color: Colors.textPrimary, marginBottom: Spacing.md },
+  // 我的反思（本地数据渲染；内容区填满可用空间，不做大留白）
+  reflectionSection: { marginTop: Spacing.md, marginBottom: Spacing.lg },
+  reflectionEmpty: { fontSize: FontSize.md, color: Colors.textTertiary, lineHeight: LineHeight.caption },
+  reflectionItem: {
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+  },
+  reflectionDate: { fontSize: FontSize.sm, color: Colors.gold400, marginBottom: 2 },
+  reflectionSummary: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption },
   failBox: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md,
     borderWidth: 1, borderColor: Colors.borderLight, borderRadius: BorderRadius.lg,

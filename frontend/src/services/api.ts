@@ -399,6 +399,11 @@ export async function getMoodTrend(days: number = 14): Promise<MoodTrendData> {
   return request<MoodTrendData>(`/mood/trend?days=${days}`);
 }
 
+/** 签到历史（最近 30 条，用于同步本地 mood_checkins 表）。 */
+export async function getMoodHistory(): Promise<{ checkins: MoodCheckinResponse[] }> {
+  return request<{ checkins: MoodCheckinResponse[] }>('/mood/history');
+}
+
 // ═══ Growth (P0-F07) ═══
 
 export async function getGrowthDashboard(): Promise<GrowthDashboard> {

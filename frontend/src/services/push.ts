@@ -16,6 +16,7 @@ import { Alert, Linking, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import i18n from '../i18n';
 import { isLoggedIn, registerPushToken } from './api';
+import { aiMessagesRepo } from './db/aiMessagesRepository';
 
 // App 前台不弹通知横幅（用户已在 App 内，主动消息不打断当前体验）
 Notifications.setNotificationHandler({
@@ -87,6 +88,65 @@ export function subscribePushTokenChanges(): () => void {
       uploadToken(token.data).catch(() => {});
     });
     return () => sub.remove();
+  } catch {
+    return () => {};
+  }
+}
+
+/** 主动消息推送 payload 契约（后端 cron_service 下发 data={"type", "message_id"}）。 */
+interface ProactivePushData {
+  type?: string;
+  message_id?: string;
+  title?: string;
+  body?: string;
+}
+
+/** 通知对象里取自定义 data + alert 文案（iOS 顶层 "data" 键 / Android remote message data 归一）。 */
+function extractPushData(notification: Notifications.Notification): ProactivePushData {
+  const raw = notification?.request?.content?.data;
+  const base: ProactivePushData =
+    raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as ProactivePushData) : {};
+  const alert = notification?.request?.content;
+  return { ...base, title: alert?.title ?? '', body: alert?.body ?? '' };
+}
+
+/** 推送落库：带 message_id 的主动消息/里程碑推送写入本地 ai_messages（消息中心离线可见）。 */
+function persistProactivePush(data: ProactivePushData, receivedAt?: string): void {
+  if (!isLoggedIn()) return;
+  const { type, message_id: messageId, title, body } = data;
+  if (!messageId || (type !== 'proactive' && type !== 'milestone')) return;
+  try {
+    // 推送 body 是包装文案，非消息全文；后续 /chat/history 同步按同 id 覆盖为全文
+    aiMessagesRepo.upsertFromPush(messageId, title ?? '', body ?? '', receivedAt).catch(() => {});
+  } catch {
+    // 落库失败不影响推送主流程
+  }
+}
+
+/**
+ * 主动消息推送落库监听（消息中心数据源之一）：
+ * - 前台收到 / 后台点击通知：监听器实时落库
+ * - 冷启动由通知拉起：getLastNotificationResponseAsync 兜底（监听器注册前已错过事件）
+ * 全量历史仍以 /chat/history 同步为准（ReflectScreen 聚焦时拉取覆盖）。
+ * 返回 cleanup（App.tsx 卸载时移除）。
+ */
+export function subscribeProactiveMessageSync(): () => void {
+  try {
+    const subs = [
+      Notifications.addNotificationReceivedListener((n) =>
+        persistProactivePush(extractPushData(n)),
+      ),
+      Notifications.addNotificationResponseReceivedListener((resp) =>
+        persistProactivePush(extractPushData(resp.notification)),
+      ),
+    ];
+    // 冷启动兜底：App 未运行时点开通知，上面两个监听器注册前事件已发生
+    Notifications.getLastNotificationResponseAsync()
+      .then((resp) => {
+        if (resp?.notification) persistProactivePush(extractPushData(resp.notification));
+      })
+      .catch(() => {});
+    return () => subs.forEach((s) => s.remove());
   } catch {
     return () => {};
   }

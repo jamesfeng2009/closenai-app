@@ -35,6 +35,7 @@ function setup(stored: string | null = '1') {
     initI18n: () => Promise.resolve(),
     loadSession: () => Promise.resolve(),
     readOnboarded: () => Promise.resolve(stored),
+    initDatabase: () => Promise.resolve(),
     onReady: ready,
     onOnboarded: onboarded,
   });
@@ -69,6 +70,7 @@ describe('正常路径（三项都在超时前 settle）', () => {
       initI18n: () => Promise.reject(new Error('i18n boom')),
       loadSession: () => Promise.reject(new Error('securestore boom')),
       readOnboarded: () => Promise.resolve('1'),
+      initDatabase: () => Promise.resolve(),
       onReady: ready,
       onOnboarded: onboarded,
     });
@@ -84,6 +86,7 @@ describe('正常路径（三项都在超时前 settle）', () => {
       initI18n: () => Promise.resolve(),
       loadSession: () => Promise.resolve(),
       readOnboarded: () => Promise.reject(new Error('storage boom')),
+      initDatabase: () => Promise.resolve(),
       onReady: ready,
       onOnboarded: onboarded,
     });
@@ -102,6 +105,7 @@ describe('挂起路径（原生侧 Promise 永不 settle）', () => {
       initI18n: () => Promise.resolve(),
       loadSession: () => new Promise(() => {}), // 永不 settle
       readOnboarded: () => hang.promise,
+      initDatabase: () => Promise.resolve(),
       onReady: ready,
       onOnboarded: onboarded,
     });
@@ -124,6 +128,7 @@ describe('挂起路径（原生侧 Promise 永不 settle）', () => {
       initI18n: () => Promise.resolve(),
       loadSession: () => Promise.resolve(),
       readOnboarded: () => hang.promise,
+      initDatabase: () => Promise.resolve(),
       onReady: ready,
       onOnboarded: onboarded,
     });
@@ -144,6 +149,7 @@ describe('挂起路径（原生侧 Promise 永不 settle）', () => {
       initI18n: () => Promise.resolve(),
       loadSession: () => Promise.resolve(),
       readOnboarded: () => hang.promise,
+      initDatabase: () => Promise.resolve(),
       onReady: ready,
       onOnboarded: onboarded,
     });
@@ -165,6 +171,7 @@ describe('cancel（卸载清理）', () => {
       initI18n: () => Promise.resolve(),
       loadSession: () => Promise.resolve(),
       readOnboarded: () => hang.promise,
+      initDatabase: () => Promise.resolve(),
       onReady: ready,
       onOnboarded: onboarded,
     });

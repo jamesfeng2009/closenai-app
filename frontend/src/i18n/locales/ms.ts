@@ -141,6 +141,8 @@ const resource = {
     "stageReveal": "Mendedahkan",
     "stageApply": "Mengaplikasi",
     "moreTitle": "Lebih Banyak Terokaan",
+    "reflectionsTitle": "My Reflections",
+    "reflectionsEmpty": "Saved reflections will appear here",
     "personCard": "Kad Personaliti",
     "personCardDesc": "Hasilkan kad untuk dikongsi",
     "comingSoon": "Akan datang"

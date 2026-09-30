@@ -25,6 +25,9 @@ import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { chatRepo } from '../services/db/chatRepository';
 import { resolveMemoryRefs } from '../services/evidence';
 import { aiMessagesRepo } from '../services/db/aiMessagesRepository';
+import { moodCheckinRepo } from '../services/db/moodCheckinRepository';
+import { reflectionRepo } from '../services/db/reflectionRepository';
+import { toLocalDate } from '../utils/datetime';
 import { track } from '../services/analytics';
 import { trackFunnelOnce } from '../services/funnel';
 import type { MemoryRef, MoodEmoji } from '../types';
@@ -130,6 +133,11 @@ export default function ReflectScreen() {
         created_at: h.created_at,
         memoryRefs: h.memory_refs ?? [],
       }));
+      // 主动消息同步进本地 ai_messages 表（消息中心数据源；同 id upsert 幂等）
+      const proactive = (history || []).filter((h) => h.message_type === 'proactive');
+      for (const m of proactive) {
+        await aiMessagesRepo.upsertFromRemote(m.id, m.content, m.created_at).catch(() => {});
+      }
       // 本地与远端按 id 去重合并；远端为真相源（覆盖本地旧内容，写入本地缓存）
       const merged = mergeMessages(remote, local.map((h) => ({
         id: h.id,
@@ -323,6 +331,20 @@ export default function ReflectScreen() {
       setMoodCheckedIn(true);
       setShowMoodPanel(false);
       setStreak(result.streak_updated);
+      // 本地签到记录落库（Tier 1 用户原创；热力图离线可用）
+      moodCheckinRepo
+        .save({
+          id: result.id,
+          date: toLocalDate(result.created_at),
+          emoji: result.mood_emoji,
+          intensity: 0.5,
+          note: null,
+          ai_interpretation: result.deep_interpretation
+            ? `${result.ai_interpretation}\n\n${result.deep_interpretation}`
+            : result.ai_interpretation,
+          created_at: result.created_at,
+        })
+        .catch(() => {});
     } catch (e) {
       // 配额耗尽（签到解读也计入免费配额）：引导付费
       if (e instanceof ApiError && e.code === CODE_QUOTA_EXCEEDED) {
@@ -339,7 +361,21 @@ export default function ReflectScreen() {
     if (savingId) return; // 单条进行中：忽略连点，避免同一草稿重复入库
     setSavingId(msg.id);
     try {
-      await saveReflection(msg.content, msg.relatedMemoryIds);
+      const saved = await saveReflection(msg.content, msg.relatedMemoryIds);
+      // 本地反思记录落库（Tier 1 用户原创；探索页反思列表离线可用）
+      reflectionRepo
+        .save({
+          id: saved.id,
+          date: toLocalDate(saved.created_at),
+          mood: null,
+          mood_emoji: null,
+          summary: saved.content,
+          full_content_url: null,
+          is_ai_generated: 0,
+          created_at: saved.created_at,
+          updated_at: saved.created_at,
+        })
+        .catch(() => {});
       setMessages((prev) =>
         prev.map((m) => (m.id === msg.id ? { ...m, draftSaved: true } : m))
       );

@@ -141,6 +141,8 @@ const resource = {
     "stageReveal": "揭示",
     "stageApply": "运用",
     "moreTitle": "更多探索",
+    "reflectionsTitle": "我的反思",
+    "reflectionsEmpty": "保存的反思会显示在这里",
     "personCard": "性格名片",
     "personCardDesc": "生成分享卡片",
     "comingSoon": "敬请期待"

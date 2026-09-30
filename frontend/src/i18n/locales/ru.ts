@@ -150,6 +150,8 @@ const resource = {
     "stageReveal": "Раскрытие",
     "stageApply": "Применение",
     "moreTitle": "Больше исследований",
+    "reflectionsTitle": "My Reflections",
+    "reflectionsEmpty": "Saved reflections will appear here",
     "personCard": "Карточка личности",
     "personCardDesc": "Создать карточку для обмена",
     "comingSoon": "Скоро"
