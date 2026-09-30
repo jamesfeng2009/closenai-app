@@ -211,7 +211,7 @@
   - [x] `src/components/charts/transforms.ts` 纯函数（jest node 环境可测，SVG 组件不进测试——沿 M5 偏离 2 口径）：`toLineSegments`（折线分段：value=0 未签到断线不插值，返回 segments≥2 点 + singles 孤点，x 按有值序列索引均分）+ `toHeatMatrix`（GitHub 式矩阵：列=自然周周一起始、行=星期几，首列按首日星期补前导 null，缺失日 null 格，非法日期/空输入回 7 行空矩阵不崩溃）+ `HEAT_COLORS` 自 InsightsScreen 上收共享
   - [x] `MoodLineChart.tsx`（Polyline 连段 + Circle 标孤点，金色主线）+ `HeatGrid.tsx`（SVG Rect rx=3）接入 InsightsScreen 热力图卡：近 7 天折线（X=日期 Y=情绪值 1-5，PRD §P0 情绪趋势可视化）+ 热力图默认近 90 天、「查看全年」toggle 切 365 天横向滑动（PRD 默认/展开视图口径）
   - 验收实测：`__tests__/chartTransforms.test.ts` **8 例**（连续段/断线成两段+孤点/全空回空/断口两侧 x 均分不挤压/首列对齐/缺失日 null/跨周换列/空与非法日期）；tsc 0 + jest **847 passed**
-  - ⚠️ 色环（行动方案「回忆卡·情绪色环」）依赖 ShareCardScreen 回忆卡第四模板（C4 前端批次），届时再建 SVG 色环组件，本批不做
+  - ⚠️ 色环（行动方案「回忆卡·情绪色环」）依赖 ShareCardScreen 回忆卡第四模板（C4 前端批次），届时再建 SVG 色环组件，本批不做；无需单独设计文档，随第四模板立项时 brainstorming 一并出视觉规格（占色环弧段映射、情绪值→色相、静态/动画口径）
 - [ ] **E3 · 部署迁移 QStash → arq + Redis Pod**（k3s 清单见架构方案 §十；inline 回退保留）
 - [ ] **E4 · Expo SDK 升级（51 → 53+）**——提审后技术债第一项（连带校验 react-native-iap 兼容性）
 
@@ -248,7 +248,7 @@
   - ⚠️ 偏离：PRD P0-F06 §8 原文写组合报告 = 「16 型人格 × 星座 × 九型」，实现取两框架——与 PRD v2.1 总纲「占星已移除」一致，取总纲
   - ⏳ 未取证：改后未在真机上看过画像页与组合报告（本机 Expo Go 不可用）；证据止于类型 + 单测 + 文案键
   - ✅ **数据层两个待决项已由文档拍过，按文档执行**（`appstore-compliance-2026-09-05.md` 方案 A，:65）：「删除一切占星痕迹，性格框架只保留 MBTI + 九型。**数据库表保留（不写反向迁移），只删代码与 UI**」→ `natal_charts` 不 drop（历史迁移文件也不动，删了会让已 stamp 的库 `alembic upgrade` 报错）；`users.birthday` 列保留
-    - 仍建议但**未执行**：把 `ProfileUpdateRequest.birthday` 从请求 schema 下线——它现在是零读取字段，继续收集生日却不声明用途会牵动隐私标签（Apple 5.1.1 数据最小化），与 4.3(b) 无关，属另一条线
+    - ✅ **已执行（2026-09-30 核实更正）**：`birthday` 字段已随 `ca28e6a`（G1–G4）从请求 schema 删除（`git log -S` 追踪确认），前端从无生日输入；仅存 DB 列 `users.birthday`（方案 A：不写反向迁移）。App 已不收集生日，5.1.1 数据最小化风险解除——原「未执行」表述过时
   - 依据（为什么非删不可）：4.3(b) 2026-06-08 修订把 **fortune telling 与 dating 并列点名**（合规文档 :19 引原文）；判定标准是「相对 Co-Star 有没有明显不同的体验」而非「有没有占星」（:57）；实证——算命 App 连续四次被拒 4.3(b)，过审关键动作是**删掉"输入生日直接出解读"的页面**（:167），即触发点是该交互本身；反复硬提审会抬升 **3.2(f) 账号终止**风险（:171）。收益：4.3(b) 触发点归零（:99）
 
 ## L. 15 语言文案真翻译（2026-09-30，三节「存在但降级」清账 #39）
@@ -332,7 +332,8 @@
 > 「按开发口径可用、按生产口径不可用」。逐条都要用户账号或真机，代理无法代为完成。
 
 - [ ] **K1 · Cloudflare Pages 部署 `site/`**（B4/#38）
-  - 待做：用 closenai.app 所属 CF 账号建 Pages 项目，output 目录 = `site/`；`closenai.app` 当前 **DNS 无解析**（`dig +short closenai.app A` 空、curl 连接失败，实测于 2026-09-29）
+  - ✅ 域名拍板（2026-09-30 用户确认）：**closenai.app 为主域名**——K1/K3/K4 全部围绕它执行
+  - 待做：用 closenai.app 所属 CF 账号建 Pages 项目，output 目录 = `site/`；`closenai.app` 当前 **DNS 无解析**（`dig +short closenai.app A` 空、curl 连接失败，实测于 2026-09-29 与 2026-09-30 复测一致）
   - 验收：`curl -sSI https://closenai.app/.well-known/apple-app-site-association` 返回 200 且 `Content-Type: application/json`、无 3xx
 - [ ] **K2 · 真实 Apple Team ID 注入 AASA**（#38）
   - 待做：`APPLE_TEAM_ID=<10 位> node site/scripts/build-aasa.mjs` 后再部署；把同一步加进 Pages 的 Build command
