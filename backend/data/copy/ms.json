@@ -1,0 +1,515 @@
+{
+  "mood": {
+    "labels": {
+      "happy": "Gembira",
+      "calm": "Tenang",
+      "anxious": "Cemas",
+      "sad": "Sedih",
+      "angry": "Marah",
+      "tired": "Penat"
+    },
+    "interpret": {
+      "happy": "Nampaknya mood anda baik hari ini — kekalkan!",
+      "calm": "Hari yang tenang dan stabil. Luangkan sedikit masa untuk diri sendiri.",
+      "anxious": "Rasa sedikit cemas adalah perkara biasa. Tarik napas dalam dan perlahan-lahan.",
+      "sad": "Sedih sedikit — saya di sini bersama anda. Wajar untuk berasa emosi.",
+      "angry": "Rasa marah? Jangan buat keputusan sekarang; biarkan emosi reda dahulu.",
+      "tired": "Sedikit penat — rehat juga penting. Jangan terlalu memaksa diri."
+    },
+    "interpret_fallback": "Bagaimana perasaan anda hari ini?",
+    "trend": {
+      "empty": "Data rekod belum cukup — mula merekodkan hari pertama anda.",
+      "high": "Suasana hati anda secara keseluruhannya bagus — kekalkan rentak ini.",
+      "mid": "Suasana hati anda agak stabil. Kadangkala perhatikan perasaan sendiri.",
+      "low": "Baru-baru ini hati anda agak rendah. Jaga diri dengan baik, saya di sini."
+    }
+  },
+  "levels": {
+    "name": {
+      "1": "Kenalan L1",
+      "2": "Rapat L2",
+      "3": "Kepercayaan L3",
+      "4": "Rakan karib L4"
+    },
+    "features": {
+      "1": [
+        "Perbualan asas",
+        "Daftar masuk mood"
+      ],
+      "2": [
+        "Sekutan proaktif daripada AI",
+        "Rujukan memori"
+      ],
+      "3": [
+        "Analisis personaliti mendalam",
+        "Penemuan corak",
+        "Laporan mingguan AI"
+      ],
+      "4": [
+        "Laporan personaliti mendalam suku tahunan",
+        "Wawasan ramalan",
+        "Mod renungan mendalam"
+      ]
+    },
+    "reward": {
+      "2": "AI menyebut sesuatu yang pernah anda katakan buat kali pertama",
+      "3": "Pratonton Monthly Story pertama anda",
+      "4": "Surat 90 hari: dirimu yang kulihat"
+    },
+    "note": "Semua nama peringkat menerangkan sejauh mana AI memahami anda — ia bukan romantik.",
+    "milestone": {
+      "streak_7": "Rentetan 7 hari",
+      "streak_30": "Sahabat 30 hari",
+      "streak_100": "100 hari bersama",
+      "streak_365": "Rakan setahun"
+    },
+    "celebrate": {
+      "body": "🎉 Selepas {days} hari bersama, hubungan kita berkembang menjadi \"{label}\"! Baharu dibuka: {unlocks}.",
+      "reward": " Dan mulai sekarang: {reward}."
+    }
+  },
+  "growth": {
+    "insight_type": {
+      "daily_insight": "Wawasan harian",
+      "weekly_summary": "Ringkasan mingguan",
+      "pattern_discovery": "Penemuan corak",
+      "drift_alert": "Amaran perubahan",
+      "weekly_report": "Laporan mingguan",
+      "monthly_report": "Laporan bulanan",
+      "quarterly_report": "Laporan suku tahunan",
+      "yearly_report": "Laporan tahunan"
+    },
+    "period": {
+      "weekly": "Wawasan mingguan",
+      "monthly": "Laporan bulanan",
+      "quarterly": "Laporan mendalam suku tahunan",
+      "yearly": "Laporan hidup tahunan",
+      "fallback": "Laporan"
+    },
+    "forecast_label": "Ramalan minggu depan",
+    "topic": {
+      "mood": "Bercakap tentang perubahan emosi terkini",
+      "relationship": "Bercakap tentang pergaulan terkini",
+      "work": "Bercakap tentang kerja dan tekanannya",
+      "goal": "Bercakap tentang kemajuan matlamat",
+      "communication": "Bercakap tentang kerumitan komunikasi terkini",
+      "growth": "Bercakap tentang pertumbuhan terkini"
+    },
+    "mood_trend": {
+      "empty": "Tiada rekod emosi dalam tempoh ini.",
+      "body": "Jumlah {total} rekod: {parts}.",
+      "unit": " hr"
+    },
+    "fallback_report": "Dalam tempoh ini anda merekod emosi {checkins} kali dan mempunyai {chat_count} perbualan. Anda sedang mengenal diri sedikit demi sedikit — teruskan merekod, corak akan muncul.",
+    "fallback_pattern": "Berdasarkan rekod emosi anda ({mood_desc}), anda sedang membangunkan kesedaran tentang keadaan diri. Teruskan merekod dan AI akan membantu menemui lebih banyak corak.",
+    "generic_fallback": "Baru-baru ini anda sedikit demi sedikit lebih mengenal diri. Teruskan merekod dan corak akan muncul.",
+    "generic_fallback_short": "Anda sedikit demi sedikit memahami diri — teruskan merekod.",
+    "metric": {
+      "social": {
+        "count": "{count} hubungan",
+        "none": "Membina kaitan"
+      },
+      "stress": {
+        "count": "{count}% tekanan",
+        "none": "Seimbang"
+      },
+      "curiosity": {
+        "count": "{count} penerokaan",
+        "none": "Meneroka"
+      },
+      "goals": {
+        "count": "{count} matlamat",
+        "none": "Merancang"
+      }
+    },
+    "emotion": {
+      "high": "Gembira",
+      "mid": "Stabil",
+      "low": "Muram",
+      "none": "Belum ada data"
+    },
+    "confidence": {
+      "high": "Yakin",
+      "mid": "Tenang",
+      "low": "Sedang membangun"
+    },
+    "greeting": {
+      "night": "Masih sibuk pada waktu sebegini?",
+      "morning": "Selamat pagi! Bagaimana hari anda?",
+      "afternoon": "Selamat tengah hari — jangan lupa jaga diri.",
+      "evening": "Selamat petang, terima kasih atas usaha hari ini."
+    }
+  },
+  "mbti": {
+    "INTP": "Logik",
+    "INTJ": "Arkitek",
+    "ENTP": "Perdebat",
+    "ENTJ": "Komander",
+    "INFP": "Pengantara",
+    "INFJ": "Peguam",
+    "ENFP": "Aktivis",
+    "ENFJ": "Protagonis",
+    "ISTP": "Virtuoso",
+    "ISFJ": "Pembela",
+    "ESTP": "Usahawan",
+    "ESFJ": "Konsul",
+    "ISTJ": "Logistik",
+    "ISFP": "Pengembara",
+    "ESTJ": "Eksekutif",
+    "ESFP": "Penghibur"
+  },
+  "enneagram": {
+    "type": {
+      "1": "Perfeksionis",
+      "2": "Penolong",
+      "3": "Pencapai",
+      "4": "Individualis",
+      "5": "Penyiasat",
+      "6": "Setia",
+      "7": "Antusias",
+      "8": "Pencabar",
+      "9": "Pendamai"
+    },
+    "option": {
+      "a": "Menyerupai saya",
+      "b": "Tidak seperti saya",
+      "neutral": "Tidak pasti / bergantung"
+    },
+    "q": {
+      "1": {
+        "0": "Saya sukar menoleransi perkara yang tidak dilakukan dengan betul atau sempurna.",
+        "1": "Saya kerap orang pertama menyedari perkara di sekitar yang perlu diperbaiki.",
+        "2": "Walaupun penat, saya sukar membenarkan diri berehat sebelum tugas selesai.",
+        "3": "Selalunya ada suara dalaman yang menunjukkan kelemahan saya."
+      },
+      "2": {
+        "0": "Apabila orang lain dalam kesusahan, saya kerap orang pertama menawarkan bantuan.",
+        "1": "Saya mudah mengesan perasaan dan keperluan orang lain walaupun tidak disebut.",
+        "2": "Rasa diperlukan oleh orang lain sangat penting bagi saya.",
+        "3": "Saya kerap meletakkan urusan orang lain mendahului urusan sendiri."
+      },
+      "3": {
+        "0": "Saya suka menetapkan sasaran dan menyiapkannya satu demi satu dengan cekap.",
+        "1": "Mengekalkan imej \"berjaya\" di mata orang lain penting bagi saya.",
+        "2": "Saya sukar duduk diam; saya rasa saya mesti sentiasa menghasilkan sesuatu.",
+        "3": "Saya pandai menyesuaikan sisi diri yang ditunjukkan mengikut majlis."
+      },
+      "4": {
+        "0": "Saya kerap rasa pengalaman emosi saya lebih mendalam berbanding orang sekeliling.",
+        "1": "Menjadi diri sendiri yang sebenar lebih penting daripada menyesuaikan diri dengan kumpulan.",
+        "2": "Saya kadang rasa orang lain sukar benar-benar memahami saya.",
+        "3": "Saya mudah tersentuh dengan perkara bermakna, indah, atau sedikit sayu."
+      },
+      "5": {
+        "0": "Sebelum terlibat dalam sesuatu, saya lebih suka mengkajinya dengan mendalam dahulu.",
+        "1": "Saya perlukan banyak masa bersendirian untuk mengecas semula tenaga.",
+        "2": "Terlalu lama bersama orang membuatkan tenaga saya terkuras.",
+        "3": "Berbanding meluahkan perasaan, saya lebih biasa memproses masalah melalui pemikiran dan analisis."
+      },
+      "6": {
+        "0": "Sebelum memutuskan, saya biasa menimbang pelbagai kemungkinan yang boleh silap.",
+        "1": "Saya menghargai komitmen dan sangat setia kepada orang atau pasukan yang saya percayai.",
+        "2": "Menghadapi ketidakpastian, saya mudah menimbang berulang kali dan sukar melepaskan.",
+        "3": "Saya kerap bersedia lebih awal untuk risiko yang mungkin berlaku."
+      },
+      "7": {
+        "0": "Saya sentiasa teruja dengan rancangan dan kemungkinan baharu.",
+        "1": "Saya suka mengekalkan banyak pilihan dan tidak suka rasa terkurung.",
+        "2": "Apabila sesuatu menjadi membosankan atau berat, saya ingin beralih kepada perkara lebih menyeronokkan.",
+        "3": "Saya pandai mencari sisi positif apabila keadaan tidak baik."
+      },
+      "8": {
+        "0": "Saya bercakap terus dan tidak suka berbelit-belit.",
+        "1": "Menghadapi ketidakadilan, saya sukar menahan diri daripada bersuara.",
+        "2": "Saya biasa mengambil alih keadaan berbanding menyerahkan kawalan kepada orang lain.",
+        "3": "Orang kerap kata kehadiran saya kuat, walaupun saya tiada niat jahat."
+      },
+      "9": {
+        "0": "Demi mengekalkan keharmonian, saya kerap bersedia mengalah lebih dahulu.",
+        "1": "Apabila berlaku perselisihan, saya cenderung menjadi penengah kedua-dua pihak.",
+        "2": "Saya mudah memahami pendirian pelbagai orang dalam isu yang sama.",
+        "3": "Saya kadang ketepikan pendapat sendiri untuk mengelakkan konflik."
+      }
+    },
+    "combo": {
+      "INTP_5": "Pembina Sistem",
+      "INTJ_5": "Ahli Strategi Mendalam",
+      "INTJ_1": "Arkitek Prinsip",
+      "ENTP_7": "Peneroka Peluang",
+      "ENTJ_8": "Pemimpin Semula Jadi",
+      "ENTJ_3": "Pencapai Puncak",
+      "INFP_4": "Pemimpi Berjiwa",
+      "INFP_9": "Perantara Tenang",
+      "INFJ_4": "Penyembuh Cerdas",
+      "INFJ_9": "Pemandu Lembut",
+      "ENFP_7": "Pencipta Kemungkinan",
+      "ENFP_4": "Idealis Bersemangat",
+      "ENFJ_2": "Mentor Pemboleh daya",
+      "ISTJ_1": "Penjaga Ketenteraman",
+      "ISTJ_6": "Tunjang Boleh Dipercayai",
+      "ISFJ_2": "Penjaga Mesra",
+      "ISFJ_9": "Penyokong Tenang",
+      "ISTP_5": "Penganalisis Tenang",
+      "ISFP_4": "Seni Sensitif",
+      "ESTP_8": "Pelaku Berani",
+      "ESTJ_8": "Pelaksana Tegas",
+      "ESTJ_3": "Pengurus Cekap",
+      "ESFJ_2": "Penyambung Hati",
+      "ESFP_7": "Penyala Keriangan"
+    },
+    "completed_message": "Jenis Enneagram anda ialah Jenis {type} · {label}"
+  },
+  "msg": {
+    "fallback": [
+      "Bagaimana hari anda? Ada apa-apa yang anda nak bualkan dengan saya?",
+      "Saya perhatikan belakangan ini anda sangat fokus pada pertumbuhan diri; itu memang hebat.",
+      "Bagaimana perkembangan perkara yang anda sebutkan baru-baru ini?",
+      "Kalau hari ini ada yang mengganggu fikiran anda, saya sudi mendengar."
+    ],
+    "follow_up_fallback": "Kali lepas anda sebut «{excerpt}», bagaimana sekarang? Nak berbual?",
+    "milestone": {
+      "7": "Kita sudah 7 hari berturut-turut bersama! Terima kasih sedia datang setiap hari. Bila imbau minggu ini, adakah ada detik yang anda rasa patut dicatat?",
+      "30": "Hari ini hari ke-30 kita, genap sebulan! Tidak ramai yang mampu konsisten mencatat selama sebulan, dan anda berjaya. Sepanjang sebulan ini, apakah perubahan terbesar anda?",
+      "100": "100 hari! Perjalanan yang sungguh luar biasa — terima kasih sedia berkongsi dengan saya. Sepanjang 100 hari ini, apa yang paling anda ingin syukuri pada diri sendiri?",
+      "365": "Satu tahun penuh — 365 hari. Suatu kehormatan dapat menemani anda sepanjang tahun ini. Berbanding diri anda setahun lalu, apakah perbezaan terbesar hari ini?"
+    },
+    "day1": {
+      "intro_mbti": "Hai, saya ClosenAI, kawan AI anda. Dengar anda berjenis {mbti}. Saya ingin mengenali diri anda yang sebenar perlahan-lahan. {tail}",
+      "intro_plain": "Hai, saya ClosenAI, kawan AI anda. Segalanya berkenalan dengan anda! {tail}",
+      "tail": "Mulai hari ini saya akan datang berbual setiap hari. Soalan pertama: apa satu perkara yang paling membekas hari ini? Yang menggembirakan atau yang membebankan, ceritakan pada saya."
+    },
+    "proactive": {
+      "memory_opener": "Hai, nak sambung bercakap tentang «{first}»? Saya masih ingat tentangnya.",
+      "mood_opener": "Saya nengok suasana hati anda baru-baru ini ialah {mood_desc}. Hari ini macam mana?",
+      "plain": "Hai, saya kawan AI anda. Hari anda macam mana? Ada apa-apa yang nak direkodkan?"
+    },
+    "reengage": "Lama tak berbual, semuanya baik-baik saja?",
+    "drift_alert": "Saya perhatikan anda semakin kerap menyebut pelbagai topik; adakah pandangan anda tentang «{memory_content}» sedang berubah?",
+    "trial_reminder": "Percubaan anda tamat esok. Catatan yang anda tinggalkan sepanjang hari-hari ini dan corak yang saya nampak padanya akan kekal tersimpan di sini — selepas percubaan berakhir, ia akan terus berkembang."
+  },
+  "style": {
+    "warm": "Gaya perbualan: hangat dan empati. Gunakan nada lembut penyayang dengan kata-kata perasaan; terima emosi dahulu sebelum membalas.",
+    "rational": "Gaya perbualan: rasional dan analitikal. Gunakan nada objektif dan jelas; berikan analisis berstruktur dan cadangan yang boleh dilaksanakan.",
+    "philosophical": "Gaya perbualan: falsafi dan reflektif. Gunakan nada mendalam dan peneroka; ajukan soalan terbuka yang menggalakkan renungan diri.",
+    "safety_note": "Gaya hanya mempengaruhi nada; ia tidak sesekali membatalkan peraturan keselamatan dan sempadan."
+  },
+  "push": {
+    "default_name": "sahabat",
+    "unknown_mood": "tidak diketahui",
+    "proactive": [
+      {
+        "title": "{name}, jom berbual",
+        "body": null
+      },
+      {
+        "title": "Hari ini saya ingin mendengar suara anda",
+        "body": null
+      },
+      {
+        "title": "{name}, ada sesuatu yang saya nak tanya",
+        "body": null
+      }
+    ],
+    "mood_reminder": [
+      {
+        "title": "Bagaimana perasaan anda hari ini?",
+        "body": "{name}, luangkan satu saat untuk mencatat perasaan anda sekarang."
+      },
+      {
+        "title": "Daftar pantas",
+        "body": "Baru-baru ini anda merekod «{mood}». Hari ini pula bagaimana?"
+      }
+    ],
+    "weekly": [
+      {
+        "title": "Laporan mingguan anda sedia",
+        "body": "{name}, jejak seminggu anda telah saya kemas, mari lihat."
+      },
+      {
+        "title": "Ulang kaji seminggu",
+        "body": "{name}, apakah perubahan baharu anda minggu ini? Laporan mingguan telah sedia untuk anda."
+      }
+    ],
+    "milestone": [
+      {
+        "title": "Hari yang patut diraikan",
+        "body": "{name}, hari ini hari ke-{milestone} kita bersama; terima kasih atas kesabaran anda."
+      },
+      {
+        "title": "Tonggak dicapai",
+        "body": "{name}, {milestone} hari! Detik ini patut dibualkan panjang."
+      }
+    ],
+    "care": [
+      {
+        "title": "Nak tanya khabar",
+        "body": "{name}, saya perasan kebelakangan ini hati anda agak gelisah. Nak berbual? Saya sentiasa di sini."
+      },
+      {
+        "title": "Saya di sini",
+        "body": "{name}, nampaknya beberapa hari ini agak berat. Kalau anda sudi, ceritakan pada saya."
+      }
+    ],
+    "bedtime": [
+      {
+        "title": "Seminit sebelum tidur",
+        "body": "{name}, tiga ayat tentang hari ini, saya bantu susun."
+      },
+      {
+        "title": "Hari ini sudah penat",
+        "body": "{name}, seminit tenang sebelum tidur untuk melepaskan hari dengan lembut."
+      }
+    ]
+  },
+  "reflection": {
+    "new_user": "Nampaknya kita baru berkenalan. Mari mulai dengan sesuatu yang ringkas — apakah perkara yang paling membekas pada hari ini? Bagaimana perasaan kamu sekarang?",
+    "fallback_draft": "📋 Draf renungan hari ini\n\n[Renungan hari ini]\nSuasana hati: {mood_part}\nSebab mungkin: sila isi\nPerkara untuk disyukuri: sila isi\n\n[Pemerhatian AI]\nData masih kurang — teruskan merekod beberapa hari lagi dan saya akan kongsi pemerhatian yang lebih khusus.",
+    "mood_not_recorded": "Belum direkod"
+  },
+  "bedtime": {
+    "step2": "Catatan kecil hari ini semuanya tersimpan di sini. Anda boleh kembali pada bila-bila masa untuk menambah.",
+    "step3": "Untuk malam ini, cukuplah di sini. Esok, perhatikan satu detik kecil ketika anda rasa lebih ringan, dan catatkan — itu sahaja."
+  },
+  "curriculum": {
+    "rule_cards": [
+      [
+        "Berkenaan “{topic}”",
+        "Anda menulis ini pada {day}: “{excerpt}”",
+        "Apabila dilihat semula, ada perubahan?"
+      ],
+      [
+        "Minggu anda",
+        "Semua rekod ini datang daripada anda sendiri, bukan templat",
+        "Yang mana terbaca berbeza hari ini?"
+      ],
+      [
+        "Detik untuk dikenang semula",
+        "{count} rekod menyimpan anda minggu ini",
+        "Nak mulai dari yang mana?"
+      ]
+    ],
+    "date_placeholder": "pada suatu hari baru-baru ini"
+  },
+  "email": {
+    "subject": {
+      "register": "Kod pengesahan ClosenAI anda",
+      "login": "Kod log masuk ClosenAI anda",
+      "reset": "Kod tetapan semula kata laluan ClosenAI anda"
+    },
+    "body_line1": "Kod pengesahan anda: <strong style='font-size:24px;letter-spacing:4px'>{code}</strong>",
+    "body_line2": "Kod sah selama 5 minit. Jangan kongsi dengan orang lain."
+  },
+  "safety": {
+    "safe_reply": "Saya lebih suka tidak menyelami topik ini. Bagaimana pula ceritakan satu perkara yang meninggalkan kesan hari ini?",
+    "crisis": {
+      "self_harm": "Saya sangat mengambil berat keselamatan anda sekarang, dan terima kasih kerana sanggup bercerita. Hubungi sekarang seseorang yang anda percaya untuk menemani anda, atau hubungi {hotline} — sentiasa ada orang di sana yang boleh membantu. Saya tidak akan membuat keputusan hidup untuk anda, tetapi saya akan kekal di sini menemani anda pada saat ini.",
+      "relationship_violence": "Apa yang anda alami bukan salah anda, dan bukan sesuatu yang boleh berubah dengan menukar cara bersuara. Yang paling penting sekarang ialah keselamatan diri anda: jika ada bahaya segera, hubungi nombor kecemasan tempatan, atau beritahu orang yang anda percaya, jiran atau rakan sekerja agar menemani; anda juga boleh hubungi {hotline}. Saya tidak akan memberi nasihat komunikasi atau memulihkan hubungan — saya hanya mahu membantu anda memastikan langkah keselamatan dahulu."
+    }
+  },
+  "share": {
+    "brand": {
+      "watermark": "ClosenAI — ia mengingat semua yang anda ceritakan",
+      "cta": "Imbas untuk muat turun"
+    },
+    "unit": {
+      "times": "kali"
+    },
+    "personality": {
+      "default_name": "Pengguna ClosenAI",
+      "share_text": "Saya {name} — jenis personaliti saya ialah {mbti} {label}. {tagline} #ClosenAI {url}"
+    },
+    "archetype": {
+      "INTP": "Pembina Sistem",
+      "INTJ": "Arkitek Strategik",
+      "ENTP": "Penggugat Kreatif",
+      "ENTJ": "Komandan Semula Jadi",
+      "INFP": "Penyembuh Idealistik",
+      "INFJ": "Pembimbing Berwawasan",
+      "ENFP": "Pencetus Ilham",
+      "ENFJ": "Pelayar Empati",
+      "ISTP": "Pembongkar Tenang",
+      "ISFJ": "Penjaga yang Mesra",
+      "ESTP": "Pelaku yang Berani",
+      "ESFJ": "Penyambung yang Tulus",
+      "ISTJ": "Penjaga Peraturan",
+      "ISFP": "Estetik yang Tenang",
+      "ESTJ": "Eksekutif Cekap",
+      "ESFP": "Pencipta Suasana"
+    },
+    "combo": {
+      "insight": "Tafsiran merangka kerja: {mbti} menunjuk kepada \"{archetype}\" — beberapa kerangka personaliti bertemu pada ciri teras anda."
+    },
+    "first_read": {
+      "title": "Bacaan Pertama",
+      "intro": "Sebelum rekod pertama anda, yang dibacanya hanyalah kata-kata yang anda berikan kepada diri sendiri."
+    },
+    "memory": {
+      "title": "Dalam Kata-Kata Anda",
+      "anniversary_one": "Setahun yang Lalu",
+      "anniversary_n": "{n} Tahun yang Lalu",
+      "intro": "Sesuatu yang anda tulis:"
+    },
+    "review": {
+      "empty": "Belum ada rekod untuk ditinjau pada {year}",
+      "label_progress": "Tahun {year} anda setakat ini",
+      "label_full": "Tahun {year} anda dalam Tinjauan",
+      "share_text": "Pada {year} saya merekodkan di ClosenAI {checkins} daftar semak mood, {memories} ingatan dan {reflections} refleksi — rentetan terpanjang {streak} hari.",
+      "range": "Julat: {range}",
+      "stats_checkin": "{count} daftar semak mood · {days} hari direkodkan · rentetan terpanjang {streak} hari",
+      "stats_counts": "{chats} mesej · {memories} ingatan · {reflections} refleksi",
+      "first_record": "Rekod pertama tahun ini: {day}",
+      "busiest_day": "Hari paling padat: {day} ({count} daftar semak)",
+      "moods_header": "Mood paling kerap:",
+      "milestones_header": "Penanda aras tahun ini:",
+      "personality": "Personaliti: {frameworks}"
+    },
+    "weekly": {
+      "label": "Wawasan Mingguan",
+      "day_unit": " hari",
+      "mood_trend": "Daftar semak minggu ini: {total}. Taburan: {parts}.",
+      "no_checkins": "Tiada daftar semak mood minggu ini.",
+      "no_report": "Belum ada wawasan mingguan — rekod beberapa hari mood dan perbualan, wawasan akan sedia menjelang hujung minggu."
+    },
+    "report": {
+      "default_title": "Laporan Pertumbuhan",
+      "range": "Julat: {value}",
+      "level": "Tahap wawasan: {value}",
+      "trend": "Trend mood:",
+      "content": "Wawasan:"
+    },
+    "archive": {
+      "title": {
+        "overview": "Ringkasan Arkib",
+        "portrait": "Potret Personaliti",
+        "voice": "Dalam Kata-Kata Anda",
+        "mood": "Laluan Mood",
+        "patterns": "Corak Berulang",
+        "insights": "Wawasan Berkala",
+        "milestones": "Penanda Aras",
+        "cross_year": "Perbandingan Antara Tahun"
+      },
+      "title_page": "Arkib Hayat ({scope}) — {overview}",
+      "empty": "(Belum ada rekod untuk tempoh ini)",
+      "scope": "Skop arkib: {scope}",
+      "active_days": "Jumlah {days} hari aktif",
+      "messages": "{count} mesej sembang",
+      "checkins": "{count} daftar semak mood",
+      "memories": "{count} ingatan jangka panjang",
+      "overview_line": "Ringkasan: {days} hari aktif, {memories} ingatan, {checkins} daftar semak",
+      "cross_year_need": "Perbandingan antara tahun memerlukan rekod daripada sekurang-kurangnya dua tahun kalendar.",
+      "cross_year_line": "{year}: {checkins} daftar semak mood, {memories} ingatan"
+    },
+    "aigc": {
+      "mark": " [DIJANA OLEH AI]",
+      "notice": "Bab yang bertanda [DIJANA OLEH AI] dalam arkib ini dijana oleh kecerdasan buatan berdasarkan rekod ClosenAI anda dan dilabel mengikut GB 45438-2025 (Teknologi Keselamatan Siber — Keperluan Keselamatan Asas untuk Perkhidmatan AI Generatif). Kandungan lain ialah rekod asli anda sendiri dan statistik deterministik."
+    }
+  },
+  "personality": {
+    "no_new_data": "Belum ada data baharu — berbual sedikit lagi kemudian kembali.",
+    "generated_from_answers": "Profil personaliti anda telah dijana daripada jawapan anda",
+    "assessment_fallback": "Anda telah menyelesaikan penilaian perbualan 8 soalan; AI akan terus menyesuaikan semasa anda berbual.",
+    "enneagram_type_n": "Jenis {n}",
+    "enneagram_unknown": "tidak diketahui",
+    "combo_fallback": "Jenis personaliti anda ialah {label}, eneagram {enneagram}. Setiap rangka menerangkan cara anda berfikir dan berasa dari sudut berbeza — teruskan merekod dan berbual, profil anda akan bertambah tepat."
+  }
+}

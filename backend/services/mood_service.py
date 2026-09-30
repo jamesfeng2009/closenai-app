@@ -18,6 +18,7 @@ from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.time_utils import local_day_start_utc, local_today, safe_zoneinfo
@@ -44,43 +45,47 @@ MOOD_MAP = {
     "😴": ("疲惫", 3),
 }
 
-# 情绪英文标签（与 MOOD_MAP 中文标签一一对应；zh* 用户用中文，其余用英文）
-MOOD_LABELS_EN = {
-    "😊": "Happy",
-    "😌": "Calm",
-    "😰": "Anxious",
-    "😢": "Sad",
-    "😡": "Angry",
-    "😴": "Tired",
+# 情绪 → (标签, 情绪值 1-5)；标签的 15 语言展示走文案库（core/copy.py，键 mood.labels.*），
+# 这里保留 zh 标签作为分值表的伴生默认值（情绪权重计算与图表聚合用）。
+MOOD_MAP = {
+    "😊": ("开心", 5),
+    "😌": ("平静", 4),
+    "😰": ("焦虑", 2),
+    "😢": ("难过", 1),
+    "😡": ("生气", 1),
+    "😴": ("疲惫", 3),
+}
+
+# emoji → 文案库键（core/copy.py mood.labels / mood.interpret）
+_MOOD_KEYS = {
+    "😊": "happy",
+    "😌": "calm",
+    "😰": "anxious",
+    "😢": "sad",
+    "😡": "angry",
+    "😴": "tired",
 }
 
 
 def mood_label_for(emoji: str, language: str | None = None) -> str:
-    """按语言返回情绪标签：zh*（含 zh-CN）中文，其余英文。"""
+    """按语言返回情绪标签（15 语言文案库；未知 emoji 回退 zh 常量表 → "Unknown"）。"""
+    key = _MOOD_KEYS.get(emoji)
+    if key:
+        return copy.t("mood", f"labels.{key}", language)
     if (language or "").startswith("zh"):
         return MOOD_MAP.get(emoji, ("未知", 3))[0]
-    return MOOD_LABELS_EN.get(emoji, "Unknown")
+    return MOOD_MAP.get(emoji, ("Unknown", 3))[0]
 
 
-# 规则引擎解读模板（确定性，保证响应速度；按语言两套）
-RULE_INTERPRET = {
-    "zh": {
-        "😊": "今天看起来心情不错，继续保持这份好心情！",
-        "😌": "平静的一天，很稳。记得给自己留一点独处的时间。",
-        "😰": "感到有些焦虑，这很正常。先深呼吸，慢慢来。",
-        "😢": "有点难过，我在这里陪着你。允许自己有情绪。",
-        "😡": "感到生气了吗？先别急着做决定，把情绪放一放。",
-        "😴": "有点疲惫，好好休息也很重要，别太累自己。",
-    },
-    "en": {
-        "😊": "Looks like you're in a good mood today — keep it up!",
-        "😌": "A calm, steady day. Remember to leave a little time just for yourself.",
-        "😰": "Feeling a bit anxious is completely normal. Take a deep breath and go slow.",
-        "😢": "Feeling a little down — I'm here with you. It's okay to have emotions.",
-        "😡": "Feeling angry? Try not to decide anything right now; let the emotion settle first.",
-        "😴": "A bit tired — rest matters too. Don't push yourself too hard.",
-    },
-}
+def mood_interpret_for(emoji: str, language: str | None = None) -> Optional[str]:
+    """规则引擎解读模板（15 语言；未知 emoji 返回 None 由调用方走 LLM 链路）。"""
+    key = _MOOD_KEYS.get(emoji)
+    if not key:
+        return None
+    return copy.t("mood", f"interpret.{key}", language)
+
+
+# 规则引擎解读模板（确定性，保证响应速度）——已迁 15 语言文案库（core/copy.py mood.interpret）
 
 
 class MoodService:
@@ -163,10 +168,7 @@ class MoodService:
         合规 5.1.2(i)：未同意 AI 数据共享时跳过 LLM（签到记录本身保留），
         只用本地规则模板，用户数据不出服务器。
         """
-        zh = (language or "").startswith("zh")
-        base = RULE_INTERPRET["zh" if zh else "en"].get(
-            emoji, "今天心情如何？" if zh else "How are you feeling today?"
-        )
+        base = mood_interpret_for(emoji, language) or copy.t("mood", "interpret_fallback", language)
         if not ai_consent:
             return base
         if not note or not note.strip():
@@ -340,27 +342,14 @@ class MoodService:
         return MoodTrendResponse(labels=labels, values=values, summary=summary)
 
     def _trend_summary(self, values: List[int], language: str | None = None) -> str:
-        zh = (language or "").startswith("zh")
         if not values:
-            return (
-                "还没有足够的签到数据，开始记录你的第一天吧。" if zh
-                else "Not enough check-in data yet — start recording your first day."
-            )
+            return copy.t("mood", "trend.empty", language)
         avg = sum(values) / len(values)
         if avg >= 4:
-            return (
-                "整体情绪状态不错，保持这个节奏。" if zh
-                else "Your overall mood has been great — keep the rhythm going."
-            )
+            return copy.t("mood", "trend.high", language)
         if avg >= 3:
-            return (
-                "情绪总体平稳，偶尔关注自己的感受。" if zh
-                else "Your mood is mostly steady. Check in with yourself now and then."
-            )
-        return (
-            "这段时间情绪有些低落，记得多照顾自己，我在这里。" if zh
-            else "Things have felt a bit low lately. Take extra care of yourself — I'm here."
-        )
+            return copy.t("mood", "trend.mid", language)
+        return copy.t("mood", "trend.low", language)
 
 
 mood_service = MoodService()

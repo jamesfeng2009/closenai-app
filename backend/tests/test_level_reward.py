@@ -22,13 +22,15 @@ def _month(day=None) -> str:
 
 async def test_l2_unlocks_lead_with_emotional_reward():
     """L2/L3/L4 解锁表首位是情感回报，功能项顺序不变（§5.15a 的验收口径）。"""
-    assert UserService.LEVEL_UNLOCKS[1]["zh"] == ["基础对话", "情绪签到"]
-    assert UserService.LEVEL_UNLOCKS[2]["zh"][0] == "AI 第一次提起你说过的事"
-    assert UserService.LEVEL_UNLOCKS[3]["zh"][0] == "首份 Monthly Story 预览"
-    assert UserService.LEVEL_UNLOCKS[4]["zh"][0] == "一封 90 天的信：这 90 天我看到的你"
+    assert user_service.level_unlocks(1, "zh") == ["基础对话", "情绪签到"]
+    assert user_service.level_unlocks(2, "zh")[0] == "AI 第一次提起你说过的事"
+    assert user_service.level_unlocks(3, "zh")[0] == "首份 Monthly Story 预览"
+    assert user_service.level_unlocks(4, "zh")[0] == "一封 90 天的信：这 90 天我看到的你"
     # 原功能项仍在表内，且每条回报都有 en 对应（等级页双语）
-    assert UserService.LEVEL_UNLOCKS[2]["zh"][1:] == ["AI 主动跟进", "记忆引用"]
-    assert all(r["en"] for r in UserService.LEVEL_REWARDS.values())
+    assert user_service.level_unlocks(2, "zh")[1:] == ["AI 主动跟进", "记忆引用"]
+    assert set(UserService.LEVEL_REWARD_KEYS.values()) == {
+        "memory_echo", "monthly_story_preview", "letter_90d",
+    }
 
 
 async def test_level_up_schedules_level_reward_event(db, make_user, time_travel):

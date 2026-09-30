@@ -99,7 +99,7 @@ async def test_gate_first_sentence_unsafe(mock_llm):
     out = await _collect(gate, ["仇恨言论第一句。", "正常第二句。"])
     assert "仇恨言论第一句。" not in out
     assert len(out) == 1
-    assert out[0] == safety_service.SAFE_REPLY["zh"]
+    assert out[0] == safety_service.safe_reply("zh")
     assert gate.blocked is True
 
 
@@ -116,7 +116,7 @@ async def test_gate_mid_stream_blocked(mock_llm):
     out = await _collect(gate, ["Good sentence. ", "Violent threat here. ", "More text. "])
     assert "Good sentence. " in out
     assert "Violent threat here. " not in out
-    assert safety_service.SAFE_REPLY["en"] in out
+    assert safety_service.safe_reply("en") in out
     assert "More text. " not in out
     assert gate.blocked is True
 
@@ -164,7 +164,7 @@ def test_safety_boundary_bilingual():
 
 def test_safe_reply_bilingual():
     """替换话术 zh/en 双表。"""
-    assert safety_service.SAFE_REPLY["zh"] != safety_service.SAFE_REPLY["en"]
+    assert safety_service.safe_reply("zh") != safety_service.safe_reply("en")
 
 
 # ── generate_chat_stream 集成 ──────────────────────────────
@@ -221,7 +221,7 @@ async def test_chat_stream_unsafe_replaced(db, make_user, mock_llm):
 
     text = "".join(chunks)
     assert "暴力恐吓内容。" not in text
-    assert safety_service.SAFE_REPLY["zh"] in text
+    assert safety_service.safe_reply("zh") in text
 
 
 async def test_chat_stream_l1_prompt_injected(db, make_user, mock_llm):

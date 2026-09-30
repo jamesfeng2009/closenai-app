@@ -12,6 +12,7 @@ from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.time_utils import local_day_start_utc
@@ -29,34 +30,6 @@ from backend.services.quota_service import quota_service
 from backend.services.safety_service import safety_service
 
 logger = logging.getLogger("closenai.reflection")
-
-# 新用户对话式 fallback（PRD §4：像朋友一样问 1-2 个引导问题，而非空白/通用模板）
-NEW_USER_FALLBACK = {
-    "zh": "看起来我们才刚认识。先随便聊聊吧——今天有什么让你印象最深的事吗？现在的你感觉怎么样？",
-    "en": "Looks like we're just getting to know each other. Let's start simple — what stood out most about your day? And how are you feeling right now?",
-}
-
-# LLM 失败降级模板（与正常草稿一致的两段结构：今日反思 + AI 观察）
-FALLBACK_DRAFT = {
-    "zh": (
-        "📋 今日 Reflection 草稿\n\n"
-        "【今日反思】\n"
-        "情绪：{mood_part}\n"
-        "可能的原因：请补充\n"
-        "值得感谢的事：请补充\n\n"
-        "【AI 观察】\n"
-        "数据还不多，继续记录几天后我会给出更具体的观察。"
-    ),
-    "en": (
-        "📋 Today's Reflection Draft\n\n"
-        "[Today's Reflection]\n"
-        "Mood: {mood_part}\n"
-        "Possible reason: please fill in\n"
-        "One thing to be grateful for: please fill in\n\n"
-        "[AI Observation]\n"
-        "Not enough data yet — keep recording for a few more days and I'll share more specific observations."
-    ),
-}
 
 
 class ReflectionService:
@@ -79,7 +52,6 @@ class ReflectionService:
                 "今天的次数已经用完，请明天再来 / Daily limit reached, try again tomorrow",
             )
 
-        zh = (language or "").startswith("zh")
         today_mood = await mood_repository.get_today(
             db, user_id, local_day_start_utc(user.timezone)
         )
@@ -90,7 +62,7 @@ class ReflectionService:
             any_checkin = await mood_repository.get_recent(db, user_id, limit=1)
             if not any_checkin:
                 return ReflectionDraftResponse(
-                    draft=NEW_USER_FALLBACK["zh" if zh else "en"],
+                    draft=copy.t("reflection", "new_user", language),
                     related_memory_ids=None,
                 )
 
@@ -124,8 +96,8 @@ class ReflectionService:
             if today_mood:
                 mood_part = f"{today_mood.mood_emoji} {today_mood.mood_label}"
             else:
-                mood_part = "待记录" if zh else "Not recorded"
-            draft = FALLBACK_DRAFT["zh" if zh else "en"].format(mood_part=mood_part)
+                mood_part = copy.t("reflection", "mood_not_recorded", language)
+            draft = copy.t("reflection", "fallback_draft", language).format(mood_part=mood_part)
         return ReflectionDraftResponse(
             draft=draft.strip(),
             related_memory_ids=[m.id for m in recent_memories],

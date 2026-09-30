@@ -83,10 +83,11 @@ def test_resolve_hotline_by_timezone():
 
 def test_crisis_copy_passes_wording_blacklist():
     """转介文案自身不得含 §5.16 ① 医疗化红线词与 D 级词（A 级事实陈述）。"""
+    from backend.core import copy as copy_lib
     for kind in ("self_harm", "relationship_violence"):
         for lang in ("zh", "en"):
-            copy = safety_service.CRISIS_COPY[kind][lang].format(hotline="HOTLINE")
-            assert safety_service.banned_hit(copy, lang) is None, f"{kind}/{lang} 含黑名单词"
+            reply = copy_lib.t("safety", f"crisis.{kind}", lang).format(hotline="HOTLINE")
+            assert safety_service.banned_hit(reply, lang) is None, f"{kind}/{lang} 含黑名单词"
 
 
 # ── 验收 1：用户回复路径 ───────────────────────────────────

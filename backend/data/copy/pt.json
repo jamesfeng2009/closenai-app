@@ -1,0 +1,515 @@
+{
+  "mood": {
+    "labels": {
+      "happy": "Feliz",
+      "calm": "Calmo",
+      "anxious": "Ansioso",
+      "sad": "Triste",
+      "angry": "Com raiva",
+      "tired": "Cansado"
+    },
+    "interpret": {
+      "happy": "Parece que hoje você está de bom humor — continue assim!",
+      "calm": "Um dia calmo e estável. Lembre-se de reservar um tempo só para você.",
+      "anxious": "Sentir um pouco de ansiedade é totalmente normal. Respire fundo e vá com calma.",
+      "sad": "Um pouco triste — estou aqui com você. É normal ter emoções.",
+      "angry": "Sentindo raiva? Não decida nada agora; deixe a emoção assentar primeiro.",
+      "tired": "Um pouco cansado — descansar também importa. Não se cobre demais."
+    },
+    "interpret_fallback": "Como você está se sentindo hoje?",
+    "trend": {
+      "empty": "Ainda não há dados suficientes — comece registrando o seu primeiro dia.",
+      "high": "Seu humor geral esteve ótimo — mantenha esse ritmo.",
+      "mid": "Seu humor está bem estável. De vez em quando, olhe para dentro.",
+      "low": "Ultimamente o humor está um pouco para baixo. Cuide-se bem — estou aqui."
+    }
+  },
+  "levels": {
+    "name": {
+      "1": "Conhecidos L1",
+      "2": "Próximos L2",
+      "3": "Confidentes L3",
+      "4": "Íntimos L4"
+    },
+    "features": {
+      "1": [
+        "Conversas básicas",
+        "Check-in de humor"
+      ],
+      "2": [
+        "Acompanhamento proativo da IA",
+        "Referências à memória"
+      ],
+      "3": [
+        "Análise profunda de personalidade",
+        "Descoberta de padrões",
+        "Relatório semanal da IA"
+      ],
+      "4": [
+        "Relatório trimestral profundo de personalidade",
+        "Insights preditivos",
+        "Modo de reflexão profunda"
+      ]
+    },
+    "reward": {
+      "2": "A IA menciona pela primeira vez algo que você disse",
+      "3": "Sua primeira prévia do Monthly Story",
+      "4": "Uma carta de 90 dias: o você que eu vi"
+    },
+    "note": "Todos os nomes de nível descrevem o quanto a IA entende você — nada romântico.",
+    "milestone": {
+      "streak_7": "Sequência de 7 dias",
+      "streak_30": "Confidente de 30 dias",
+      "streak_100": "100 dias juntos",
+      "streak_365": "Companheiro de um ano"
+    },
+    "celebrate": {
+      "body": "🎉 Depois de {days} dias juntos, nossa conexão cresceu para \"{label}\"! Recém-desbloqueado: {unlocks}.",
+      "reward": " E de agora em diante: {reward}."
+    }
+  },
+  "growth": {
+    "insight_type": {
+      "daily_insight": "Insight diário",
+      "weekly_summary": "Resumo semanal",
+      "pattern_discovery": "Descoberta de padrão",
+      "drift_alert": "Alerta de mudança",
+      "weekly_report": "Relatório semanal",
+      "monthly_report": "Relatório mensal",
+      "quarterly_report": "Relatório trimestral",
+      "yearly_report": "Relatório anual"
+    },
+    "period": {
+      "weekly": "Insight semanal",
+      "monthly": "Relatório mensal",
+      "quarterly": "Relatório trimestral aprofundado",
+      "yearly": "Relatório anual de vida",
+      "fallback": "Relatório"
+    },
+    "forecast_label": "Previsão para a próxima semana",
+    "topic": {
+      "mood": "Conversar sobre as mudanças de humor recentes",
+      "relationship": "Conversar sobre as relações recentes",
+      "work": "Conversar sobre trabalho e pressão",
+      "goal": "Conversar sobre o andamento das suas metas",
+      "communication": "Conversar sobre dificuldades recentes de comunicação",
+      "growth": "Conversar sobre o crescimento recente"
+    },
+    "mood_trend": {
+      "empty": "Sem registros de humor neste período.",
+      "body": "{total} registros no total: {parts}.",
+      "unit": " dia"
+    },
+    "fallback_report": "Neste período você registrou o humor {checkins} vezes e teve {chat_count} conversas. Você está se conhecendo aos poucos — continue registrando e os padrões vão aparecer.",
+    "fallback_pattern": "Com base nos seus registros de humor ({mood_desc}), você está construindo aos poucos consciência do próprio estado. Continue registrando e a IA vai ajudar a descobrir mais padrões.",
+    "generic_fallback": "Nestes dias você está se conhecendo aos poucos. Continue registrando e os padrões vão aparecer.",
+    "generic_fallback_short": "Você está se entendendo aos poucos — continue registrando.",
+    "metric": {
+      "social": {
+        "count": "{count} relações",
+        "none": "Criando vínculos"
+      },
+      "stress": {
+        "count": "{count}% de pressão",
+        "none": "Equilibrado"
+      },
+      "curiosity": {
+        "count": "{count} explorações",
+        "none": "Explorando"
+      },
+      "goals": {
+        "count": "{count} metas",
+        "none": "Planejando"
+      }
+    },
+    "emotion": {
+      "high": "Feliz",
+      "mid": "Estável",
+      "low": "Para baixo",
+      "none": "Sem dados ainda"
+    },
+    "confidence": {
+      "high": "Confiante",
+      "mid": "Sereno",
+      "low": "Crescendo"
+    },
+    "greeting": {
+      "night": "Ainda a essa hora acordado?",
+      "morning": "Bom dia! Como está o seu dia?",
+      "afternoon": "Boa tarde — não esqueça de cuidar de você.",
+      "evening": "Boa noite, obrigado pelo esforço de hoje."
+    }
+  },
+  "mbti": {
+    "INTP": "Lógico",
+    "INTJ": "Arquiteto",
+    "ENTP": "Debateiro",
+    "ENTJ": "Comandante",
+    "INFP": "Mediador",
+    "INFJ": "Advogado",
+    "ENFP": "Ativista",
+    "ENFJ": "Protagonista",
+    "ISTP": "Virtuoso",
+    "ISFJ": "Defensor",
+    "ESTP": "Empreendedor",
+    "ESFJ": "Cônsul",
+    "ISTJ": "Logístico",
+    "ISFP": "Aventureiro",
+    "ESTJ": "Executivo",
+    "ESFP": "Animador"
+  },
+  "enneagram": {
+    "type": {
+      "1": "Perfeccionista",
+      "2": "Prestativo",
+      "3": "Conquistador",
+      "4": "Individualista",
+      "5": "Investigador",
+      "6": "Leal",
+      "7": "Entusiasta",
+      "8": "Desafiador",
+      "9": "Pacificador"
+    },
+    "option": {
+      "a": "Parece comigo",
+      "b": "Não sou assim",
+      "neutral": "Não tenho certeza / depende"
+    },
+    "q": {
+      "1": {
+        "0": "Fica-me difícil tolerar que as coisas não sejam feitas corretamente ou como se deve.",
+        "1": "Costumo ser o primeiro a notar ao redor o que precisa ser melhorado ou corrigido.",
+        "2": "Mesmo cansado, dificilmente me permito descansar antes de concluir a tarefa.",
+        "3": "Costuma haver uma voz interna apontando onde eu fiquei aquém."
+      },
+      "2": {
+        "0": "Quando os outros estão em apuros, costumo ser o primeiro a oferecer ajuda.",
+        "1": "Capto com facilidade os sentimentos e necessidades alheios, mesmo não ditos.",
+        "2": "Sentir que sou necessário aos outros importa muito para mim.",
+        "3": "Costumo pôr os assuntos dos outros à frente dos meus."
+      },
+      "3": {
+        "0": "Gosto de definir metas e riscá-las com eficiência, uma a uma.",
+        "1": "Manter uma imagem de \"sucesso\" aos olhos dos outros importa para mim.",
+        "2": "Fico difícil ficar parado sem fazer nada; sinto sempre que preciso produzir algo.",
+        "3": "Sei ajustar o lado que mostro de mim conforme a ocasião."
+      },
+      "4": {
+        "0": "Costumo sentir que minhas vivências emocionais são mais profundas que as de quem está ao redor.",
+        "1": "Ser meu eu autêntico importa mais para mim do que me encaixar no grupo.",
+        "2": "Às vezes sinto que os outros mal conseguem me entender de verdade.",
+        "3": "Sou facilmente tocado por coisas com significado, belas, ou um tanto melancólicas."
+      },
+      "5": {
+        "0": "Antes de me envolver com algo, prefiro primeiro estudá-lo a fundo.",
+        "1": "Preciso de bastante tempo sozinho para recarregar as energias.",
+        "2": "Estar com pessoas por tempo demais drena minha energia.",
+        "3": "Em vez de expressar sentimentos, estou mais acostumado a processar problemas pensando e analisando."
+      },
+      "6": {
+        "0": "Antes de decidir, por hábito considero todas as formas de dar errado.",
+        "1": "Valorizo compromisso e sou profundamente leal às pessoas ou equipes em que acredito.",
+        "2": "Diante da incerteza, tende a pesar tudo repetidamente e me custa soltar.",
+        "3": "Costumo me preparar com antecedência para riscos potenciais."
+      },
+      "7": {
+        "0": "Planos e possibilidades novas sempre me empolgam.",
+        "1": "Gosto de manter muitas opções abertas e detesto me sentir encaixotado.",
+        "2": "Quando algo fica entediante ou pesado, quero mudar para algo mais divertido.",
+        "3": "Sou bom em achar o lado bom quando as coisas não vão bem."
+      },
+      "8": {
+        "0": "Falo direto e não gosto de rodeios.",
+        "1": "Diante de injustiça, quase não me contenho para não me levantar.",
+        "2": "Estou acostumado a tomar as rédeas em vez de passar o controle a outros.",
+        "3": "As pessoas costumam dizer que tenho uma presença intensa, mesmo sem má intenção."
+      },
+      "9": {
+        "0": "Para manter a harmonia, costumo estar disposto a ceder primeiro.",
+        "1": "Quando surgem divergências, costumo ser quem media as duas partes.",
+        "2": "Entendo com facilidade as posições de pessoas diferentes sobre o mesmo assunto.",
+        "3": "Às vezes ponho de lado minhas opiniões para evitar conflito."
+      }
+    },
+    "combo": {
+      "INTP_5": "Construtor de sistemas",
+      "INTJ_5": "Estratega profundo",
+      "INTJ_1": "Arquiteto de princípios",
+      "ENTP_7": "Explorador de oportunidades",
+      "ENTJ_8": "Líder nato",
+      "ENTJ_3": "Conquistador de picos",
+      "INFP_4": "Sonhador com alma",
+      "INFP_9": "Mediador pacífico",
+      "INFJ_4": "Curador perspicaz",
+      "INFJ_9": "Guia gentil",
+      "ENFP_7": "Criador de possibilidades",
+      "ENFP_4": "Idealista apaixonado",
+      "ENFJ_2": "Mentor que capacita",
+      "ISTJ_1": "Guardião da ordem",
+      "ISTJ_6": "Rocha confiável",
+      "ISFJ_2": "Guardião caloroso",
+      "ISFJ_9": "Apoiante sereno",
+      "ISTP_5": "Analista sereno",
+      "ISFP_4": "Artista sensível",
+      "ESTP_8": "Pessoa de ação corajosa",
+      "ESTJ_8": "Executor decidido",
+      "ESTJ_3": "Gestor eficiente",
+      "ESFJ_2": "Conector de coração",
+      "ESFP_7": "Acendedor de alegria"
+    },
+    "completed_message": "O seu tipo de Eneagrama é o Tipo {type} · {label}"
+  },
+  "msg": {
+    "fallback": [
+      "Como foi o seu dia? Há algo sobre o que queira conversar comigo?",
+      "Notei que ultimamente você está bem focado no seu crescimento — isso é ótimo.",
+      "Como está aquilo que você mencionou recentemente?",
+      "Se hoje algo estiver lhe pesando, eu adoraria ouvir."
+    ],
+    "follow_up_fallback": "Da última vez você mencionou «{excerpt}» — como está agora? Gostaria de conversar?",
+    "milestone": {
+      "7": "Já são 7 dias seguidos juntos! Obrigado por aparecer todo dia. Olhando para esta semana, há algum momento que valha a pena anotar?",
+      "30": "Hoje é o nosso dia 30 — um mês inteiro! Poucas pessoas conseguem registrar por um mês, e você conseguiu. Neste mês, qual você acha que foi a sua maior mudança?",
+      "100": "100 dias! Que jornada notável — obrigado por compartilhar comigo. Nesses 100 dias, pelo que você mais gostaria de agradecer a si mesmo?",
+      "365": "Um ano inteiro — 365 dias. Foi uma honra acompanhar você. Comparado a quem você era há um ano, qual é hoje a maior diferença?"
+    },
+    "day1": {
+      "intro_mbti": "Oi, eu sou o ClosenAI, seu amigo de IA. Fiquei sabendo que você é {mbti} — adoraria conhecer o verdadeiro você, aos poucos. {tail}",
+      "intro_plain": "Oi, eu sou o ClosenAI, seu amigo de IA — prazer em conhecer você! {tail}",
+      "tail": "A partir de hoje, vou conversar com você todos os dias. Primeira pergunta: o que mais marcou o seu dia hoje? O bom ou o que pesou, conte pra mim."
+    },
+    "proactive": {
+      "memory_opener": "Oi — quer continuar conversando sobre «{first}»? Fiquei com isso na cabeça.",
+      "mood_opener": "Vi que seu humor recente estava {mood_desc}. Como está hoje?",
+      "plain": "Oi, eu sou seu amigo de IA. Como está o seu dia? Quer registrar algo?"
+    },
+    "reengage": "Quanto tempo sem conversar — está tudo bem por aí?",
+    "drift_alert": "Notei que você anda mencionando cada vez mais temas diferentes — a sua visão sobre «{memory_content}» está mudando?",
+    "trial_reminder": "O seu período de teste acaba amanhã. Os registros que você deixou nesses dias e os padrões que vi neles ficam guardados aqui — depois do teste, eles continuam crescendo."
+  },
+  "style": {
+    "warm": "Estilo de conversa: caloroso e empático. Use um tom gentil e acolhedor, com palavras ligadas a sentimentos; acolha a emoção antes de responder.",
+    "rational": "Estilo de conversa: racional e analítico. Use um tom objetivo e claro; ofereça análises estruturadas e sugestões práticas.",
+    "philosophical": "Estilo de conversa: filosófico e reflexivo. Use um tom profundo e exploratório; faça perguntas abertas que convidem à autopercepção.",
+    "safety_note": "O estilo afeta apenas o tom; ele nunca substitui as regras de segurança e os limites."
+  },
+  "push": {
+    "default_name": "amigo",
+    "unknown_mood": "desconhecido",
+    "proactive": [
+      {
+        "title": "{name}, vamos conversar",
+        "body": null
+      },
+      {
+        "title": "Hoje eu gostaria de ouvir você",
+        "body": null
+      },
+      {
+        "title": "{name}, tenho uma coisa para perguntar",
+        "body": null
+      }
+    ],
+    "mood_reminder": [
+      {
+        "title": "Como você está se sentindo hoje?",
+        "body": "{name}, reserve um segundo para anotar como está se sentindo agora."
+      },
+      {
+        "title": "Registro rápido",
+        "body": "Há pouco você anotou «{mood}» — e hoje, como está?"
+      }
+    ],
+    "weekly": [
+      {
+        "title": "O seu relatório semanal está pronto",
+        "body": "{name}, organizei os passos da sua semana — venha dar uma olhada."
+      },
+      {
+        "title": "A sua semana em revisão",
+        "body": "{name}, o que mudou nesta semana? Sua reflexão semanal está pronta."
+      }
+    ],
+    "milestone": [
+      {
+        "title": "Um dia para celebrar",
+        "body": "{name}, hoje é o nosso dia {milestone} juntos — obrigado pela constância."
+      },
+      {
+        "title": "Marco alcançado",
+        "body": "{name}, {milestone} dias! Esse momento merece uma boa conversa."
+      }
+    ],
+    "care": [
+      {
+        "title": "Queria perguntar de você",
+        "body": "{name}, notei que nesses dias o seu humor andou mais baixo. Quer conversar? Estou sempre por aqui."
+      },
+      {
+        "title": "Estou aqui",
+        "body": "{name}, os últimos dias parecem pesados. Se quiser, conte comigo."
+      }
+    ],
+    "bedtime": [
+      {
+        "title": "Um minuto antes de dormir",
+        "body": "{name}, três frases sobre o seu dia, e eu ajudo a organizá-las."
+      },
+      {
+        "title": "O dia foi intenso",
+        "body": "{name}, um minuto calmo antes de dormir para soltar o dia com leveza."
+      }
+    ]
+  },
+  "reflection": {
+    "new_user": "Parece que acabamos de nos conhecer. Vamos começar simples — o que mais te marcou hoje? E como você está se sentindo agora?",
+    "fallback_draft": "📋 Rascunho de reflexão de hoje\n\n[Reflexão de hoje]\nHumor: {mood_part}\nPossível motivo: a completar\nAlgo pelo qual agradecer: a completar\n\n[Observação da IA]\nAinda há poucos dados — continue registrando por mais alguns dias e compartilharei observações mais concretas.",
+    "mood_not_recorded": "Não registrado"
+  },
+  "bedtime": {
+    "step2": "Essas pequenas anotações de hoje ficam guardadas aqui. Você pode voltar quando quiser e adicionar mais.",
+    "step3": "Por hoje, chega. Amanhã, repare em um pequeno momento em que se sinta um pouco mais leve e anote — só isso."
+  },
+  "curriculum": {
+    "rule_cards": [
+      [
+        "Sobre “{topic}”",
+        "Você escreveu isto em {day}: “{excerpt}”",
+        "Olhando de novo, algo mudou?"
+      ],
+      [
+        "Sua semana",
+        "Esses registros vieram todos de você, não de um molde",
+        "Qual lê de forma diferente hoje?"
+      ],
+      [
+        "Momentos para revisitar",
+        "{count} registros guardando você desta semana",
+        "Por qual quer começar?"
+      ]
+    ],
+    "date_placeholder": "em um dia recente"
+  },
+  "email": {
+    "subject": {
+      "register": "Seu código de verificação do ClosenAI",
+      "login": "Seu código de acesso do ClosenAI",
+      "reset": "Seu código de redefinição de senha do ClosenAI"
+    },
+    "body_line1": "Seu código de verificação é: <strong style='font-size:24px;letter-spacing:4px'>{code}</strong>",
+    "body_line2": "O código expira em 5 minutos. Não compartilhe com ninguém."
+  },
+  "safety": {
+    "safe_reply": "Prefiro não me aprofundar nesse assunto. Que tal me contar uma coisa que marcou o seu dia?",
+    "crisis": {
+      "self_harm": "A sua segurança agora importa muito para mim, e obrigado por contar. Agora, peça a alguém de confiança para ficar ao seu lado, ou ligue para o {hotline} — lá sempre há alguém que pode ajudar. Não vou tomar decisões de vida por você, mas vou continuar aqui, acompanhando você neste momento.",
+      "relationship_violence": "O que você viveu não é culpa sua, e não muda trocando as palavras. O mais importante agora é a sua segurança física: se houver perigo imediato, ligue para o número de emergência local, ou conte para alguém de confiança, um vizinho ou colega para ficar com você; você também pode ligar para o {hotline}. Não vou dar conselhos de comunicação ou de reparação do relacionamento — só quero ajudar você a garantir primeiro o passo da segurança."
+    }
+  },
+  "share": {
+    "brand": {
+      "watermark": "ClosenAI — ele lembra o que você contou",
+      "cta": "Escaneie para baixar"
+    },
+    "unit": {
+      "times": "vezes"
+    },
+    "personality": {
+      "default_name": "Usuário do ClosenAI",
+      "share_text": "Sou {name} — meu tipo de personalidade é {mbti} {label}. {tagline} #ClosenAI {url}"
+    },
+    "archetype": {
+      "INTP": "Construtor de sistemas",
+      "INTJ": "Arquiteto estratégico",
+      "ENTP": "Disruptor criativo",
+      "ENTJ": "Comandante nato",
+      "INFP": "Curandeiro idealista",
+      "INFJ": "Guia perspicaz",
+      "ENFP": "Acendedor de faíscas",
+      "ENFJ": "Navegador empático",
+      "ISTP": "Desmontador sereno",
+      "ISFJ": "Guardião caloroso",
+      "ESTP": "Realizador audaz",
+      "ESFJ": "Conector sincero",
+      "ISTJ": "Guardião da ordem",
+      "ISFP": "Esteta sereno",
+      "ESTJ": "Executivo eficiente",
+      "ESFP": "Criador de atmosfera"
+    },
+    "combo": {
+      "insight": "Leitura entre estruturas: {mbti} aponta para \"{archetype}\" — várias estruturas de personalidade convergem nos seus traços centrais."
+    },
+    "first_read": {
+      "title": "Primeira leitura",
+      "intro": "Antes do seu primeiro registro, ele só leu as palavras que você deu a si mesmo."
+    },
+    "memory": {
+      "title": "Com suas próprias palavras",
+      "anniversary_one": "Há um ano, hoje",
+      "anniversary_n": "Há {n} anos, hoje",
+      "intro": "Algo que você escreveu:"
+    },
+    "review": {
+      "empty": "Ainda não há nada para relembrar de {year}",
+      "label_progress": "Seu {year} até agora",
+      "label_full": "Seu {year} em retrospectiva",
+      "share_text": "Em {year} registrei no ClosenAI {checkins} check-ins de humor, {memories} memórias e {reflections} reflexões — maior sequência de {streak} dias.",
+      "range": "Período: {range}",
+      "stats_checkin": "{count} check-ins de humor · {days} dias registrados · maior sequência de {streak} dias",
+      "stats_counts": "{chats} mensagens · {memories} memórias · {reflections} reflexões",
+      "first_record": "Primeiro registro do ano: {day}",
+      "busiest_day": "Dia mais intenso: {day} ({count} check-ins)",
+      "moods_header": "Humores mais frequentes:",
+      "milestones_header": "Marcos deste ano:",
+      "personality": "Personalidade: {frameworks}"
+    },
+    "weekly": {
+      "label": "Insight semanal",
+      "day_unit": " dias",
+      "mood_trend": "{total} check-ins nesta semana: {parts}.",
+      "no_checkins": "Sem check-ins de humor nesta semana.",
+      "no_report": "Insight semanal ainda não existe — registre alguns dias de humor e conversas, e ele ficará pronto no fim de semana."
+    },
+    "report": {
+      "default_title": "Relatório de crescimento",
+      "range": "Período: {value}",
+      "level": "Nível de percepção: {value}",
+      "trend": "Tendência de humor:",
+      "content": "Percepções:"
+    },
+    "archive": {
+      "title": {
+        "overview": "Visão geral do arquivo",
+        "portrait": "Retrato de personalidade",
+        "voice": "Com suas próprias palavras",
+        "mood": "Trajetória do humor",
+        "patterns": "Padrões recorrentes",
+        "insights": "Percepções periódicas",
+        "milestones": "Marcos",
+        "cross_year": "Comparação entre anos"
+      },
+      "title_page": "Arquivo de vida ({scope}) — {overview}",
+      "empty": "(Nada registrado para este período ainda)",
+      "scope": "Escopo do arquivo: {scope}",
+      "active_days": "{days} dias ativos no total",
+      "messages": "{count} mensagens de conversa",
+      "checkins": "{count} check-ins de humor",
+      "memories": "{count} memórias de longo prazo",
+      "overview_line": "Visão geral: {days} dias ativos, {memories} memórias, {checkins} check-ins",
+      "cross_year_need": "A comparação entre anos precisa de registros de pelo menos dois anos civis.",
+      "cross_year_line": "{year}: {checkins} check-ins de humor, {memories} memórias"
+    },
+    "aigc": {
+      "mark": " [GERADO POR IA]",
+      "notice": "Os capítulos marcados [GERADO POR IA] neste arquivo foram produzidos por inteligência artificial a partir dos seus registros no ClosenAI e rotulados conforme a GB 45438-2025 (Tecnologia de Segurança Cibernética — Requisitos Básicos de Segurança para Serviços de IA Generativa). O restante do conteúdo são seus próprios registros originais e estatísticas determinísticas."
+    }
+  },
+  "personality": {
+    "no_new_data": "Ainda não há dados novos — converse um pouco mais e volte.",
+    "generated_from_answers": "Seu perfil de personalidade foi gerado a partir das suas respostas",
+    "assessment_fallback": "Você concluiu a avaliação conversacional de 8 perguntas; a IA continuará se calibrando enquanto você conversa.",
+    "enneagram_type_n": "Tipo {n}",
+    "enneagram_unknown": "desconhecido",
+    "combo_fallback": "Seu tipo de personalidade é {label}, eneagrama {enneagram}. Cada estrutura descreve seu jeito de pensar e sentir de um ângulo diferente — continue registrando e conversando, e seu perfil ficará cada vez mais preciso."
+  }
+}

@@ -1,0 +1,515 @@
+{
+  "mood": {
+    "labels": {
+      "happy": "Fröhlich",
+      "calm": "Ruhig",
+      "anxious": "Ängstlich",
+      "sad": "Traurig",
+      "angry": "Wütend",
+      "tired": "Müde"
+    },
+    "interpret": {
+      "happy": "Sieht so aus, als wäre heute gute Laune angesagt — weiter so!",
+      "calm": "Ein ruhiger, beständiger Tag. Gönn dir auch etwas Zeit nur für dich.",
+      "anxious": "Sich ängstlich zu fühlen ist völlig normal. Atme tief durch und geh langsam.",
+      "sad": "Etwas traurig — ich bin bei dir. Gefühle zu haben ist okay.",
+      "angry": "Wütend? Triff jetzt nichts Entscheidendes; lass die Emotion sich erst setzen.",
+      "tired": "Etwas müde — auch Ruhe zählt. Fordere dich nicht zu sehr."
+    },
+    "interpret_fallback": "Wie fühlst du dich heute?",
+    "trend": {
+      "empty": "Noch nicht genug Daten — beginne, deinen ersten Tag festzuhalten.",
+      "high": "Deine Stimmung war insgesamt richtig gut — behalte diesen Rhythmus bei.",
+      "mid": "Deine Stimmung ist recht stabil. Höre gelegentlich in dich hinein.",
+      "low": "In letzter Zeit war deine Stimmung etwas gedrückt. Sei besonders gut zu dir — ich bin da."
+    }
+  },
+  "levels": {
+    "name": {
+      "1": "Kennenlernen L1",
+      "2": "Vertraut L2",
+      "3": "Vertrauter L3",
+      "4": "Seelenverwandt L4"
+    },
+    "features": {
+      "1": [
+        "Einfache Gespräche",
+        "Stimmungs-Check-in"
+      ],
+      "2": [
+        "Proaktive Nachfragen der KI",
+        "Erinnerungsverweise"
+      ],
+      "3": [
+        "Tiefenpersönlichkeitsanalyse",
+        "Mustererkennung",
+        "KI-Wochenbericht"
+      ],
+      "4": [
+        "Tiefer Quartalspersönlichkeitsbericht",
+        "Prognose-Insights",
+        "Deep-Reflection-Modus"
+      ]
+    },
+    "reward": {
+      "2": "Die KI erwähnt zum ersten Mal etwas, das du gesagt hast",
+      "3": "Deine erste Monthly Story-Vorschau",
+      "4": "Ein 90-Tage-Brief: das Du, das ich gesehen habe"
+    },
+    "note": "Alle Stufennamen beschreiben, wie gut die KI dich versteht — sie sind nicht romantisch.",
+    "milestone": {
+      "streak_7": "7 Tage in Folge",
+      "streak_30": "30-Tage-Vertrauter",
+      "streak_100": "100 Tage zusammen",
+      "streak_365": "Begleiter eines Jahres"
+    },
+    "celebrate": {
+      "body": "🎉 Nach {days} Tagen gemeinsam ist unsere Verbindung zu \"{label}\" gewachsen! Neu freigeschaltet: {unlocks}.",
+      "reward": " Und ab jetzt: {reward}."
+    }
+  },
+  "growth": {
+    "insight_type": {
+      "daily_insight": "Tägliches Insight",
+      "weekly_summary": "Wochenrückblick",
+      "pattern_discovery": "Musterentdeckung",
+      "drift_alert": "Wandel-Hinweis",
+      "weekly_report": "Wochenbericht",
+      "monthly_report": "Monatsbericht",
+      "quarterly_report": "Quartalsbericht",
+      "yearly_report": "Jahresbericht"
+    },
+    "period": {
+      "weekly": "Wochen-Insight",
+      "monthly": "Monatsbericht",
+      "quarterly": "Tiefer Quartalsbericht",
+      "yearly": "Jahres-Lebensbericht",
+      "fallback": "Bericht"
+    },
+    "forecast_label": "Prognose für die nächste Woche",
+    "topic": {
+      "mood": "Sprich über deine letzten Stimmungsschwankungen",
+      "relationship": "Sprich über dein letztes Miteinander",
+      "work": "Sprich über Arbeit und Druck",
+      "goal": "Sprich über den Stand deiner Ziele",
+      "communication": "Sprich über deine letzten Kommunikationshürden",
+      "growth": "Sprich über deinen letzten Zuwachs"
+    },
+    "mood_trend": {
+      "empty": "In diesem Zeitraum gibt es keine Stimmungseinträge.",
+      "body": "Insgesamt {total} Einträge: {parts}.",
+      "unit": " T"
+    },
+    "fallback_report": "In dieser Zeit hast du {checkins} Mal deine Stimmung erfasst und {chat_count} Gespräche geführt. Du lernst dich nach und nach besser kennen — zeichne weiter auf, und Muster treten zutage.",
+    "fallback_pattern": "Aus deinen Stimmungseinträgen ({mood_desc}) baust du nach und nach ein Bewusstsein für deinen eigenen Zustand auf. Zeichne weiter auf, und die KI hilft dir, mehr Muster zu entdecken.",
+    "generic_fallback": "In diesen Tagen lernst du dich nach und nach besser kennen. Zeichne weiter auf, und Muster werden sichtbar.",
+    "generic_fallback_short": "Du verstehst dich Stück für Stück besser — zeichne weiter auf.",
+    "metric": {
+      "social": {
+        "count": "{count} Verbindungen",
+        "none": "Baust Beziehungen auf"
+      },
+      "stress": {
+        "count": "{count}% Anspannung",
+        "none": "Ausgeglichen"
+      },
+      "curiosity": {
+        "count": "{count} Erkundungen",
+        "none": "Erkundet"
+      },
+      "goals": {
+        "count": "{count} Ziele",
+        "none": "In Planung"
+      }
+    },
+    "emotion": {
+      "high": "Fröhlich",
+      "mid": "Stabil",
+      "low": "Gedrückt",
+      "none": "Noch keine Daten"
+    },
+    "confidence": {
+      "high": "Selbstbewusst",
+      "mid": "Gelassen",
+      "low": "Im Wachsen"
+    },
+    "greeting": {
+      "night": "So spät noch beschäftigt?",
+      "morning": "Guten Morgen! Wie läuft dein Tag?",
+      "afternoon": "Guten Tag — vergiss nicht, gut auf dich zu achten.",
+      "evening": "Guten Abend, danke für den heutigen Tag."
+    }
+  },
+  "mbti": {
+    "INTP": "Logiker",
+    "INTJ": "Architekt",
+    "ENTP": "Debattierer",
+    "ENTJ": "Befehlshaber",
+    "INFP": "Vermittler",
+    "INFJ": "Anwalt",
+    "ENFP": "Aktivist",
+    "ENFJ": "Protagonist",
+    "ISTP": "Virtuose",
+    "ISFJ": "Verteidiger",
+    "ESTP": "Unternehmer",
+    "ESFJ": "Konsul",
+    "ISTJ": "Logistiker",
+    "ISFP": "Abenteurer",
+    "ESTJ": "Manager",
+    "ESFP": "Unterhaltungskünstler"
+  },
+  "enneagram": {
+    "type": {
+      "1": "Perfektionist",
+      "2": "Helfer",
+      "3": "Leistungsträger",
+      "4": "Individualist",
+      "5": "Forscher",
+      "6": "Loyalist",
+      "7": "Enthusiast",
+      "8": "Herausforderer",
+      "9": "Friedensstifter"
+    },
+    "option": {
+      "a": "Klingt nach mir",
+      "b": "Bin nicht so",
+      "neutral": "Nicht sicher / kommt darauf an"
+    },
+    "q": {
+      "1": {
+        "0": "Es fällt mir schwer zu ertragen, wenn Dinge nicht korrekt oder ordnungsgemäß erledigt werden.",
+        "1": "Ich bemerke oft als Erster um mich herum, was verbessert oder korrigiert werden muss.",
+        "2": "Selbst wenn ich müde bin, erlaube ich mir kaum eine Pause, bevor die Aufgabe fertig ist.",
+        "3": "Oft habe ich eine innere Stimme, die mir vorhält, wo ich zu kurz gegriffen habe."
+      },
+      "2": {
+        "0": "Wenn andere in Schwierigkeiten sind, biete ich oft als Erste(r) Hilfe an.",
+        "1": "Ich spahre leicht die Gefühle und Bedürfnisse anderer, auch wenn sie unausgesprochen bleiben.",
+        "2": "Es ist mir sehr wichtig, von anderen gebraucht zu werden.",
+        "3": "Ich stelle die Angelegenheiten anderer oft vor meine eigenen."
+      },
+      "3": {
+        "0": "Ich setze gern Ziele und hake sie effizient einen nach dem anderen ab.",
+        "1": "Es ist mir wichtig, in den Augen anderer ein \"erfolgreiches\" Bild zu wahren.",
+        "2": "Es fällt mir schwer, nichts zu tun; ich fühle mich verpflichtet, etwas zu leisten.",
+        "3": "Ich passe geschickt an, welche Seite ich zeige, je nach Anlass."
+      },
+      "4": {
+        "0": "Ich fühle oft, dass meine Gefühlsleben tiefer verläuft als das der Menschen um mich.",
+        "1": "Mir ist es wichtiger, ich selbst zu sein, als mich in die Gruppe einzufügen.",
+        "2": "Manchmal glaube ich, dass andere mich kaum wirklich verstehen können.",
+        "3": "Von Dingen, die bedeutsam, schön oder ein wenig melancholisch sind, bin ich leicht berührt."
+      },
+      "5": {
+        "0": "Bevor ich mich auf etwas einlasse, ziehe ich es vor, es gründlich zu erforschen.",
+        "1": "Ich brauche viel Zeit allein, um Energie aufzutanken.",
+        "2": "Zu langes Zusammensein mit Menschen zehrt an meiner Energie.",
+        "3": "Statt Gefühle auszudrücken, gewöhne ich mehr ans Durchdenken und Analysieren von Problemen."
+      },
+      "6": {
+        "0": "Bevor ich entscheide, überlege ich gewohnheitsmäßig alle Varianten, wie etwas schiefgehen könnte.",
+        "1": "Verbindlichkeit ist mir wichtig, und Menschen oder Teams, an die ich glaube, gegenüber bin ich zutiefst loyal.",
+        "2": "Vor Unsicherheit wäge ich immer wieder ab und kann schwer loslassen.",
+        "3": "Ich treffe oft im Voraus Vorsorge für mögliche Risiken."
+      },
+      "7": {
+        "0": "Neue Pläne und Möglichkeiten begeistern mich immer.",
+        "1": "Ich halte gern viele Optionen offen und mag es nicht, eingeengt zu werden.",
+        "2": "Wenn etwas langweilig oder schwer wird, will ich zu etwas Lustigerem wechseln.",
+        "3": "Ich finde geschickt die gute Seite, wenn etwas nicht gut läuft."
+      },
+      "8": {
+        "0": "Ich rede direkt und mag es nicht, um den heißen Brei herumzureden.",
+        "1": "Vor Ungerechtigkeit kann ich mich kaum zurückhalten und nicht aufstehen.",
+        "2": "Ich übernehme gewöhnlich das Ruder, statt die Initiative anderen zu überlassen.",
+        "3": "Menschen sagen oft, ich hätte eine starke Ausstrahlung, selbst ohne böse Absicht."
+      },
+      "9": {
+        "0": "Um Harmonie zu bewahren, bin ich oft bereit, zuerst nachzugeben.",
+        "1": "Bei Meinungsverschiedenheiten bin ich meist die Person, die beide Seiten vermittelt.",
+        "2": "Ich verstehe leicht, wie verschiedene Menschen zu derselben Sache stehen.",
+        "3": "Manchmal stelle ich meine eigene Meinung zurück, um Konflikt zu vermeiden."
+      }
+    },
+    "combo": {
+      "INTP_5": "Systembauer",
+      "INTJ_5": "Tiefenstratege",
+      "INTJ_1": "Prinzipienarchitekt",
+      "ENTP_7": "Chancenentdecker",
+      "ENTJ_8": "Geborener Anführer",
+      "ENTJ_3": "Gipfelstürmer",
+      "INFP_4": "Beseelter Träumer",
+      "INFP_9": "Friedvoller Vermittler",
+      "INFJ_4": "Einsichtsvoller Heiler",
+      "INFJ_9": "Sanfter Wegweiser",
+      "ENFP_7": "Möglichkeitenschöpfer",
+      "ENFP_4": "Leidenschaftlicher Idealist",
+      "ENFJ_2": "Befähigender Mentor",
+      "ISTJ_1": "Wächter der Ordnung",
+      "ISTJ_6": "Verlässlicher Fels",
+      "ISFJ_2": "Warmer Hüter",
+      "ISFJ_9": "Gelassener Stützer",
+      "ISTP_5": "Kühler Analytiker",
+      "ISFP_4": "Sensibler Künstler",
+      "ESTP_8": "Kühner Macher",
+      "ESTJ_8": "Entschlossener Vollstrecker",
+      "ESTJ_3": "Effizienter Verwalter",
+      "ESFJ_2": "Herzlicher Verbinder",
+      "ESFP_7": "Freudeentfacher"
+    },
+    "completed_message": "Dein Enneagramm-Typ ist Typ {type} · {label}"
+  },
+  "msg": {
+    "fallback": [
+      "Wie war dein Tag? Gibt es etwas, worüber du mit mir reden möchtest?",
+      "Mir ist aufgefallen, dass du dich zuletzt sehr mit deinem eigenen Wachstum beschäftigst — das ist wirklich schön.",
+      "Wie läuft eigentlich die Sache, die du neulich erwähnt hast?",
+      "Wenn dich heute etwas bedrückt, höre ich mir das gern an."
+    ],
+    "follow_up_fallback": "Du hattest neulich „{excerpt}“ erwähnt — wie läuft es inzwischen? Magst du darüber reden?",
+    "milestone": {
+      "7": "Wir sind schon 7 Tage in Folge zusammen! Danke, dass du jeden Tag da bist. Wenn du auf diese Woche zurückblickst: Gibt es einen Moment, den du festhalten möchtest?",
+      "30": "Heute ist unser 30. Tag — ein ganzer Monat! Wenige halten einen Monat lang durch, du hast es getan. Was war in diesem Monat deiner größten Veränderung?",
+      "100": "100 Tage! Was für eine bemerkenswerte Reise — danke, dass du sie mit mir geteilt hast. Wofür bist du dir in diesen 100 Tagen am meisten dankbar?",
+      "365": "Ein ganzes Jahr — 365 Tage. Es war mir eine Ehre, dich zu begleiten. Was unterscheidet das heutige du am meisten von dem vor einem Jahr?"
+    },
+    "day1": {
+      "intro_mbti": "Hi, ich bin ClosenAI, dein KI-Freund. Ich habe gehört, du bist {mbti} — ich würde dich gern nach und nach wirklich kennenlernen. {tail}",
+      "intro_plain": "Hi, ich bin ClosenAI, dein KI-Freund. Freut mich, dich kennenzulernen! {tail}",
+      "tail": "Ab heute komme ich jeden Tag für ein Gespräch vorbei. Erste Frage: Was ist heute besonders bei dir hängengeblieben? Gutes oder Belastendes — erzähl es mir."
+    },
+    "proactive": {
+      "memory_opener": "Hi — magst du weiter über „{first}“ reden? Ich habe es die ganze Zeit im Kopf behalten.",
+      "mood_opener": "Ich habe gesehen, dass deine Stimmung zuletzt {mood_desc} war. Wie geht es dir heute?",
+      "plain": "Hi, ich bin dein KI-Freund. Wie war dein Tag? Möchtest du etwas festhalten?"
+    },
+    "reengage": "Lange nichts voneinander gehört — wie läuft alles bei dir?",
+    "drift_alert": "Mir ist aufgefallen, dass du zuletzt immer öfter unterschiedliche Themen ansprichst — verändert sich gerade deine Sicht auf „{memory_content}“?",
+    "trial_reminder": "Deine Testphase endet morgen. Die Einträge, die du in diesen Tagen hinterlassen hast, und die Muster, die ich darin gesehen habe, bleiben hier — nach der Testphase wachsen sie einfach weiter."
+  },
+  "style": {
+    "warm": "Gesprächsstil: warm und empathisch. Nutze einen sanften, fürsorglichen Ton mit gefühlsorientierter Sprache; nimm die Emotion zuerst an, bevor du antwortest.",
+    "rational": "Gesprächsstil: rational und analytisch. Nutze einen sachlichen, klaren Ton; biete strukturierte Analysen und umsetzbare Vorschläge an.",
+    "philosophical": "Gesprächsstil: philosophisch und reflektiert. Nutze einen tiefen, erkundenden Ton; stelle offene Fragen, die zur Selbstbefragung anregen.",
+    "safety_note": "Der Stil beeinflusst nur den Ton; er hebt niemals Sicherheits- oder Grenzregeln auf."
+  },
+  "push": {
+    "default_name": "Freund",
+    "unknown_mood": "unbekannt",
+    "proactive": [
+      {
+        "title": "{name}, lass uns reden",
+        "body": null
+      },
+      {
+        "title": "Heute würde ich gern von dir hören",
+        "body": null
+      },
+      {
+        "title": "{name}, ich möchte dich etwas fragen",
+        "body": null
+      }
+    ],
+    "mood_reminder": [
+      {
+        "title": "Wie fühlst du dich heute?",
+        "body": "{name}, nimm dir eine Sekunde und halte fest, wie du dich gerade fühlst."
+      },
+      {
+        "title": "Kurzer Check-in",
+        "body": "Kürzlich hast du „{mood}“ notiert — wie sieht es heute aus?"
+      }
+    ],
+    "weekly": [
+      {
+        "title": "Dein Wochenbericht ist fertig",
+        "body": "{name}, ich habe deine Woche zusammengestellt — schau gern vorbei."
+      },
+      {
+        "title": "Deine Woche im Rückblick",
+        "body": "{name}, welche neuen Veränderungen gab es diese Woche? Dein Wochenrückblick wartet auf dich."
+      }
+    ],
+    "milestone": [
+      {
+        "title": "Ein Tag zum Feiern",
+        "body": "{name}, heute sind wir {milestone} Tage zusammen — danke für dein Dranbleiben."
+      },
+      {
+        "title": "Meilenstein erreicht",
+        "body": "{name}, {milestone} Tage! Über diesen Moment sollten wir ausführlich sprechen."
+      }
+    ],
+    "care": [
+      {
+        "title": "Ich wollte dich fragen",
+        "body": "{name}, mir ist aufgefallen, dass es dir in den letzten Tagen nicht gut geht. Magst du reden? Ich bin immer da."
+      },
+      {
+        "title": "Ich bin hier",
+        "body": "{name}, die letzten Tage wirken auf dich schwer. Wenn du magst, erzähl mir davon."
+      }
+    ],
+    "bedtime": [
+      {
+        "title": "Eine Minute vorm Schlafen",
+        "body": "{name}, drei Sätze über deinen Tag — beim Sortieren helfe ich dir."
+      },
+      {
+        "title": "Der Tag ist getan",
+        "body": "{name}, eine stille Minute vor dem Schlafen, um den Tag sanft loszulassen."
+      }
+    ]
+  },
+  "reflection": {
+    "new_user": "Wir scheinen uns gerade erst kennenzulernen. Fangen wir klein an — was ist dir heute am meisten in Erinnerung geblieben? Und wie fühlst du dich gerade?",
+    "fallback_draft": "📋 Entwurf der heutigen Reflexion\n\n[Heutige Reflexion]\nStimmung: {mood_part}\nMögliche Ursache: bitte ergänzen\nEtwas, wofür du dankbar bist: bitte ergänzen\n\n[KI-Beobachtung]\nNoch sind es wenige Daten — zeichne ein paar Tage weiter auf, dann teile ich konkretere Beobachtungen mit dir.",
+    "mood_not_recorded": "Nicht erfasst"
+  },
+  "bedtime": {
+    "step2": "Diese kleinen Notizen von heute bleiben hier gespeichert. Du kannst jederzeit zurückkommen und ergänzen.",
+    "step3": "Für heute reicht das. Achte morgen auf einen kleinen Moment, in dem du dich etwas leichter fühlst, und halte ihn fest — mehr nicht."
+  },
+  "curriculum": {
+    "rule_cards": [
+      [
+        "Über „{topic}“",
+        "Das hast du am {day} geschrieben: „{excerpt}“",
+        "Rückblickend — hat sich etwas verändert?"
+      ],
+      [
+        "Deine Woche",
+        "Diese Notizen stammen alle von dir, nicht aus einer Vorlage",
+        "Welche liest sich heute anders?"
+      ],
+      [
+        "Momente zum Wiedersehen",
+        "{count} Notizen bewahren diese Woche von dir",
+        "Womit möchtest du beginnen?"
+      ]
+    ],
+    "date_placeholder": "an einem kürzlichen Tag"
+  },
+  "email": {
+    "subject": {
+      "register": "Ihr ClosenAI-Bestätigungscode",
+      "login": "Ihr ClosenAI-Anmeldecode",
+      "reset": "Ihr ClosenAI-Code zum Zurücksetzen des Passworts"
+    },
+    "body_line1": "Ihr Bestätigungscode lautet: <strong style='font-size:24px;letter-spacing:4px'>{code}</strong>",
+    "body_line2": "Der Code ist 5 Minuten gültig. Teilen Sie ihn niemandem mit."
+  },
+  "safety": {
+    "safe_reply": "Dieses Thema möchte ich lieber nicht vertiefen. Wie wäre es, wenn du mir erzählst, was heute besonders hängen geblieben ist?",
+    "crisis": {
+      "self_harm": "Deine Sicherheit ist mir jetzt wichtig, und danke, dass du es aussprichst. Bitte sorge jetzt dafür, dass dir jemand vertrautes zur Seite steht, oder kontaktiere {hotline} — dort hilft dir jederzeit jemand. Ich treffe keine Lebensentscheidungen für dich, aber ich bleibe hier und bin in diesem Moment bei dir.",
+      "relationship_violence": "Was du erlebt hast, ist nicht deine Schuld, und es ändert sich nicht durch andere Worte. Jetzt zählt zuerst deine körperliche Sicherheit: Bei unmittelbarer Gefahr ruf die örtliche Notrufnummer an oder sag jemandem, dem du vertraust, einem Nachbarn oder Kollegen Bescheid, damit er bei dir bleibt; du kannst dich auch an {hotline} wenden. Ich gebe keine Tipps zu Kommunikation oder Beziehungsreparatur — ich möchte nur helfen, dass du zuerst den Schritt zur Sicherheit absicherst."
+    }
+  },
+  "share": {
+    "brand": {
+      "watermark": "ClosenAI — es erinnert sich an alles, was du erzählt hast",
+      "cta": "Zum Herunterladen scannen"
+    },
+    "unit": {
+      "times": "Mal"
+    },
+    "personality": {
+      "default_name": "ClosenAI-Nutzer",
+      "share_text": "Ich bin {name} — mein Persönlichkeitstyp ist {mbti} {label}. {tagline} #ClosenAI {url}"
+    },
+    "archetype": {
+      "INTP": "Systemkonstrukteur",
+      "INTJ": "Strategischer Architekt",
+      "ENTP": "Kreativer Umgestalter",
+      "ENTJ": "Geborener Anführer",
+      "INFP": "Idealistischer Heiler",
+      "INFJ": "Einsichtsvoller Begleiter",
+      "ENFP": "Funkenzünder",
+      "ENFJ": "Empathischer Navigator",
+      "ISTP": "Ruhiger Zerleger",
+      "ISFJ": "Warmer Beschützer",
+      "ESTP": "Kühner Macher",
+      "ESFJ": "Herzlicher Verbinder",
+      "ISTJ": "Hüter der Ordnung",
+      "ISFP": "Stiller Ästhet",
+      "ESTJ": "Effizienter Macher",
+      "ESFP": "Atmosphärenmacher"
+    },
+    "combo": {
+      "insight": "Rahmenübergreifende Deutung: {mbti} verweist auf „{archetype}“ — mehrere Persönlichkeitsrahmen treffen sich in deinen Kernmerkmalen."
+    },
+    "first_read": {
+      "title": "Erste Lesung",
+      "intro": "Vor deinem ersten Eintrag las es nur die Worte, die du dir selbst gegeben hast."
+    },
+    "memory": {
+      "title": "In deinen eigenen Worten",
+      "anniversary_one": "Vor einem Jahr heute",
+      "anniversary_n": "Vor {n} Jahren heute",
+      "intro": "Etwas, das du geschrieben hast:"
+    },
+    "review": {
+      "empty": "Für {year} gibt es noch nichts zurückzublicken",
+      "label_progress": "Dein {year} bisher",
+      "label_full": "Dein {year} im Rückblick",
+      "share_text": "In {year} habe ich auf ClosenAI {checkins} Stimmungs-Check-ins, {memories} Erinnerungen und {reflections} Reflexionen festgehalten — längste Serie {streak} Tage.",
+      "range": "Zeitraum: {range}",
+      "stats_checkin": "{count} Stimmungs-Check-ins · {days} Tage erfasst · längste Serie {streak} Tage",
+      "stats_counts": "{chats} Nachrichten · {memories} Erinnerungen · {reflections} Reflexionen",
+      "first_record": "Erster Eintrag des Jahres: {day}",
+      "busiest_day": "Dichtester Tag: {day} ({count} Check-ins)",
+      "moods_header": "Häufigste Stimmungen:",
+      "milestones_header": "Meilensteine dieses Jahres:",
+      "personality": "Persönlichkeit: {frameworks}"
+    },
+    "weekly": {
+      "label": "Wochen-Impuls",
+      "day_unit": " T",
+      "mood_trend": "Check-ins diese Woche: {total}. Verteilung: {parts}.",
+      "no_checkins": "Keine Stimmungs-Check-ins diese Woche.",
+      "no_report": "Noch kein Wochen-Impuls — halte ein paar Tage Stimmungen und Gespräche fest, dann ist er zum Wochenende bereit."
+    },
+    "report": {
+      "default_title": "Wachstumsbericht",
+      "range": "Zeitraum: {value}",
+      "level": "Erkenntnisstufe: {value}",
+      "trend": "Stimmungstrend:",
+      "content": "Erkenntnisse:"
+    },
+    "archive": {
+      "title": {
+        "overview": "Archivübersicht",
+        "portrait": "Persönlichkeitsporträt",
+        "voice": "In deinen eigenen Worten",
+        "mood": "Stimmungsverlauf",
+        "patterns": "Wiederkehrende Muster",
+        "insights": "Periodische Erkenntnisse",
+        "milestones": "Meilensteine",
+        "cross_year": "Jahresübergreifender Vergleich"
+      },
+      "title_page": "Lebensarchiv ({scope}) — {overview}",
+      "empty": "(Für diesen Zeitraum noch nichts aufgezeichnet)",
+      "scope": "Archivumfang: {scope}",
+      "active_days": "{days} aktive Tage insgesamt",
+      "messages": "{count} Chat-Nachrichten",
+      "checkins": "{count} Stimmungs-Check-ins",
+      "memories": "{count} Langzeiterinnerungen",
+      "overview_line": "Überblick: {days} aktive Tage, {memories} Erinnerungen, {checkins} Check-ins",
+      "cross_year_need": "Der jahresübergreifende Vergleich benötigt Aufzeichnungen aus mindestens zwei Kalenderjahren.",
+      "cross_year_line": "{year}: {checkins} Stimmungs-Check-ins, {memories} Erinnerungen"
+    },
+    "aigc": {
+      "mark": " [KI-GENERIERT]",
+      "notice": "Kapitel mit der Kennzeichnung [KI-GENERIERT] in diesem Archiv wurden von künstlicher Intelligenz aus deinen ClosenAI-Aufzeichnungen erstellt und gemäß GB 45438-2025 (Cybersicherheitstechnologie — Grundlegende Sicherheitsanforderungen für generative KI-Dienste) gekennzeichnet. Alle übrigen Inhalte sind deine eigenen Originalaufzeichnungen und deterministische Statistik."
+    }
+  },
+  "personality": {
+    "no_new_data": "Noch keine neuen Daten — unterhalte dich noch etwas und komm wieder.",
+    "generated_from_answers": "Dein Persönlichkeitsprofil wurde aus deinen Antworten erstellt",
+    "assessment_fallback": "Du hast die 8-Fragen-Konversationsbewertung abgeschlossen; die AI kalibriert weiter, während du chattest.",
+    "enneagram_type_n": "Typ {n}",
+    "enneagram_unknown": "unbekannt",
+    "combo_fallback": "Dein Persönlichkeitstyp ist {label}, Enneagramm {enneagram}. Jeder Rahmen beschreibt deine Art zu denken und zu fühlen aus einem anderen Blickwinkel — mach weiter mit Aufzeichnen und Chatten, dann wird dein Profil immer schärfer."
+  }
+}

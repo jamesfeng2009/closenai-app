@@ -28,6 +28,7 @@ import qrcode.image.pil
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.referral import normalize_referral_code, referral_link
@@ -64,13 +65,14 @@ logger = logging.getLogger("closenai.share")
 # ── 分享卡品牌要素（架构方案 §二 M4：统一品牌水印 + 下载文案 + 深链）──
 # 文案口径：说"它记得你说过什么"是产品的既有事实（记忆库），不是能力承诺；
 # 不写"帮你修复关系/读懂 TA"——那是措辞规范 §一 禁的因果断言式卖点。
-_BRAND = {
-    "zh": {"watermark": "ClosenAI · 它记得你说过的每一句", "cta": "扫码下载"},
-    "en": {
-        "watermark": "ClosenAI — it remembers what you told it",
-        "cta": "Scan to download",
-    },
-}
+# 水印/下载文案的 15 语言展示走文案库（core/copy.py，share.brand.*）。
+
+# MBTI 跨框架关联解读（PRD P1-F04 §4）：内置常见组合（如 INTP = 系统构建者），
+# 组合名的 15 语言展示走文案库 share.archetype.{MBTI}，此处仅保留合法键集。
+_ARCHETYPE_KEYS = frozenset({
+    "INTP", "INTJ", "ENTP", "ENTJ", "INFP", "INFJ", "ENFP", "ENFJ",
+    "ISTP", "ISFJ", "ESTP", "ESFJ", "ISTJ", "ISFP", "ESTJ", "ESFP",
+})
 
 # AIGC 隐式标识（GB 45438-2025）：含 LLM 产出的分享卡在 PDF 元数据里标注。
 # 与 Life Archive 的逐章显式标识互补：分享卡是传播物，版面上印声明会毁掉设计，
@@ -97,27 +99,7 @@ CARD_VARIANTS = ("classic", "minimal", "combo")
 PRO_CARD_VARIANTS = ("combo",)  # PRD P1-F04 §4：组合名片为 Pro 权益
 CARD_LAYOUTS = {"classic": "full", "minimal": "compact", "combo": "combo"}
 
-# MBTI 跨框架关联解读表（PRD P1-F04 §4：内置常见组合解读，如 INTP = 系统构建者）
-MBTI_COMBO_ARCHETYPES = {
-    "INTP": {"zh": "系统构建者", "en": "System Builder"},
-    "INTJ": {"zh": "战略建筑师", "en": "Strategic Architect"},
-    "ENTP": {"zh": "创意颠覆者", "en": "Creative Disruptor"},
-    "ENTJ": {"zh": "天生统帅", "en": "Born Commander"},
-    "INFP": {"zh": "理想治愈者", "en": "Idealistic Healer"},
-    "INFJ": {"zh": "洞察引路人", "en": "Insightful Guide"},
-    "ENFP": {"zh": "灵感点燃者", "en": "Spark Igniter"},
-    "ENFJ": {"zh": "共情领航者", "en": "Empathic Navigator"},
-    "ISTP": {"zh": "冷静拆解者", "en": "Calm Disassembler"},
-    "ISFJ": {"zh": "温暖守护者", "en": "Warm Guardian"},
-    "ESTP": {"zh": "果敢行动派", "en": "Bold Doer"},
-    "ESFJ": {"zh": "热忱连接者", "en": "Heartfelt Connector"},
-    "ISTJ": {"zh": "秩序坚守者", "en": "Order Keeper"},
-    "ISFP": {"zh": "静谧美学家", "en": "Quiet Aesthete"},
-    "ESTJ": {"zh": "高效执行官", "en": "Efficient Executive"},
-    "ESFP": {"zh": "氛围制造者", "en": "Vibe Maker"},
-}
-
-# 标语风格（按变体差异化，保证多张名片不同标语）
+# 标语风格（按变体差异化，保证多张名片不同标语；LLM prompt 风格指令，不强翻）
 _TAGLINE_STYLES = {
     "zh": {
         "classic": "温暖、有洞察，像一位懂你的朋友",
@@ -154,53 +136,14 @@ LIFE_ARCHIVE_ITEM_LIMIT = {"1y": 60, "all": 200, "legacy": 300}
 
 # AIGC 显式标识（GB 45438-2025）：LLM 产出的章节必须逐章标注 + 文档级声明。
 # 用户原话/确定性统计不标注，避免把用户自己的话标成 AI 内容。
+# 标识与声明的 15 语言展示走文案库（share.aigc.mark / share.aigc.notice）。
 AIGC_CHAPTER_KEYS = ("portrait", "patterns", "insights")
-AIGC_MARK = {
-    "zh": "［AI 生成］",
-    "en": " [AI-GENERATED]",
-}
-AIGC_NOTICE = {
-    "zh": (
-        "本档案中标注「AI 生成」的章节由人工智能根据你在 ClosenAI 的记录生成，"
-        "依据 GB 45438-2025《网络安全技术 生成式人工智能服务安全基本要求》显式标识；"
-        "其余内容为你本人的原始记录与确定性统计。"
-    ),
-    "en": (
-        "Chapters marked [AI-GENERATED] in this archive were produced by artificial "
-        "intelligence from your ClosenAI records and are labelled as such per "
-        "GB 45438-2025 (Cybersecurity Technology - Security Basic Requirements for "
-        "Generative AI Services). All other content is your own raw record data and "
-        "deterministic statistics."
-    ),
-}
 
-_ARCHIVE_TITLES = {
-    "zh": {
-        "overview": "档案概览",
-        "portrait": "性格画像",
-        "voice": "你说过的话",
-        "mood": "情绪轨迹",
-        "patterns": "反复出现的模式",
-        "insights": "周期洞察",
-        "milestones": "里程碑",
-        "cross_year": "跨年对比",
-    },
-    "en": {
-        "overview": "Archive Overview",
-        "portrait": "Personality Portrait",
-        "voice": "In Your Own Words",
-        "mood": "Mood Trajectory",
-        "patterns": "Recurring Patterns",
-        "insights": "Periodic Insights",
-        "milestones": "Milestones",
-        "cross_year": "Year-over-Year Comparison",
-    },
-}
 
-_ARCHIVE_EMPTY = {
-    "zh": "（这段时间还没有记录）",
-    "en": "(Nothing recorded for this window yet)",
-}
+# ── 记忆考古（§10.1 ①）──
+# 逐往年窗口查询上限：考古是「N 年前的今天」，回看 3 年足够唤起回忆，
+# 再往前旧记录密度低且查询成本线性增长
+ARCHAEOLOGY_MAX_YEARS = 3
 
 
 # ── 年度报告卡（架构方案 §二 M4 year_in_review 模板位）──
@@ -251,7 +194,7 @@ class ShareService:
             "card_type": "personality",
             "variant": variant,
             "layout": CARD_LAYOUTS[variant],
-            "user_name": user.name or "ClosenAI 用户",
+            "user_name": user.name or copy.t("share", "personality.default_name", language),
             "mbti_type": profile.mbti_type,
             "mbti_label": profile.mbti_label,
             "tagline": tagline,
@@ -289,20 +232,16 @@ class ShareService:
                 "尚未生成初读卡 / First-read card not generated yet",
             )
         language = card.get("language") or "en"
-        zh = (language or "").startswith("zh")
-        title = "性格初读卡" if zh else "First Read"
-        brand = await self._brand_for(db, user_id, zh)
+        title = copy.t("share", "first_read.title", language)
+        brand = await self._brand_for(db, user_id, (language or "").startswith("zh"))
         # 初读卡全文由静态模板直出、零 LLM，故不打 AIGC 元数据标识
         return self._render_pdf(
-            title, self._first_read_lines(card, zh), brand=brand
+            title, self._first_read_lines(card, language), brand=brand
         )
 
-    def _first_read_lines(self, card: dict, zh: bool) -> List[str]:
+    def _first_read_lines(self, card: dict, language: str) -> List[str]:
         assertions = card.get("assertions") or []
-        lines: List[str] = [
-            "你写下第一条记录之前，它读到的只有你自己给的话。" if zh
-            else "Before your first record, all it read were the words you gave yourself."
-        ]
+        lines: List[str] = [copy.t("share", "first_read.intro", language)]
         lines.append("")
         lines.extend(f"· {text}" for text in assertions)
         summary = card.get("summary") or ""
@@ -319,13 +258,23 @@ class ShareService:
     # ── 记忆卡 / 年报占位（架构方案 §二 M4 模板清单）──
 
     async def export_memory_card_pdf(
-        self, db: AsyncSession, user_id: str, memory_id: str
+        self,
+        db: AsyncSession,
+        user_id: str,
+        memory_id: str,
+        *,
+        today: Optional[datetime] = None,
+        tz: Optional[str] = None,
     ) -> bytes:
         """记忆卡分享 PDF：用户自己写过的一句原话 + 写下日期 + 品牌深链（M4）。
 
         原话不过措辞闸：闸是给 AI 产出兜底的，用户陈述自己的话被正则误杀会让
         功能整体发不出去（M2 同一结论，见 journey_service._gate_tpl）。
         归属校验在 memory_repository.get 内强制 user_id，取别人的 id 得到 None。
+
+        周年标题（§10.1 ① 记忆考古，C3 偏离 2 根治）：服务端按用户本地日界
+        自动判定「N 年前的今天」，周年才写周年标题——任何调用路径都不会造出
+        假周年；非周年保持原模板「你说过的话」。
         """
         memory = await memory_repository.get(db, memory_id, user_id)
         if memory is None:
@@ -333,12 +282,81 @@ class ShareService:
                 ErrorCode.MEMORY_NOT_FOUND, "记忆不存在 / Memory not found"
             )
         user = await user_repository.get_user(db, user_id)
-        zh = ((user.language if user else "") or "").startswith("zh")
-        title = "你说过的话" if zh else "In Your Own Words"
-        brand = await self._brand_for(db, user_id, zh)
+        language = ((user.language if user else "") or "en")
+        title = self._memory_card_title(memory, user, today, tz, language)
+        brand = await self._brand_for(db, user_id, (language or "").startswith("zh"))
         return self._render_pdf(
-            title, self._memory_card_lines(memory, zh), brand=brand
+            title, self._memory_card_lines(memory, language), brand=brand
         )
+
+    def _memory_card_title(
+        self,
+        memory,
+        user,
+        today: Optional[datetime],
+        tz: Optional[str],
+        language: str,
+    ) -> str:
+        """周年标题判定：同月日且年份差 ≥1（按用户本地时区）→「N 年前的今天」。"""
+        zone = safe_zoneinfo(tz or (getattr(user, "timezone", None) or "UTC"))
+        created = memory.created_at
+        if created is None:
+            return copy.t("share", "memory.title", language)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        today_local = (today or utc_now()).astimezone(zone)
+        created_local = created.astimezone(zone)
+        years_ago = today_local.year - created_local.year
+        if (
+            years_ago >= 1
+            and created_local.month == today_local.month
+            and created_local.day == today_local.day
+        ):
+            if years_ago == 1:
+                return copy.t("share", "memory.anniversary_one", language)
+            return copy.t("share", "memory.anniversary_n", language).format(n=years_ago)
+        return copy.t("share", "memory.title", language)
+
+    async def on_this_day(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        today: Optional[datetime] = None,
+        tz: Optional[str] = None,
+    ) -> dict:
+        """记忆考古候选（§10.1 ①）：「N 年前的今天」的原话列表（首页每日主位）。
+
+        逐往年窗口查询（本地日界，时区铁律）：内容全部来自用户历史数据，
+        零 LLM；按年份升序（1 年前优先）。新用户/无周年记忆 → 空候选。
+        """
+        user = await user_repository.get_user(db, user_id)
+        if user is None:
+            raise AppException(ErrorCode.USER_NOT_FOUND, "用户不存在 / User not found")
+        tz_name = tz or user.timezone or "UTC"
+        zone = safe_zoneinfo(tz_name)
+        today_local = (today or utc_now()).astimezone(zone)
+
+        candidates = []
+        for years_ago in range(1, ARCHAEOLOGY_MAX_YEARS + 1):
+            try:
+                local_day = date(
+                    today_local.year - years_ago, today_local.month, today_local.day
+                )
+            except ValueError:  # 2/29 在非闰年不存在：该年无周年
+                continue
+            start = local_day_start_utc(tz_name, local_day)
+            end = local_day_start_utc(tz_name, local_day + timedelta(days=1))
+            rows = await memory_repository.list_between(db, user_id, start, end, limit=5)
+            candidates += [
+                {
+                    "memory_id": r.id,
+                    "content": r.content,
+                    "years_ago": years_ago,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+        return {"date": today_local.date().isoformat(), "candidates": candidates}
 
     async def get_share_link(self, db: AsyncSession, user_id: str) -> dict:
         """本人深链与推荐码（App 内各分享入口统一取这里，不各自拼 URL）。
@@ -383,12 +401,12 @@ class ShareService:
             ),
         }
 
-    def _memory_card_lines(self, memory, zh: bool) -> List[str]:
+    def _memory_card_lines(self, memory, language: str) -> List[str]:
         """记忆卡正文：不写"一年前的今天"——本方法不假设被选中的记忆有多旧，
         周年选取规则属 C4（§10.1 记忆考古），这里只保证一句原话 + 它的日期。"""
         date_label = memory.created_at.strftime("%Y-%m-%d") if memory.created_at else ""
         return [
-            "你写下过的一句：" if zh else "Something you wrote:",
+            copy.t("share", "memory.intro", language),
             "",
             f"「{memory.content.strip()}」",
             "",
@@ -488,7 +506,7 @@ class ShareService:
             "year": year,
             "language": language,
             "in_progress": in_progress,
-            "period_label": self._year_in_review_label(year, in_progress, zh),
+            "period_label": self._year_in_review_label(year, in_progress, language),
             "range": f"{year}-01-01 ~ {today.isoformat() if in_progress else f'{year}-12-31'}",
             "stats": {
                 "checkin_count": len(checkins),
@@ -567,91 +585,69 @@ class ShareService:
         peak = max(sorted(day_counts), key=lambda d: day_counts[d])
         return {"day": peak.isoformat(), "count": day_counts[peak]}
 
-    def _year_in_review_label(self, year: int, in_progress: bool, zh: bool) -> str:
+    def _year_in_review_label(self, year: int, in_progress: bool, language: str) -> str:
         # 「到目前为止」不是修饰词：把没过完的一年印成 in Review，卡片上的区间就是假的
         if in_progress:
-            return f"{year} 年 · 到目前为止" if zh else f"Your {year} so far"
-        return f"{year} 年度回顾" if zh else f"Your {year} in Review"
+            return copy.t("share", "review.label_progress", language).format(year=year)
+        return copy.t("share", "review.label_full", language).format(year=year)
 
-    def _year_in_review_title(self, data: dict, zh: bool) -> str:
-        return data.get("period_label") or (
-            f"{data.get('year')} 年度回顾" if zh else f"Your {data.get('year')} in Review"
-        )
+    def _year_in_review_title(self, data: dict, language: str) -> str:
+        return data.get("period_label") or copy.t(
+            "share", "review.label_full", language
+        ).format(year=data.get("year"))
 
     def _year_in_review_share_text(self, data: dict) -> str:
         """分享文案：只有计数与类型，不带反思/记忆原文（这张卡会被发到公开社交平台）。"""
-        zh = (data.get("language") or "").startswith("zh")
+        language = data.get("language") or "en"
         stats = data.get("stats") or {}
-        year = data.get("year")
-        if zh:
-            body = (
-                f"{year} 年我在 ClosenAI 留下了 {stats.get('checkin_count', 0)} 次情绪签到、"
-                f"{stats.get('memory_count', 0)} 条记忆、{stats.get('reflection_count', 0)} 篇反思，"
-                f"最长连续 {stats.get('longest_streak_days', 0)} 天。"
-            )
-        else:
-            body = (
-                f"In {year} I logged {stats.get('checkin_count', 0)} mood check-ins, "
-                f"{stats.get('memory_count', 0)} memories and "
-                f"{stats.get('reflection_count', 0)} reflections on ClosenAI — "
-                f"longest streak {stats.get('longest_streak_days', 0)} days."
-            )
+        body = copy.t("share", "review.share_text", language).format(
+            year=data.get("year"),
+            checkins=stats.get("checkin_count", 0),
+            memories=stats.get("memory_count", 0),
+            reflections=stats.get("reflection_count", 0),
+            streak=stats.get("longest_streak_days", 0),
+        )
         return f"{body} #ClosenAI {data.get('share_url', '')}".strip()
 
-    def _year_in_review_lines(self, data: dict, zh: bool) -> List[str]:
+    def _year_in_review_lines(self, data: dict, language: str) -> List[str]:
         """PDF 文本行：区间 + 统计 + 情绪 + 里程碑 + 画像，全部是已落库事实。"""
         stats = data.get("stats") or {}
         lines: List[str] = [
-            (
-                f"统计区间：{data.get('range', '')}"
-                if zh
-                else f"Range: {data.get('range', '')}"
+            copy.t("share", "review.range", language).format(range=data.get("range", "")),
+            copy.t("share", "review.stats_checkin", language).format(
+                count=stats.get("checkin_count", 0),
+                days=stats.get("checkin_days", 0),
+                streak=stats.get("longest_streak_days", 0),
             ),
-            (
-                f"情绪签到 {stats.get('checkin_count', 0)} 次 · "
-                f"留下记录 {stats.get('checkin_days', 0)} 天 · "
-                f"最长连续 {stats.get('longest_streak_days', 0)} 天"
-                if zh
-                else
-                f"{stats.get('checkin_count', 0)} mood check-ins · "
-                f"{stats.get('checkin_days', 0)} days recorded · "
-                f"longest streak {stats.get('longest_streak_days', 0)} days"
-            ),
-            (
-                f"对话 {stats.get('chat_count', 0)} 条 · 记忆 {stats.get('memory_count', 0)} 条 · "
-                f"反思 {stats.get('reflection_count', 0)} 篇"
-                if zh
-                else
-                f"{stats.get('chat_count', 0)} messages · "
-                f"{stats.get('memory_count', 0)} memories · "
-                f"{stats.get('reflection_count', 0)} reflections"
+            copy.t("share", "review.stats_counts", language).format(
+                chats=stats.get("chat_count", 0),
+                memories=stats.get("memory_count", 0),
+                reflections=stats.get("reflection_count", 0),
             ),
             "",
         ]
         first_day = data.get("first_record_date")
         if first_day:
-            lines.append(
-                f"这一年的第一条记录：{first_day}" if zh else f"First record of the year: {first_day}"
-            )
+            lines.append(copy.t("share", "review.first_record", language).format(day=first_day))
         busiest = data.get("busiest_day")
         if busiest:
             lines.append(
-                f"最密集的一天：{busiest.get('day')}（{busiest.get('count')} 次）"
-                if zh
-                else f"Densest day: {busiest.get('day')} ({busiest.get('count')} check-ins)"
+                copy.t("share", "review.busiest_day", language).format(
+                    day=busiest.get("day"), count=busiest.get("count")
+                )
             )
         top_moods = data.get("top_moods") or []
         if top_moods:
-            unit = "次" if zh else "times"
+            unit = copy.t("share", "unit.times", language)
             lines.append("")
-            lines.append("最常见的情绪：" if zh else "Most frequent moods:")
+            lines.append(copy.t("share", "review.moods_header", language))
             lines.extend(
                 f"· {m.get('label')} × {m.get('count')} {unit}".strip() for m in top_moods
             )
         milestones = data.get("milestones") or []
         if milestones:
             lines.append("")
-            lines.append("这一年达成的里程碑：" if zh else "Milestones this year:")
+            lines.append(copy.t("share", "review.milestones_header", language))
             lines.extend(
                 f"· {m.get('achieved_on')} · {m.get('name')}" for m in milestones
             )
@@ -664,7 +660,9 @@ class ShareService:
         if frameworks:
             lines.append("")
             lines.append(
-                f"性格画像：{' · '.join(frameworks)}" if zh else f"Personality: {' · '.join(frameworks)}"
+                copy.t("share", "review.personality", language).format(
+                    frameworks=" · ".join(frameworks)
+                )
             )
         return lines
 
@@ -678,11 +676,11 @@ class ShareService:
         零 AI 产出 → 不打 AIGC 元数据标识（与初读卡同口径）。
         """
         data = await self.export_year_in_review(db, user_id, year, language)
-        zh = (data.get("language") or "").startswith("zh")
-        brand = await self._brand_for(db, user_id, zh)
+        lang = data.get("language") or "en"
+        brand = await self._brand_for(db, user_id, (lang or "").startswith("zh"))
         return self._render_pdf(
-            self._year_in_review_title(data, zh),
-            self._year_in_review_lines(data, zh),
+            self._year_in_review_title(data, lang),
+            self._year_in_review_lines(data, lang),
             brand=brand,
         )
 
@@ -728,12 +726,11 @@ class ShareService:
         """导出周期报告（PDF，中文正常渲染）。复用 JSON 导出缓存，不重复调 LLM。"""
         report = await self.export_report(db, user_id, period, language)
         lines = self._report_lines(report, language)
-        default_title = "成长报告" if (language or "").startswith("zh") else "Growth Report"
         zh = (language or "").startswith("zh")
         brand = await self._brand_for(db, user_id, zh)
         # 报告正文由 LLM 生成 → AIGC 隐式标识进元数据
         return self._render_pdf(
-            report.get("period_label") or default_title,
+            report.get("period_label") or copy.t("share", "report.default_title", language),
             lines,
             brand=brand,
             aigc=True,
@@ -824,7 +821,7 @@ class ShareService:
         "无新增生成"是 M6 的合规前提（架构方案 §二 M6）——档案里出现的所有
         叙述性文字都是此前已生成并落库的内容，导出只负责编排与标识。
         """
-        zh = (language or "").startswith("zh")
+        language = language or "en"
         window_days = LIFE_ARCHIVE_WINDOW_DAYS[scope]
         window_start = (
             _EPOCH if window_days is None else utc_now() - timedelta(days=window_days)
@@ -864,21 +861,21 @@ class ShareService:
         }
 
         chapters: List[dict] = [
-            self._chapter(zh, "overview", self._overview_items(stats, scope, zh)),
-            self._chapter(zh, "portrait", await self._portrait_items(db, user.id, language)),
-            self._chapter(zh, "voice", self._voice_items(memories)),
-            self._chapter(zh, "mood", self._mood_items(checkins, language, zh)),
-            self._chapter(zh, "patterns", self._record_items(patterns)),
+            self._chapter(language, "overview", self._overview_items(stats, scope, language)),
+            self._chapter(language, "portrait", await self._portrait_items(db, user.id, language)),
+            self._chapter(language, "voice", self._voice_items(memories)),
+            self._chapter(language, "mood", self._mood_items(checkins, language)),
+            self._chapter(language, "patterns", self._record_items(patterns)),
             self._chapter(
-                zh,
+                language,
                 "insights",
                 self._record_items(weekly) + self._record_items(daily),
             ),
-            self._chapter(zh, "milestones", self._milestone_items(milestones, language, zh)),
+            self._chapter(language, "milestones", self._milestone_items(milestones, language)),
         ]
         if scope == "legacy":
             chapters.append(
-                self._chapter(zh, "cross_year", self._cross_year_items(checkins, memories, zh))
+                self._chapter(language, "cross_year", self._cross_year_items(checkins, memories, language))
             )
 
         return {
@@ -890,39 +887,31 @@ class ShareService:
             "generated_at": utc_now().isoformat(),
             "stats": stats,
             "chapters": chapters,
-            "aigc_mark": AIGC_MARK["zh" if zh else "en"],
-            "aigc_notice": AIGC_NOTICE["zh" if zh else "en"],
+            "aigc_mark": copy.t("share", "aigc.mark", language),
+            "aigc_notice": copy.t("share", "aigc.notice", language),
             # 与分享卡不同：Life Archive 是买断的个人档案，不做引流，因此这里保持
             # App Store 直链，不替换成带推荐码的深链（它的 PDF 同样不加品牌区）。
             "share_url": settings.app_store_url,
         }
 
-    def _chapter(self, zh: bool, key: str, items: List[str]) -> dict:
+    def _chapter(self, language: str, key: str, items: List[str]) -> dict:
         """章节对象：AIGC 标识随章节走（GB 45438 要求显式标识落在内容上）。"""
         generated = key in AIGC_CHAPTER_KEYS
         return {
             "key": key,
-            "title": _ARCHIVE_TITLES["zh" if zh else "en"][key],
+            "title": copy.t("share", f"archive.title.{key}", language),
             "aigc_generated": generated,
-            "aigc_label": AIGC_MARK["zh" if zh else "en"] if generated else None,
+            "aigc_label": copy.t("share", "aigc.mark", language) if generated else None,
             "items": items,
         }
 
-    def _overview_items(self, stats: dict, scope: str, zh: bool) -> List[str]:
-        if zh:
-            return [
-                f"档案档位：{scope}",
-                f"累计活跃 {stats['active_days']} 天",
-                f"对话消息 {stats['message_count']} 条",
-                f"情绪签到 {stats['checkin_count']} 次",
-                f"长期记忆 {stats['memory_count']} 条",
-            ]
+    def _overview_items(self, stats: dict, scope: str, language: str) -> List[str]:
         return [
-            f"Archive scope: {scope}",
-            f"{stats['active_days']} active days in total",
-            f"{stats['message_count']} chat messages",
-            f"{stats['checkin_count']} mood check-ins",
-            f"{stats['memory_count']} long-term memories",
+            copy.t("share", "archive.scope", language).format(scope=scope),
+            copy.t("share", "archive.active_days", language).format(days=stats['active_days']),
+            copy.t("share", "archive.messages", language).format(count=stats['message_count']),
+            copy.t("share", "archive.checkins", language).format(count=stats['checkin_count']),
+            copy.t("share", "archive.memories", language).format(count=stats['memory_count']),
         ]
 
     async def _portrait_items(
@@ -948,7 +937,7 @@ class ShareService:
             out.append(f"{day} · {m.content}")
         return out
 
-    def _mood_items(self, checkins, language: str, zh: bool) -> List[str]:
+    def _mood_items(self, checkins, language: str) -> List[str]:
         from backend.services.mood_service import mood_label_for
 
         dist: dict = {}
@@ -956,9 +945,9 @@ class ShareService:
             label = c.mood_label or mood_label_for(c.mood_emoji, language)
             dist[label] = dist.get(label, 0) + 1
         if not dist:
-            return [_ARCHIVE_EMPTY["zh" if zh else "en"]]
+            return [copy.t("share", "archive.empty", language)]
         parts = sorted(dist.items(), key=lambda x: -x[1])
-        unit = "次" if zh else "times"
+        unit = copy.t("share", "unit.times", language)
         return [f"{label} × {count} {unit}".strip() for label, count in parts]
 
     def _record_items(self, records) -> List[str]:
@@ -968,11 +957,11 @@ class ShareService:
             out.append(f"{day} · {r.content}")
         return out
 
-    def _milestone_items(self, milestones, language: str, zh: bool) -> List[str]:
+    def _milestone_items(self, milestones, language: str) -> List[str]:
         from backend.services.user_service import user_service
 
         if not milestones:
-            return [_ARCHIVE_EMPTY["zh" if zh else "en"]]
+            return [copy.t("share", "archive.empty", language)]
         out: List[str] = []
         for m in milestones:
             day = _as_aware(m.achieved_at).date().isoformat()
@@ -980,7 +969,7 @@ class ShareService:
             out.append(f"{day} · {name}")
         return out
 
-    def _cross_year_items(self, checkins, memories, zh: bool) -> List[str]:
+    def _cross_year_items(self, checkins, memories, language: str) -> List[str]:
         """跨年对比：按自然年统计量（确定性计数，非 AI 推断）。"""
         buckets: dict = {}
         for c in checkins:
@@ -990,42 +979,35 @@ class ShareService:
             year = _as_aware(m.created_at).year
             buckets.setdefault(year, {"checkins": 0, "memories": 0})["memories"] += 1
         if len(buckets) < 2:
-            return [
-                "跨年对比需要至少两个自然年的记录。" if zh
-                else "Year-over-year comparison needs records from at least two calendar years."
-            ]
+            return [copy.t("share", "archive.cross_year_need", language)]
         out: List[str] = []
         for year in sorted(buckets):
             b = buckets[year]
-            if zh:
-                out.append(f"{year} 年：情绪签到 {b['checkins']} 次，记忆 {b['memories']} 条")
-            else:
-                out.append(
-                    f"{year}: {b['checkins']} mood check-ins, {b['memories']} memories"
+            out.append(
+                copy.t("share", "archive.cross_year_line", language).format(
+                    year=year, checkins=b['checkins'], memories=b['memories']
                 )
+            )
         return out
 
     def _life_archive_title(self, archive: dict) -> str:
-        zh = (archive.get("language") or "").startswith("zh")
-        label = _ARCHIVE_TITLES["zh" if zh else "en"]
+        language = archive.get("language") or "en"
         scope = archive.get("scope", "all")
-        if zh:
-            return f"人生档案（{scope}）· {label['overview']}"
-        return f"Life Archive ({scope}) — {label['overview']}"
+        return copy.t("share", "archive.title_page", language).format(
+            scope=scope, overview=copy.t("share", "archive.title.overview", language)
+        )
 
     def _life_archive_lines(self, archive: dict) -> List[str]:
         """PDF 文本行：文档级 AIGC 声明 + 逐章标题带标识。"""
-        zh = (archive.get("language") or "").startswith("zh")
+        language = archive.get("language") or "en"
         stats = archive.get("stats") or {}
         lines: List[str] = [archive.get("aigc_notice", ""), ""]
         lines.append(
-            f"记录概况：累计活跃 {stats.get('active_days', 0)} 天，"
-            f"记忆 {stats.get('memory_count', 0)} 条，签到 {stats.get('checkin_count', 0)} 次"
-            if zh
-            else
-            f"Overview: {stats.get('active_days', 0)} active days, "
-            f"{stats.get('memory_count', 0)} memories, "
-            f"{stats.get('checkin_count', 0)} check-ins"
+            copy.t("share", "archive.overview_line", language).format(
+                days=stats.get('active_days', 0),
+                memories=stats.get('memory_count', 0),
+                checkins=stats.get('checkin_count', 0),
+            )
         )
         lines.append("")
         for chapter in archive.get("chapters", []):
@@ -1033,7 +1015,7 @@ class ShareService:
             lines.append(f"{chapter.get('title', '')}{mark}".strip())
             items = chapter.get("items") or []
             if not items:
-                lines.append(_ARCHIVE_EMPTY["zh" if zh else "en"])
+                lines.append(copy.t("share", "archive.empty", language))
             for item in items:
                 lines.append(f"· {item}")
             lines.append("")
@@ -1050,7 +1032,10 @@ class ShareService:
         """
         from backend.services.mood_service import mood_label_for
 
+        language = language or "en"
         zh = (language or "").startswith("zh")
+        sep = "，" if zh else ", "
+        day_unit = copy.t("share", "weekly.day_unit", language)
         checkins = await mood_repository.get_history(db, user.id, days=7)
         dist: dict = {}
         for c in checkins:
@@ -1058,31 +1043,24 @@ class ShareService:
             dist[label] = dist.get(label, 0) + 1
         if dist:
             total = sum(dist.values())
-            if zh:
-                parts = [f"{k} {v}天" for k, v in sorted(dist.items(), key=lambda x: -x[1])]
-                mood_trend = f"本周共 {total} 次签到，分布：{'，'.join(parts)}。"
-            else:
-                parts = [f"{k} {v}d" for k, v in sorted(dist.items(), key=lambda x: -x[1])]
-                mood_trend = f"{total} check-ins this week: {', '.join(parts)}."
+            parts = [f"{k} {v}{day_unit}" for k, v in sorted(dist.items(), key=lambda x: -x[1])]
+            mood_trend = copy.t("share", "weekly.mood_trend", language).format(
+                total=total, parts=sep.join(parts)
+            )
         else:
-            mood_trend = "本周暂无情绪签到。" if zh else "No mood check-ins this week."
+            mood_trend = copy.t("share", "weekly.no_checkins", language)
 
         weekly = await growth_repository.get_latest(db, user.id, "weekly_summary")
         if weekly and weekly.content:
             content = weekly.content
-        elif zh:
-            content = "本周还没有生成周报，先记录几天情绪与对话，周报会在周末生成。"
         else:
-            content = (
-                "No weekly insight yet — record a few days of moods and chats, "
-                "and your weekly insight will be ready by the weekend."
-            )
+            content = copy.t("share", "weekly.no_report", language)
 
         end = local_today(user.timezone)
         start = end - timedelta(days=6)
         return {
             "period": "weekly",
-            "period_label": "每周洞察" if zh else "Weekly Insight",
+            "period_label": copy.t("share", "weekly.label", language),
             "range": f"{start.isoformat()} ~ {end.isoformat()}",
             "insight_level": "L2 Pattern",
             "mood_distribution": dist,
@@ -1145,14 +1123,11 @@ class ShareService:
 
     def _combo_insight(self, mbti_type: Optional[str], language: str) -> Optional[str]:
         """MBTI 跨框架关联解读（PRD P1-F04 §4：内置常见组合解读表）。"""
-        archetype = MBTI_COMBO_ARCHETYPES.get(mbti_type or "")
-        if not archetype:
+        mbti = (mbti_type or "").upper()
+        if mbti not in _ARCHETYPE_KEYS:
             return None
-        if (language or "").startswith("zh"):
-            return f"跨框架解读：{mbti_type} 指向「{archetype['zh']}」——多种性格框架共同勾勒出你的核心特质。"
-        return (
-            f"Cross-framework reading: {mbti_type} points to \"{archetype['en']}\" — "
-            "multiple personality frameworks converge on your core traits."
+        return copy.t("share", "combo.insight", language).format(
+            mbti=mbti, archetype=copy.t("share", f"archetype.{mbti}", language)
         )
 
     def _personality_share_text(self, card: dict, language: str) -> str:
@@ -1160,38 +1135,26 @@ class ShareService:
         # 取卡片自己的 share_url（带推荐码深链），而不是再读一次 app_store_url：
         # 两个链接并存会让分享文案与卡片指向不同去处，归因也就断了
         url = card.get("share_url") or settings.app_store_url
-        if (language or "").startswith("zh"):
-            label = card.get("mbti_label") or "?"
-            mbti = card.get("mbti_type") or "?"
-            return (
-                f"我是 {card.get('user_name')}，我的性格类型是 {mbti} {label}。"
-                f"{tagline} #ClosenAI {url}"
-            )
-        return (
-            f"I am {card.get('user_name')} — my personality type is "
-            f"{card.get('mbti_type') or '?'} {card.get('mbti_label') or ''}. "
-            f"{tagline} #ClosenAI {url}"
+        return copy.t("share", "personality.share_text", language).format(
+            name=card.get("user_name") or "?",
+            mbti=card.get("mbti_type") or "?",
+            label=card.get("mbti_label") or "?",
+            tagline=tagline,
+            url=url,
         )
 
     def _report_lines(self, report: dict, language: str = "en") -> List[str]:
-        zh = (language or "").startswith("zh")
-        default_title = "成长报告" if zh else "Growth Report"
-        range_label = "统计区间：" if zh else "Range: "
-        level_label = "洞察等级：" if zh else "Insight level: "
-        trend_label = "情绪趋势：" if zh else "Mood trend:"
-        content_label = "洞察正文：" if zh else "Insights:"
-        lines = [
-            report.get("period_label", default_title),
-            f"{range_label}{report.get('range', '')}",
-            f"{level_label}{report.get('insight_level', '')}",
+        return [
+            report.get("period_label", copy.t("share", "report.default_title", language)),
+            copy.t("share", "report.range", language).format(value=report.get("range", "")),
+            copy.t("share", "report.level", language).format(value=report.get("insight_level", "")),
             "",
-            trend_label,
+            copy.t("share", "report.trend", language),
             report.get("mood_trend", ""),
             "",
-            content_label,
+            copy.t("share", "report.content", language),
             report.get("content", ""),
         ]
-        return lines
 
     # ── PDF 渲染（reportlab + UnicodeCIDFont，支持中文）──
 
@@ -1272,8 +1235,10 @@ class ShareService:
                 ErrorCode.USER_NOT_FOUND, "用户不存在 / User not found"
             )
         code = await user_repository.ensure_referral_code(db, user)
+        loc = "zh" if zh else "en"
         return {
-            **_BRAND["zh" if zh else "en"],
+            "watermark": copy.t("share", "brand.watermark", loc),
+            "cta": copy.t("share", "brand.cta", loc),
             "link": referral_link(settings.site_url, code),
         }
 

@@ -1,0 +1,515 @@
+{
+  "mood": {
+    "labels": {
+      "happy": "Vui vẻ",
+      "calm": "Bình yên",
+      "anxious": "Lo lắng",
+      "sad": "Buồn",
+      "angry": "Tức giận",
+      "tired": "Mệt mỏi"
+    },
+    "interpret": {
+      "happy": "Hôm nay có vẻ bạn đang vui — giữ lấy cảm giác này nhé!",
+      "calm": "Một ngày êm đềm, vững vàng. Đừng quên chừa chút thời gian riêng cho mình.",
+      "anxious": "Hơi lo lắng là chuyện rất bình thường. Hít sâu và từ từ thôi.",
+      "sad": "Hơi buồn — tôi ở đây bên bạn. Có cảm xúc là điều bình thường.",
+      "angry": "Đang thấy bực bội? Đừng quyết định gì lúc này; để cảm xúc lắng xuống trước.",
+      "tired": "Hơi mệt — nghỉ ngơi cũng quan trọng. Đừng gồng mình quá."
+    },
+    "interpret_fallback": "Hôm nay bạn cảm thấy thế nào?",
+    "trend": {
+      "empty": "Dữ liệu ghi chép chưa đủ — hãy bắt đầu ghi ngày đầu tiên của bạn.",
+      "high": "Tâm trạng chung của bạn rất tốt — giữ nhịp này nhé.",
+      "mid": "Tâm trạng khá ổn định. Thỉnh thoảng hãy lắng nghe chính mình.",
+      "low": "Dạo này tâm trạng hơi trầm. Chăm sóc bản thân nhiều hơn nhé — mình vẫn ở đây."
+    }
+  },
+  "levels": {
+    "name": {
+      "1": "Người quen L1",
+      "2": "Thân thiết L2",
+      "3": "Tri kỷ L3",
+      "4": "Đồng điệu L4"
+    },
+    "features": {
+      "1": [
+        "Trò chuyện cơ bản",
+        "Chấm điểm tâm trạng"
+      ],
+      "2": [
+        "AI chủ động hỏi thăm",
+        "Trích dẫn kỷ niệm"
+      ],
+      "3": [
+        "Phân tích tính cách sâu",
+        "Phát hiện mô hình",
+        "Báo cáo tuần từ AI"
+      ],
+      "4": [
+        "Báo cáo tính cách sâu theo quý",
+        "Nhận định dự báo",
+        "Chế độ tự vấn sâu"
+      ]
+    },
+    "reward": {
+      "2": "Lần đầu AI nhắc lại điều bạn từng nói",
+      "3": "Bản xem trước Monthly Story đầu tiên",
+      "4": "Bức thư 90 ngày: con người bạn mà tôi đã thấy"
+    },
+    "note": "Tên các cấp độ đều mô tả mức độ AI hiểu bạn — không mang nghĩa tình yêu.",
+    "milestone": {
+      "streak_7": "7 ngày liền",
+      "streak_30": "Tri kỷ 30 ngày",
+      "streak_100": "100 ngày bên nhau",
+      "streak_365": "Bạn đồng hành một năm"
+    },
+    "celebrate": {
+      "body": "🎉 Sau {days} ngày đồng hành, kết nối của chúng ta đã lớn lên thành \"{label}\"! Mới mở khóa: {unlocks}.",
+      "reward": " Và từ giờ: {reward}."
+    }
+  },
+  "growth": {
+    "insight_type": {
+      "daily_insight": "Cảm nhận hằng ngày",
+      "weekly_summary": "Tổng kết tuần",
+      "pattern_discovery": "Phát hiện mô hình",
+      "drift_alert": "Cảnh báo thay đổi",
+      "weekly_report": "Báo cáo tuần",
+      "monthly_report": "Báo cáo tháng",
+      "quarterly_report": "Báo cáo quý",
+      "yearly_report": "Báo cáo năm"
+    },
+    "period": {
+      "weekly": "Cảm nhận tuần",
+      "monthly": "Báo cáo tháng",
+      "quarterly": "Báo cáo sâu theo quý",
+      "yearly": "Báo cáo đời người theo năm",
+      "fallback": "Báo cáo"
+    },
+    "forecast_label": "Dự báo tuần sau",
+    "topic": {
+      "mood": "Nói chuyện về cảm xúc dạo gần đây",
+      "relationship": "Nói chuyện về các mối quan hệ gần đây",
+      "work": "Nói chuyện về công việc và áp lực",
+      "goal": "Nói chuyện về tiến độ mục tiêu",
+      "communication": "Nói chuyện về rắc rối giao tiếp gần đây",
+      "growth": "Nói chuyện về sự trưởng thành gần đây"
+    },
+    "mood_trend": {
+      "empty": "Không có ghi chép tâm trạng trong giai đoạn này.",
+      "body": "Tổng {total} lần ghi: {parts}.",
+      "unit": " ngày"
+    },
+    "fallback_report": "Giai đoạn này bạn ghi tâm trạng {checkins} lần và có {chat_count} cuộc trò chuyện. Bạn đang dần hiểu chính mình hơn — cứ tiếp tục ghi chép, các mô thức sẽ dần hiện ra.",
+    "fallback_pattern": "Dựa trên các ghi chép tâm trạng ({mood_desc}), bạn đang dần xây dựng sự tự giác về trạng thái của mình. Tiếp tục ghi chép, AI sẽ giúp bạn phát hiện thêm nhiều mô thức.",
+    "generic_fallback": "Dạo này bạn đang dần hiểu chính mình hơn. Tiếp tục ghi chép, mô thức sẽ hiện ra.",
+    "generic_fallback_short": "Bạn đang dần hiểu chính mình — cứ tiếp tục ghi chép nhé.",
+    "metric": {
+      "social": {
+        "count": "{count} mối quan hệ",
+        "none": "Đang kết nối"
+      },
+      "stress": {
+        "count": "căng thẳng {count}%",
+        "none": "Ổn định"
+      },
+      "curiosity": {
+        "count": "{count} lần khám phá",
+        "none": "Đang khám phá"
+      },
+      "goals": {
+        "count": "{count} mục tiêu",
+        "none": "Đang hoạch định"
+      }
+    },
+    "emotion": {
+      "high": "Vui vẻ",
+      "mid": "Ổn định",
+      "low": "Trầm xuống",
+      "none": "Chưa có dữ liệu"
+    },
+    "confidence": {
+      "high": "Tự tin",
+      "mid": "Bình thản",
+      "low": "Đang lớn lên"
+    },
+    "greeting": {
+      "night": "Khuya rồi mà vẫn bận à?",
+      "morning": "Chào buổi sáng! Hôm nay của bạn thế nào?",
+      "afternoon": "Chào buổi chiều — đừng quên chăm sóc bản thân nhé.",
+      "evening": "Chào buổi tối, hôm nay vất vả rồi."
+    }
+  },
+  "mbti": {
+    "INTP": "Nhà tư duy logic",
+    "INTJ": "Kiến trúc sư",
+    "ENTP": "Nhà tranh biện",
+    "ENTJ": "Chỉ huy",
+    "INFP": "Người hòa giải",
+    "INFJ": "Người ủng hộ",
+    "ENFP": "Nhà hoạt động",
+    "ENFJ": "Nhân vật chính",
+    "ISTP": "Nghệ nhân",
+    "ISFJ": "Người bảo vệ",
+    "ESTP": "Doanh nhân",
+    "ESFJ": "Lãnh sự",
+    "ISTJ": "Kỷ luật gia",
+    "ISFP": "Nhà thám hiểm",
+    "ESTJ": "Giám đốc điều hành",
+    "ESFP": "Diễn viên"
+  },
+  "enneagram": {
+    "type": {
+      "1": "Người hoàn hảo",
+      "2": "Người trao đi",
+      "3": "Người thành đạt",
+      "4": "Người độc bản",
+      "5": "Người tìm tòi",
+      "6": "Người chung thủy",
+      "7": "Người lạc quan",
+      "8": "Người thách thức",
+      "9": "Người ôn hòa"
+    },
+    "option": {
+      "a": "Giống tôi",
+      "b": "Không giống tôi",
+      "neutral": "Chưa chắc / tùy hoàn cảnh"
+    },
+    "q": {
+      "1": {
+        "0": "Tôi khó chịu nổi khi mọi việc không được làm đúng cách hay chu đáo.",
+        "1": "Tôi thường là người đầu tiên nhận ra xung quanh chỗ nào cần cải thiện hay sửa chữa.",
+        "2": "Dù mệt, tôi khó cho phép mình nghỉ trước khi việc được hoàn thành.",
+        "3": "Trong đầu tôi thường có tiếng nói chỉ ra chỗ mình làm chưa tốt."
+      },
+      "2": {
+        "0": "Khi người khác gặp khó khăn, tôi thường là người đầu tiên đưa tay ra giúp.",
+        "1": "Tôi dễ nhận ra cảm xúc và nhu cầu của người khác, dù họ không nói ra.",
+        "2": "Cảm giác được người khác cần rất quan trọng với tôi.",
+        "3": "Tôi thường đặt việc của người khác trước việc của mình."
+      },
+      "3": {
+        "0": "Tôi thích đặt mục tiêu rồi hiệu quả gạch tên từng cái một.",
+        "1": "Duy trì hình ảnh \"thành công\" trong mắt người khác quan trọng với tôi.",
+        "2": "Tôi khó ngồi yên không làm gì, luôn thấy mình phải tạo ra cái gì đó.",
+        "3": "Tôi khéo điều chỉnh mặt mình thể hiện ra cho hợp từng hoàn cảnh."
+      },
+      "4": {
+        "0": "Tôi thường cảm thấy trải nghiệm cảm xúc của mình sâu hơn những người xung quanh.",
+        "1": "Làm chính mình đích thực quan trọng hơn là hòa mình vào đám đông.",
+        "2": "Đôi khi tôi thấy người khác khó mà thực sự hiểu mình.",
+        "3": "Tôi dễ xúc động trước những điều có ý nghĩa, đẹp đẽ, hay mang chút u hoài."
+      },
+      "5": {
+        "0": "Trước khi tham gia vào việc gì, tôi thích tìm hiểu kỹ càng trước đã.",
+        "1": "Tôi cần nhiều thời gian một mình để lấy lại năng lượng.",
+        "2": "Ở cạnh người khác quá lâu khiến năng lượng tôi bị hao mòn.",
+        "3": "Thay vì bày tỏ cảm xúc, tôi quen xử lý vấn đề bằng suy nghĩ và phân tích hơn."
+      },
+      "6": {
+        "0": "Trước khi quyết định, tôi quen cân nhắc trước mọi kịch bản có thể sai sót.",
+        "1": "Tôi coi trọng lời cam kết và trung thành sâu sắc với người hay nhóm mình tin tưởng.",
+        "2": "Trước điều bất định, tôi dễ đắn đo đi vòng lại nhiều lần, khó buông.",
+        "3": "Tôi thường chuẩn bị trước cho những rủi ro tiềm ẩn."
+      },
+      "7": {
+        "0": "Tôi luôn háo hức với kế hoạch và khả năng mới.",
+        "1": "Tôi thích giữ mở nhiều lựa chọn và ghét cảm giác bị bó buộc.",
+        "2": "Khi việc gì trở nên nhàm chán hay nặng nề, tôi muốn chuyển sang chuyện vui hơn.",
+        "3": "Tôi giỏi tìm thấy mặt sáng khi mọi chuyện không thuận."
+      },
+      "8": {
+        "0": "Tôi nói thẳng, không thích vòng vo.",
+        "1": "Trước điều bất công, tôi gần như không nén nổi mình đứng lên.",
+        "2": "Tôi quen cầm cương cục diện hơn là trao quyền chủ động cho người khác.",
+        "3": "Người ta thường nói tôi có khí chất mạnh, dù tôi không hề có ý xấu."
+      },
+      "9": {
+        "0": "Để giữ hòa khí, tôi thường sẵn lòng nhượng bộ trước.",
+        "1": "Khi có bất đồng, tôi khuynh hướng là người hòa giải cả hai phía.",
+        "2": "Tôi dễ dàng hiểu quan điểm của những người khác nhau về cùng một vấn đề.",
+        "3": "Đôi khi tôi gác ý kiến của mình sang một bên để tránh xung đột."
+      }
+    },
+    "combo": {
+      "INTP_5": "Người xây hệ thống",
+      "INTJ_5": "Chiến lược gia sâu sắc",
+      "INTJ_1": "Kiến trúc sư nguyên tắc",
+      "ENTP_7": "Nhà thăm dò cơ hội",
+      "ENTJ_8": "Nhà lãnh đạo bẩm sinh",
+      "ENTJ_3": "Người chạm đỉnh cao",
+      "INFP_4": "Nhà mộng mơ có tâm hồn",
+      "INFP_9": "Người hòa giải êm đềm",
+      "INFJ_4": "Người chữa lành thấu suốt",
+      "INFJ_9": "Người dẫn lối dịu dàng",
+      "ENFP_7": "Người kiến tạo khả năng",
+      "ENFP_4": "Nhà lý tưởng đầy nhiệt huyết",
+      "ENFJ_2": "Người thầy truyền năng lượng",
+      "ISTJ_1": "Người gác trật tự",
+      "ISTJ_6": "Trụ cột đáng tin",
+      "ISFJ_2": "Người giữ ấm áp",
+      "ISFJ_9": "Người nâng đỡ êm dịu",
+      "ISTP_5": "Nhà phân tích điềm tĩnh",
+      "ISFP_4": "Nghệ sĩ nhạy cảm",
+      "ESTP_8": "Người hành động quả quyết",
+      "ESTJ_8": "Người thực thi vững vàng",
+      "ESTJ_3": "Nhà quản lý hiệu quả",
+      "ESFJ_2": "Người kết nối bằng trái tim",
+      "ESFP_7": "Người châm ngọn niềm vui"
+    },
+    "completed_message": "Kiểu Enneagram của bạn là kiểu {type} · {label}"
+  },
+  "msg": {
+    "fallback": [
+      "Hôm nay của bạn thế nào? Có điều gì bạn muốn tâm sự với mình không?",
+      "Mình thấy dạo gần đây bạn rất chú tâm phát triển bản thân — điều đó thật đáng quý.",
+      "Chuyện bạn nhắc đến hồi trước giờ tiến triển ra sao rồi?",
+      "Nếu hôm nay có điều gì làm bạn vướng lòng, mình rất muốn lắng nghe."
+    ],
+    "follow_up_fallback": "Lần trước bạn có nhắc đến 「{excerpt}」, giờ nó thế nào rồi? Bạn muốn kể mình nghe không?",
+    "milestone": {
+      "7": "Chúng ta đã cùng nhau 7 ngày liền rồi! Cảm ơn bạn vì mỗi ngày đều ghé qua. Nhìn lại tuần này, có khoảnh khắc nào bạn thấy đáng ghi lại không?",
+      "30": "Hôm nay là ngày thứ 30 của chúng ta — tròn một tháng! Ít ai giữ được việc ghi chép cả tháng, mà bạn đã làm được. Trong tháng qua, bạn thấy mình thay đổi lớn nhất ở điều gì?",
+      "100": "100 ngày rồi! Một hành trình thật đáng nể — cảm ơn bạn đã sẵn sàng chia sẻ cùng mình. Suốt 100 ngày này, điều bạn muốn cảm ơn bản thân nhất là gì?",
+      "365": "Tròn một năm — 365 ngày. Được đồng hành cùng bạn suốt năm nay là vinh dự của mình. So với một năm trước, giờ đây bạn khác nhất ở điểm nào?"
+    },
+    "day1": {
+      "intro_mbti": "Chào bạn, mình là ClosenAI, người bạn AI của bạn. Nghe nói bạn thuộc nhóm {mbti}. Mình rất muốn dần dần hiểu đúng bạn thật. {tail}",
+      "intro_plain": "Chào bạn, mình là ClosenAI, người bạn AI của bạn — rất vui được quen bạn! {tail}",
+      "tail": "Từ hôm nay, mình sẽ ghé tâm sự với bạn mỗi ngày. Câu hỏi đầu tiên: hôm nay có điều gì đọng lại đặc biệt không? Vui hay lo, bạn cứ kể mình nghe."
+    },
+    "proactive": {
+      "memory_opener": "Chào bạn, muốn tiếp chuyện về 「{first}」không? Mình vẫn nhớ mãi chuyện này.",
+      "mood_opener": "Mình thấy tâm trạng dạo gần đây của bạn là {mood_desc}. Hôm nay thế nào rồi?",
+      "plain": "Chào bạn, mình là người bạn AI của bạn. Hôm nay của bạn thế nào? Có gì muốn ghi lại không?"
+    },
+    "reengage": "Lâu rồi không gặp, mọi chuyện vẫn ổn chứ?",
+    "drift_alert": "Mình thấy dạo gần đây bạn nhắc đến ngày càng nhiều chủ đề khác nhau — quan điểm của bạn về 「{memory_content}」 có đang thay đổi không?",
+    "trial_reminder": "Giai đoạn dùng thử của bạn kết thúc vào ngày mai. Những bản ghi bạn để lại mấy ngày qua và các mẫu mình nhìn thấy trong đó vẫn nằm ở đây — khi dùng thử kết thúc, chúng vẫn tiếp tục lớn lên."
+  },
+  "style": {
+    "warm": "Phong cách trò chuyện: ấm áp và thấu cảm. Dùng giọng nhẹ nhàng quan tâm với từ ngữ giàu cảm xúc; đón nhận cảm xúc trước rồi mới phản hồi.",
+    "rational": "Phong cách trò chuyện: lý trí và phân tích. Dùng giọng khách quan rõ ràng; đưa ra phân tích có cấu trúc và gợi ý có thể thực hiện.",
+    "philosophical": "Phong cách trò chuyện: triết lý và chiêm nghiệm. Dùng giọng sâu lắng hướng khám phá; đặt câu hỏi mở khơi gợi sự tự vấn.",
+    "safety_note": "Phong cách chỉ ảnh hưởng giọng điệu; không bao giờ thay đổi các quy tắc an toàn và ranh giới."
+  },
+  "push": {
+    "default_name": "bạn",
+    "unknown_mood": "không rõ",
+    "proactive": [
+      {
+        "title": "{name} ơi, mình tâm sự nhé",
+        "body": null
+      },
+      {
+        "title": "Hôm nay mình muốn nghe bạn nói",
+        "body": null
+      },
+      {
+        "title": "{name} ơi, có chút chuyện mình muốn hỏi",
+        "body": null
+      }
+    ],
+    "mood_reminder": [
+      {
+        "title": "Hôm nay bạn cảm thấy thế nào?",
+        "body": "{name} ơi, dành một giây ghi lại cảm xúc lúc này của bạn nhé."
+      },
+      {
+        "title": "Check-in nhanh nào",
+        "body": "Hồi trước bạn ghi là 「{mood}」, còn hôm nay thì sao?"
+      }
+    ],
+    "weekly": [
+      {
+        "title": "Báo cáo tuần của bạn đã sẵn sàng",
+        "body": "{name}, mình đã xếp lại dấu chân tuần này của bạn, ghé xem nhé."
+      },
+      {
+        "title": "Nhìn lại một tuần",
+        "body": "{name}, tuần này bạn có thay đổi gì mới? Báo cáo tuần đã chuẩn bị cho bạn rồi."
+      }
+    ],
+    "milestone": [
+      {
+        "title": "Một ngày đáng để ghi nhớ",
+        "body": "{name}, hôm nay là ngày thứ {milestone} chúng ta bên nhau — cảm ơn sự bền bỉ của bạn."
+      },
+      {
+        "title": "Chạm cột mốc",
+        "body": "{name}, {milestone} ngày rồi! Khoảnh khắc này xứng đáng để tâm sự thật lòng."
+      }
+    ],
+    "care": [
+      {
+        "title": "Mình muốn hỏi thăm",
+        "body": "{name} ơi, mình thấy mấy hôm nay tâm trạng bạn có vẻ không tốt. Bàn luận cùng mình không? Mình luôn ở đây."
+      },
+      {
+        "title": "Mình vẫn ở đây",
+        "body": "{name}, dạo này có vẻ vất vả nhỉ. Nếu bạn muốn, cứ kể mình nghe nhé."
+      }
+    ],
+    "bedtime": [
+      {
+        "title": "Một phút trước khi ngủ",
+        "body": "{name}, ghi lại hôm nay bằng ba câu thôi, mình giúp bạn sắp xếp."
+      },
+      {
+        "title": "Hôm nay đã vất vả rồi",
+        "body": "{name}, dành một phút yên tĩnh trước khi ngủ để nhẹ nhàng đặt hôm nay xuống."
+      }
+    ]
+  },
+  "reflection": {
+    "new_user": "Có vẻ chúng ta mới quen nhau thôi. Bắt đầu nhẹ nhàng nhé — hôm nay điều gì khiến bạn ấn tượng nhất? Và bây giờ bạn cảm thấy thế nào?",
+    "fallback_draft": "📋 Bản nháp suy ngẫm hôm nay\n\n[Suy ngẫm hôm nay]\nTâm trạng: {mood_part}\nNguyên nhân có thể: hãy điền\nĐiều đáng cảm ơn: hãy điền\n\n[Quan sát của AI]\nDữ liệu còn ít — hãy tiếp tục ghi chép thêm vài ngày nữa, mình sẽ chia sẻ những quan sát cụ thể hơn.",
+    "mood_not_recorded": "Chưa ghi"
+  },
+  "bedtime": {
+    "step2": "Những ghi chú nhỏ hôm nay đều nằm lại ở đây. Bạn có thể quay lại bổ sung bất cứ lúc nào.",
+    "step3": "Tối nay đến đây là đủ. Mai để ý một khoảnh khắc nhỏ khiến bạn thấy nhẹ nhõm hơn một chút, rồi ghi lại — vậy thôi."
+  },
+  "curriculum": {
+    "rule_cards": [
+      [
+        "Về “{topic}”",
+        "Bạn từng viết ngày {day}: “{excerpt}”",
+        "Nhìn lại bây giờ, có gì thay đổi không?"
+      ],
+      [
+        "Tuần của bạn",
+        "Những ghi chú này đều đến từ chính bạn, không phải khuôn mẫu nào",
+        "Đọc lại hôm nay, câu nào cảm giác khác trước?"
+      ],
+      [
+        "Khoảnh khắc đáng xem lại",
+        "{count} ghi chú giữ lại bạn của tuần này",
+        "Bạn muốn bắt đầu từ đâu?"
+      ]
+    ],
+    "date_placeholder": "một ngày gần đây"
+  },
+  "email": {
+    "subject": {
+      "register": "Mã xác minh ClosenAI của bạn",
+      "login": "Mã đăng nhập ClosenAI của bạn",
+      "reset": "Mã đặt lại mật khẩu ClosenAI của bạn"
+    },
+    "body_line1": "Mã xác minh của bạn là: <strong style='font-size:24px;letter-spacing:4px'>{code}</strong>",
+    "body_line2": "Mã có hiệu lực trong 5 phút. Đừng chia sẻ cho ai."
+  },
+  "safety": {
+    "safe_reply": "Chủ đề này mình xin không đào sâu. Thế kể mình nghe một chuyện khiến bạn nhớ mãi hôm nay được không?",
+    "crisis": {
+      "self_harm": "Sự an toàn của bạn lúc này rất quan trọng với mình, và cảm ơn vì đã nói ra. Bây giờ hãy nhờ một người bạn tin tưởng ở bên cạnh, hoặc gọi tới {hotline} — ở đó luôn có người sẵn sàng giúp bạn. Mình sẽ không thay bạn đưa ra phán quyết cuộc đời, nhưng mình sẽ luôn ở đây, cùng bạn đi qua khoảnh khắc này.",
+      "relationship_violence": "Những gì bạn trải qua không phải lỗi của bạn, và không phải thứ đổi được bằng cách chọn lời nói khác. Lúc này quan trọng nhất là sự an toàn thể chất của bạn: nếu có nguy hiểm ngay lập tức, hãy gọi số khẩn cấp địa phương, hoặc nói với người bạn tin tưởng, một người hàng xóm hay đồng nghiệp để họ ở cùng bạn; bạn cũng có thể gọi tới {hotline}. Mình sẽ không khuyên chuyện giao tiếp hay hàn gắn quan hệ — mình chỉ muốn giúp bạn giữ chắc bước an toàn trước đã."
+    }
+  },
+  "share": {
+    "brand": {
+      "watermark": "ClosenAI — ghi nhớ mọi điều bạn đã kể",
+      "cta": "Quét để tải xuống"
+    },
+    "unit": {
+      "times": "lần"
+    },
+    "personality": {
+      "default_name": "Người dùng ClosenAI",
+      "share_text": "Tôi là {name} — nhóm tính cách của tôi là {mbti} {label}. {tagline} #ClosenAI {url}"
+    },
+    "archetype": {
+      "INTP": "Kiến trúc sư hệ thống",
+      "INTJ": "Kiến trúc sư chiến lược",
+      "ENTP": "Người phá cách sáng tạo",
+      "ENTJ": "Tư lệnh bẩm sinh",
+      "INFP": "Nhà chữa lành lý tưởng",
+      "INFJ": "Người dẫn đường thấu hiểu",
+      "ENFP": "Người khơi nguồn cảm hứng",
+      "ENFJ": "Nhà hoa tiêu thấu cảm",
+      "ISTP": "Người tháo rời điềm tĩnh",
+      "ISFJ": "Người bảo hộ ấm áp",
+      "ESTP": "Người hành động dũng cảm",
+      "ESFJ": "Người kết nối chân thành",
+      "ISTJ": "Người gìn giữ trật tự",
+      "ISFP": "Nhà mỹ học tĩnh lặng",
+      "ESTJ": "Nhà điều hành hiệu quả",
+      "ESFP": "Người tạo không khí"
+    },
+    "combo": {
+      "insight": "Cách đọc xuyên khung: {mbti} hướng tới \"{archetype}\" — nhiều khung tính cách cùng hội tụ ở nét cốt lõi của bạn."
+    },
+    "first_read": {
+      "title": "Lần đọc đầu tiên",
+      "intro": "Trước khi bạn viết dòng ghi chép đầu tiên, nó chỉ đọc được những lời bạn tự dành cho chính mình."
+    },
+    "memory": {
+      "title": "Bằng lời của chính bạn",
+      "anniversary_one": "Một năm trước vào hôm nay",
+      "anniversary_n": "{n} năm trước vào hôm nay",
+      "intro": "Một điều bạn từng viết:"
+    },
+    "review": {
+      "empty": "Năm {year} chưa có ghi chép nào để nhìn lại",
+      "label_progress": "Năm {year} của bạn tính đến nay",
+      "label_full": "Năm {year} của bạn qua nhìn lại",
+      "share_text": "Năm {year} tôi ghi lại trên ClosenAI {checkins} lần check-in cảm xúc, {memories} kỷ niệm và {reflections} bài suy ngẫm — chuỗi dài nhất {streak} ngày.",
+      "range": "Khoảng thống kê: {range}",
+      "stats_checkin": "{count} lần check-in cảm xúc · {days} ngày có ghi chép · chuỗi dài nhất {streak} ngày",
+      "stats_counts": "{chats} tin nhắn · {memories} kỷ niệm · {reflections} bài suy ngẫm",
+      "first_record": "Bản ghi đầu tiên trong năm: {day}",
+      "busiest_day": "Ngày dày đặc nhất: {day} ({count} lần)",
+      "moods_header": "Cảm xúc thường gặp nhất:",
+      "milestones_header": "Cột mốc trong năm nay:",
+      "personality": "Hồ sơ tính cách: {frameworks}"
+    },
+    "weekly": {
+      "label": "Nhận định hằng tuần",
+      "day_unit": " ngày",
+      "mood_trend": "Tuần này có {total} lượt check-in, phân bố: {parts}.",
+      "no_checkins": "Tuần này chưa có check-in cảm xúc.",
+      "no_report": "Chưa có nhận định hằng tuần — ghi lại vài ngày cảm xúc và trò chuyện, cuối tuần sẽ có."
+    },
+    "report": {
+      "default_title": "Báo cáo tăng trưởng",
+      "range": "Khoảng thống kê: {value}",
+      "level": "Cấp nhận định: {value}",
+      "trend": "Xu hướng cảm xúc:",
+      "content": "Nhận định:"
+    },
+    "archive": {
+      "title": {
+        "overview": "Tổng quan lưu trữ",
+        "portrait": "Chân dung tính cách",
+        "voice": "Bằng lời của chính bạn",
+        "mood": "Quỹ đạo cảm xúc",
+        "patterns": "Những mô hình lặp lại",
+        "insights": "Nhận định theo chu kỳ",
+        "milestones": "Cột mốc",
+        "cross_year": "So sánh giữa các năm"
+      },
+      "title_page": "Lưu trữ cuộc sống ({scope}) — {overview}",
+      "empty": "(Chưa có ghi chép nào trong khoảng thời gian này)",
+      "scope": "Phạm vi lưu trữ: {scope}",
+      "active_days": "Tổng cộng {days} ngày hoạt động",
+      "messages": "{count} tin nhắn trò chuyện",
+      "checkins": "{count} lần check-in cảm xúc",
+      "memories": "{count} ký ức dài hạn",
+      "overview_line": "Tổng quan: {days} ngày hoạt động, {memories} kỷ niệm, {checkins} lượt check-in",
+      "cross_year_need": "So sánh giữa các năm cần ghi chép từ ít nhất hai năm dương lịch.",
+      "cross_year_line": "Năm {year}: {checkins} lần check-in cảm xúc, {memories} kỷ niệm"
+    },
+    "aigc": {
+      "mark": " [ĐƯỢC TẠO BỞI AI]",
+      "notice": "Các chương được đánh dấu [ĐƯỢC TẠO BỞI AI] trong bản lưu trữ này do trí tuệ nhân tạo tạo ra từ ghi chép ClosenAI của bạn và được gắn nhãn theo GB 45438-2025 (Công nghệ an ninh mạng — Yêu cầu an toàn cơ bản cho dịch vụ AI tạo sinh). Nội dung còn lại là ghi chép gốc của chính bạn và số liệu thống kê xác định."
+    }
+  },
+  "personality": {
+    "no_new_data": "Chưa có dữ liệu mới — trò chuyện thêm một chút rồi quay lại nhé.",
+    "generated_from_answers": "Hồ sơ tính cách của bạn đã được tạo từ các câu trả lời của bạn",
+    "assessment_fallback": "Bạn đã hoàn thành bài đánh giá hội thoại 8 câu hỏi; AI sẽ tiếp tục hiệu chỉnh khi bạn trò chuyện.",
+    "enneagram_type_n": "Kiểu {n}",
+    "enneagram_unknown": "không rõ",
+    "combo_fallback": "Kiểu tính cách của bạn là {label}, enneagram {enneagram}. Mỗi khung mô tả cách bạn nghĩ và cảm nhận từ một góc khác nhau — cứ tiếp tục ghi chép và trò chuyện, hồ sơ của bạn sẽ ngày càng chính xác."
+  }
+}

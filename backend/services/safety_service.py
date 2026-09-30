@@ -17,6 +17,7 @@ import logging
 import re
 from typing import AsyncGenerator, Awaitable, Callable, List, Optional, Tuple
 
+from backend.core import copy
 from backend.core.llm import llm
 
 logger = logging.getLogger("closenai.safety")
@@ -169,11 +170,7 @@ class SafetyService:
         ),
     }
 
-    # L3 命中后的替换话术（话题转回成长，温和不指责；中英双表）
-    SAFE_REPLY = {
-        "zh": "这个话题我可能不太适合深入聊呢。不如说说，今天有什么让你印象深刻的事吗？",
-        "en": "That's a topic I'd rather not dive into. How about telling me — what's one thing that stood out to you today?",
-    }
+    # L3 命中后的替换话术已迁文案库 safety.safe_reply（话题转回成长，温和不指责）
 
     # L3 危机转介触发词两类（PRD §5.16 ④ / 规范 §二 2.2）。v1 仅 zh/en 词表（规范 §六 决策点 3），
     # 其余语言由 L1 boundary 第 4 条 + 语义分类器兜底。
@@ -198,39 +195,9 @@ class SafetyService:
         },
     }
 
-    # 命中后的转介文案（A 级：热线事实 + 关怀；措辞过 §5.16 ① 黑名单）。
+    # 命中后的转介文案已迁文案库 safety.crisis.{self_harm,relationship_violence}
+    # （A 级：热线事实 + 关怀；措辞过 §5.16 ① 黑名单）。
     # 关系暴力类按规范 §二 铁律：只走个人安全与法律求助，禁沟通/关系修复建议、禁归因到用户表达。
-    CRISIS_COPY = {
-        "self_harm": {
-            "zh": (
-                "我很在意你现在的安全，也谢谢你愿意说出来。"
-                "现在请联系一个信任的人陪在你身边，或拨打 {hotline}——那里随时有人可以帮你。"
-                "我不会替你下人生判断，但我会一直在这里，陪你先过好这一刻。"
-            ),
-            "en": (
-                "Your safety matters to me, and thank you for telling me. "
-                "Right now, please reach out to someone you trust and keep them with you, "
-                "or contact {hotline} — someone there can help at any hour. "
-                "I won't make life decisions for you, but I'll stay right here with you through this moment."
-            ),
-        },
-        "relationship_violence": {
-            "zh": (
-                "你经历的这些不是你的错，也不是靠你换一种说法就能改变的。"
-                "现在最重要的是你的人身安全：如果有即刻危险，请联系当地紧急号码，或告诉信任的人、"
-                "邻居、同事让他们陪你；也可以拨打 {hotline} 求助。"
-                "我不会给你沟通或关系修复方面的建议，只想陪你把安全这一步先确认好。"
-            ),
-            "en": (
-                "What happened is not your fault, and it is not something you can fix by choosing "
-                "different words. Your physical safety comes first: if you are in immediate danger, "
-                "contact your local emergency number, or tell someone you trust, a neighbour or a "
-                "coworker so they can stay with you; you can also contact {hotline}. "
-                "I won't give you communication or relationship-repair advice — I only want to help "
-                "you confirm the safety step first."
-            ),
-        },
-    }
 
     # 地区热线（按 users.timezone 推断；PRD §5.16 ④「其余地区按配置表」→ 兜底走当地紧急号码）。
     # 无地区列可用（backend/models/user.py:25-27 仅 timezone/language），时区是当前唯一服务端信号。
@@ -346,14 +313,14 @@ class SafetyService:
                     "kind": kind,
                     "matched": matched,
                     "hotline": hotline,
-                    "reply": self.CRISIS_COPY[kind][lang].format(hotline=hotline),
+                    "reply": copy.t("safety", f"crisis.{kind}", language).format(hotline=hotline),
                     "advice_blocked": kind == "relationship_violence",
                 }
         return None
 
     def safe_reply(self, language: str) -> str:
         """命中替换话术（按语言）。"""
-        return self.SAFE_REPLY[_lang_key(language)]
+        return copy.t("safety", "safe_reply", language)
 
     def banned_hit(self, text: str, language: str) -> Optional[str]:
         """确定性黑名单命中判定（§5.16 ① + §1.4）。命中返回违规词，否则 None。"""

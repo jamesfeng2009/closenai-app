@@ -1,9 +1,10 @@
 """
 推送文案生成（P1-F01）。
 
-人格化推送文案：按场景（主动消息/签到提醒/周报/里程碑/关心）× 中英双语
-模板池，占位符注入用户名字 / 近期情绪 / 里程碑天数；Pro 用户可选 lite LLM
-生成正文，失败安全回退模板（推送只许成功或降级，不得抛异常阻断 cron）。
+人格化推送文案：按场景（主动消息/签到提醒/周报/里程碑/关心）× 15 语言
+模板池（core/copy.py push.*），占位符注入用户名字 / 近期情绪 / 里程碑天数；
+Pro 用户可选 lite LLM 生成正文，失败安全回退模板（推送只许成功或降级，
+不得抛异常阻断 cron）。
 
 文案约束（PRD §9）：温暖朋友口吻，不含"运势/预测/幸运数字"等占星措辞。
 """
@@ -13,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core import copy
 from backend.core.llm import llm
 from backend.core.time_utils import local_today
 from backend.models.user import User
@@ -22,70 +24,32 @@ from backend.services.safety_service import safety_service
 
 logger = logging.getLogger("closenai.push.copy")
 
-# 场景模板池：scenario → lang → [(title, body)]
-# body 为 None 表示正文由调用方提供（主动消息：推送内容即消息本身）
-PUSH_TEMPLATES: Dict[str, Dict[str, List[Tuple[str, Optional[str]]]]] = {
-    "proactive": {
-        "zh": [
-            ("{name}，来聊聊吧", None),
-            ("今天也想听听你的声音", None),
-            ("{name}，我有点事想问你", None),
-        ],
-        "en": [
-            ("{name}, let's talk", None),
-            ("I'd love to hear from you today", None),
-            ("{name}, I've been thinking of you", None),
-        ],
-    },
-    "mood_reminder": {
-        "zh": [
-            ("今天感觉怎么样？", "{name}，花 1 秒记录一下此刻的心情吧"),
-            ("来打个卡吧", "最近的你记录了「{mood}」，今天的心情如何呢？"),
-        ],
-        "en": [
-            ("How are you feeling today?", "{name}, take a second to note how you're feeling."),
-            ("Quick check-in", "You noted \"{mood}\" recently — how about today?"),
-        ],
-    },
-    "weekly": {
-        "zh": [
-            ("你的周报准备好了", "{name}，这一周的足迹我帮你整理好了，来看看吧"),
-            ("一周回顾", "{name}，这一周你有哪些新变化？周报已为你写好"),
-        ],
-        "en": [
-            ("Your weekly report is ready", "{name}, I've put together your week — come take a look."),
-            ("Your week in review", "{name}, your weekly reflection is ready for you."),
-        ],
-    },
-    "milestone": {
-        "zh": [
-            ("值得纪念的一天", "{name}，今天是我们相伴的第 {milestone} 天，谢谢你的坚持"),
-            ("里程碑达成", "{name}，{milestone} 天了！这一刻值得好好聊聊"),
-        ],
-        "en": [
-            ("A day worth celebrating", "{name}, day {milestone} together — thank you for showing up."),
-            ("Milestone reached", "{name}, {milestone} days! Let's talk about this moment."),
-        ],
-    },
-    "care": {
-        "zh": [
-            ("想问问你", "{name}，注意到你这几天心情不太好，想聊聊吗？我一直都在"),
-            ("我在这里", "{name}，最近几天似乎有点难熬，如果你愿意，跟我说说吧"),
-        ],
-        "en": [
-            ("Checking in on you", "{name}, these days seem heavy — want to talk? I'm here."),
-            ("I'm here for you", "{name}, it feels like a tough stretch lately. I'm here if you'd like to share."),
-        ],
-    },
-}
+_SCENARIOS = ("proactive", "mood_reminder", "weekly", "milestone", "care", "bedtime")
 
-# lite LLM 生成用的场景描述（注入 prompt）
+
+def templates_for(scenario: str, language: str) -> List[Tuple[str, Optional[str]]]:
+    """场景模板池（15 语言走文案库 push.{scenario}，每项 {title, body|null}）。
+
+    场景不存在（开发期错误）回退 proactive 池，永不空转崩溃。
+    """
+    items = copy.t_list("push", scenario, language)
+    if not items and scenario != "proactive":
+        items = copy.t_list("push", "proactive", language)
+    return [
+        (item["title"], item.get("body"))
+        for item in items
+        if isinstance(item, dict) and item.get("title")
+    ]
+
+
+# lite LLM 生成用的场景描述（注入 prompt，非用户可见）
 _SCENARIO_DESC = {
     "proactive": "每日主动问候（基于原始消息改写成通知体，保留其核心意思）",
     "mood_reminder": "提醒用户做今日情绪签到",
     "weekly": "告知用户本周成长周报已生成，引导点击查看",
     "milestone": "祝贺用户连续/累计陪伴达成里程碑天数",
     "care": "用户连续 3 天情绪低落，表达关心并邀请倾诉",
+    "bedtime": "温和提醒用户做睡前复盘（三步：一句话/值得记下的/留给明天），不施压不催促",
 }
 
 # Pro 档位（lite LLM 文案仅对这些档位开放，免费用户走模板控制成本）
@@ -106,21 +70,22 @@ class PushCopywriter:
     ) -> Tuple[str, str]:
         """生成 (title, body)。任何失败都回退模板/消息原文，不抛异常。
 
-        scenario: proactive | mood_reminder | weekly | milestone | care
+        scenario: proactive | mood_reminder | weekly | milestone | care | bedtime
         message: proactive 场景的消息原文（推送内容即消息本身）
         milestone: milestone 场景的里程碑天数（7/30/100/365）
         """
         language = user.language or "en"
-        lang = "zh" if language.startswith("zh") else "en"
-        pool = PUSH_TEMPLATES.get(scenario, PUSH_TEMPLATES["proactive"])[lang]
+        pool = templates_for(scenario, language)
         title_t, body_t = pool[self._pick(user, scenario, len(pool))]
 
         ctx: Dict[str, object] = {
-            "name": self._display_name(user, lang),
+            "name": self._display_name(user, language),
             "milestone": milestone or "",
         }
         if "{mood}" in title_t or (body_t is not None and "{mood}" in body_t):
-            ctx["mood"] = await self._recent_mood(db, user) or ("未知" if lang == "zh" else "unknown")
+            ctx["mood"] = await self._recent_mood(db, user) or copy.t(
+                "push", "unknown_mood", language
+            )
         title = title_t.format(**ctx)
         body = body_t.format(**ctx) if body_t is not None else (message or "")
 
@@ -145,8 +110,8 @@ class PushCopywriter:
         digest = hashlib.sha256(f"{user.id}:{scenario}:{day}".encode()).hexdigest()
         return int(digest, 16) % n
 
-    def _display_name(self, user: User, lang: str) -> str:
-        return (user.name or "").strip() or ("朋友" if lang == "zh" else "friend")
+    def _display_name(self, user: User, language: str) -> str:
+        return (user.name or "").strip() or copy.t("push", "default_name", language)
 
     async def _recent_mood(self, db: AsyncSession, user: User) -> str:
         """最近一次签到的情绪标签（失败返回空串，不阻断文案生成）。"""

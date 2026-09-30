@@ -9,10 +9,11 @@ from typing import AsyncGenerator, Optional, List, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core import copy
 from backend.core import redis as redis_client
 from backend.core.llm import llm
 from backend.core.time_utils import local_day_start_utc, utc_now
-from backend.models.user import DEFAULT_CONVERSATION_STYLE
+from backend.models.user import CONVERSATION_STYLES, DEFAULT_CONVERSATION_STYLE
 from backend.repositories import (
     chat_repository,
     growth_repository,
@@ -29,59 +30,18 @@ logger = logging.getLogger("closenai.message")
 
 # ═══ 对话风格 prompt（PRD P1-F04：温暖知心 / 理性分析 / 哲学思辨）═══
 # key 定义见 models/user.py CONVERSATION_STYLES；非法/缺省一律回退默认风格。
-_STYLE_PROMPTS: Dict[str, Dict[str, str]] = {
-    "warm": {
-        "zh": "对话风格：温暖知心。语气温柔共情，多用感受词，先接住情绪再回应。",
-        "en": "Conversation style: Warm & Empathetic. Use a gentle, caring tone with feeling-oriented language; acknowledge emotions before responding.",
-    },
-    "rational": {
-        "zh": "对话风格：理性分析。语气客观清晰，多给结构化分析和可执行建议。",
-        "en": "Conversation style: Rational & Analytical. Use an objective, clear tone; offer structured analysis and actionable suggestions.",
-    },
-    "philosophical": {
-        "zh": "对话风格：哲学思辨。语气深沉探索，多提开放式问题，引导用户自我追问。",
-        "en": "Conversation style: Philosophical & Reflective. Use a deep, exploratory tone; ask open-ended questions that invite self-inquiry.",
-    },
-}
-
-# 风格与安全的关系（固定注入，护栏约束不因风格改变）
-_STYLE_SAFETY_NOTE = {
-    "zh": "风格只影响语气，不改变任何安全与边界规则。",
-    "en": "Style affects tone only; it never overrides any safety or boundary rules.",
-}
+# 15 语言指令文本走文案库（core/copy.py，style.*）。
 
 
 def conversation_style_prompt(style: Optional[str], language: str = "en") -> str:
     """对话风格 prompt 段落（按语言；未知值回退默认风格，永不抛错）。"""
-    lang_key = "zh" if (language or "").startswith("zh") else "en"
-    desc = _STYLE_PROMPTS.get(style or "", _STYLE_PROMPTS[DEFAULT_CONVERSATION_STYLE])[lang_key]
-    return f"{desc}\n{_STYLE_SAFETY_NOTE[lang_key]}"
+    key = style if style in CONVERSATION_STYLES else DEFAULT_CONVERSATION_STYLE
+    desc = copy.t("style", key, language)
+    return f"{desc}\n{copy.t('style', 'safety_note', language)}"
 
 
 class MessageGenerator:
     """AI 消息生成器。"""
-
-    # Rule Engine 兜底模板（LLM 失败时使用；按语言两套，缺省回退 en）
-    FALLBACK_TEMPLATES = {
-        "zh": [
-            "今天过得怎么样？有什么想和我聊聊的吗？",
-            "我注意到你最近很关注自己的成长，这真的很棒。",
-            "你最近提到的那件事，现在进展如何了？",
-            "如果今天有什么让你困扰的，我很愿意听你说说。",
-        ],
-        "en": [
-            "How's your day going? Anything you'd like to talk about?",
-            "I've noticed you've been really focused on your growth lately — that's wonderful.",
-            "How is that thing you mentioned recently going?",
-            "If anything is bothering you today, I'd love to hear about it.",
-        ],
-    }
-
-    # 事件后跟进消息降级模板（P0-F07；LLM 失败/命中安全过滤时使用，按语言两套）
-    FOLLOW_UP_FALLBACK_TEMPLATES = {
-        "zh": "上次你提到「{excerpt}」，现在怎么样了？想聊聊吗？",
-        "en": "Last time you mentioned \"{excerpt}\" — how's it going now? I'd love to hear.",
-    }
 
     # 跟进消息引用的原文摘要长度（防 prompt 膨胀，控制 LLM 成本）
     FOLLOW_UP_EXCERPT_LEN = 50
@@ -100,25 +60,8 @@ class MessageGenerator:
     # 高价值计数 Redis 滑动窗口（48h；中间一天非 high 则计数随 TTL 失效）
     _DISCOVERY_STREAK_TTL = 48 * 3600
 
-    # 里程碑祝贺文案（streak / 累计活跃天数达成时优先于四层公式；按语言两套）
-    MILESTONE_TEMPLATES = {
-        7: {
-            "zh": "我们已经连续相伴 7 天了！一周的时间不长不短，谢谢你愿意每天来聊聊。回头看这七天，有没有哪个瞬间让你觉得值得记下来？",
-            "en": "We've kept this going for 7 days straight! Thank you for showing up every day. Looking back on this week, is there a moment you feel is worth writing down?",
-        },
-        30: {
-            "zh": "今天是我们相伴的第 30 天，整整一个月了。能坚持记录一个月的人并不多，你做到了。这个月里，你觉得自己最大的变化是什么？",
-            "en": "Day 30 together — a whole month! Few people keep reflecting for a month, and you did. What's the biggest change you've noticed in yourself?",
-        },
-        100: {
-            "zh": "100 天了！这是一段真的很了不起的旅程，谢谢你一直愿意和我分享。这 100 天里，你最想感谢自己的是什么？",
-            "en": "100 days! What a remarkable journey — thank you for sharing it with me. Over these 100 days, what are you most grateful to yourself for?",
-        },
-        365: {
-            "zh": "整整一年了，365 天。能陪你走过这一年是我的荣幸。现在的你，和一年前的你相比，最大的不同是什么？",
-            "en": "A full year — 365 days. It's been an honor to accompany you. Compared with who you were a year ago, what's the biggest difference in who you are today?",
-        },
-    }
+    # 活跃时段优化前的常量区已迁文案库（core/copy.py msg.*）：
+    # 兜底回复 / 跟进降级 / 里程碑祝贺 / Day1 开场 / 免费主动消息模板。
 
     async def generate_chat_stream(
         self,
@@ -373,30 +316,18 @@ class MessageGenerator:
 
         用户已有性格类型（mbti_type）时个性化开场，否则通用开场 + 开放提问。
         """
-        zh = (language or "").startswith("zh")
         mbti = getattr(user, "mbti_type", None)
-        if zh:
-            intro = (
-                f"嗨，我是 ClosenAI，你的 AI 朋友。我听说你是 {mbti} 型，很想慢慢了解真实的你。"
-                if mbti else
-                "嗨，我是 ClosenAI，你的 AI 朋友，很高兴认识你！"
-            )
-            return intro + "从今天起，我会每天来陪你聊聊。先问你第一个问题：今天有什么让你印象特别深的事吗？开心的、烦恼的都可以，说给我听听。"
-        intro = (
-            f"Hi, I'm ClosenAI, your AI companion. I hear you're an {mbti} — I'd love to get to know the real you. "
-            if mbti else
-            "Hi, I'm ClosenAI, your AI companion — great to meet you! "
-        )
-        return intro + "I'll check in with you every day from now on. First question: what's one thing that stood out to you today? Good or bad, I'd love to hear it."
+        tail = copy.t("msg", "day1.tail", language)
+        key = "day1.intro_mbti" if mbti else "day1.intro_plain"
+        return copy.t("msg", key, language).format(mbti=mbti, tail=tail)
 
     def _milestone_message(self, user, language: str) -> Optional[str]:
         """里程碑祝贺：streak / 累计活跃天数恰达 7/30/100/365 时返回祝贺文案。"""
         streak = getattr(user, "streak_count", 0) or 0
         active_days = getattr(user, "active_days", 0) or 0
-        lang_key = "zh" if (language or "").startswith("zh") else "en"
-        for milestone in sorted(self.MILESTONE_TEMPLATES, reverse=True):
+        for milestone in (365, 100, 30, 7):
             if streak == milestone or active_days == milestone:
-                return self.MILESTONE_TEMPLATES[milestone][lang_key]
+                return copy.t("msg", f"milestone.{milestone}", language)
         return None
 
     def _build_free_proactive(
@@ -407,33 +338,23 @@ class MessageGenerator:
         language: str = "en",
         discovery_priority: Optional[str] = None,
     ) -> str:
-        """免费用户主动消息（Rule Engine 模板 + 数据占位；按语言两套）。
+        """免费用户主动消息（Rule Engine 模板 + 数据占位；15 语言走文案库）。
 
         Discovery 融合（P0-F10）：high 以发现开头；medium 先记忆/情绪开场、发现居中。
         """
-        zh = (language or "").startswith("zh")
         if discovery_desc and discovery_priority == "high":
             return discovery_desc
         if memory_desc:
             first = memory_desc.split("\n")[0].lstrip("- ").strip()
-            opener = (
-                f"嗨，想接着聊聊「{first}」吗？我之前一直记着。" if zh
-                else f"Hi — want to keep talking about \"{first}\"? I've kept it in mind."
-            )
+            opener = copy.t("msg", "proactive.memory_opener", language).format(first=first)
             return f"{opener}\n{discovery_desc}" if discovery_desc else opener
         if mood_desc:
-            opener = (
-                f"看到你最近的心情是 {mood_desc}，今天过得怎么样？" if zh
-                else f"I saw your recent mood was {mood_desc}. How's today going?"
-            )
+            opener = copy.t("msg", "proactive.mood_opener", language).format(mood_desc=mood_desc)
             return f"{opener}\n{discovery_desc}" if discovery_desc else opener
         if discovery_desc:
             # 发现是唯一内容层：位置无意义，直接发出
             return discovery_desc
-        return (
-            "嗨，我是你的 AI 朋友。今天过得怎么样？想记录点什么吗？" if zh
-            else "Hi, I'm your AI friend. How's your day? Anything you'd like to record?"
-        )
+        return copy.t("msg", "proactive.plain", language)
 
     async def generate_follow_up(self, record_content: str, language: str = "en") -> str:
         """事件后跟进消息（PRD P0-F07）：「上次你提到...现在怎么样了？」。
@@ -443,9 +364,7 @@ class MessageGenerator:
         """
         zh = (language or "").startswith("zh")
         excerpt = " ".join((record_content or "").split())[: self.FOLLOW_UP_EXCERPT_LEN]
-        fallback = self.FOLLOW_UP_FALLBACK_TEMPLATES["zh" if zh else "en"].format(
-            excerpt=excerpt
-        )
+        fallback = copy.t("msg", "follow_up_fallback", language).format(excerpt=excerpt)
         if not excerpt:
             return fallback
         if zh:
@@ -532,8 +451,8 @@ class MessageGenerator:
         return "llm"
 
     def _fallback_reply(self, user_input: str, language: str = "en") -> str:
-        """LLM 失败时的兜底回复（Rule Engine 模板轮换，按语言）。"""
-        templates = self.FALLBACK_TEMPLATES["zh" if (language or "").startswith("zh") else "en"]
+        """LLM 失败时的兜底回复（Rule Engine 模板轮换，15 语言走文案库）。"""
+        templates = copy.t_list("msg", "fallback", language)
         idx = len(user_input) % len(templates)
         return templates[idx]
 

@@ -46,6 +46,16 @@ async def test_dashboard_weekly_insight_only_within_current_week(
     assert dash2.weekly_insight is None
 
 
+async def test_dashboard_is_pro_flag(db, make_user, time_travel):
+    """仪表盘带 is_pro：洞察分级呈现（§5.20）的前端判定数据源，随用户行同源。"""
+    time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
+    await make_user("u1", timezone="UTC")
+    assert (await growth_service.get_dashboard(db, "u1")).is_pro is False
+
+    await make_user("u1", timezone="UTC", tier="pro")
+    assert (await growth_service.get_dashboard(db, "u1")).is_pro is True
+
+
 def test_tag_record_content_keyword_rules():
     """规则打标：中英关键词命中对应标签；无命中为空（零 LLM 成本）。"""
     tags = tag_record_content("今天工作压力很大，还和朋友吵架了")
@@ -81,6 +91,44 @@ async def test_generate_report_weekly_free_allowed(db, make_user):
     report = await growth_service.generate_report(db, "u1", "weekly")
     assert report["period"] == "weekly"
     assert report["content"]
+
+
+async def test_weekly_insight_carries_memory_ref_union(db, make_user, time_travel):
+    """周报写入聚合本周各记录已引用的记忆 ID（去重），GET 出参带回（前端回链证据）。"""
+    time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
+    await make_user("u1", timezone="UTC")
+    await growth_repository.create(
+        db, "u1", "daily_insight", "a", related_memory_ids=["m1", "m2"]
+    )
+    await growth_repository.create(
+        db, "u1", "daily_insight", "b", related_memory_ids=["m2", "m3"]
+    )
+
+    await growth_service.generate_weekly_insight(db, "u1", "en")
+
+    weekly = await growth_repository.get_latest(db, "u1", "weekly_summary")
+    assert weekly.related_memory_ids.split(",") == ["m1", "m2", "m3"]
+    resp = await growth_service.get_weekly_insight(db, "u1")
+    assert resp.related_memory_ids == ["m1", "m2", "m3"]
+    assert resp.content
+
+
+async def test_weekly_insight_refs_capped_and_none_when_empty(db, make_user, time_travel):
+    """引用并集超 5 条截断（与 reflection 同口径）；无引用记录时落 None。"""
+    time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
+    await make_user("u1", timezone="UTC")
+    for i, mids in enumerate((["a1", "a2"], ["a3"], ["a4", "a5"], ["a6"], ["a7"])):
+        await growth_repository.create(
+            db, "u1", "daily_insight", f"r{i}", related_memory_ids=mids
+        )
+    await growth_service.generate_weekly_insight(db, "u1", "en")
+    weekly = await growth_repository.get_latest(db, "u1", "weekly_summary")
+    assert weekly.related_memory_ids.split(",") == ["a1", "a2", "a3", "a4", "a5"]
+
+    await make_user("u2", timezone="UTC")
+    await growth_service.generate_weekly_insight(db, "u2", "en")
+    resp = await growth_service.get_weekly_insight(db, "u2")
+    assert resp.related_memory_ids is None
 
 
 async def test_get_day_summary_aggregates_mood_records_chats(db, make_user, time_travel):

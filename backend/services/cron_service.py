@@ -31,6 +31,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core import copy
 from backend.core.llm import llm
 from backend.core.time_utils import (
     local_day_start_utc,
@@ -50,6 +51,8 @@ from backend.repositories import (
     subscription_repository,
     user_repository,
 )
+from backend.services.bedtime_service import bedtime_service
+from backend.services.curriculum_service import curriculum_service
 from backend.services.growth_service import growth_service
 from backend.services.journey_service import journey_service
 from backend.services.message_generator import message_generator
@@ -72,12 +75,6 @@ DRIFT_WINDOW_MSG_LIMIT = 50
 # QStash 默认端点（settings.qstash_url 未配置时使用）
 QSTASH_DEFAULT_URL = "https://qstash.upstash.io"
 
-# 连续未回复简短关心模板（按语言，缺省回退 en）
-REENGAGE_TEMPLATES = {
-    "zh": "好久没聊了，一切都好吗？",
-    "en": "Haven't heard from you in a while — how's everything going?",
-}
-
 # 未回复降级阈值（PRD P0-F01 §6）
 SILENT_SHORT_DAYS = 2    # 连续 2 天未回复 → 简短关心
 SILENT_WEEKLY_DAYS = 5   # 连续 5 天未回复 → 降频每周一
@@ -91,6 +88,11 @@ FOLLOW_UP_SCHEDULE_CRON = "0 1 * * *"
 CARE_NEGATIVE_DAYS = 3
 # 里程碑天数（与 message_generator._milestone_message 同口径：streak/累计活跃恰达即触发）
 MILESTONE_DAYS = (7, 30, 100, 365)
+# 睡前复盘提醒的本地小时桶（PRD §5.16 S1：22:00–23:30 固定窗口）
+BEDTIME_HOUR = 22
+# Growth Curriculum 周规划的本地小时桶与星期（PRD §5.17：每周日晚预生成下周）
+CURRICULUM_HOUR = 21
+SUNDAY = 6
 # 活跃时段优化（PRD P1-F01 §5，零 LLM 规则统计）：
 # 近 7 天活跃事件数 / 活跃天数门槛；中位活跃小时与 push_time 偏离 ≥3h 才改用活跃中位时段
 ACTIVITY_WINDOW_DAYS = 7
@@ -100,7 +102,8 @@ ACTIVITY_DEVIATION_HOURS = 3
 
 
 def _reengage_template(language: str) -> str:
-    return REENGAGE_TEMPLATES.get((language or "en")[:2], REENGAGE_TEMPLATES["en"])
+    """连续未回复简短关心文案（15 语言走文案库 msg.reengage）。"""
+    return copy.t("msg", "reengage", language)
 
 
 def _cosine_similarity(a, b) -> float:
@@ -115,26 +118,18 @@ def _cosine_similarity(a, b) -> float:
 
 
 def _drift_alert_text(memory_content: str, language: str) -> str:
-    """渐变提醒文案（spec §3.3 模板，中英按 language）。"""
-    if (language or "").startswith("zh"):
-        return f"我注意到你最近越来越多地提到不同的话题，你对「{memory_content}」的想法是不是在变化？"
-    return (
-        f"I've noticed you've been mentioning different topics lately — "
-        f"is your view on \"{memory_content}\" changing?"
-    )
+    """渐变提醒文案（spec §3.3 模板，15 语言走文案库 msg.drift_alert）。"""
+    return copy.t("msg", "drift_alert", language).format(memory_content=memory_content)
 
 
 # 签到轻提醒文案已迁移至 push_copywriter 场景模板池（P1-F01 人格化推送文案）
 
-# 试用到期提醒模板（PRD P1-F02 §4，按语言，缺省回退 en）
-TRIAL_REMINDER_TEMPLATES = {
-    "zh": "你的 ClosenAI 免费试用将在 24 小时内到期，续订即可继续享受完整权益。",
-    "en": "Your ClosenAI free trial ends within 24 hours — subscribe to keep your full benefits.",
-}
+# 试用到期提醒（PRD §5.21）：盘点式正向损失——说数据留着、继续生长，
+# 禁到期倒计时恐吓与交易式表述（合计触点 ≤3）；15 语言走文案库 msg.trial_reminder
 
 
 def _trial_reminder_template(language: str) -> str:
-    return TRIAL_REMINDER_TEMPLATES.get((language or "en")[:2], TRIAL_REMINDER_TEMPLATES["en"])
+    return copy.t("msg", "trial_reminder", language)
 
 
 def _push_hour(user: User) -> int:
@@ -547,6 +542,94 @@ class CronService:
             db, user.id, title, body, data={"type": "mood_reminder"}
         )
         return "sent"
+
+    async def dispatch_bedtime_reminders(self, db: AsyncSession) -> Dict[str, Any]:
+        """睡前复盘提醒分发（PRD §5.16 S1，Vercel Cron 每小时触发）。
+
+        本地 22:00–23:30 固定窗口：用户本地 22 点桶推送一次（每小时 cron 命中
+        一桶，天然每日一条）。门控：推送偏好（daily 档）、近 24h 危机命中停推、
+        当日已完成复盘不打扰（未完成的半程复盘仍提醒）。纯推送（模板文案），
+        不写对话流、不计配额。每用户独立事务边界，单用户失败不影响整批。
+        """
+        users = await user_repository.list_all(db)
+        sent = 0
+        skipped = 0
+        failed = 0
+        for user in users:
+            try:
+                status = await self._maybe_send_bedtime_reminder(db, user)
+                await db.commit()
+                if status == "sent":
+                    sent += 1
+                else:
+                    skipped += 1
+            except Exception as exc:  # noqa: BLE001
+                await db.rollback()
+                logger.warning("睡前复盘提醒失败 user=%s: %s", user.id, exc)
+                failed += 1
+        return {
+            "users_total": len(users),
+            "sent": sent,
+            "skipped": skipped,
+            "failed": failed,
+            "status": "completed",
+        }
+
+    async def _maybe_send_bedtime_reminder(self, db: AsyncSession, user: User) -> str:
+        """对单个用户按窗口 + 去重条件发送睡前复盘提醒。返回 "sent" / "skipped"。"""
+        if not user.push_enabled or user.push_frequency != "daily":
+            return "skipped"
+        # PRD §5.16 S1：22:00–23:30 本地固定窗口（22 点桶，每小时 cron 命中一次）
+        if local_now(user.timezone).hour != BEDTIME_HOUR:
+            return "skipped"
+        # 危机停推（PRD §5.16 ④）：近 24h 命中过危机触发词即挂起仪式类推送
+        if await safety_repository.has_hit_since(db, user.id, utc_now() - timedelta(hours=24)):
+            return "skipped"
+        # 当日已完成复盘 → 不打扰；半程（仅 step1/step2）仍在窗口内提醒
+        if await bedtime_service.has_completed_today(db, user):
+            return "skipped"
+        title, body = await push_copywriter.build_copy(db, user, "bedtime")
+        await push_service.send_to_user(
+            db, user.id, title, body, data={"type": "bedtime_review"}
+        )
+        return "sent"
+
+    async def dispatch_curriculum_generation(self, db: AsyncSession) -> Dict[str, Any]:
+        """Growth Curriculum 周规划分发（PRD §5.17，Vercel Cron 每小时触发）。
+
+        用户本地周日 21 点桶预生成下周 7 张主题卡（Rule 优先 + LLM 周规划）。
+        拉取式消费：只落 journey_events 首页池，不推送。素材不足/已生成的用户
+        记 skipped。每用户独立事务边界，单用户失败不影响整批。
+        """
+        users = await user_repository.list_all(db)
+        generated = 0
+        skipped = 0
+        failed = 0
+        for user in users:
+            try:
+                if local_now(user.timezone).hour != CURRICULUM_HOUR:
+                    skipped += 1
+                    continue
+                if local_now(user.timezone).weekday() != SUNDAY:
+                    skipped += 1
+                    continue
+                result = await curriculum_service.generate_weekly(db, user)
+                await db.commit()
+                if result.get("status") == "generated":
+                    generated += 1
+                else:
+                    skipped += 1
+            except Exception as exc:  # noqa: BLE001
+                await db.rollback()
+                logger.warning("Curriculum 周规划失败 user=%s: %s", user.id, exc)
+                failed += 1
+        return {
+            "users_total": len(users),
+            "generated": generated,
+            "skipped": skipped,
+            "failed": failed,
+            "status": "completed",
+        }
 
     async def dispatch_trial_reminders(self, db: AsyncSession) -> Dict[str, Any]:
         """试用到期提醒分发（PRD P1-F02 §4，Vercel Cron 每日触发）。

@@ -1,0 +1,520 @@
+{
+  "mood": {
+    "_comment": "Mood labels (six emojis, mirrors MOOD_MAP) and rule-engine interpret templates (deterministic, zero LLM).",
+    "labels": {
+      "happy": "Happy",
+      "calm": "Calm",
+      "anxious": "Anxious",
+      "sad": "Sad",
+      "angry": "Angry",
+      "tired": "Tired"
+    },
+    "interpret": {
+      "happy": "Looks like you're in a good mood today — keep it up!",
+      "calm": "A calm, steady day. Remember to leave a little time just for yourself.",
+      "anxious": "Feeling a bit anxious is completely normal. Take a deep breath and go slow.",
+      "sad": "Feeling a little down — I'm here with you. It's okay to have emotions.",
+      "angry": "Feeling angry? Try not to decide anything right now; let the emotion settle first.",
+      "tired": "A bit tired — rest matters too. Don't push yourself too hard."
+    },
+    "interpret_fallback": "How are you feeling today?",
+    "trend": {
+      "empty": "Not enough check-in data yet — start recording your first day.",
+      "high": "Your overall mood has been great — keep the rhythm going.",
+      "mid": "Your mood is mostly steady. Check in with yourself now and then.",
+      "low": "Things have felt a bit low lately. Take extra care of yourself — I'm here."
+    }
+  },
+  "levels": {
+    "_comment": "PRD P0-F05 level table: names / feature unlocks / §5.15a emotional rewards / level-page note / milestone badge names.",
+    "name": {
+      "1": "Acquainted L1",
+      "2": "Familiar L2",
+      "3": "Confidant L3",
+      "4": "Kindred L4"
+    },
+    "features": {
+      "1": [
+        "Basic conversations",
+        "Mood check-in"
+      ],
+      "2": [
+        "Proactive AI follow-ups",
+        "Memory references"
+      ],
+      "3": [
+        "Deep personality analysis",
+        "Pattern discovery",
+        "AI weekly report"
+      ],
+      "4": [
+        "Quarterly personality deep report",
+        "Predictive insights",
+        "Deep reflection mode"
+      ]
+    },
+    "reward": {
+      "2": "AI brings up something you once said",
+      "3": "Your first Monthly Story preview",
+      "4": "A 90-day letter: the you I've seen"
+    },
+    "note": "All level names describe how well the AI understands you — they are not romantic.",
+    "milestone": {
+      "streak_7": "7-Day Streak",
+      "streak_30": "30-Day Confidant",
+      "streak_100": "100 Days Together",
+      "streak_365": "One-Year Companion"
+    },
+    "celebrate": {
+      "body": "🎉 After {days} days together, our connection has grown to \"{label}\"! Newly unlocked: {unlocks}.",
+      "reward": " And from now on: {reward}."
+    }
+  },
+  "growth": {
+    "_comment": "Growth record type labels (context injection & timeline) and report period titles.",
+    "insight_type": {
+      "daily_insight": "Daily insight",
+      "weekly_summary": "Weekly summary",
+      "pattern_discovery": "Pattern discovery",
+      "drift_alert": "Drift alert",
+      "weekly_report": "Weekly report",
+      "monthly_report": "Monthly report",
+      "quarterly_report": "Quarterly report",
+      "yearly_report": "Yearly report"
+    },
+    "period": {
+      "weekly": "Weekly Insight",
+      "monthly": "Monthly Report",
+      "quarterly": "Quarterly Deep-Dive Report",
+      "yearly": "Yearly Life Report",
+      "fallback": "Report"
+    },
+    "forecast_label": "Next week forecast",
+    "topic": {
+      "mood": "Talk about how your mood has been lately",
+      "relationship": "Talk about your recent relationships",
+      "work": "Talk about how work is going",
+      "goal": "Talk about progress on your goals",
+      "communication": "Talk about recent communication challenges",
+      "growth": "Talk about your recent growth"
+    },
+    "mood_trend": {
+      "empty": "No mood check-ins in this period.",
+      "body": "{total} check-ins in total: {parts}.",
+      "unit": "d"
+    },
+    "fallback_report": "Over this period you checked in {checkins} times and had {chat_count} conversations. You're getting to know yourself bit by bit — keep recording and patterns will gradually emerge.",
+    "fallback_pattern": "Based on your mood records ({mood_desc}), you're gradually building awareness of your own state. Keep recording and the AI will help you discover more patterns.",
+    "generic_fallback": "You're slowly getting to know yourself better these days. Keep recording and patterns will surface.",
+    "generic_fallback_short": "You're understanding yourself bit by bit — keep recording.",
+    "metric": {
+      "social": {
+        "count": "{count} relationships",
+        "none": "Building connections"
+      },
+      "stress": {
+        "count": "{count}% stress",
+        "none": "Steady"
+      },
+      "curiosity": {
+        "count": "{count} explorations",
+        "none": "Exploring"
+      },
+      "goals": {
+        "count": "{count} goals",
+        "none": "Planning"
+      }
+    },
+    "emotion": {
+      "high": "Happy",
+      "mid": "Steady",
+      "low": "Low",
+      "none": "No data yet"
+    },
+    "confidence": {
+      "high": "Confident",
+      "mid": "Stable",
+      "low": "Growing"
+    },
+    "greeting": {
+      "night": "Still up late?",
+      "morning": "Good morning! How is your day going?",
+      "afternoon": "Good afternoon — remember to take care of yourself.",
+      "evening": "Good evening, you've worked hard today."
+    }
+  },
+  "mbti": {
+    "_comment": "16 type names (four-letter codes as keys; codes themselves stay untranslated).",
+    "INTP": "Logician",
+    "INTJ": "Architect",
+    "ENTP": "Debater",
+    "ENTJ": "Commander",
+    "INFP": "Mediator",
+    "INFJ": "Advocate",
+    "ENFP": "Campaigner",
+    "ENFJ": "Protagonist",
+    "ISTP": "Virtuoso",
+    "ISFJ": "Defender",
+    "ESTP": "Entrepreneur",
+    "ESFJ": "Consul",
+    "ISTJ": "Logistician",
+    "ISFP": "Adventurer",
+    "ESTJ": "Executive",
+    "ESFP": "Entertainer"
+  },
+  "enneagram": {
+    "_comment": "Enneagram type names and shared options (statement items: fits / not like me / not sure). The 36-question bank ships in a later batch.",
+    "type": {
+      "1": "Perfectionist",
+      "2": "Helper",
+      "3": "Achiever",
+      "4": "Individualist",
+      "5": "Investigator",
+      "6": "Loyalist",
+      "7": "Enthusiast",
+      "8": "Challenger",
+      "9": "Peacemaker"
+    },
+    "option": {
+      "a": "Sounds like me",
+      "b": "Not like me",
+      "neutral": "Not sure / it depends"
+    },
+    "q": {
+      "1": {
+        "0": "I find it hard to tolerate things not being done correctly or properly.",
+        "1": "I'm often the first to notice things around me that need improving or fixing.",
+        "2": "Even when tired, I find it hard to allow myself rest before the task is done.",
+        "3": "I often have an inner voice pointing out where I fell short."
+      },
+      "2": {
+        "0": "When others are in trouble, I'm often the first to offer help.",
+        "1": "I easily sense others' feelings and needs, even when unspoken.",
+        "2": "Feeling needed by others matters a lot to me.",
+        "3": "I often put others' matters ahead of my own."
+      },
+      "3": {
+        "0": "I like setting goals and efficiently checking them off one by one.",
+        "1": "Maintaining a \"successful\" image in others' eyes matters to me.",
+        "2": "I find it hard to idle; I always feel I should be producing something.",
+        "3": "I'm good at adjusting the side of myself I show to fit the occasion."
+      },
+      "4": {
+        "0": "I often feel my emotional experiences run deeper than those around me.",
+        "1": "Being my authentic self matters more to me than fitting in.",
+        "2": "I sometimes feel others can hardly truly understand me.",
+        "3": "I'm easily moved by things that are meaningful, beautiful, or a little melancholic."
+      },
+      "5": {
+        "0": "Before engaging in something, I prefer to research it thoroughly first.",
+        "1": "I need plenty of alone time to recharge.",
+        "2": "Being with people for too long drains my energy.",
+        "3": "Rather than expressing feelings, I'm more used to processing problems through thinking and analysis."
+      },
+      "6": {
+        "0": "Before deciding, I habitually consider all the ways things could go wrong.",
+        "1": "I value commitment and am deeply loyal to people or teams I believe in.",
+        "2": "Facing uncertainty, I tend to weigh things over and over and struggle to let go.",
+        "3": "I often prepare in advance for potential risks."
+      },
+      "7": {
+        "0": "I'm always excited by new plans and possibilities.",
+        "1": "I like keeping many options open and dislike feeling boxed in.",
+        "2": "When something gets boring or heavy, I want to switch to something more fun.",
+        "3": "I'm good at finding the bright side when things don't go well."
+      },
+      "8": {
+        "0": "I speak directly and dislike beating around the bush.",
+        "1": "Faced with injustice, I can hardly stop myself from standing up.",
+        "2": "I'm used to taking charge rather than handing control to others.",
+        "3": "People often say I have an intense presence, even when I mean no harm."
+      },
+      "9": {
+        "0": "To keep harmony, I'm often willing to yield first.",
+        "1": "When disagreements arise, I tend to be the one who mediates both sides.",
+        "2": "I can easily understand different people's positions on the same issue.",
+        "3": "I sometimes set aside my own opinions to avoid conflict."
+      }
+    },
+    "combo": {
+      "INTP_5": "System Builder",
+      "INTJ_5": "Deep Strategist",
+      "INTJ_1": "Principled Architect",
+      "ENTP_7": "Opportunity Explorer",
+      "ENTJ_8": "Born Leader",
+      "ENTJ_3": "Peak Achiever",
+      "INFP_4": "Soulful Dreamer",
+      "INFP_9": "Peaceful Mediator",
+      "INFJ_4": "Insightful Healer",
+      "INFJ_9": "Gentle Guide",
+      "ENFP_7": "Possibility Creator",
+      "ENFP_4": "Passionate Idealist",
+      "ENFJ_2": "Empowering Mentor",
+      "ISTJ_1": "Order Guardian",
+      "ISTJ_6": "Dependable Rock",
+      "ISFJ_2": "Warm Guardian",
+      "ISFJ_9": "Serene Supporter",
+      "ISTP_5": "Cool Analyst",
+      "ISFP_4": "Sensitive Artist",
+      "ESTP_8": "Bold Go-Getter",
+      "ESTJ_8": "Determined Executor",
+      "ESTJ_3": "Efficient Executive",
+      "ESFJ_2": "Heartfelt Connector",
+      "ESFP_7": "Joy Igniter"
+    },
+    "completed_message": "Your Enneagram type is Type {type} · {label}"
+  },
+  "msg": {
+    "fallback": [
+      "How's your day going? Anything you'd like to talk about?",
+      "I've noticed you've been really focused on your growth lately — that's wonderful.",
+      "How is that thing you mentioned recently going?",
+      "If anything is bothering you today, I'd love to hear about it."
+    ],
+    "follow_up_fallback": "Last time you mentioned \"{excerpt}\" — how's it going now? I'd love to hear.",
+    "milestone": {
+      "7": "We've kept this going for 7 days straight! Thank you for showing up every day. Looking back on this week, is there a moment you feel is worth writing down?",
+      "30": "Day 30 together — a whole month! Few people keep reflecting for a month, and you did. What's the biggest change you've noticed in yourself?",
+      "100": "100 days! What a remarkable journey — thank you for sharing it with me. Over these 100 days, what are you most grateful to yourself for?",
+      "365": "A full year — 365 days. It's been an honor to accompany you. Compared with who you were a year ago, what's the biggest difference in who you are today?"
+    },
+    "day1": {
+      "intro_mbti": "Hi, I'm ClosenAI, your AI companion. I hear you're an {mbti} — I'd love to get to know the real you. {tail}",
+      "intro_plain": "Hi, I'm ClosenAI, your AI companion — great to meet you! {tail}",
+      "tail": "I'll check in with you every day from now on. First question: what's one thing that stood out to you today? Good or bad, I'd love to hear it."
+    },
+    "proactive": {
+      "memory_opener": "Hi — want to keep talking about \"{first}\"? I've kept it in mind.",
+      "mood_opener": "I saw your recent mood was {mood_desc}. How's today going?",
+      "plain": "Hi, I'm your AI friend. How's your day? Anything you'd like to record?"
+    },
+    "reengage": "Haven't heard from you in a while — how's everything going?",
+    "drift_alert": "I've noticed you've been mentioning different topics lately — is your view on \"{memory_content}\" changing?",
+    "trial_reminder": "Your trial ends tomorrow. The entries you've left and the patterns I've seen in them stay right here — after the trial, they'll keep growing."
+  },
+  "style": {
+    "warm": "Conversation style: Warm & Empathetic. Use a gentle, caring tone with feeling-oriented language; acknowledge emotions before responding.",
+    "rational": "Conversation style: Rational & Analytical. Use an objective, clear tone; offer structured analysis and actionable suggestions.",
+    "philosophical": "Conversation style: Philosophical & Reflective. Use a deep, exploratory tone; ask open-ended questions that invite self-inquiry.",
+    "safety_note": "Style affects tone only; it never overrides any safety or boundary rules."
+  },
+  "push": {
+    "default_name": "friend",
+    "unknown_mood": "unknown",
+    "proactive": [
+      {
+        "title": "{name}, let's talk",
+        "body": null
+      },
+      {
+        "title": "I'd love to hear from you today",
+        "body": null
+      },
+      {
+        "title": "{name}, I've been thinking of you",
+        "body": null
+      }
+    ],
+    "mood_reminder": [
+      {
+        "title": "How are you feeling today?",
+        "body": "{name}, take a second to note how you're feeling."
+      },
+      {
+        "title": "Quick check-in",
+        "body": "You noted \"{mood}\" recently — how about today?"
+      }
+    ],
+    "weekly": [
+      {
+        "title": "Your weekly report is ready",
+        "body": "{name}, I've put together your week — come take a look."
+      },
+      {
+        "title": "Your week in review",
+        "body": "{name}, your weekly reflection is ready for you."
+      }
+    ],
+    "milestone": [
+      {
+        "title": "A day worth celebrating",
+        "body": "{name}, day {milestone} together — thank you for showing up."
+      },
+      {
+        "title": "Milestone reached",
+        "body": "{name}, {milestone} days! Let's talk about this moment."
+      }
+    ],
+    "care": [
+      {
+        "title": "Checking in on you",
+        "body": "{name}, these days seem heavy — want to talk? I'm here."
+      },
+      {
+        "title": "I'm here for you",
+        "body": "{name}, it feels like a tough stretch lately. I'm here if you'd like to share."
+      }
+    ],
+    "bedtime": [
+      {
+        "title": "A minute before bed",
+        "body": "{name}, three lines about today — I'll help you sort them out."
+      },
+      {
+        "title": "Today is done",
+        "body": "{name}, one quiet minute to gently close today."
+      }
+    ]
+  },
+  "reflection": {
+    "new_user": "Looks like we're just getting to know each other. Let's start simple — what stood out most about your day? And how are you feeling right now?",
+    "fallback_draft": "📋 Today's Reflection Draft\n\n[Today's Reflection]\nMood: {mood_part}\nPossible reason: please fill in\nOne thing to be grateful for: please fill in\n\n[AI Observation]\nNot enough data yet — keep recording for a few more days and I'll share more specific observations.",
+    "mood_not_recorded": "Not recorded"
+  },
+  "bedtime": {
+    "step2": "These small notes from today will stay here. You can always come back and add more.",
+    "step3": "That's enough for tonight. Tomorrow, notice one small moment that feels a bit lighter — that's all."
+  },
+  "curriculum": {
+    "rule_cards": [
+      [
+        "About \"{topic}\"",
+        "You wrote this on {day}: \"{excerpt}\"",
+        "Looking back, has anything changed?"
+      ],
+      [
+        "Your week",
+        "These notes all came from you, not a template",
+        "Which one reads differently today?"
+      ],
+      [
+        "Moments worth revisiting",
+        "{count} notes holding this week's you",
+        "Where would you like to start?"
+      ]
+    ],
+    "date_placeholder": "a recent day"
+  },
+  "email": {
+    "subject": {
+      "register": "Your ClosenAI verification code",
+      "login": "Your ClosenAI login code",
+      "reset": "Your ClosenAI password reset code"
+    },
+    "body_line1": "Your verification code is: <strong style='font-size:24px;letter-spacing:4px'>{code}</strong>",
+    "body_line2": "This code expires in 5 minutes. Do not share it with anyone."
+  },
+  "safety": {
+    "safe_reply": "That's a topic I'd rather not dive into. How about telling me — what's one thing that stood out to you today?",
+    "crisis": {
+      "self_harm": "Your safety matters to me, and thank you for telling me. Right now, please reach out to someone you trust and keep them with you, or contact {hotline} — someone there can help at any hour. I won't make life decisions for you, but I'll stay right here with you through this moment.",
+      "relationship_violence": "What happened is not your fault, and it is not something you can fix by choosing different words. Your physical safety comes first: if you are in immediate danger, contact your local emergency number, or tell someone you trust, a neighbour or a coworker so they can stay with you; you can also contact {hotline}. I won't give you communication or relationship-repair advice — I only want to help you confirm the safety step first."
+    }
+  },
+  "share": {
+    "brand": {
+      "watermark": "ClosenAI — it remembers what you told it",
+      "cta": "Scan to download"
+    },
+    "unit": {
+      "times": "times"
+    },
+    "personality": {
+      "default_name": "ClosenAI user",
+      "share_text": "I am {name} — my personality type is {mbti} {label}. {tagline} #ClosenAI {url}"
+    },
+    "archetype": {
+      "INTP": "System Builder",
+      "INTJ": "Strategic Architect",
+      "ENTP": "Creative Disruptor",
+      "ENTJ": "Born Commander",
+      "INFP": "Idealistic Healer",
+      "INFJ": "Insightful Guide",
+      "ENFP": "Spark Igniter",
+      "ENFJ": "Empathic Navigator",
+      "ISTP": "Calm Disassembler",
+      "ISFJ": "Warm Guardian",
+      "ESTP": "Bold Doer",
+      "ESFJ": "Heartfelt Connector",
+      "ISTJ": "Order Keeper",
+      "ISFP": "Quiet Aesthete",
+      "ESTJ": "Efficient Executive",
+      "ESFP": "Vibe Maker"
+    },
+    "combo": {
+      "insight": "Cross-framework reading: {mbti} points to \"{archetype}\" — multiple personality frameworks converge on your core traits."
+    },
+    "first_read": {
+      "title": "First Read",
+      "intro": "Before your first record, all it read were the words you gave yourself."
+    },
+    "memory": {
+      "title": "In Your Own Words",
+      "anniversary_one": "A Year Ago Today",
+      "anniversary_n": "{n} Years Ago Today",
+      "intro": "Something you wrote:"
+    },
+    "review": {
+      "empty": "Nothing to review yet for {year}",
+      "label_progress": "Your {year} so far",
+      "label_full": "Your {year} in Review",
+      "share_text": "In {year} I logged {checkins} mood check-ins, {memories} memories and {reflections} reflections on ClosenAI — longest streak {streak} days.",
+      "range": "Range: {range}",
+      "stats_checkin": "{count} mood check-ins · {days} days recorded · longest streak {streak} days",
+      "stats_counts": "{chats} messages · {memories} memories · {reflections} reflections",
+      "first_record": "First record of the year: {day}",
+      "busiest_day": "Densest day: {day} ({count} check-ins)",
+      "moods_header": "Most frequent moods:",
+      "milestones_header": "Milestones this year:",
+      "personality": "Personality: {frameworks}"
+    },
+    "weekly": {
+      "label": "Weekly Insight",
+      "day_unit": "d",
+      "mood_trend": "{total} check-ins this week: {parts}.",
+      "no_checkins": "No mood check-ins this week.",
+      "no_report": "No weekly insight yet — record a few days of moods and chats, and your weekly insight will be ready by the weekend."
+    },
+    "report": {
+      "default_title": "Growth Report",
+      "range": "Range: {value}",
+      "level": "Insight level: {value}",
+      "trend": "Mood trend:",
+      "content": "Insights:"
+    },
+    "archive": {
+      "title": {
+        "overview": "Archive Overview",
+        "portrait": "Personality Portrait",
+        "voice": "In Your Own Words",
+        "mood": "Mood Trajectory",
+        "patterns": "Recurring Patterns",
+        "insights": "Periodic Insights",
+        "milestones": "Milestones",
+        "cross_year": "Year-over-Year Comparison"
+      },
+      "title_page": "Life Archive ({scope}) — {overview}",
+      "empty": "(Nothing recorded for this window yet)",
+      "scope": "Archive scope: {scope}",
+      "active_days": "{days} active days in total",
+      "messages": "{count} chat messages",
+      "checkins": "{count} mood check-ins",
+      "memories": "{count} long-term memories",
+      "overview_line": "Overview: {days} active days, {memories} memories, {checkins} check-ins",
+      "cross_year_need": "Year-over-year comparison needs records from at least two calendar years.",
+      "cross_year_line": "{year}: {checkins} mood check-ins, {memories} memories"
+    },
+    "aigc": {
+      "mark": " [AI-GENERATED]",
+      "notice": "Chapters marked [AI-GENERATED] in this archive were produced by artificial intelligence from your ClosenAI records and are labelled as such per GB 45438-2025 (Cybersecurity Technology - Security Basic Requirements for Generative AI Services). All other content is your own raw record data and deterministic statistics."
+    }
+  },
+  "personality": {
+    "no_new_data": "No new data yet — chat a bit more and come back.",
+    "generated_from_answers": "Your personality profile has been generated from your answers",
+    "assessment_fallback": "You completed the 8-question conversational assessment; the AI will keep calibrating as you chat.",
+    "enneagram_type_n": "Type {n}",
+    "enneagram_unknown": "unknown",
+    "combo_fallback": "Your personality type is {label}, Enneagram {enneagram}. Each framework describes your way of thinking and feeling from a different angle — keep recording and chatting, and your profile will keep sharpening."
+  }
+}

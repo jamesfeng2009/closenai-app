@@ -1,13 +1,15 @@
 """enneagram_service：题库结构、计分定型、断点续答、完成落库、配额隔离、关联表。"""
 import pytest
 
+from backend.core import copy as copy_lib
+from backend.core.copy import SUPPORTED_LOCALES
 from backend.core.errors import AppException
 from backend.models.schemas import AssessmentAnswerRequest
 from backend.repositories import personality_repository, user_repository
 from backend.services.enneagram_service import (
-    ENNEAGRAM_LABELS,
     ENNEAGRAM_QUESTIONS,
     ENNEAGRAM_TOTAL,
+    VALID_TYPES,
     combo_name_for,
     enneagram_label_for,
     enneagram_service,
@@ -19,21 +21,23 @@ from backend.services.personality_service import personality_service
 
 
 def test_question_bank_structure():
-    """36 题 = 9 型 × 4 题；回合制交错（第 i 题归属 i%9+1 型）。"""
+    """36 题 = 9 型 × 4 题；回合制交错（第 i 题归属 i%9+1 型）；题面 15 语言齐全。"""
     assert ENNEAGRAM_TOTAL == 36
     for i, q in enumerate(ENNEAGRAM_QUESTIONS):
         assert q["type"] == str(i % 9 + 1)
-    # 每型 4 题、三语齐全
+    # 每型 4 题、15 语言题面齐全（文案库 enneagram.q.*）
     for t in "123456789":
         typed = [q for q in ENNEAGRAM_QUESTIONS if q["type"] == t]
         assert len(typed) == 4
         for q in typed:
-            assert q["text"]["zh"] and q["text"]["en"] and q["text"]["id"]
+            for loc in SUPPORTED_LOCALES:
+                text = copy_lib.t("enneagram", q["key"], loc)
+                assert text and text != q["key"], f"{q['key']}/{loc} 题面缺失"
 
 
 def test_labels_cover_all_types_three_languages():
     """9 型标签 zh/en/id 齐全；未知类型返回 None。"""
-    assert set(ENNEAGRAM_LABELS) == set("123456789")
+    assert set(VALID_TYPES) == set("123456789")
     assert enneagram_label_for("5", "zh") == "探索者"
     assert enneagram_label_for("5", "en") == "Investigator"
     assert enneagram_label_for("5", "id") == "Penyelidik"

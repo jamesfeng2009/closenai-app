@@ -26,6 +26,7 @@ from backend.models.schemas import MilestoneItem, UserProfileResponse, UserSetti
 from backend.models.push import PushToken
 from backend.models.share import ShareExport
 from backend.models.subscription import Receipt, Subscription
+from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
 from backend.core.logging import get_logger
 from backend.models.auth import RefreshToken
@@ -45,22 +46,6 @@ logger = get_logger("closenai.user")
 
 # 前端平台 → 推送通道映射（PushService 按 apns/fcm 分发）
 PLATFORM_MAP = {"ios": "apns", "android": "fcm", "apns": "apns", "fcm": "fcm"}
-
-
-def _merge_level_unlocks(rewards: dict, features: dict) -> dict:
-    """合成等级展示表：情感回报在前、功能解锁在后（PRD §5.15a）。
-
-    两处单独维护会漂移（等级页与升级庆祝读同一张表），因此只在此合并一次。
-    """
-    merged = {}
-    for level, feats in features.items():
-        reward = rewards.get(level)
-        merged[level] = {
-            "zh": ([reward["zh"]] if reward else []) + list(feats["zh"]),
-            "en": ([reward["en"]] if reward else []) + list(feats["en"]),
-        }
-    return merged
-
 
 
 class UserService:
@@ -84,79 +69,22 @@ class UserService:
         4: "至交 L4",
     }
 
-    # 等级名称双语展示表（DB 存中文规范名，展示按语言本地化）
-    LEVEL_NAMES = {
-        1: {"zh": "初识 L1", "en": "Acquainted L1"},
-        2: {"zh": "熟悉 L2", "en": "Familiar L2"},
-        3: {"zh": "知己 L3", "en": "Confidant L3"},
-        4: {"zh": "至交 L4", "en": "Kindred L4"},
-    }
+    # 等级名称 15 语言展示表（文案库 levels.*；DB 存中文规范名 RELATIONSHIP_LEVELS 仅作内部口径）
+    # 见 backend/data/copy/{locale}.json 的 levels 段（PRD P0-F05 等级表）。
 
-    # 各等级功能解锁（PRD P0-F05 §1 等级表，双语）。展示表由 LEVEL_UNLOCKS 合成。
-    LEVEL_FEATURE_UNLOCKS = {
-        1: {
-            "zh": ["基础对话", "情绪签到"],
-            "en": ["Basic conversations", "Mood check-in"],
-        },
-        2: {
-            "zh": ["AI 主动跟进", "记忆引用"],
-            "en": ["Proactive AI follow-ups", "Memory references"],
-        },
-        3: {
-            "zh": ["深度性格分析", "模式发现", "AI 周报"],
-            "en": ["Deep personality analysis", "Pattern discovery", "AI weekly report"],
-        },
-        4: {
-            "zh": ["季度性格深度报告", "预测性洞察", "深度反思模式"],
-            "en": ["Quarterly personality deep report", "Predictive insights", "Deep reflection mode"],
-        },
-    }
-
-    # §5.15a 等级情感回报（PRD：原 LEVEL_UNLOCKS 四级全是功能、零情感回报，
-    # 用户熬到 L4 拿到的是工具逻辑而不是"关系变了"）。三项均复用已实现能力：
-    # L2 记忆引用、L3 分享导出（Monthly Story）、L4 叙事长文。
-    # key 是 journey_events(kind=level_reward) 的渲染分派键，由剧本调度管线按 key 出正文。
-    LEVEL_REWARDS = {
-        2: {
-            "key": "memory_echo",
-            "zh": "AI 第一次提起你说过的事",
-            "en": "AI brings up something you once said",
-        },
-        3: {
-            "key": "monthly_story_preview",
-            "zh": "首份 Monthly Story 预览",
-            "en": "Your first Monthly Story preview",
-        },
-        4: {
-            "key": "letter_90d",
-            "zh": "一封 90 天的信：这 90 天我看到的你",
-            "en": "A 90-day letter: the you I've seen",
-        },
-    }
-
-    # 展示用解锁表 = 情感回报（首位）+ 功能项。情感回报排最前是刻意的：
-    # §5.15a 的目的就是让升级那一刻先看到"关系"，再看到"功能"。
-    LEVEL_UNLOCKS = _merge_level_unlocks(LEVEL_REWARDS, LEVEL_FEATURE_UNLOCKS)
-
-    # 等级页说明文字（PRD P0-F05 验收：所有等级名称无恋爱含义，等级页有说明文字）
-    LEVEL_NOTE = {
-        "zh": "所有等级名称均形容 AI 对你的理解深度，不涉及恋爱关系。",
-        "en": "All level names describe how well the AI understands you — they are not romantic.",
+    # §5.15a 等级情感回报的 journey 渲染分派键（文案 levels.reward.* 由文案库按语言出）
+    LEVEL_REWARD_KEYS = {
+        2: "memory_echo",
+        3: "monthly_story_preview",
+        4: "letter_90d",
     }
 
     # 升级所需累计活跃天数（PRD P0-F05：L1 0-6 / L2 7-29 / L3 30-89 / L4 90+）
     LEVEL_THRESHOLDS = {1: 0, 2: 7, 3: 30, 4: 90}
 
-    # 里程碑徽章（PRD P0-F05：连续 7/30/100/365 天，判定依据 streak 连续天数）
+    # 里程碑徽章（PRD P0-F05：连续 7/30/100/365 天，判定依据 streak 连续天数；
+    # 徽章名 15 语言走文案库 levels.milestone.*）
     MILESTONE_DAYS = {"streak_7": 7, "streak_30": 30, "streak_100": 100, "streak_365": 365}
-
-    # 徽章名称双语（PRD P0-F05：7 天"一周坚持"、30 天"月度知己"；100/365 沿用 P0-F07 §3 里程碑语义）
-    MILESTONE_NAMES = {
-        "streak_7": {"zh": "一周坚持", "en": "7-Day Streak"},
-        "streak_30": {"zh": "月度知己", "en": "30-Day Confidant"},
-        "streak_100": {"zh": "百日相伴", "en": "100 Days Together"},
-        "streak_365": {"zh": "周年挚友", "en": "One-Year Companion"},
-    }
 
     # Streak 冻结券月度配额（PRD P0-F05：免费每月 1 张，Pro 每月 3 张）
     FREEZE_MONTHLY_QUOTA = {"free": 1, "pro": 3, "pro_plus": 3}
@@ -510,19 +438,33 @@ class UserService:
         return level, label, min(progress, 1.0)
 
     def level_label(self, level: int, language: str | None = None) -> str:
-        """等级名称按语言本地化（zh* 中文，其余英文）。"""
-        lang = "zh" if (language or "").startswith("zh") else "en"
-        return self.LEVEL_NAMES.get(level, self.LEVEL_NAMES[1])[lang]
+        """等级名称按语言本地化（15 语言文案库）。"""
+        return copy.t("levels", f"name.{level}", language)
 
     def milestone_name(self, milestone_type: str, language: str | None = None) -> str:
         """徽章名称按语言本地化；未知类型回退原始类型串。"""
-        lang = "zh" if (language or "").startswith("zh") else "en"
-        return self.MILESTONE_NAMES.get(milestone_type, {}).get(lang, milestone_type)
+        if milestone_type not in self.MILESTONE_DAYS:
+            return milestone_type
+        return copy.t("levels", f"milestone.{milestone_type}", language)
+
+    def reward_text(self, level: int, language: str | None = None) -> str | None:
+        """§5.15a 情感回报文案（无回报的等级返回 None，不走键名兜底）。"""
+        if level not in self.LEVEL_REWARD_KEYS:
+            return None
+        return copy.t("levels", f"reward.{level}", language)
+
+    def level_unlocks(self, level: int, language: str | None = None) -> list:
+        """等级展示用解锁表：情感回报在前、功能解锁在后（PRD §5.15a）。
+
+        两处单独维护会漂移（等级页与升级庆祝读同一张表），因此只在此合成一次。
+        """
+        reward = self.reward_text(level, language)
+        features = copy.t_list("levels", f"features.{level}", language)
+        return ([reward] if reward else []) + list(features)
 
     def get_level_info(self, active_days: int, language: str | None = None) -> dict:
         """当前等级信息（本地化名称 + 进度 + 解锁能力 + 情感回报 + 升级剩余天数）。"""
         level, _canonical, progress = self.get_relationship_level(active_days)
-        lang = "zh" if (language or "").startswith("zh") else "en"
         next_threshold = self.LEVEL_THRESHOLDS.get(level + 1)
         return {
             "level": level,
@@ -531,8 +473,8 @@ class UserService:
             "active_days": active_days,
             "next_threshold": next_threshold,
             "days_to_next": (next_threshold - active_days) if next_threshold else 0,
-            "unlocks": self.LEVEL_UNLOCKS[level][lang],
-            "reward": self.LEVEL_REWARDS.get(level, {}).get(lang),
+            "unlocks": self.level_unlocks(level, language),
+            "reward": self.reward_text(level, language),
         }
 
     async def get_level_detail(
@@ -540,7 +482,6 @@ class UserService:
     ) -> dict:
         """等级页数据（PRD P0-F05）：当前等级 + 全部等级/解锁能力表 + 无恋爱含义说明。"""
         user = await self._require_user(db, user_id)
-        lang = "zh" if (language or "").startswith("zh") else "en"
         return {
             "current": self.get_level_info(user.active_days, language),
             "levels": [
@@ -548,14 +489,14 @@ class UserService:
                     "level": lv,
                     "label": self.level_label(lv, language),
                     "threshold": self.LEVEL_THRESHOLDS[lv],
-                    "unlocks": self.LEVEL_UNLOCKS[lv][lang],
+                    "unlocks": self.level_unlocks(lv, language),
                     # §5.15a：等级页要能看出这一级"关系上"得到什么，而不只有功能
-                    "reward": self.LEVEL_REWARDS.get(lv, {}).get(lang),
+                    "reward": self.reward_text(lv, language),
                     "reached": user.active_days >= self.LEVEL_THRESHOLDS[lv],
                 }
                 for lv in sorted(self.LEVEL_THRESHOLDS)
             ],
-            "note": self.LEVEL_NOTE[lang],
+            "note": copy.t("levels", "note", language),
         }
 
     async def _celebrate_level_up(
@@ -575,32 +516,22 @@ class UserService:
         language = user.language or "en"
         zh = (language or "").startswith("zh")
         info = self.get_level_info(active_days, language)
-        reward = self.LEVEL_REWARDS.get(level)
-        if reward is not None:
-            reward_text = reward["zh"] if zh else reward["en"]
-        else:
-            reward_text = None
+        reward_key = self.LEVEL_REWARD_KEYS.get(level)
+        reward_text = self.reward_text(level, language) if reward_key else None
         functional = [
             item for item in info["unlocks"] if reward_text is None or item != reward_text
         ]
-        if zh:
-            text = (
-                f"🎉 经过 {active_days} 天的陪伴，我们的关系升级为「{info['label']}」！"
-                f"新解锁能力：{'、'.join(functional)}。"
-            )
-            if reward_text:
-                text += f"它会开始做一件事：{reward_text}。"
-        else:
-            text = (
-                f"🎉 After {active_days} days together, our connection has grown to "
-                f"\"{info['label']}\"! Newly unlocked: {', '.join(functional)}."
-            )
-            if reward_text:
-                text += f" And from now on: {reward_text}."
+        # 列表连接符是纯标点，代码侧二值；句式文案走文案库（levels.celebrate.*）
+        sep = "、" if zh else ", "
+        text = copy.t("levels", "celebrate.body", language).format(
+            days=active_days, label=info["label"], unlocks=sep.join(functional)
+        )
+        if reward_text:
+            text += copy.t("levels", "celebrate.reward", language).format(reward=reward_text)
         await chat_repository.create(
             db, user.id, "assistant", text, message_type="level_up", ai_generated=False
         )
-        if reward is not None:
+        if reward_key is not None:
             await journey_repository.schedule(
                 db,
                 user_id=user.id,
@@ -610,7 +541,7 @@ class UserService:
                 payload={
                     "level": level,
                     "label": info["label"],
-                    "reward_key": reward["key"],
+                    "reward_key": reward_key,
                     "active_days": active_days,
                     "language": language,
                 },
@@ -620,7 +551,7 @@ class UserService:
             "label": info["label"],
             "unlocks": info["unlocks"],
             "reward": reward_text,
-            "reward_key": reward["key"] if reward else None,
+            "reward_key": reward_key,
             "message": text,
         }
 

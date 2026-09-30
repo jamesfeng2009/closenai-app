@@ -8,10 +8,12 @@
 import json
 import logging
 from datetime import date, timedelta, timezone
+from typing import List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.time_utils import (
@@ -99,39 +101,29 @@ def tag_record_content(content: str) -> list[str]:
     return [tag for tag, kws in RECORD_TAG_RULES.items() if any(kw.lower() in text for kw in kws)]
 
 
-# 高频标签 → 话题推荐文案（P0-F07 §4：洞察标签 → 话题推荐）
-TOPIC_SUGGESTIONS = {
-    "情绪": {"zh": "聊聊最近的情绪变化", "en": "Talk about how your mood has been lately"},
-    "关系": {"zh": "聊聊最近的人际相处", "en": "Talk about your recent relationships"},
-    "工作": {"zh": "聊聊工作上的近况与压力", "en": "Talk about how work is going"},
-    "目标": {"zh": "聊聊目标的最新进展", "en": "Talk about progress on your goals"},
-    "沟通": {"zh": "聊聊最近的沟通困扰", "en": "Talk about recent communication challenges"},
-    "成长": {"zh": "聊聊最近的成长与收获", "en": "Talk about your recent growth"},
+# 高频标签 → 话题推荐文案已迁文案库 growth.topic.*（15 语言，core/copy.py）。
+# 中文标签（PRD 规范名）→ 文案库键映射；未收录标签回退显示标签原文。
+_TOPIC_KEYS = {
+    "情绪": "mood",
+    "关系": "relationship",
+    "工作": "work",
+    "目标": "goal",
+    "沟通": "communication",
+    "成长": "growth",
 }
 
-# 反哺上下文中的记录类型标注（按语言）
-INSIGHT_TYPE_LABELS = {
-    "zh": {
-        "daily_insight": "每日洞察",
-        "weekly_summary": "周报",
-        "pattern_discovery": "模式发现",
-        "drift_alert": "变化提醒",
-        "weekly_report": "周报",
-        "monthly_report": "月度报告",
-        "quarterly_report": "季度报告",
-        "yearly_report": "年度报告",
-    },
-    "en": {
-        "daily_insight": "Daily insight",
-        "weekly_summary": "Weekly summary",
-        "pattern_discovery": "Pattern discovery",
-        "drift_alert": "Drift alert",
-        "weekly_report": "Weekly report",
-        "monthly_report": "Monthly report",
-        "quarterly_report": "Quarterly report",
-        "yearly_report": "Yearly report",
-    },
-}
+# 反哺上下文中的记录类型标注（15 语言文案库 growth.insight_type.*，core/copy.py）
+_INSIGHT_TYPE_KEYS = (
+    "daily_insight", "weekly_summary", "pattern_discovery", "drift_alert",
+    "weekly_report", "monthly_report", "quarterly_report", "yearly_report",
+)
+
+
+def insight_type_label(record_type: str, language: str | None) -> str:
+    """记录类型 → 本地化标注（未知类型回退原始类型串，与里程碑名同口径）。"""
+    if record_type not in _INSIGHT_TYPE_KEYS:
+        return record_type
+    return copy.t("growth", f"insight_type.{record_type}", language)
 
 
 class GrowthService:
@@ -198,6 +190,7 @@ class GrowthService:
             mbti_type=user.mbti_type,
             milestones=milestones,
             streak_freeze_count=user.streak_freeze_count,
+            is_pro=user.tier != FREE_TIER,
         )
 
     def _local_date(self, dt, tz: str | None = None):
@@ -218,6 +211,9 @@ class GrowthService:
             level=self._insight_level(user_id, chat_count),
             content=weekly.content if weekly else None,
             period=weekly.created_at.strftime("%Y-%m-%d") if weekly else "",
+            related_memory_ids=(
+                weekly.related_memory_ids.split(",") if weekly and weekly.related_memory_ids else None
+            ),
         )
 
     async def get_recent_insights_context(
@@ -239,9 +235,8 @@ class GrowthService:
         if not records:
             return ""
         zh = _is_zh(language)
-        labels = INSIGHT_TYPE_LABELS["zh" if zh else "en"]
         lines = [
-            f"- [{labels.get(r.record_type, r.record_type)} "
+            f"- [{insight_type_label(r.record_type, language)} "
             f"{self._local_date(r.created_at, tz).isoformat()}] {r.content}"
             for r in records
         ]
@@ -365,12 +360,11 @@ class GrowthService:
                 "created_at": m.achieved_at.isoformat() if m.achieved_at else None,
             })
         records = await growth_repository.list_recent(db, user_id, days=365, limit=limit)
-        labels = INSIGHT_TYPE_LABELS["zh" if _is_zh(language) else "en"]
         for r in records:
             events.append({
                 "type": "record",
                 "record_type": r.record_type,
-                "title": labels.get(r.record_type, r.record_type),
+                "title": insight_type_label(r.record_type, language),
                 "content": r.content,
                 "tags": self._record_tags(r),
                 "date": self._local_date(r.created_at, user.timezone).isoformat(),
@@ -446,7 +440,7 @@ class GrowthService:
         # 预测性洞察：下周预测段（失败安全省略，不影响周报主体）
         forecast = await self._generate_next_week_forecast(db, user_id, user.timezone, language)
         if forecast:
-            label = "下周预测" if _is_zh(language) else "Next week forecast"
+            label = copy.t("growth", "forecast_label", language)
             content = f"{content}\n\n【{label}】{forecast}"
 
         # Insight Level 按累计对话量晋升（P1-F03 §1）
@@ -458,8 +452,15 @@ class GrowthService:
             "forecast": forecast,
         }
         tags = tag_record_content(f"{content} {rec_desc}")
+        # 回链证据：本周各记录已引用的记忆 ID 并集（去重，截前 5 条，与 reflection 同口径）
+        ref_ids: List[str] = []
+        for r in records:
+            for mid in (r.related_memory_ids or "").split(","):
+                if mid and mid not in ref_ids:
+                    ref_ids.append(mid)
         await growth_repository.create(
             db, user_id, "weekly_summary", content,
+            related_memory_ids=ref_ids[:5],
             tags=tags,
             metadata_json=json.dumps(metadata, ensure_ascii=False),
         )
@@ -545,9 +546,12 @@ class GrowthService:
         for r in records:
             for t in self._record_tags(r):
                 counts[t] = counts.get(t, 0) + 1
-        lang = "zh" if _is_zh(language) else "en"
         return [
-            {"tag": t, "count": c, "topic": TOPIC_SUGGESTIONS.get(t, {}).get(lang, t)}
+            {
+                "tag": t,
+                "count": c,
+                "topic": copy.t("growth", f"topic.{_TOPIC_KEYS[t]}", language) if t in _TOPIC_KEYS else t,
+            }
             for t, c in sorted(counts.items(), key=lambda x: -x[1])[:limit]
         ]
 
@@ -632,21 +636,8 @@ class GrowthService:
         await growth_repository.mark_follow_up_sent(db, record_id)
 
     # ── P1-F03 高级洞察（周期报告）──
-
-    PERIOD_LABELS = {
-        "zh": {
-            "weekly": "每周洞察",
-            "monthly": "月度报告",
-            "quarterly": "季度深度报告",
-            "yearly": "年度人生报告",
-        },
-        "en": {
-            "weekly": "Weekly Insight",
-            "monthly": "Monthly Report",
-            "quarterly": "Quarterly Deep-Dive Report",
-            "yearly": "Yearly Life Report",
-        },
-    }
+    # 报告周期名称（15 语言文案库 growth.period.*，core/copy.py）
+    _PERIOD_KEYS = ("weekly", "monthly", "quarterly", "yearly")
 
     async def generate_report(
         self, db: AsyncSession, user_id: str, period: str, language: str = "en"
@@ -789,9 +780,10 @@ class GrowthService:
             return self._fallback_report(data, language)
 
     def _period_label(self, period: str, language: str | None = None) -> str:
-        """报告周期名称（按语言）。"""
-        labels = self.PERIOD_LABELS["zh" if _is_zh(language) else "en"]
-        return labels.get(period, "报告" if _is_zh(language) else "Report")
+        """报告周期名称（按语言；未知周期回退文案库 growth.period.fallback）。"""
+        if period not in self._PERIOD_KEYS:
+            return copy.t("growth", "period.fallback", language)
+        return copy.t("growth", f"period.{period}", language)
 
     def _mood_distribution(self, checkins, language: str | None = None) -> dict:
         """统计情绪分布（按标签计数，标签按语言）。"""
@@ -804,13 +796,13 @@ class GrowthService:
 
     def _mood_trend_text(self, dist: dict, language: str | None = None) -> str:
         if not dist:
-            return "该时段暂无情绪签到。" if _is_zh(language) else "No mood check-ins in this period."
+            return copy.t("growth", "mood_trend.empty", language)
         total = sum(dist.values())
-        if _is_zh(language):
-            parts = [f"{k} {v}天" for k, v in sorted(dist.items(), key=lambda x: -x[1])]
-            return f"共 {total} 次签到，分布：{'，'.join(parts)}。"
-        parts = [f"{k} {v}d" for k, v in sorted(dist.items(), key=lambda x: -x[1])]
-        return f"{total} check-ins in total: {', '.join(parts)}."
+        # 分隔符为纯标点（非文案），zh 与其余语言二值；单位天数为带语言差异的文案键
+        sep = "，" if _is_zh(language) else ", "
+        unit = copy.t("growth", "mood_trend.unit", language)
+        parts = [f"{k} {v}{unit}" for k, v in sorted(dist.items(), key=lambda x: -x[1])]
+        return copy.t("growth", "mood_trend.body", language).format(total=total, parts=sep.join(parts))
 
     def _negative_weekday(self, checkins, tz: str | None = None) -> str:
         """负面情绪（值<=2）出现的星期分布（按用户本地日历日）。"""
@@ -845,47 +837,27 @@ class GrowthService:
 
     def _fallback_report(self, data: dict, language: str | None = None) -> str:
         checkins = sum(data['mood_distribution'].values()) if data['mood_distribution'] else 0
-        if _is_zh(language):
-            return (
-                f"这段时间你累计签到 {checkins} 次，"
-                f"对话 {data['chat_count']} 次。你正在一点点更了解自己，继续记录，模式会逐渐浮现。"
-            )
-        return (
-            f"Over this period you checked in {checkins} times and had "
-            f"{data['chat_count']} conversations. You're getting to know yourself bit by bit — "
-            "keep recording and patterns will gradually emerge."
+        return copy.t("growth", "fallback_report", language).format(
+            checkins=checkins, chat_count=data['chat_count']
         )
 
     def _fallback_pattern(self, mood_desc: str, language: str | None = None) -> str:
-        if _is_zh(language):
-            return f"基于你的情绪记录（{mood_desc}），你正在慢慢建立对自我状态的觉察。继续记录，AI 会帮你发现更多模式。"
-        return (
-            f"Based on your mood records ({mood_desc}), you're gradually building awareness "
-            "of your own state. Keep recording and the AI will help you discover more patterns."
-        )
+        return copy.t("growth", "fallback_pattern", language).format(mood_desc=mood_desc)
 
     async def _llm_or_fallback(self, prompt: str, language: str) -> str:
-        """LLM 生成，失败回退规则模板（模板按语言）。
+        """LLM 生成，失败回退规则模板（模板走文案库 growth.generic_fallback*）。
 
         成长洞察/周报/主题卡都走这里：统一注入 L1 段落（boundary + evidence_policy），
         输出统一过 L3（断言型 scope），命中同样回退规则模板。
         """
-        zh = _is_zh(language)
-        fallback = (
-            "这段时间你正在慢慢更了解自己，继续记录，模式会浮现。" if zh
-            else "You're slowly getting to know yourself better these days. "
-                 "Keep recording and patterns will surface."
-        )
+        fallback = copy.t("growth", "generic_fallback", language)
         full_prompt = (
             f"{prompt}\n\n{safety_service.boundary(language)}\n"
             f"{safety_service.evidence_policy(language)}"
         )
         try:
             text = await llm.complete(full_prompt, language=language, lite=True, max_tokens=200)
-            text = text.strip() or (
-                "你正在一点点理解自己，继续记录吧。" if zh
-                else "You're understanding yourself bit by bit — keep recording."
-            )
+            text = text.strip() or copy.t("growth", "generic_fallback_short", language)
             return await safety_service.check_or(text, language, fallback, scope="assertion")
         except Exception as exc:  # noqa: BLE001
             logger.warning("成长洞察 LLM 失败，回退模板: %s", exc)
@@ -908,8 +880,7 @@ class GrowthService:
         return colors
 
     async def _growth_metrics(self, db, user_id, mood_timeline, cat_counts, language: str | None = None) -> GrowthMetrics:
-        """6 维成长指标（由情绪 + 记忆派生，默认方案；标签按语言）。"""
-        zh = _is_zh(language)
+        """6 维成长指标（由情绪 + 记忆派生，默认方案；标签走文案库 growth.metric.*）。"""
         recent = await mood_repository.get_recent(db, user_id, limit=14)
         values = [self._emoji_value(r.mood_emoji) for r in recent]
         # get_recent 按时间倒序：前 7 条为"近 7 天"，后 7 条为"前 7 天"
@@ -924,22 +895,22 @@ class GrowthService:
         goal_count = cat_counts.get("goal", 0)
         curiosity_count = cat_counts.get("preference", 0) + cat_counts.get("values", 0)
 
+        def metric(key: str, count: int) -> str:
+            text = copy.t("growth", f"metric.{key}.{'count' if count else 'none'}", language)
+            return text.format(count=count) if count else text
+
         return GrowthMetrics(
             emotion=self._emotion_label(avg_recent, language),
             emotion_change=emotion_change,
-            social=(f"{rel_count} 段关系" if rel_count else "建立联系") if zh
-                else (f"{rel_count} relationships" if rel_count else "Building connections"),
+            social=metric("social", rel_count),
             social_change="+",
             confidence=self._confidence_label(avg_recent, negative_ratio, language),
             confidence_change="-",
-            stress=(f"{negative_ratio}% 压力" if negative_ratio else "状态平稳") if zh
-                else (f"{negative_ratio}% stress" if negative_ratio else "Steady"),
+            stress=metric("stress", negative_ratio),
             stress_change=float(negative_ratio),
-            curiosity=(f"{curiosity_count} 个探索点" if curiosity_count else "探索中") if zh
-                else (f"{curiosity_count} explorations" if curiosity_count else "Exploring"),
+            curiosity=metric("curiosity", curiosity_count),
             curiosity_change="+",
-            goals=(f"{goal_count} 个目标" if goal_count else "规划中") if zh
-                else (f"{goal_count} goals" if goal_count else "Planning"),
+            goals=metric("goals", goal_count),
             goals_change="+",
         )
 
@@ -948,35 +919,31 @@ class GrowthService:
         return MOOD_MAP.get(emoji, (None, 3))[1]
 
     def _emotion_label(self, avg: float, language: str | None = None) -> str:
-        zh = _is_zh(language)
         if avg >= 4:
-            return "开心" if zh else "Happy"
+            return copy.t("growth", "emotion.high", language)
         if avg >= 3:
-            return "平稳" if zh else "Steady"
+            return copy.t("growth", "emotion.mid", language)
         if avg > 0:
-            return "低落" if zh else "Low"
-        return "待记录" if zh else "No data yet"
+            return copy.t("growth", "emotion.low", language)
+        return copy.t("growth", "emotion.none", language)
 
     def _confidence_label(self, avg: float, negative_ratio: int, language: str | None = None) -> str:
-        zh = _is_zh(language)
         if avg >= 4 and negative_ratio < 30:
-            return "自信" if zh else "Confident"
+            return copy.t("growth", "confidence.high", language)
         if avg >= 3:
-            return "稳定" if zh else "Stable"
-        return "成长中" if zh else "Growing"
+            return copy.t("growth", "confidence.mid", language)
+        return copy.t("growth", "confidence.low", language)
 
     def _greeting(self, language: str, tz: str | None = None) -> str:
-        """按用户本地小时生成问候语（不能用服务器时区）。"""
+        """按用户本地小时生成问候语（不能用服务器时区）。走文案库 growth.greeting.*。"""
         hour = local_now(tz).hour
-        if language == "zh":
-            if hour < 6:
-                return "夜深了，还在忙吗？"
-            if hour < 12:
-                return "早上好！今天过得怎么样？"
-            if hour < 18:
-                return "下午好，记得照顾好自己。"
-            return "晚上好，今天辛苦了。"
-        return "Hello! How are you today?"
+        if hour < 6:
+            return copy.t("growth", "greeting.night", language)
+        if hour < 12:
+            return copy.t("growth", "greeting.morning", language)
+        if hour < 18:
+            return copy.t("growth", "greeting.afternoon", language)
+        return copy.t("growth", "greeting.evening", language)
 
 
 growth_service = GrowthService()

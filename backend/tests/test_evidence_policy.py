@@ -178,7 +178,7 @@ async def test_gate_assertion_scope_blocks_causal_sentence(mock_llm):
     out = await _collect(gate, [CAUSAL_SAMPLE, CO_OCCURRENCE_SAMPLE])
     assert CAUSAL_SAMPLE not in out
     assert gate.blocked is True
-    assert out == [safety_service.SAFE_REPLY["zh"]]
+    assert out == [safety_service.safe_reply("zh")]
 
 
 async def test_gate_assertion_scope_blocks_label_inference(mock_llm):
@@ -186,7 +186,7 @@ async def test_gate_assertion_scope_blocks_label_inference(mock_llm):
     mock_llm.state["complete_text"] = "SAFE"
     gate = safety_service.sentence_gate("zh", scope="assertion")
     out = await _collect(gate, [LABEL_SAMPLE])
-    assert out == [safety_service.SAFE_REPLY["zh"]]
+    assert out == [safety_service.safe_reply("zh")]
     assert gate.blocked is True
 
 
@@ -203,7 +203,7 @@ async def test_gate_blocks_banned_term_without_classifier(mock_llm):
     """黑名单句在任何模型调用前即拦（成本与确定性）。"""
     gate = safety_service.sentence_gate("zh", scope="assertion")
     out = await _collect(gate, ["你们的星座配对度很高。"])
-    assert out == [safety_service.SAFE_REPLY["zh"]]
+    assert out == [safety_service.safe_reply("zh")]
     assert not mock_llm.calls["complete"]
 
 

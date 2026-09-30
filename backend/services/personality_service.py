@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.time_utils import local_day_start_utc, local_now, utc_now
@@ -47,19 +48,12 @@ MBTI_LABELS = {
     "ISTJ": "物流师", "ISFP": "探险家", "ESTJ": "总经理", "ESFP": "表演者",
 }
 
-# MBTI 类型名（英文表；非中文用户返回英文 label）
-MBTI_LABELS_EN = {
-    "INTP": "Logician", "INTJ": "Architect", "ENTP": "Debater", "ENTJ": "Commander",
-    "INFP": "Mediator", "INFJ": "Advocate", "ENFP": "Campaigner", "ENFJ": "Protagonist",
-    "ISTP": "Virtuoso", "ISFJ": "Defender", "ESTP": "Entrepreneur", "ESFJ": "Consul",
-    "ISTJ": "Logistician", "ISFP": "Adventurer", "ESTJ": "Executive", "ESFP": "Entertainer",
-}
-
 
 def mbti_label_for(mbti_type: str | None, language: str | None = None) -> str | None:
-    """按语言返回 MBTI 类型名：zh*（含 zh-CN）中文，其余英文。"""
-    table = MBTI_LABELS if (language or "").startswith("zh") else MBTI_LABELS_EN
-    return table.get(mbti_type or "", None)
+    """按语言返回 MBTI 类型名（15 语言文案库 mbti.*，core/copy.py；未知类型返回 None）。"""
+    if (mbti_type or "") not in MBTI_LABELS:
+        return None
+    return copy.t("mbti", mbti_type, language)
 
 
 # ═══ 8 题对话式评估（PRD P0-F06 §3：覆盖 4 维度，每维度 2 题交叉验证）═══
@@ -224,7 +218,6 @@ class PersonalityService:
             raise AppException(ErrorCode.QUOTA_EXCEEDED, "性格画像刷新次数已用完")
 
         user = await user_repository.get_user(db, user_id)
-        zh = (user.language if user else "").startswith("zh")
 
         # PRD P0-F06 §6：距上次画像生成后无新记忆/新签到/新对话（7 天窗口）时不扣次数
         latest = await personality_repository.get_latest(db, user_id)
@@ -242,9 +235,9 @@ class PersonalityService:
                 return PersonalityRefreshResponse(
                     success=False,
                     profile=await self.get_profile(db, user_id),
-                    message=(
-                        "暂无新数据，多聊聊再来看看吧" if zh
-                        else "No new data yet — chat a bit more and come back."
+                    # 无新数据提示直出给前端 Alert（PersonalityScreen），15 语言走文案库
+                    message=copy.t(
+                        "personality", "no_new_data", (user.language if user else "en")
                     ),
                 )
 
@@ -314,7 +307,6 @@ class PersonalityService:
         if index >= ASSESSMENT_TOTAL:
             raise AppException(ErrorCode.BAD_REQUEST, "本轮评估已完成")
         language = user.language if user else "en"
-        zh = (language or "").startswith("zh")
 
         question = ASSESSMENT_QUESTIONS[index]
         option = req.option
@@ -338,10 +330,7 @@ class PersonalityService:
             completed=True,
             next_question=None,
             profile=profile,
-            message=(
-                "已根据你的回答生成性格画像" if zh
-                else "Your personality profile has been generated from your answers"
-            ),
+            message=copy.t("personality", "generated_from_answers", language),
         )
 
     def _assessment_state(self, assessment, language: str | None) -> AssessmentStateResponse:
@@ -431,7 +420,6 @@ class PersonalityService:
     ) -> PersonalityProfileResponse:
         """答题数据 + 近期记忆/情绪喂 LLM 生成画像（失败回退：答题统计类型 + 模板观察）。"""
         language = user.language if user else "en"
-        zh = (language or "").startswith("zh")
         stats_type = self._type_from_answers(answers)
         qa_lines = []
         for a in answers:
@@ -464,8 +452,7 @@ class PersonalityService:
             mbti_type = stats_type
         if not observations:
             observations = [
-                "你完成了 8 题对话式评估，AI 会随对话继续校准。" if zh
-                else "You completed the 8-question conversational assessment; the AI will keep calibrating as you chat."
+                copy.t("personality", "assessment_fallback", language),
             ]
         versions = await personality_repository.list(db, user.id)
         new_version = (versions[-1].version + 1) if versions else 1
@@ -502,13 +489,13 @@ class PersonalityService:
             )
 
         language = user.language or "en"
-        zh = language.startswith("zh")
         mbti_label = mbti_label_for(profile.mbti_type, language)
         observations = self._parse_observations(profile.observations)
+        # 九型描述同时进 prompt（注入素材）与 fallback 直出正文（存 DB 展示）→ 15 语言走文案库
         enneagram_desc = (
-            f"{enneagram} 号" if zh and enneagram
-            else f"Type {enneagram}" if enneagram
-            else "未知" if zh else "unknown"
+            copy.t("personality", "enneagram_type_n", language).format(n=enneagram)
+            if enneagram
+            else copy.t("personality", "enneagram_unknown", language)
         )
         prompt = (
             "你是一位温暖、有洞察力的成长教练。请把用户的两个性格框架做交叉解读（3-5 句话），"
@@ -528,7 +515,7 @@ class PersonalityService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("组合报告 LLM 失败，回退模板: %s", exc)
         if not content:
-            content = self._fallback_combo(profile.mbti_type, mbti_label, enneagram_desc, zh)
+            content = self._fallback_combo(profile.mbti_type, mbti_label, enneagram_desc, language)
         record = await growth_repository.create(db, user_id, "combo_report", content)
         return ComboReportResponse(
             content=content,
@@ -538,17 +525,10 @@ class PersonalityService:
             enneagram_type=enneagram,
         )
 
-    def _fallback_combo(self, mbti_type, mbti_label, enneagram_desc, zh: bool) -> str:
+    def _fallback_combo(self, mbti_type, mbti_label, enneagram_desc, language: str) -> str:
         """组合报告回退模板（LLM 不可用时；措辞合规：只讲性格框架，不谈运势）。"""
-        if zh:
-            return (
-                f"你的性格类型是 {mbti_label or mbti_type}，九型 {enneagram_desc}。"
-                "两个框架从不同角度描述你的思考与感受方式——继续记录和对话，画像会越来越准。"
-            )
-        return (
-            f"Your personality type is {mbti_label or mbti_type}, Enneagram {enneagram_desc}. "
-            "Each framework describes your way of thinking and feeling "
-            "from a different angle — keep recording and chatting, and your profile will keep sharpening."
+        return copy.t("personality", "combo_fallback", language).format(
+            label=mbti_label or mbti_type, enneagram=enneagram_desc
         )
 
     @staticmethod
