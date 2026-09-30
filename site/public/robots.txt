@@ -1,0 +1,25 @@
+# 人类搜索引擎与 AI 答案引擎均欢迎抓取（GEO：让生成式引擎正确引用 ClosenAI）
+User-agent: *
+Allow: /
+
+# OpenAI
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ChatGPT-User
+Allow: /
+
+# Anthropic
+User-agent: ClaudeBot
+Allow: /
+
+# Perplexity
+User-agent: PerplexityBot
+Allow: /
+
+# Google Gemini
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://closenai.app/sitemap-index.xml

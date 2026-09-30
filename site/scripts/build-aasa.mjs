@@ -8,12 +8,13 @@
  * 而这类失败没有任何一端会报错。把 Team ID 变成构建期注入，部署流水线里缺它就当场失败。
  *
  * 用法：
- *   APPLE_TEAM_ID=XXXXXXXXXX node site/scripts/build-aasa.mjs          # 写回 site/.well-known/...
+ *   APPLE_TEAM_ID=XXXXXXXXXX node site/scripts/build-aasa.mjs          # 写回 site/public/.well-known/...
  *   APPLE_TEAM_ID=XXXXXXXXXX node site/scripts/build-aasa.mjs --out /tmp/aasa.json
  *   node site/scripts/build-aasa.mjs --check                            # 只校验现有文件已渲染
  *
  * Cloudflare Pages：Build command 里先跑这一条（环境变量在 Pages 的 Settings →
- * Environment variables 配 `APPLE_TEAM_ID`），再让 output 目录指向 `site/`。
+ * Environment variables 配 `APPLE_TEAM_ID`），再 `npm run build`，output 目录指向 `site/dist`
+ *（public/ 会被 Astro 原样拷进 dist/，AASA 随之落地）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_ROOT = path.resolve(HERE, '..');
-const DEFAULT_OUT = path.join(SITE_ROOT, '.well-known', 'apple-app-site-association');
+const DEFAULT_OUT = path.join(SITE_ROOT, 'public', '.well-known', 'apple-app-site-association');
 
 const TEAM_ID_RE = /^[A-Z0-9]{10}$/;
 const BUNDLE_ID_RE = /^[a-z0-9]+(\.[a-z0-9-]+)+$/i;

@@ -1,0 +1,212 @@
+---
+/**
+ * 落地页主体（双语同构，构建期注入文本——SEO/GEO 双语言均为完整静态 HTML）。
+ * 图标全部内联 Lucide SVG，零外部依赖。
+ */
+import type { Lang } from '../i18n';
+import { T } from '../i18n';
+
+interface Props { lang: Lang }
+const { lang } = Astro.props;
+const t = T[lang];
+const other = lang === 'zh' ? '/' : '/zh/';
+const otherLabel = lang === 'zh' ? 'EN' : '中文';
+
+const ICONS: Record<string, string> = {
+  brain: '<path d="M12 3a6 6 0 0 0-9.33 8.87A6.86 6.86 0 0 0 8 21h8a6.86 6.86 0 0 0 5.33-9.13A6 6 0 0 0 12 3"/><path d="M12 3v18"/>',
+  activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+  user: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+  moon: '<path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 6 4-4 4 4"/><path d="M16 18a4 4 0 0 0-8 0"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  arrow: '<path d="m16 17 5-5-5-5"/><path d="m21 12H8"/><path d="m3 7 4 4v6h4"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+};
+const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+---
+
+<Fragment set:html={`<!-- trust icons: brain / shield / arrow -->`} />
+<nav>
+  <div class="nav-in">
+    <a class="logo" href={lang === 'zh' ? '/zh/' : '/'}><span class="logo-dot"></span>ClosenAI</a>
+    <div class="nav-links">
+      <a href="#features">{t.nav.features}</a>
+      <a href="#memory">{t.nav.memory}</a>
+      <a href="#privacy">{t.nav.privacy}</a>
+      <a href="#faq">{t.nav.faq}</a>
+    </div>
+    <div class="nav-right">
+      <a class="lang-link" href={other} hreflang={lang === 'zh' ? 'en' : 'zh'}>{otherLabel}</a>
+      <!-- K4：App Store 上架后把 href 换成真实链接（tasks.md K4） -->
+      <a class="btn-store" href="#download">{icon('download')}<span>{t.nav.get}</span></a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div class="load-stagger">
+      <span class="kicker">{t.hero.kicker}</span>
+      <h1 set:html={t.hero.h1Html} />
+      <p class="hero-sub">{t.hero.sub}</p>
+      <div class="cta-row">
+        <a class="btn-primary" href="#download">{icon('download')}<span>{t.hero.cta1}</span></a>
+        <a class="btn-ghost" href="#memory">{t.hero.cta2}</a>
+      </div>
+      <p class="hero-note">{t.hero.note}</p>
+    </div>
+    <div class="phone-zone">
+      <div class="halo" style="position:absolute;inset:-40px;background:radial-gradient(28rem 22rem at 50% 42%,rgba(232,184,75,.10),transparent 65%);z-index:-1;filter:blur(6px)"></div>
+      <div class="phone" aria-hidden="true">
+        <div class="chat">
+          <div class="msg ai">{t.mock.ai1}</div>
+          <div class="msg me">{t.mock.me1}</div>
+          <div class="msg ai">{t.mock.ai2}</div>
+          <div class="mem-chip">{icon('brain')}<span>{t.mock.chip1}</span></div>
+          <div class="mem-list">
+            <div class="mem-item"><i></i><span>{t.mock.mem1}</span><span class="when">Apr 12</span></div>
+            <div class="mem-item"><i></i><span>{t.mock.mem2}</span><span class="when">Apr 7</span></div>
+            <div class="mem-item"><i></i><span>{t.mock.mem3}</span><span class="when">Mar 29</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="trust">
+  <div class="wrap trust-row">
+    {t.trust.map((line, i) => (
+      <div class="trust-item"><Fragment set:html={icon(['brain', 'shield', 'arrow'][i])} /><span>{line}</span></div>
+    ))}
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">{t.feat.kicker}</span>
+      <h2>{t.feat.h2}</h2>
+      <p>{t.feat.sub}</p>
+    </div>
+    <div class="feat-grid">
+      {t.feat.cards.map((c) => (
+        <div class={`card reveal${c.v ? ' v' : ''}`}>
+          <div class="ic" set:html={icon(c.icon)} />
+          <h3>{c.h}</h3>
+          <p>{c.p}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section id="memory">
+  <div class="wrap split">
+    <div class="reveal">
+      <span class="kicker">{t.mem.kicker}</span>
+      <h2>{t.mem.h2}</h2>
+      <p>{t.mem.p}</p>
+      <p style="margin-top:14px">{t.mem.p2}</p>
+    </div>
+    <div class="timeline reveal">
+      {t.mem.items.map((item) => (
+        <div class="tl-item">
+          <div class="when">{item.w}</div>
+          <div class="what" set:html={item.html} />
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section id="personality" style="padding-top:0">
+  <div class="wrap split">
+    <div class="duo reveal">
+      <div class="card"><span class="pill">MBTI</span><div class="big">INFJ</div><p>{t.per.p1}</p></div>
+      <div class="card v"><span class="pill">Enneagram</span><div class="big">Type 4</div><p>{t.per.p2}</p></div>
+    </div>
+    <div class="reveal">
+      <span class="kicker">{t.per.kicker}</span>
+      <h2>{t.per.h2}</h2>
+      <p>{t.per.p}</p>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">{t.pri.kicker}</span>
+      <h2>{t.pri.h2}</h2>
+      <p>{t.pri.sub}</p>
+    </div>
+    <div class="priv-grid">
+      {t.pri.items.map((item) => (
+        <div class="priv-item reveal">
+          <Fragment set:html={icon(item.icon)} />
+          <div><h4>{item.h}</h4><p>{item.p}</p></div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="kicker">FAQ</span>
+      <h2>{t.faq.h2}</h2>
+    </div>
+    <div class="faq-list reveal">
+      {t.faq.items.map((item) => (
+        <details>
+          <summary><span>{item.q}</span>{icon('plus')}</summary>
+          <div class="ans">{item.a}</div>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>
+
+<section class="final" id="download">
+  <div class="wrap reveal">
+    <span class="kicker">{t.fin.kicker}</span>
+    <h2>{t.fin.h2}</h2>
+    <div class="cta-row" style="justify-content:center;margin-top:34px">
+      <a class="btn-primary" href="#" rel="noopener">{icon('download')}<span>{t.fin.cta}</span></a>
+    </div>
+    <p class="hero-note">{t.fin.note}</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <div>© 2026 ClosenAI · {t.foot.tag}</div>
+    <div class="foot-links">
+      <!-- 上架后替换为真实法务页链接 -->
+      <a href="#">{t.foot.privacy}</a>
+      <a href="#">{t.foot.terms}</a>
+      <a href="mailto:support@closenai.app">{t.foot.contact}</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          e.target.classList.add('in');
+          io.unobserve(e.target);
+        }
+      }
+    },
+    { threshold: 0.12 }
+  );
+  document.querySelectorAll('.reveal').forEach((n) => io.observe(n));
+</script>
