@@ -141,8 +141,8 @@ const resource = {
     "stageReveal": "발견",
     "stageApply": "활용",
     "moreTitle": "더 탐색하기",
-    "reflectionsTitle": "My Reflections",
-    "reflectionsEmpty": "Saved reflections will appear here",
+    "reflectionsTitle": "나의 반성",
+    "reflectionsEmpty": "저장한 반성이 여기에 표시됩니다",
     "personCard": "성격 명함",
     "personCardDesc": "공유용 카드 생성",
     "comingSoon": "곧 제공 예정"

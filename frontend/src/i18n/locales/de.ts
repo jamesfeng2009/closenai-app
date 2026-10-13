@@ -144,8 +144,8 @@ const resource = {
     "stageReveal": "Enthüllen",
     "stageApply": "Anwenden",
     "moreTitle": "Mehr entdecken",
-    "reflectionsTitle": "My Reflections",
-    "reflectionsEmpty": "Saved reflections will appear here",
+    "reflectionsTitle": "Meine Reflexionen",
+    "reflectionsEmpty": "Gespeicherte Reflexionen erscheinen hier",
     "personCard": "Persönlichkeitskarte",
     "personCardDesc": "Karte zum Teilen erstellen",
     "comingSoon": "Demnächst"

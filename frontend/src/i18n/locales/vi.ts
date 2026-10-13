@@ -141,8 +141,8 @@ const resource = {
     "stageReveal": "Hé lộ",
     "stageApply": "Áp dụng",
     "moreTitle": "Khám phá Thêm",
-    "reflectionsTitle": "My Reflections",
-    "reflectionsEmpty": "Saved reflections will appear here",
+    "reflectionsTitle": "Bản Suy ngẫm của tôi",
+    "reflectionsEmpty": "Bản Suy ngẫm đã lưu sẽ hiển thị ở đây",
     "personCard": "Thẻ Tính cách",
     "personCardDesc": "Tạo thẻ có thể chia sẻ",
     "comingSoon": "Sắp ra mắt"

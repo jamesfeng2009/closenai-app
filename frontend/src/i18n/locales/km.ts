@@ -141,8 +141,8 @@ const resource = {
     "stageReveal": "បង្ហាញ",
     "stageApply": "អនុវត្ត",
     "moreTitle": "ស្វែងយល់បន្ថែម",
-    "reflectionsTitle": "My Reflections",
-    "reflectionsEmpty": "Saved reflections will appear here",
+    "reflectionsTitle": "ការឆ្លុះបញ្ចាំងរបស់ខ្ញុំ",
+    "reflectionsEmpty": "ការឆ្លុះបញ្ចាំងដែលបានរក្សាទុកនឹងបង្ហាញនៅទីនេះ",
     "personCard": "កាតបុគ្គលិកលក្ខណៈ",
     "personCardDesc": "បង្កើតកាតដែលអាចចែករំលែកបាន",
     "comingSoon": "មកដល់ឆាប់ៗនេះ"

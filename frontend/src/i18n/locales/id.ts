@@ -141,8 +141,8 @@ const resource = {
     "stageReveal": "Mengungkap",
     "stageApply": "Menerapkan",
     "moreTitle": "Lebih Banyak Jelajah",
-    "reflectionsTitle": "My Reflections",
-    "reflectionsEmpty": "Saved reflections will appear here",
+    "reflectionsTitle": "Refleksi Saya",
+    "reflectionsEmpty": "Refleksi yang disimpan akan muncul di sini",
     "personCard": "Kartu Kepribadian",
     "personCardDesc": "Buat kartu untuk dibagikan",
     "comingSoon": "Segera hadir"

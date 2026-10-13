@@ -141,8 +141,8 @@ const resource = {
     "stageReveal": "解明",
     "stageApply": "活用",
     "moreTitle": "もっと探索",
-    "reflectionsTitle": "My Reflections",
-    "reflectionsEmpty": "Saved reflections will appear here",
+    "reflectionsTitle": "私の振り返り",
+    "reflectionsEmpty": "保存した振り返りがここに表示されます",
     "personCard": "性格カード",
     "personCardDesc": "共有用カードを生成",
     "comingSoon": "近日公開"

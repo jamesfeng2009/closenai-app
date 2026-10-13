@@ -20,11 +20,29 @@ function snippet(rel: string, needle: string, before = 2, after = 8): string {
   return lines.slice(Math.max(0, i - before), i + after + 1).join('\n');
 }
 
+/**
+ * 从 needle 那行切到函数体收尾（缩进两格的 `};`）。
+ *
+ * 为什么要有它：固定行窗的 `snippet` 断不了长函数的尾部——317b390 往 `onSaveDraft`
+ * 的 try 里插了 13 行本地落库，`finally { setSavingId(null) }` 就掉出窗外，守卫报了
+ * 一条「结束后没复位」的**假红**。函数体的收尾标记不会随中间长代码漂移。
+ * 收尾找不到就红（而不是退回整份文件）：整份文件里没有那条复位也一样算得过，
+ * 那条守卫就空转了。
+ */
+function fnBlock(rel: string, needle: string): string {
+  const lines = read(rel).split('\n');
+  const i = lines.findIndex((l) => l.includes(needle));
+  expect(i).toBeGreaterThanOrEqual(0);
+  const end = lines.findIndex((l, idx) => idx > i && /^ {2}};?\s*$/.test(l));
+  expect(end).toBeGreaterThan(i);
+  return lines.slice(i, end + 1).join('\n');
+}
+
 describe('复盘页：草稿保存有 pending 反馈且防连点', () => {
   const rel = 'src/screens/ReflectScreen.tsx';
 
   it('onSaveDraft 记录 savingId、结束后复位', () => {
-    const block = snippet(rel, 'const onSaveDraft', 1, 16);
+    const block = fnBlock(rel, 'const onSaveDraft');
     expect(block).toContain('setSavingId(msg.id)');
     expect(block).toContain('setSavingId(null)');
     expect(block).toMatch(/finally\s*\{/);

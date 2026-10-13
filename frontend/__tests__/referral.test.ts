@@ -114,8 +114,13 @@ describe('与后端码表同步', () => {
 });
 
 describe('落地页与三处码表同源（#38）', () => {
-  const landingSrc = () =>
-    fs.readFileSync(path.join(__dirname, '..', '..', 'site', 'r', 'index.html'), 'utf8');
+  // 28a9fc3 起站点是 Astro 工程：这些产物住在 `site/public/`（构建时整目录拷进
+  // `site/dist/`，dist 已 gitignore），**对外 URL 一字不变**（`/r/index.html`、
+  // `/_redirects`、`/.well-known/apple-app-site-association`）。所以断言读的是
+  // public 下的源文件——真源在 git 里的那一份，不是本地产物。
+  const sitePublic = (...parts: string[]) =>
+    fs.readFileSync(path.join(__dirname, '..', '..', 'site', 'public', ...parts), 'utf8');
+  const landingSrc = () => sitePublic('r', 'index.html');
 
   it('落地页的码字符集与前后端逐字相等：不一致就在页面上显示一个后端根本不存在的码', () => {
     // 落地页里唯一一条 {8} 字符类就是推荐码校验（JS 正则源码带 \/ 转义，按字符类取更稳）
@@ -126,11 +131,8 @@ describe('落地页与三处码表同源（#38）', () => {
   });
 
   it('落地页只重写 /r/*，且 AASA 的接管路径与之完全一致（否则点了链接开了网页）', () => {
-    const redirects = fs.readFileSync(path.join(__dirname, '..', '..', 'site', '_redirects'), 'utf8');
-    const aasa = fs.readFileSync(
-      path.join(__dirname, '..', '..', 'site', '.well-known', 'apple-app-site-association'),
-      'utf8'
-    );
+    const redirects = sitePublic('_redirects');
+    const aasa = sitePublic('.well-known', 'apple-app-site-association');
     const rules = redirects
       .split('\n')
       .filter((line) => line.trim() && !line.trim().startsWith('#'))
