@@ -1,0 +1,21 @@
+# Python 侧 FastAPI 镜像（py-api）。构建上下文是仓库根：
+#   docker build -f deploy/Dockerfile.py-api .
+# 依赖层与代码层分开，改代码不重装依赖。
+#
+# 基础镜像做成 build-arg：本机 docker.io 直连 Bad Gateway（2026-10-13 实测），
+# 需 --build-arg PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim。
+ARG PYTHON_IMAGE=python:3.13-slim
+FROM ${PYTHON_IMAGE} AS deps
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
+COPY backend/requirements.txt ./
+RUN pip install -r requirements.txt
+
+FROM ${PYTHON_IMAGE}
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+COPY --from=deps /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
+COPY backend/ ./backend/
+EXPOSE 8000
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

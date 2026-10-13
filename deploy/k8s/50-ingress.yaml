@@ -1,0 +1,31 @@
+# 入口路由。**灰度 0% 的可验证形态 = 所有 path 的 backend 都还是 py-api**，
+# go-api 的 Service 已存在但不接流量（架构方案 §11.3「Ingress 按 path 灰度，初始 0%」）。
+# 切一个域 = 把该 path 的 service.name 改成 go-api；回滚 = 改回来，不发版、不动数据（§11.4）。
+# 刻意不写 ingressClassName 与 controller 专有注解：目标集群是 k3s（默认 Traefik），
+# 本机 OrbStack 无 IngressClass，写死注解会让任一侧失效。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: closenai
+  namespace: closenai
+  labels:
+    app.kubernetes.io/part-of: closenai
+spec:
+  rules:
+    # 无 host 规则：生产 API 域尚未注入（tasks.md K3），先按任意 host 收流。
+    - http:
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: py-api
+                port:
+                  name: http
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: py-api
+                port:
+                  name: http

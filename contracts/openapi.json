@@ -1,0 +1,4225 @@
+{
+  "components": {
+    "schemas": {
+      "AIConsentUpdate": {
+        "description": "AI 数据共享同意更新（5.1.2(i)：用户可随时同意/撤回）。",
+        "properties": {
+          "consent": {
+            "title": "Consent",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "consent"
+        ],
+        "title": "AIConsentUpdate",
+        "type": "object"
+      },
+      "AnalyticsBatchRequest": {
+        "description": "前端本地 analytics_events 队列批量上报请求。",
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsEvent"
+            },
+            "maxItems": 100,
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "AnalyticsBatchRequest",
+        "type": "object"
+      },
+      "AnalyticsEvent": {
+        "description": "前端上报的单条分析事件。\n\n- event: 事件名（如 screen_view / checkin / chat_sent）\n- properties: 行为属性（后端按白名单匿名化，剔除内容字段）\n- occurred_at: 真实发生时间（UTC，离线延迟事件用此时间保证口径准确）",
+        "properties": {
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "properties": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Properties"
+          }
+        },
+        "required": [
+          "event",
+          "occurred_at"
+        ],
+        "title": "AnalyticsEvent",
+        "type": "object"
+      },
+      "AppleLoginRequest": {
+        "description": "Apple 登录（Sign in with Apple）。\n\nref：仅首次登录建账号时作为安装归因落库，已注册用户忽略。",
+        "properties": {
+          "auth_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Code"
+          },
+          "identity_token": {
+            "minLength": 1,
+            "title": "Identity Token",
+            "type": "string"
+          },
+          "language": {
+            "default": "en",
+            "title": "Language",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "分享推荐码（M4）",
+            "title": "Ref"
+          }
+        },
+        "required": [
+          "identity_token"
+        ],
+        "title": "AppleLoginRequest",
+        "type": "object"
+      },
+      "AssessmentAnswerRequest": {
+        "description": "评估答题请求：快捷选项（option）或自由输入（answer）二选一。",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "option": {
+            "anyOf": [
+              {
+                "enum": [
+                  "a",
+                  "b",
+                  "neutral"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Option"
+          }
+        },
+        "title": "AssessmentAnswerRequest",
+        "type": "object"
+      },
+      "BedtimeStepRequest": {
+        "description": "睡前复盘逐步提交请求（PRD §5.16 S1）。",
+        "properties": {
+          "step": {
+            "description": "步骤: 1=今天的一句话 2=值得记下的 3=留给明天",
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "title": "Step",
+            "type": "integer"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "用户输入（step1 一句话，可空=跳过）",
+            "title": "Text"
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "title": "BedtimeStepRequest",
+        "type": "object"
+      },
+      "ChangePasswordRequest": {
+        "description": "修改密码（旧 + 新；改密后吊销全部 refresh，强制重新登录）。",
+        "properties": {
+          "new_password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password",
+            "type": "string"
+          },
+          "old_password": {
+            "minLength": 1,
+            "title": "Old Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "old_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest",
+        "type": "object"
+      },
+      "ChatStreamRequest": {
+        "description": "SSE 流式对话请求。",
+        "properties": {
+          "content": {
+            "description": "用户输入内容",
+            "maxLength": 4000,
+            "title": "Content",
+            "type": "string"
+          },
+          "message_type": {
+            "default": "reply",
+            "description": "消息类型",
+            "enum": [
+              "reply",
+              "mood_checkin"
+            ],
+            "title": "Message Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "ChatStreamRequest",
+        "type": "object"
+      },
+      "FirstReadAnswer": {
+        "description": "单道快问的答案（q = 题目 id，option = 选项 id）。\n\n选项 id 与前端 OnboardingScreen 的 QUICK_QUESTIONS 对齐（模板库在后端\n`backend/data/first_read/{zh,en}.json`）；后端只认模板内已有的 id/文案，\n未知项在 first_read_service 里跳过并回退 filler。",
+        "properties": {
+          "option": {
+            "description": "选项 id",
+            "maxLength": 40,
+            "title": "Option",
+            "type": "string"
+          },
+          "q": {
+            "description": "题目 id：conflict / uncertainty / night",
+            "maxLength": 30,
+            "title": "Q",
+            "type": "string"
+          }
+        },
+        "required": [
+          "q",
+          "option"
+        ],
+        "title": "FirstReadAnswer",
+        "type": "object"
+      },
+      "FirstReadRequest": {
+        "description": "初读卡生成请求（幂等 upsert，重复提交以最后一次为准）。",
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/FirstReadAnswer"
+            },
+            "maxItems": 10,
+            "title": "Answers",
+            "type": "array"
+          },
+          "language": {
+            "default": "en",
+            "description": "生成语言（落库后按此复现）",
+            "maxLength": 10,
+            "title": "Language",
+            "type": "string"
+          },
+          "persona_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "引导期自选性格类型（16 型；D 级标签，仅描述用户自己）",
+            "title": "Persona Type"
+          }
+        },
+        "title": "FirstReadRequest",
+        "type": "object"
+      },
+      "ForgotPasswordRequest": {
+        "description": "忘记密码（发重置验证码；防枚举，统一返回成功）。",
+        "properties": {
+          "email": {
+            "maxLength": 255,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "language": {
+            "default": "en",
+            "title": "Language",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ForgotPasswordRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JourneyAckRequest": {
+        "description": "剧本事件已读回执（红点消费；非本人事件按 40402 处理）。",
+        "properties": {
+          "event_id": {
+            "maxLength": 36,
+            "title": "Event Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id"
+        ],
+        "title": "JourneyAckRequest",
+        "type": "object"
+      },
+      "LifeArchiveExportRequest": {
+        "description": "Life Archive 导出请求。\n\nscope 只放宽导出窗口，不放宽授权：持有 legacy 可导出 all/1y（向下兼容），\n只持有 1y 不能导出 all。",
+        "properties": {
+          "language": {
+            "default": "en",
+            "description": "语言",
+            "maxLength": 10,
+            "title": "Language",
+            "type": "string"
+          },
+          "regenerate": {
+            "default": false,
+            "description": "忽略缓存重新生成（同档位同周期幂等）",
+            "title": "Regenerate",
+            "type": "boolean"
+          },
+          "scope": {
+            "default": "all",
+            "description": "导出档位",
+            "enum": [
+              "1y",
+              "all",
+              "legacy"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "LifeArchiveExportRequest",
+        "type": "object"
+      },
+      "LoginCodeRequest": {
+        "description": "邮箱验证码登录（未注册自动建账号）。\n\nref：仅首次自动建账号时作为安装归因落库，已注册用户忽略。",
+        "properties": {
+          "code": {
+            "maxLength": 8,
+            "minLength": 4,
+            "title": "Code",
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 255,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "language": {
+            "default": "en",
+            "title": "Language",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "分享推荐码（M4）",
+            "title": "Ref"
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ],
+        "title": "LoginCodeRequest",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "description": "用户名/邮箱 + 密码登录。",
+        "properties": {
+          "identifier": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Identifier",
+            "type": "string"
+          },
+          "password": {
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "MemoryCardRequest": {
+        "description": "记忆卡分享（M4）：只接记忆 id，正文取该条原话；归属由 repository 强制。",
+        "properties": {
+          "memory_id": {
+            "maxLength": 36,
+            "title": "Memory Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory_id"
+        ],
+        "title": "MemoryCardRequest",
+        "type": "object"
+      },
+      "MemoryCreate": {
+        "description": "记忆创建请求。",
+        "properties": {
+          "category": {
+            "default": "factual",
+            "description": "记忆类别",
+            "enum": [
+              "values",
+              "preference",
+              "relationship",
+              "goal",
+              "factual"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "content": {
+            "description": "记忆内容",
+            "maxLength": 4000,
+            "title": "Content",
+            "type": "string"
+          },
+          "conviction": {
+            "default": 0.5,
+            "description": "信念强度",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Conviction",
+            "type": "number"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "记忆元数据",
+            "title": "Metadata"
+          },
+          "source": {
+            "default": "self",
+            "description": "记忆来源",
+            "enum": [
+              "self",
+              "others",
+              "hypothetical"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "MemoryCreate",
+        "type": "object"
+      },
+      "MemorySearchRequest": {
+        "description": "语义搜索请求。",
+        "properties": {
+          "include_superseded": {
+            "default": false,
+            "description": "是否包含已替代记忆",
+            "title": "Include Superseded",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 10,
+            "description": "返回结果数",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "query": {
+            "description": "搜索查询",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "MemorySearchRequest",
+        "type": "object"
+      },
+      "MemoryVersionRequest": {
+        "description": "记忆版本化请求。",
+        "properties": {
+          "emotion_context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "情绪上下文",
+            "title": "Emotion Context"
+          },
+          "memory_id": {
+            "description": "原记忆 ID",
+            "title": "Memory Id",
+            "type": "string"
+          },
+          "new_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "演变后的新信念内容（gradual/sudden）；缺省沿用原内容",
+            "title": "New Content"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "转变原因",
+            "title": "Reason"
+          },
+          "transition_type": {
+            "description": "转变类型",
+            "enum": [
+              "gradual",
+              "sudden",
+              "revert"
+            ],
+            "title": "Transition Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory_id",
+          "transition_type"
+        ],
+        "title": "MemoryVersionRequest",
+        "type": "object"
+      },
+      "MoodCheckinRequest": {
+        "description": "情绪签到请求。",
+        "properties": {
+          "emoji": {
+            "description": "表情符号: 😊😌😰😢😡😴",
+            "title": "Emoji",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "可选文字备注",
+            "title": "Note"
+          }
+        },
+        "required": [
+          "emoji"
+        ],
+        "title": "MoodCheckinRequest",
+        "type": "object"
+      },
+      "PushTokenRequest": {
+        "description": "推送 Token 注册请求。",
+        "properties": {
+          "platform": {
+            "description": "平台",
+            "enum": [
+              "ios",
+              "android"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "token": {
+            "description": "设备推送 Token",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "platform"
+        ],
+        "title": "PushTokenRequest",
+        "type": "object"
+      },
+      "ReceiptVerifyRequest": {
+        "description": "收据校验请求。",
+        "properties": {
+          "is_sandbox": {
+            "default": false,
+            "description": "是否 Sandbox 环境",
+            "title": "Is Sandbox",
+            "type": "boolean"
+          },
+          "product_id": {
+            "description": "产品 ID",
+            "title": "Product Id",
+            "type": "string"
+          },
+          "receipt_data": {
+            "description": "Base64 编码的收据",
+            "title": "Receipt Data",
+            "type": "string"
+          }
+        },
+        "required": [
+          "receipt_data",
+          "product_id"
+        ],
+        "title": "ReceiptVerifyRequest",
+        "type": "object"
+      },
+      "ReflectionCreate": {
+        "description": "保存 Reflection 请求。",
+        "properties": {
+          "content": {
+            "description": "Reflection 内容",
+            "maxLength": 4000,
+            "title": "Content",
+            "type": "string"
+          },
+          "related_memory_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "关联的记忆 ID 列表（来自草稿）",
+            "title": "Related Memory Ids"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "ReflectionCreate",
+        "type": "object"
+      },
+      "ReflectionGenerateRequest": {
+        "description": "Reflection 草稿生成请求。",
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "可选补充上下文",
+            "title": "Context"
+          }
+        },
+        "title": "ReflectionGenerateRequest",
+        "type": "object"
+      },
+      "RefreshRequest": {
+        "description": "刷新 token。",
+        "properties": {
+          "refresh_token": {
+            "minLength": 1,
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest",
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "description": "邮箱 + 用户名 + 密码注册。\n\nref：分享链接带来的推荐码（M4 安装归因）；格式非法在 auth_service\n侧静默丢弃，不在这里 422——归因丢了不该挡住注册。",
+        "properties": {
+          "email": {
+            "maxLength": 255,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "language": {
+            "default": "en",
+            "title": "Language",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "分享推荐码（M4）",
+            "title": "Ref"
+          },
+          "username": {
+            "maxLength": 50,
+            "minLength": 3,
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "username",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "type": "object"
+      },
+      "ResetPasswordRequest": {
+        "description": "重置密码（验证码 + 新密码）。",
+        "properties": {
+          "code": {
+            "maxLength": 8,
+            "minLength": 4,
+            "title": "Code",
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 255,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "new_password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "code",
+          "new_password"
+        ],
+        "title": "ResetPasswordRequest",
+        "type": "object"
+      },
+      "SendCodeRequest": {
+        "description": "发送邮箱验证码。purpose: register|login|reset。",
+        "properties": {
+          "email": {
+            "maxLength": 255,
+            "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "language": {
+            "default": "en",
+            "title": "Language",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "register",
+              "login",
+              "reset"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "purpose"
+        ],
+        "title": "SendCodeRequest",
+        "type": "object"
+      },
+      "UpdateUsernameRequest": {
+        "description": "修改用户名。",
+        "properties": {
+          "username": {
+            "maxLength": 50,
+            "minLength": 3,
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "title": "UpdateUsernameRequest",
+        "type": "object"
+      },
+      "UserSettingsUpdate": {
+        "description": "用户设置更新请求。",
+        "properties": {
+          "chat_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Style"
+          },
+          "conversation_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Style"
+          },
+          "enneagram_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enneagram Type"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "mbti_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbti Type"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "push_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Push Enabled"
+          },
+          "push_frequency": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "important",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Push Frequency"
+          },
+          "push_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Push Time"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "title": "UserSettingsUpdate",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "记录你的人生 · 理解你的模式 · 陪你一起成长",
+    "title": "ClosenAI",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/analytics/batch": {
+      "post": {
+        "description": "批量上报前端本地分析事件队列。\n\n后端校验用户 analytics_consent（未同意则丢弃），匿名化后按真实\noccurred_at 中继到 PostHog。返回 {relayed, dropped}，前端据此将\n已中继事件标记 synced=1 并清理。",
+        "operationId": "analytics_batch_api_v1_analytics_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analytics Batch",
+        "tags": [
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/auth/apple": {
+      "post": {
+        "description": "Apple 登录（Sign in with Apple）。",
+        "operationId": "apple_login_api_v1_auth_apple_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppleLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apple Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "description": "修改密码（旧 + 新；改密后吊销全部 refresh，强制重新登录）。",
+        "operationId": "change_password_api_v1_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/forgot-password": {
+      "post": {
+        "description": "忘记密码：发送重置验证码（防枚举，统一返回成功）。",
+        "operationId": "forgot_password_api_v1_auth_forgot_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Forgot Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "用户名 / 邮箱 + 密码登录。",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login-code": {
+      "post": {
+        "description": "邮箱验证码登录（未注册自动建账号）。",
+        "operationId": "login_code_api_v1_auth_login_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login Code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "description": "登出：吊销当前 refresh token。",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "description": "当前用户信息（校验 token 有效性）。",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "description": "刷新 token（refresh token 轮转）。",
+        "operationId": "refresh_api_v1_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "description": "邮箱 + 用户名 + 密码注册。",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/reset-password": {
+      "post": {
+        "description": "重置密码：验证码 + 新密码。",
+        "operationId": "reset_password_api_v1_auth_reset_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reset Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/send-code": {
+      "post": {
+        "description": "发送邮箱验证码。purpose: register|login|reset。",
+        "operationId": "send_code_api_v1_auth_send_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Code",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/username": {
+      "patch": {
+        "description": "修改用户名。",
+        "operationId": "update_username_api_v1_auth_username_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUsernameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Username",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/bedtime/step": {
+      "post": {
+        "description": "逐步提交复盘（step 1|2|3）。step1 命中危机触发词时返回转介载荷（不落复盘）。",
+        "operationId": "bedtime_step_api_v1_bedtime_step_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BedtimeStepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bedtime Step",
+        "tags": [
+          "bedtime"
+        ]
+      }
+    },
+    "/api/v1/bedtime/today": {
+      "get": {
+        "description": "今日复盘状态：completed / 三步内容 / 当日摘要参考（零 LLM）/ 昨日归档。",
+        "operationId": "bedtime_today_api_v1_bedtime_today_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Bedtime Today",
+        "tags": [
+          "bedtime"
+        ]
+      }
+    },
+    "/api/v1/chat/history": {
+      "get": {
+        "description": "查询对话历史（role 映射为前端契约 user/ai，附 AI 生成标识用于合规标注）。\n\nmemory_refs：正文引用了用户原话的消息（第一周剧本等模板直出触达）附引用依据，\n前端据此渲染「记忆依据 ▾」（PRD §5.19.3 引用依据全局规范：每句可回溯到原话+日期）。\n归属校验在 memory_repository.list_by_ids 内强制，解析不到的 ID 直接丢弃。",
+        "operationId": "chat_history_api_v1_chat_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat History",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/v1/chat/stream": {
+      "post": {
+        "description": "SSE 流式对话。\n\n0. AI 数据共享同意检查（合规 5.1.2(i)：未同意返回 403 AI_CONSENT_REQUIRED）\n1. 配额检查（免费用户每日 5 条，用户本地时区 00:00 重置）\n2. 保存用户消息\n3. 查询记忆上下文 + 注入\n4. 调用 LLM 流式生成（SSE 逐 token）\n5. 保存 AI 回复",
+        "operationId": "stream_chat_api_v1_chat_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatStreamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Chat",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/v1/cron/bedtime": {
+      "get": {
+        "description": "睡前复盘提醒（PRD §5.16 S1，Vercel Cron 每小时触发）。\n\n用户本地 22:00–23:30 固定窗口推送复盘入口；危机命中 24h 内停推、\n当日已完成复盘不打扰。纯推送（模板文案），不写对话流、不计配额。",
+        "operationId": "bedtime_reminder_api_v1_cron_bedtime_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Bedtime Reminder",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/care-push": {
+      "get": {
+        "description": "连续负面 3 天关心推送（PRD P1-F01 §6，Vercel Cron 每小时触发）。\n\n对最近连续 3 天负面签到的用户在最佳发送小时推送关心文案；\n属特殊事件，每用户每月 ≤4 次，超限静默跳过。\n纯推送（非 LLM 内容），不写对话流、不计配额。",
+        "operationId": "care_push_api_v1_cron_care_push_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Care Push",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/cleanup-tokens": {
+      "get": {
+        "description": "清理过期 refresh token（Vercel Cron 每日触发）。\n\n过期 token 已无认证价值，物理删除防 refresh_tokens 表无限增长；\n已吊销未过期 token 保留（重放检测依赖吊销记录）。",
+        "operationId": "cleanup_tokens_api_v1_cron_cleanup_tokens_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Cleanup Tokens",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/curriculum": {
+      "get": {
+        "description": "Growth Curriculum 周规划（PRD §5.17，Vercel Cron 每小时触发）。\n\n用户本地周日 21 点桶预生成下周 7 张主题卡（Rule 优先 + LLM 周规划）。\n拉取式消费：只落 journey_events 首页池，不推送、不计配额。",
+        "operationId": "curriculum_generation_api_v1_cron_curriculum_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Curriculum Generation",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/daily-insight": {
+      "get": {
+        "description": "每日洞察生成（P0-F07 §1）：仅为当日活跃用户（当日有签到或对话）生成，prompt 喂入当日对话。",
+        "operationId": "daily_insight_api_v1_cron_daily_insight_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Daily Insight",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/daily-message": {
+      "get": {
+        "description": "每日主动消息生成（Vercel Cron 触发）。\n\n1. 按用户时区分组（UTC+8, UTC+7, UTC+0）\n2. 对每组用户，通过 QStash 分块分发（每块 50 用户）\n3. 每个分块独立调用 LLM 生成主动消息 + 推送通知",
+        "operationId": "daily_message_api_v1_cron_daily_message_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Daily Message",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/follow-up": {
+      "post": {
+        "description": "事件后 3-7 天主动跟进（PRD P0-F07，QStash 每日调度触发）。\n\n验签（Upstash-Signature JWT）通过后扫描跟进窗口内未跟进的\nreflection/milestone 成长记录，生成「上次你提到...现在怎么样了？」式\n跟进消息写入对话流（message_type='follow_up'）并标记防重复。\n调度注册见 cron_service.register_follow_up_schedule（幂等）。",
+        "operationId": "follow_up_api_v1_cron_follow_up_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Follow Up",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/health": {
+      "get": {
+        "description": "保热端点（Vercel Cron 每 5 分钟调用）。",
+        "operationId": "health_api_v1_cron_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/journey": {
+      "get": {
+        "description": "第一周剧本调度（PRD §5.19.3 P1-B02 / 架构方案 §二 M2，Vercel Cron 每小时触发）。\n\n扫描 scheduled_at<=now 且 status=pending 的剧本事件并按日序投递：D0–D5 与 D7 报告\n全部模板直出（零 LLM），仅 D2 走推送，其余只进 App 内红点。",
+        "operationId": "journey_dispatch_api_v1_cron_journey_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Journey Dispatch",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/mood-reminder": {
+      "get": {
+        "description": "签到轻提醒（PRD P0-F03 §7，Vercel Cron 每小时触发）。\n\n对用户本地「push_time + 2 小时」仍未签到的用户推送轻提醒；\n纯推送（非 LLM 内容），不写对话流、不计配额。",
+        "operationId": "mood_reminder_api_v1_cron_mood_reminder_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mood Reminder",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/process-user": {
+      "post": {
+        "description": "QStash 回调：处理单个用户的主动消息任务。\n\n验签（Upstash-Signature JWT）通过后按 body.user_id 处理；\n处理异常返回 500，由 QStash 重试机制兜底。",
+        "operationId": "process_user_api_v1_cron_process_user_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Process User",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/purge-deleted-users": {
+      "get": {
+        "description": "兜底清理：物理删除软删除超 1 小时的用户（QStash 投递失败/未配置时）。\n\nVercel Cron 定时触发（建议每小时）；逐用户独立 SAVEPOINT，单用户失败不影响批次。\nstale_hours=1 给 QStash 正常重试留窗口，避免与异步任务重复删除。",
+        "operationId": "purge_deleted_users_api_v1_cron_purge_deleted_users_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Purge Deleted Users",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/purge-user": {
+      "post": {
+        "description": "QStash 回调：物理删除已软删除用户的全量数据（幂等）。\n\nverify_qstash_signature 验签通过后按 body.user_id 物理删 13 表；\n已删表 rowcount=0，天然幂等（QStash 重试安全）。\n异常返回 500 由 QStash 重试机制兜底。",
+        "operationId": "purge_user_api_v1_cron_purge_user_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Purge User",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/trial-reminder": {
+      "get": {
+        "description": "试用到期提醒（PRD P1-F02 §4，Vercel Cron 每日触发）。\n\n对 24 小时内试用到期的用户推送提醒（按用户语言），每条订阅只提醒一次。",
+        "operationId": "trial_reminder_api_v1_cron_trial_reminder_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Trial Reminder",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/weekly-drift": {
+      "get": {
+        "description": "渐变漂移周检测（spec memory-layer §3，每周日凌晨触发）。\n\n对每用户 current 且 conviction≥0.4 的记忆做近 7 天 vs 前 7 天消息\nembedding 趋势分析，相似度下降 > 0.15 时写 drift_score 并生成 drift_alert。",
+        "operationId": "weekly_drift_api_v1_cron_weekly_drift_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Weekly Drift",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/weekly-insight": {
+      "get": {
+        "description": "周洞察生成（每周日凌晨触发）。",
+        "operationId": "weekly_insight_api_v1_cron_weekly_insight_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Weekly Insight",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/curriculum/week": {
+      "get": {
+        "description": "当周主题旅程：7 张卡（未生成的天为空位）、揭晓状态、未读数。",
+        "operationId": "curriculum_week_api_v1_curriculum_week_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Curriculum Week",
+        "tags": [
+          "curriculum"
+        ]
+      }
+    },
+    "/api/v1/curriculum/{event_id}/read": {
+      "post": {
+        "description": "点击主题卡 → 已读标记（越权 40403；幂等）。",
+        "operationId": "curriculum_read_api_v1_curriculum__event_id__read_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Curriculum Read",
+        "tags": [
+          "curriculum"
+        ]
+      }
+    },
+    "/api/v1/discovery/daily": {
+      "get": {
+        "description": "每日发现。\n\n基于 Personal Dataset 对比生成当日数据洞察。\n内容作为 AI 主动消息（P0-F01）四层公式的第②层发出。\n数据对比无显著变化时返回 has_discovery=false。",
+        "operationId": "daily_api_v1_discovery_daily_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Daily",
+        "tags": [
+          "discovery"
+        ]
+      }
+    },
+    "/api/v1/growth/badges": {
+      "get": {
+        "description": "徽章列表（P0-F05）：连续 7/30/100/365 天四枚，含本地化名称与达成状态。",
+        "operationId": "badges_api_v1_growth_badges_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Badges",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/dashboard": {
+      "get": {
+        "description": "成长仪表盘。\n\n返回：日期、Streak、等级、今日心情、6 维度指标、14 天热力图、\n本周洞察、昨日记录延续。\n新用户（无数据）返回空状态。",
+        "operationId": "dashboard_api_v1_growth_dashboard_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Dashboard",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/insights": {
+      "get": {
+        "description": "本周洞察（来自 P0-F07 成长记录）。只读已生成周报，无记录返回空内容（生成由 cron 触发）。需 AI 数据共享同意。",
+        "operationId": "insights_api_v1_growth_insights_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Insights",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/level": {
+      "get": {
+        "description": "关系等级详情（P0-F05）：当前等级 + 全部等级/解锁能力表 + 等级说明（名称无恋爱含义）。",
+        "operationId": "level_detail_api_v1_growth_level_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Level Detail",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/memory-card": {
+      "get": {
+        "description": "回忆卡片（P0-F07 §7）：取 N 天前今日的记录/签到/记忆，生成\"去年今日\"式卡片。需 AI 数据共享同意。",
+        "operationId": "memory_card_api_v1_growth_memory_card_get",
+        "parameters": [
+          {
+            "description": "取 N 天前今日的数据",
+            "in": "query",
+            "name": "days_ago",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "取 N 天前今日的数据",
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days Ago",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Memory Card",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/patterns": {
+      "get": {
+        "description": "跨维度模式发现（P1-F03）：AI 基于真实数据发现关联模式。需 AI 数据共享同意。",
+        "operationId": "patterns_api_v1_growth_patterns_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Patterns",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/records": {
+      "get": {
+        "description": "成长记录列表（P0-F07 §6 成长记录页）：按日期倒序，支持标签筛选。",
+        "operationId": "records_api_v1_growth_records_get",
+        "parameters": [
+          {
+            "description": "按标签筛选（如 情绪/关系/工作/目标/沟通/成长）",
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按标签筛选（如 情绪/关系/工作/目标/沟通/成长）",
+              "title": "Tag"
+            }
+          },
+          {
+            "description": "查询最近 N 天",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "查询最近 N 天",
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "返回条数上限",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "description": "返回条数上限",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Records",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/relationship-timeline": {
+      "get": {
+        "description": "关系时间线（P0-F07 §7）：认识第 N 天 · 聊了 N 次 · 共同经历 N 个时刻 + 倒序事件流。",
+        "operationId": "relationship_timeline_api_v1_growth_relationship_timeline_get",
+        "parameters": [
+          {
+            "description": "事件条数上限",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "事件条数上限",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Relationship Timeline",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/reports/{period}": {
+      "get": {
+        "description": "周期成长报告（P1-F03）：月 / 季 / 年报告，含情绪趋势、模式发现、洞察等级。需 AI 数据共享同意。",
+        "operationId": "report_api_v1_growth_reports__period__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "period",
+            "required": true,
+            "schema": {
+              "title": "Period",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Report",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/timeline": {
+      "get": {
+        "description": "365 天成长热力图数据（含里程碑标注）。",
+        "operationId": "timeline_api_v1_growth_timeline_get",
+        "parameters": [
+          {
+            "description": "天数",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 365,
+              "description": "天数",
+              "maximum": 365,
+              "minimum": 7,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Timeline",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/timeline/day": {
+      "get": {
+        "description": "单日摘要卡片（P0-F07 §2）：情绪类型 + 当日记录（AI 对话摘要）+ 关键事件。GET 只读，不触发 LLM。",
+        "operationId": "timeline_day_api_v1_growth_timeline_day_get",
+        "parameters": [
+          {
+            "description": "日期 YYYY-MM-DD（用户本地日历日）",
+            "in": "query",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "description": "日期 YYYY-MM-DD（用户本地日历日）",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Timeline Day",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/growth/topics": {
+      "get": {
+        "description": "推荐话题（P0-F07 §4：洞察标签 → 话题推荐）。规则实现，零 LLM 成本。",
+        "operationId": "topics_api_v1_growth_topics_get",
+        "parameters": [
+          {
+            "description": "统计最近 N 天记录",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "统计最近 N 天记录",
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Topics",
+        "tags": [
+          "growth"
+        ]
+      }
+    },
+    "/api/v1/iap/entitlements": {
+      "get": {
+        "description": "查询 Life Archive 买断权益（一次性内购，永久可用，与订阅状态互不影响）。",
+        "operationId": "life_archive_entitlements_api_v1_iap_entitlements_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Life Archive Entitlements",
+        "tags": [
+          "subscription"
+        ]
+      }
+    },
+    "/api/v1/iap/notifications": {
+      "post": {
+        "description": "App Store Server Notifications V2 回调。\n\n由 Apple 服务器实时推送：续订 / 退款 / 过期 / 自动续订状态变化。\n处理完成后立即回收或下发权益。",
+        "operationId": "app_store_notifications_api_v1_iap_notifications_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "App Store Notifications",
+        "tags": [
+          "subscription"
+        ]
+      }
+    },
+    "/api/v1/iap/status": {
+      "get": {
+        "description": "查询当前订阅状态。",
+        "operationId": "subscription_status_api_v1_iap_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Subscription Status",
+        "tags": [
+          "subscription"
+        ]
+      }
+    },
+    "/api/v1/iap/verify": {
+      "post": {
+        "description": "收据校验。\n\n客户端购买/恢复购买后，将收据发回后端校验。\n后端调用 App Store Server API 验证，通过后按交易类型分发：\n- 自动续期订阅 → 写 subscriptions + 更新 tier\n- Life Archive 一次性买断 → 写 user_entitlements，**不改 tier**\n伪造收据直接拒绝，退款后回收权益。",
+        "operationId": "verify_receipt_api_v1_iap_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Receipt",
+        "tags": [
+          "subscription"
+        ]
+      }
+    },
+    "/api/v1/journey/events": {
+      "get": {
+        "description": "某用户 D0–D7 剧本状态（含每条事件的 payload 与 memory_refs 引用依据）。",
+        "operationId": "list_journey_events_api_v1_journey_events_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Journey Events",
+        "tags": [
+          "journey"
+        ]
+      }
+    },
+    "/api/v1/journey/events/acknowledge": {
+      "post": {
+        "description": "用户已读某条剧本事件（清除该条红点）。",
+        "operationId": "acknowledge_journey_event_api_v1_journey_events_acknowledge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JourneyAckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Acknowledge Journey Event",
+        "tags": [
+          "journey"
+        ]
+      }
+    },
+    "/api/v1/memories": {
+      "get": {
+        "description": "查询记忆列表。支持按 category 过滤。",
+        "operationId": "list_memories_api_v1_memories_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Memories",
+        "tags": [
+          "memories"
+        ]
+      },
+      "post": {
+        "description": "创建记忆（含向量化 + 渐变漂移检测）。",
+        "operationId": "create_memory_api_v1_memories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Memory",
+        "tags": [
+          "memories"
+        ]
+      }
+    },
+    "/api/v1/memories/search": {
+      "post": {
+        "description": "语义搜索记忆。\n\n使用 pgvector cosine similarity 搜索。\n默认排除 superseded 记忆，除非 include_superseded=true。",
+        "operationId": "search_memories_api_v1_memories_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemorySearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Memories",
+        "tags": [
+          "memories"
+        ]
+      }
+    },
+    "/api/v1/memories/version": {
+      "post": {
+        "description": "记录信念演变。\n\n转变类型：\n- gradual: 渐变漂移\n- sudden: 突然转变\n- revert: 回归到之前状态",
+        "operationId": "version_memory_api_v1_memories_version_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryVersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Version Memory",
+        "tags": [
+          "memories"
+        ]
+      }
+    },
+    "/api/v1/memories/{memory_id}": {
+      "delete": {
+        "description": "删除单条记忆（合规：用户可随时删除自己的数据）。",
+        "operationId": "delete_memory_api_v1_memories__memory_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Memory",
+        "tags": [
+          "memories"
+        ]
+      },
+      "get": {
+        "description": "获取单条记忆详情。",
+        "operationId": "get_memory_api_v1_memories__memory_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Memory",
+        "tags": [
+          "memories"
+        ]
+      }
+    },
+    "/api/v1/mood/checkin": {
+      "post": {
+        "description": "情绪签到。\n\n记录当日情绪，生成 AI 解读，更新 Streak。\n签到每日可多次：同一本地日重复签到走更新（不新增记录）；\nAI 解读计入统一免费配额，超额返回 QUOTA_EXCEEDED。\n连续 3 天同情绪 / 连续 2 天负面时响应附带 deep_interpretation。",
+        "operationId": "checkin_api_v1_mood_checkin_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoodCheckinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Checkin",
+        "tags": [
+          "mood"
+        ]
+      }
+    },
+    "/api/v1/mood/history": {
+      "get": {
+        "description": "查询签到历史。",
+        "operationId": "history_api_v1_mood_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "History",
+        "tags": [
+          "mood"
+        ]
+      }
+    },
+    "/api/v1/mood/trend": {
+      "get": {
+        "description": "查询情绪趋势。",
+        "operationId": "trend_api_v1_mood_trend_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 14,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trend",
+        "tags": [
+          "mood"
+        ]
+      }
+    },
+    "/api/v1/onboarding/first-read": {
+      "get": {
+        "description": "恢复已生成的初读卡；未生成 → 40402（前端据此回到引导快问步）。",
+        "operationId": "get_first_read_api_v1_onboarding_first_read_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get First Read",
+        "tags": [
+          "onboarding"
+        ]
+      },
+      "post": {
+        "description": "生成初读卡并落库（每用户一行，重复提交以最后一次为准）。",
+        "operationId": "create_first_read_api_v1_onboarding_first_read_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirstReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create First Read",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/api/v1/personality/assessment": {
+      "get": {
+        "description": "查询对话式评估状态（not_started / in_progress / completed + 下一题）。",
+        "operationId": "get_assessment_api_v1_personality_assessment_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Assessment",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/assessment/answer": {
+      "post": {
+        "description": "提交当前题答案（快捷选项或自由输入）；答满 8 题后生成画像（首次免费）。",
+        "operationId": "answer_assessment_api_v1_personality_assessment_answer_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssessmentAnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer Assessment",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/assessment/start": {
+      "post": {
+        "description": "开始 8 题对话式评估；已有进行中评估则续答，返回当前题。",
+        "operationId": "start_assessment_api_v1_personality_assessment_start_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start Assessment",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/combo-report": {
+      "post": {
+        "description": "生成 Pro 组合报告（16 型人格 × 九型交叉解读；每月 1 份，本月内命中缓存）。",
+        "operationId": "combo_report_api_v1_personality_combo_report_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Combo Report",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/enneagram": {
+      "get": {
+        "description": "查询九型评估状态（not_started / in_progress + 下一题 / completed + 结果）。",
+        "operationId": "get_enneagram_api_v1_personality_enneagram_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Enneagram",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/enneagram/answer": {
+      "post": {
+        "description": "提交当前题答案（快捷选项或自由输入）；答满 36 题后定型并写入 users.enneagram_type。",
+        "operationId": "answer_enneagram_api_v1_personality_enneagram_answer_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssessmentAnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer Enneagram",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/enneagram/start": {
+      "post": {
+        "description": "开始 36 题九型渐进式评估；已有进行中评估则续答，返回当前题。",
+        "operationId": "start_enneagram_api_v1_personality_enneagram_start_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start Enneagram",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/profile": {
+      "get": {
+        "description": "查看性格画像。\n\n冷启动阶段（< 7 天）：返回进度条和阶段信息。\n成熟阶段（≥ 7 天）：返回 MBTI 类型 + 观察 + 独特之处。",
+        "operationId": "get_profile_api_v1_personality_profile_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Profile",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/personality/refresh": {
+      "post": {
+        "description": "刷新性格画像。需 AI 数据共享同意（5.1.2(i)）。\n\n免费用户：总计 3 次刷新配额。\nPro 用户：每月 5 次刷新配额。\nPro+ 用户：不限次数。",
+        "operationId": "refresh_api_v1_personality_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Refresh",
+        "tags": [
+          "personality"
+        ]
+      }
+    },
+    "/api/v1/reflections": {
+      "get": {
+        "description": "列出最近的 Reflection 记录。",
+        "operationId": "list_reflections_api_v1_reflections_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Reflections",
+        "tags": [
+          "reflections"
+        ]
+      },
+      "post": {
+        "description": "保存 Reflection 为成长记录（可携带草稿关联的 related_memory_ids）。",
+        "operationId": "save_reflection_api_v1_reflections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReflectionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Reflection",
+        "tags": [
+          "reflections"
+        ]
+      }
+    },
+    "/api/v1/reflections/generate": {
+      "post": {
+        "description": "生成今日 Reflection 草稿（今日反思 + AI 观察，基于情绪 + 记忆）。\n\n需 AI 数据共享同意（5.1.2(i)）；草稿生成消耗 1 次 LLM 调用，\n计入统一免费配额，超额返回 QUOTA_EXCEEDED（40301）。\n新用户（无记忆无签到历史）返回对话式引导文案而非模板草稿。",
+        "operationId": "generate_draft_api_v1_reflections_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReflectionGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Draft",
+        "tags": [
+          "reflections"
+        ]
+      }
+    },
+    "/api/v1/share/first-read-card": {
+      "post": {
+        "description": "初读卡分享 PDF（P1-B01 / 架构方案 §二 M1）。\n\n内容 = 已落库的静态初读卡，不新增 LLM 调用；未生成 → 40402。",
+        "operationId": "first_read_card_pdf_api_v1_share_first_read_card_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "First Read Card Pdf",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/life-archive": {
+      "post": {
+        "description": "Life Archive 导出（JSON 章节数据）。\n\n权益判定：一次性买断（user_entitlements）或 Pro/Pro+ 订阅期内的每月 1 次\n免费生成；都不满足 → 40304。幂等：同档位（订阅口径为同档位同自然月）\n命中 share_exports 缓存直接复用，`regenerate=true` 才重新组装。",
+        "operationId": "life_archive_api_v1_share_life_archive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifeArchiveExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Life Archive",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/life-archive/pdf": {
+      "get": {
+        "description": "Life Archive 导出（PDF）。\n\nv1 在请求内同步排版：档案只编排已落库的用户记录与既有 AI 产出，\n不新增 LLM 调用（架构方案 §二 M6 合规前提），排版成本为本地 CPU。\nE3（arq 队列）落地后可切换为后台渲染 + 完成推送。",
+        "operationId": "life_archive_pdf_api_v1_share_life_archive_pdf_get",
+        "parameters": [
+          {
+            "description": "导出档位：1y / all / legacy",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "导出档位：1y / all / legacy",
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "description": "语言",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "en",
+              "description": "语言",
+              "title": "Language",
+              "type": "string"
+            }
+          },
+          {
+            "description": "忽略缓存重新生成",
+            "in": "query",
+            "name": "regenerate",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "忽略缓存重新生成",
+              "title": "Regenerate",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Life Archive Pdf",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/link": {
+      "get": {
+        "description": "本人分享深链（App 内所有分享文案统一取这里，不各自拼 URL）。",
+        "operationId": "share_link_api_v1_share_link_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Share Link",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/memory-card": {
+      "post": {
+        "description": "记忆卡分享 PDF：某条记忆的原话 + 日期 + 带推荐码的深链（架构方案 §二 M4）。\n\nmemory_id 必须属于当前用户，否则 40403（归属校验在 repository 内强制）。",
+        "operationId": "memory_card_pdf_api_v1_share_memory_card_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryCardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Memory Card Pdf",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/on-this-day": {
+      "get": {
+        "description": "记忆考古候选（§10.1 ①）：「N 年前的今天」原话列表，首页每日主位用。\n\n按用户本地时区逐往年窗口查询（近 3 年），零 LLM；无周年记忆 → 空候选。\n选中某条后走 POST /share/memory-card 导出 PDF（周年标题由该端点自动判定）。",
+        "operationId": "on_this_day_api_v1_share_on_this_day_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "On This Day",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/personality-card": {
+      "get": {
+        "description": "导出性格名片（JSON 结构 + 分享文案），用于社交分享卡片。",
+        "operationId": "personality_card_api_v1_share_personality_card_get",
+        "parameters": [
+          {
+            "description": "语言",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "en",
+              "description": "语言",
+              "title": "Language",
+              "type": "string"
+            }
+          },
+          {
+            "description": "名片变体：classic / minimal / combo(Pro)",
+            "in": "query",
+            "name": "variant",
+            "required": false,
+            "schema": {
+              "default": "classic",
+              "description": "名片变体：classic / minimal / combo(Pro)",
+              "title": "Variant",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Personality Card",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/report/{period}": {
+      "get": {
+        "description": "导出周期成长报告（JSON）。",
+        "operationId": "report_json_api_v1_share_report__period__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "period",
+            "required": true,
+            "schema": {
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "description": "语言",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "en",
+              "description": "语言",
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Report Json",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/report/{period}/pdf": {
+      "get": {
+        "description": "导出周期成长报告（PDF，中文正常渲染）。",
+        "operationId": "report_pdf_api_v1_share_report__period__pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "period",
+            "required": true,
+            "schema": {
+              "title": "Period",
+              "type": "string"
+            }
+          },
+          {
+            "description": "语言",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "en",
+              "description": "语言",
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Report Pdf",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/resolve/{code}": {
+      "get": {
+        "description": "推荐码 → 落地信息（公开端点，CF Pages 落地页与 App 冷启动共用）。\n\n只回\"该跳 App Store 还是打开 App\"，不回分享者的任何资料——陌生码不该变成\n一个探测他人是否在用这个 App 的入口。\n单 IP 超窗口次数 → 42903（`guard_resolve_rate`），因为每次解析都带一次 DB 查询。",
+        "operationId": "resolve_share_code_api_v1_share_resolve__code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Share Code",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/year-in-review": {
+      "get": {
+        "description": "年度报告卡（JSON）：一个自然年的确定性统计 + 带推荐码的分享深链。\n\n整年没有任何记录 → 40402 空态；请求早于注册年或未来年 → 400。",
+        "operationId": "year_in_review_api_v1_share_year_in_review_get",
+        "parameters": [
+          {
+            "description": "回顾哪一年；缺省为上一个完整自然年",
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "回顾哪一年；缺省为上一个完整自然年",
+              "title": "Year"
+            }
+          },
+          {
+            "description": "语言",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "en",
+              "description": "语言",
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Year In Review",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/year-in-review/pdf": {
+      "get": {
+        "description": "年度报告卡（PDF）：统计行 + 情绪 + 里程碑 + 品牌水印与二维码。\n\n内容零 LLM 生成，故不打 AIGC 元数据标识（与初读卡同口径）。",
+        "operationId": "year_in_review_pdf_api_v1_share_year_in_review_pdf_get",
+        "parameters": [
+          {
+            "description": "回顾哪一年；缺省为上一个完整自然年",
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "回顾哪一年；缺省为上一个完整自然年",
+              "title": "Year"
+            }
+          },
+          {
+            "description": "语言",
+            "in": "query",
+            "name": "language",
+            "required": false,
+            "schema": {
+              "default": "en",
+              "description": "语言",
+              "title": "Language",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Year In Review Pdf",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/user/account": {
+      "delete": {
+        "description": "注销账号：软删除即时失效 + QStash 异步物理删除（不可恢复）。\n\n即时返回（毫秒级）：status=deleted + 吊销 refresh + 清 push token；\n物理删除由 QStash 回调 /cron/purge-user 异步执行。",
+        "operationId": "delete_account_api_v1_user_account_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Delete Account",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/ai-consent": {
+      "get": {
+        "description": "查询 AI 数据共享同意状态。",
+        "operationId": "get_ai_consent_api_v1_user_ai_consent_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Ai Consent",
+        "tags": [
+          "user"
+        ]
+      },
+      "post": {
+        "description": "设置 AI 数据共享同意（5.1.2(i)：同意后弹窗不再显示，撤回后 AI 功能停用）。",
+        "operationId": "set_ai_consent_api_v1_user_ai_consent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIConsentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Ai Consent",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/analytics-consent": {
+      "post": {
+        "description": "设置匿名行为分析同意（独立于 AI 共享的第二项同意，可随时撤回）。\n\n撤回时顺带抹除 PostHog 侧人物数据：只改标志位会让「撤回」停留在纸面上。\n读取走 GET /users/profile 的 analytics_consent 字段，不另开只读端点。",
+        "operationId": "set_analytics_consent_api_v1_user_analytics_consent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIConsentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Analytics Consent",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/profile": {
+      "get": {
+        "description": "获取用户信息（Streak、等级、配额等）。",
+        "operationId": "get_profile_api_v1_user_profile_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Profile",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/push-token": {
+      "delete": {
+        "description": "清除用户全部推送 Token（登出时调用，登出后不再收到推送）。",
+        "operationId": "clear_push_token_api_v1_user_push_token_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Push Token",
+        "tags": [
+          "user"
+        ]
+      },
+      "post": {
+        "description": "注册设备推送 Token（登录时调用）。",
+        "operationId": "register_push_token_api_v1_user_push_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Push Token",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/settings": {
+      "patch": {
+        "description": "更新用户设置（昵称、对话风格、推送时间、时区）。",
+        "operationId": "update_settings_api_v1_user_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Settings",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "健康检查端点（Vercel Cron 每 5 分钟保热）。",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check"
+      }
+    }
+  }
+}

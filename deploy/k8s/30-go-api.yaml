@@ -1,0 +1,75 @@
+# Go Core：对外 HTTP + canonical 权威侧（D-1）。N1 阶段只接 healthz 与 auth 纵切，
+# 不在 Ingress 上占任何 path（灰度 0%），切流由 50-ingress.yaml 逐域改 backend。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-api
+  namespace: closenai
+  labels:
+    app: go-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-api
+  template:
+    metadata:
+      labels:
+        app: go-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: go-api
+          # 部署时由 CI 覆盖为带 digest 的 tag；私有 ghcr 需 imagePullSecrets。
+          image: ghcr.io/jamesfeng2009/closenai-go-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: closenai-config
+            - secretRef:
+                name: closenai-runtime
+          # go-api 启动即 pgxpool.Ping，PG 不可达则进程退出（fail fast，不带病接流量）。
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-api
+  namespace: closenai
+  labels:
+    app: go-api
+spec:
+  selector:
+    app: go-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

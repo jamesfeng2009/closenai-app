@@ -1,0 +1,67 @@
+# Python 侧现有 FastAPI 全量服务（py-api）。N8 按域切流期间它继续是绝大多数 path 的
+# backend；回滚 = 把 Ingress 里该 path 的 backend 改回本 Service，不发版、不回滚数据。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: py-api
+  namespace: closenai
+  labels:
+    app: py-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: py-api
+  template:
+    metadata:
+      labels:
+        app: py-api
+    spec:
+      containers:
+        - name: py-api
+          image: ghcr.io/jamesfeng2009/closenai-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: closenai-config
+            - secretRef:
+                name: closenai-runtime
+          # /health 是契约内端点（contracts/endpoints.md 第 98 条，backend/main.py:170）。
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          # 规格照《架构与技术方案-2026-09-06》§十 k3s 部署清单（4c8G 单机）。
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1.5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: py-api
+  namespace: closenai
+  labels:
+    app: py-api
+spec:
+  selector:
+    app: py-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
