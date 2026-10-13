@@ -244,6 +244,14 @@ Go 侧接管后必须保持文件名逐字一致（分享/归档链路按文件�
   本文件第四节是替代基线，Go 侧需逐值复现。
 - ↳ 2026-10-13 **`GET /health`（app 级）与 `GET /api/v1/cron/health` 同名 operationId 前缀**，
   前者 98 条里唯一不挂 router，故与「97 个 router 端点」计数相差 1 的原因即此（不是漏登记）。
+- ↳ 2026-10-14 **Go 专有端点不在本表，且这是口径缺口而不是遗漏**：本表由
+  `scripts/export_contract.py` 从 FastAPI 生成，`backend/tests/test_contract_freeze.py` 断言
+  「表行数 == 路由装饰器数」与 `contracts/openapi.json` 逐字相等 ⇒ 把 Go 侧新增的端点写进
+  §五 会直接打红 N0 的契约冻结闸。Go 侧端点（N1 的 `GET /healthz`，N9 的
+  `GET /api/v1/personal-model/insights/{id}/evidence`，出处
+  `go-core/internal/httpapi/server.go` 的 `routes()`）一律**就地注释 + 本节留字**登记，
+  不进 §五、不改 openapi 字节。⇒ 后果：这张表从今天起不再是「全部对外路径」的
+  完备清单，而是「Python 侧契约面」的完备清单；按域切流（N8）时要另行核对 Go mux 的注册面。
 
 ## 九、前端调用面对账（自动扫描 `frontend/src`）
 
