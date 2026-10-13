@@ -151,6 +151,7 @@ class MemoryService:
         conviction: float = 0.5,
         emotion_context: Optional[str] = None,
         language: str = "en",
+        generation_run_id: Optional[str] = None,
     ) -> MemoryResponse:
         """创建记忆（含向量化 + 重复表达加固 + LLM 转变检测 + 情绪过滤）。
 
@@ -177,6 +178,7 @@ class MemoryService:
             conviction=conviction,
             embedding=embedding,
             emotion_context=emotion_context,
+            generation_run_id=generation_run_id,
         )
         return _to_response(memory)
 
@@ -318,6 +320,8 @@ class MemoryService:
                 f"用户的话：{message}"
             )
             text = await llm.complete(prompt, language=language, lite=True, max_tokens=300, temperature=0.2)
+            # 一次提取最多落 5 条记忆，共用这次调用的 run；须在后续向量化/矛盾检测改写指针前取走（O4）
+            extract_run_id = llm.current_run_id()
             stored = 0
             for item in _parse_json_array(text)[:5]:
                 content = (item.get("content") or "").strip()
@@ -332,6 +336,7 @@ class MemoryService:
                 await self.create_memory(
                     db, user_id, content=content, category=category,
                     source=source, conviction=conviction, language=language,
+                    generation_run_id=extract_run_id,
                 )
                 stored += 1
             return stored

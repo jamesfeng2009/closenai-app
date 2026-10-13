@@ -260,10 +260,13 @@ class PersonalityService:
             raise AppException(ErrorCode.LLM_ERROR, "性格画像生成失败，请稍后再试")
 
         mbti_type, observations, unique_traits = self._parse_llm_result(text)
+        # 留痕回链须在下一次 LLM 调用之前取（O4）：这一版画像正文即由这次补全产出
+        run_id = llm.current_run_id()
         versions = await personality_repository.list(db, user_id)
         new_version = (versions[-1].version + 1) if versions else 1
         profile = await personality_repository.create(
-            db, user_id, mbti_type, json.dumps(observations, ensure_ascii=False), unique_traits, new_version
+            db, user_id, mbti_type, json.dumps(observations, ensure_ascii=False), unique_traits,
+            new_version, generation_run_id=run_id,
         )
         return PersonalityRefreshResponse(
             success=True,

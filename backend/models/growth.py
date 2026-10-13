@@ -27,6 +27,9 @@ class GrowthRecord(Base):
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 事件后跟进消息是否已发送（P0-F07：3-7 天主动跟进防重复标记）
     follow_up_sent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # 生成留痕回链（O4）：正文由哪些 LLM 调用产出，逗号分隔（周报 = 正文段 + 下周预测段，
+    # 与 related_memory_ids 同口径）；回退模板直出时为空。分享 PDF 的 AIGC 标识从这里取 provider/model。
+    generation_run_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

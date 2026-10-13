@@ -10,6 +10,7 @@
 from backend.database import Base
 from backend.models.auth import RefreshToken
 from backend.models.chat import ChatMessage
+from backend.models.generation_run import AiGenerationRun
 from backend.models.growth import GrowthRecord, UserMilestone
 from backend.models.journey import (
     JourneyEvent,

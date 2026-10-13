@@ -30,6 +30,7 @@ class MemoryRepository:
         *,
         status: str = "current",
         emotion_context: Optional[str] = None,
+        generation_run_id: Optional[str] = None,
     ) -> Memory:
         """新建一条记忆。"""
         memory = Memory(
@@ -42,6 +43,7 @@ class MemoryRepository:
             source=source,
             embedding=embedding,
             emotion_context=emotion_context,
+            generation_run_id=generation_run_id,
         )
         db.add(memory)
         await db.flush()

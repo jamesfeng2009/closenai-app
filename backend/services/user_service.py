@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import local_today, safe_zoneinfo, utc_now
 from backend.models.chat import ChatMessage
+from backend.models.generation_run import AiGenerationRun
 from backend.models.growth import GrowthRecord, UserMilestone
 from backend.models.journey import (
     JourneyEvent,
@@ -46,6 +47,30 @@ logger = get_logger("closenai.user")
 
 # 前端平台 → 推送通道映射（PushService 按 apns/fcm 分发）
 PLATFORM_MAP = {"ios": "apns", "android": "fcm", "apns": "apns", "fcm": "fcm"}
+
+# 注销物理删除清单：顺序即删除顺序，`users` 必须最后（其余表按 user_id 关联，本体删除是举证终点）。
+# 新增带 user_id 的表**必须**在这里登记，`test_purge_covers_every_user_scoped_table` 会按
+# Base.metadata 逐表对账（2026-10-13 实测：O4 的 ai_generation_runs 建表时漏登记，靠该闸门兜住）。
+PURGE_TARGETS = (
+    (ChatMessage, "chat_messages"),
+    (MoodCheckin, "mood_checkins"),
+    (Memory, "memories"),
+    (PersonalityProfile, "personality_profiles"),
+    (PersonalityAssessment, "personality_assessments"),
+    (GrowthRecord, "growth_records"),
+    (AiGenerationRun, "ai_generation_runs"),
+    (UserMilestone, "user_milestones"),
+    (PushToken, "push_tokens"),
+    (ShareExport, "share_exports"),
+    (Receipt, "receipts"),
+    (Subscription, "subscriptions"),
+    (UserEntitlement, "user_entitlements"),
+    (JourneyEvent, "journey_events"),
+    (OnboardingProfile, "onboarding_profiles"),
+    (SafetyEvent, "safety_events"),
+    (RefreshToken, "refresh_tokens"),
+    (User, "users"),
+)
 
 
 class UserService:
@@ -365,25 +390,7 @@ class UserService:
             await db.execute(select(User.deleted_at).where(User.id == user_id))
         ).scalar_one_or_none()
         counts: dict = {}
-        for table, key in (
-            (ChatMessage, "chat_messages"),
-            (MoodCheckin, "mood_checkins"),
-            (Memory, "memories"),
-            (PersonalityProfile, "personality_profiles"),
-            (PersonalityAssessment, "personality_assessments"),
-            (GrowthRecord, "growth_records"),
-            (UserMilestone, "user_milestones"),
-            (PushToken, "push_tokens"),
-            (ShareExport, "share_exports"),
-            (Receipt, "receipts"),
-            (Subscription, "subscriptions"),
-            (UserEntitlement, "user_entitlements"),
-            (JourneyEvent, "journey_events"),
-            (OnboardingProfile, "onboarding_profiles"),
-            (SafetyEvent, "safety_events"),
-            (RefreshToken, "refresh_tokens"),
-            (User, "users"),
-        ):
+        for table, key in PURGE_TARGETS:
             result = await db.execute(delete(table).where(table.user_id == user_id)
                                       if table is not User else delete(User).where(User.id == user_id))
             counts[key] = result.rowcount or 0

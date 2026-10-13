@@ -21,6 +21,7 @@ from backend.core.errors import AppException, ErrorCode
 from backend.core.time_utils import utc_now
 from backend.models.auth import RefreshToken
 from backend.models.chat import ChatMessage
+from backend.models.generation_run import AiGenerationRun
 from backend.models.memory import Memory
 from backend.models.push import PushToken
 from backend.models.user import User
@@ -174,6 +175,23 @@ async def test_purge_user_idempotent(db):
     assert await user_repository.get_user_any_status(db, user.id) is None
 
 
+def test_purge_covers_every_user_scoped_table():
+    """闸门：Base.metadata 里每张带 user_id 的表都必须在 PURGE_TARGETS 登记。
+
+    建表时漏登记 = 注销后残留用户数据（2026-10-13 实测 O4 的 ai_generation_runs 就漏过一次），
+    所以按元数据逐表对账，而不是靠人记得改 purge 循环。
+    """
+    import backend.models  # noqa: F401  触发全部 ORM 模型注册进 Base.metadata
+    from backend.database import Base
+    from backend.services.user_service import PURGE_TARGETS
+
+    user_scoped = {t.name for t in Base.metadata.tables.values() if "user_id" in t.columns}
+    covered = {key for _, key in PURGE_TARGETS} - {"users"}
+    assert user_scoped == covered, (
+        f"仅表有={sorted(user_scoped - covered)} 仅清单有={sorted(covered - user_scoped)}"
+    )
+
+
 async def test_purge_user_deletes_related_data(db):
     user = await _make_user(db)
     expires = utc_now() + timedelta(days=30)
@@ -189,11 +207,20 @@ async def test_purge_user_deletes_related_data(db):
             timezone="UTC",
         )
     )
+    # O4 生成留痕表同为 user 维度数据：注销必须一起删干净（无残留）
+    db.add(
+        AiGenerationRun(
+            id=str(uuid4()), user_id=user.id, trace_id="t", op="complete", purpose="x"
+        )
+    )
     await db.flush()
     counts = await user_service.purge_user(db, user.id)
     assert counts["refresh_tokens"] == 1
     assert counts["push_tokens"] == 1
+    assert counts["ai_generation_runs"] == 1
     assert counts["users"] == 1
+    left = await db.execute(select(AiGenerationRun).where(AiGenerationRun.user_id == user.id))
+    assert left.scalars().first() is None
 
 
 # ── purge 举证日志（J4：不建墓碑表，删除证明走结构化日志）──

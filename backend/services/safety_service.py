@@ -378,6 +378,10 @@ class SafetyService:
                     lite=True,
                     max_tokens=10,
                     temperature=0.0,
+                    purpose="safety_service.check_text",
+                    # 分类器自检不是「内容生成」：留痕照写，但不能抢占 current_run_id，
+                    # 否则「生成正文 → 过闸 → 落库」会把正文的 generation_run_id 指到这次自检上
+                    track=False,
                 ),
                 timeout=self.CHECK_TIMEOUT,
             )
@@ -393,9 +397,16 @@ class SafetyService:
     async def check_or(
         self, text: str, language: str, fallback: str, *, scope: str = "chat"
     ) -> str:
-        """非流式便捷封装：text 违规时返回 fallback，否则返回 text。"""
-        if text and text.strip() and not await self.check_text(text, language, scope=scope):
-            return fallback
+        """非流式便捷封装：text 违规时返回 fallback，否则返回 text。
+
+        命中拦截时把这次生成标为 fallback（留痕 O4）：随后落库的正文来自模板，
+        派生行的 generation_run_id 因此为空，而不是链到一条被丢弃的 AI 产出。
+        """
+        if text and text.strip():
+            run_id = llm.current_run_id()
+            if not await self.check_text(text, language, scope=scope):
+                await llm.mark_fallback(run_id)
+                return fallback
         return text
 
     def filter_template(self, text: str, language: str = "en") -> str:

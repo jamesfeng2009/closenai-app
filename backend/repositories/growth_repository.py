@@ -28,6 +28,7 @@ class GrowthRepository:
         related_memory_ids: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         metadata_json: Optional[str] = None,
+        generation_run_id: Optional[str] = None,
     ) -> GrowthRecord:
         """写入一条成长记录。"""
         record = GrowthRecord(
@@ -38,6 +39,7 @@ class GrowthRepository:
             related_memory_ids=",".join(related_memory_ids) if related_memory_ids else None,
             tags=",".join(tags) if tags else None,
             metadata_json=metadata_json,
+            generation_run_id=generation_run_id,
         )
         db.add(record)
         await db.flush()

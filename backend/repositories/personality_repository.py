@@ -43,6 +43,7 @@ class PersonalityRepository:
         observations: Optional[str],
         unique_traits: Optional[str],
         version: int,
+        generation_run_id: Optional[str] = None,
     ) -> PersonalityProfile:
         """写入一版性格画像。"""
         profile = PersonalityProfile(
@@ -52,6 +53,7 @@ class PersonalityRepository:
             observations=observations,
             unique_traits=unique_traits,
             version=version,
+            generation_run_id=generation_run_id,
         )
         db.add(profile)
         await db.flush()

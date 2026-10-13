@@ -27,6 +27,11 @@ class Memory(Base):
     conviction_score: Mapped[float] = mapped_column(Float, default=0.5)
     # 来源: self | others | hypothetical（旧数据 self_reflection/ai_inference/quoted_other 保持可读）
     source: Mapped[str] = mapped_column(String(20), default="self")
+    # 生成留痕回链（O4）：AI 抽取的记忆指向 ai_generation_runs 那次调用；
+    # 用户手写的记忆与模板直出的内容为空——空值即「这行不是 AI 写的」。
+    generation_run_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
     # 向量嵌入（512 维 halfvec，DashScope text-embedding-v4；halfvec 存储/索引空间减半，Supabase 免费版性价比最优）
     embedding: Mapped[list[float] | None] = mapped_column(HALFVEC(512), nullable=True)
     # 渐变漂移分数

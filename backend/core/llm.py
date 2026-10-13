@@ -12,23 +12,72 @@ LLM 客户端封装（多 Provider + 多语言）。
 - 所有调用必须传 `language`（语言码），封装会自动注入 system prompt 语言指令
 - 语言跟随：AI 用用户语言回复
 
+生成留痕（架构方案 O4）：三个入口每次调用都写一行 ai_generation_runs（含异常路径），
+落库 AI 产出前用 `llm.current_run_id()` 取回链，闸门丢弃产出时用 `llm.mark_fallback()`。
+留痕写失败只记日志，不影响生成结果。
+
 用法：
     from backend.core.llm import llm
     text = await llm.complete("你好", language="zh")
     async for chunk in llm.stream("你好", language="zh"):
         ...
 """
+import json
 import logging
+import sys
+import time
 from typing import AsyncGenerator, Optional
 
 from openai import AsyncOpenAI
 
 from backend.config import settings
+from backend.core import generation_run
 
 logger = logging.getLogger("closenai.llm")
 
 # OpenAI 兼容 client 缓存（按 provider 懒初始化）
 _client: Optional[AsyncOpenAI] = None
+
+
+def _purpose_from_frame(depth: int = 2) -> str:
+    """调用点标识，由调用帧推导（module.func）。
+
+    留痕要能回答「这次生成是为了什么」，而 20+ 个调用点显式传 purpose 的成本远高于
+    一次帧读取；调用方可传 purpose= 覆盖推导值。depth=2 对应「本函数的调用者」。
+    """
+    try:
+        frame = sys._getframe(depth)
+    except (ValueError, AttributeError):
+        return "unknown"
+    module = str(frame.f_globals.get("__name__", "")).rsplit(".", 1)[-1]
+    return f"{module}.{frame.f_code.co_name}"[:80]
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
+
+
+def _usage_fields(resp) -> dict:
+    """从响应里取 token 用量；OpenAI 兼容 provider 不回传 usage 时留空。"""
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return {}
+    return {
+        "prompt_tokens": getattr(usage, "prompt_tokens", None),
+        "completion_tokens": getattr(usage, "completion_tokens", None),
+    }
+
+
+def _run_fields(op: str, purpose: Optional[str], *, model: str, lite: bool, language: str, prompt: str) -> dict:
+    return {
+        "op": op,
+        "purpose": purpose or _purpose_from_frame(depth=3),
+        "provider": settings.llm_provider,
+        "model": model,
+        "lite": lite,
+        "language": language,
+        "input_chars": len(prompt or ""),
+    }
 
 
 def _get_client() -> AsyncOpenAI:
@@ -104,19 +153,50 @@ async def complete(
     lite: bool = False,
     max_tokens: int = 500,
     temperature: float = 0.7,
+    purpose: Optional[str] = None,
+    track: bool = True,
 ) -> str:
-    """非流式补全。返回完整文本。"""
+    """非流式补全。返回完整文本。
+
+    purpose：留痕的调用点标识，缺省由调用帧推导；track=False 用于辅助调用
+    （如安全分类器自检），写留痕但不占用「当前生成」指针。
+    """
     client = _get_client()
-    resp = await client.chat.completions.create(
-        model=get_model(lite),
-        messages=[
-            {"role": "system", "content": _build_system_prompt(system_prompt, language)},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=max_tokens,
-        temperature=temperature,
+    model = get_model(lite)
+    fields = _run_fields(
+        "complete", purpose, model=model, lite=lite, language=language, prompt=prompt
     )
-    return resp.choices[0].message.content or ""
+    started = time.perf_counter()
+    try:
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _build_system_prompt(system_prompt, language)},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        text = resp.choices[0].message.content or ""
+    except Exception as exc:  # noqa: BLE001  异常照常留痕后原样上抛
+        await generation_run.record_run(
+            **fields,
+            status="error",
+            error_type=type(exc).__name__,
+            output_chars=0,
+            latency_ms=_elapsed_ms(started),
+            track=track,
+        )
+        raise
+    await generation_run.record_run(
+        **fields,
+        status="ok",
+        output_chars=len(text),
+        latency_ms=_elapsed_ms(started),
+        track=track,
+        **_usage_fields(resp),
+    )
+    return text
 
 
 async def stream(
@@ -126,28 +206,60 @@ async def stream(
     lite: bool = False,
     max_tokens: int = 500,
     temperature: float = 0.7,
+    purpose: Optional[str] = None,
+    track: bool = True,
 ) -> AsyncGenerator[str, None]:
-    """流式补全。逐段 yield 文本。"""
+    """流式补全。逐段 yield 文本。
+
+    留痕在流自然结束时写（累计产出长度即实际下发内容）；调用方中途放弃迭代不会有留痕行。
+    """
     client = _get_client()
-    stream_resp = await client.chat.completions.create(
-        model=get_model(lite),
-        messages=[
-            {"role": "system", "content": _build_system_prompt(system_prompt, language)},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=max_tokens,
-        temperature=temperature,
-        stream=True,
+    model = get_model(lite)
+    fields = _run_fields(
+        "stream", purpose, model=model, lite=lite, language=language, prompt=prompt
     )
-    async for chunk in stream_resp:
-        delta = chunk.choices[0].delta.content if chunk.choices else None
-        if delta:
-            yield delta
+    started = time.perf_counter()
+    pieces: list[str] = []
+    try:
+        stream_resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _build_system_prompt(system_prompt, language)},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=True,
+        )
+        async for chunk in stream_resp:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                pieces.append(delta)
+                yield delta
+    except Exception as exc:  # noqa: BLE001
+        await generation_run.record_run(
+            **fields,
+            status="error",
+            error_type=type(exc).__name__,
+            output_chars=sum(len(p) for p in pieces),
+            latency_ms=_elapsed_ms(started),
+            track=track,
+        )
+        raise
+    text = "".join(pieces)
+    await generation_run.record_run(
+        **fields,
+        status="ok",
+        output_chars=len(text),
+        latency_ms=_elapsed_ms(started),
+        track=track,
+    )
 
 
 async def embed(
     texts: list[str],
     dim: int | None = None,
+    purpose: Optional[str] = None,
 ) -> list[list[float]]:
     """
     文本向量化（用于 pgvector 语义检索）。
@@ -158,6 +270,9 @@ async def embed(
     - openai / doubao: 走 OpenAI 兼容 /embeddings
 
     返回嵌套向量列表，维度与 models/memory.py 的 HALFVEC(512) 对齐。
+
+    同样写留痕（op=embed）：embedding 也是模型调用，成本与「切换 provider 后需重嵌入」
+    的排障都要能查到。language 传空串——embedding 调用不跟随用户语言，该列对 embed 无意义。
     """
     client = _get_client()
     provider = settings.llm_provider
@@ -168,10 +283,34 @@ async def embed(
     elif provider == "dashscope":
         extra["dimensions"] = settings.embedding_dim
 
-    resp = await client.embeddings.create(model=model, input=texts, **extra)
-    # 按输入顺序返回向量
-    ordered = sorted(resp.data, key=lambda x: x.index)
-    return [item.embedding for item in ordered]
+    fields = _run_fields(
+        "embed", purpose, model=model, lite=False, language="", prompt="".join(texts or [])
+    )
+    started = time.perf_counter()
+    try:
+        resp = await client.embeddings.create(model=model, input=texts, **extra)
+        # 按输入顺序返回向量
+        ordered = sorted(resp.data, key=lambda x: x.index)
+    except Exception as exc:  # noqa: BLE001
+        await generation_run.record_run(
+            **fields,
+            status="error",
+            error_type=type(exc).__name__,
+            latency_ms=_elapsed_ms(started),
+            meta=json.dumps({"texts": len(texts or [])}),
+        )
+        raise
+    vectors = [item.embedding for item in ordered]
+    await generation_run.record_run(
+        **fields,
+        status="ok",
+        latency_ms=_elapsed_ms(started),
+        meta=json.dumps(
+            {"texts": len(texts or []), "dim": len(vectors[0]) if vectors else 0}
+        ),
+        **_usage_fields(resp),
+    )
+    return vectors
 
 
 # 单例
@@ -181,4 +320,7 @@ llm = type("LLM", (), {
     "embed": staticmethod(embed),
     "get_model": staticmethod(get_model),
     "get_embedding_model": staticmethod(get_embedding_model),
+    # 生成留痕取用：落库前读 current_run_id()，产出被闸门丢弃时调 mark_fallback()
+    "current_run_id": staticmethod(generation_run.current_run_id),
+    "mark_fallback": staticmethod(generation_run.mark_fallback),
 })()

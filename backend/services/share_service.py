@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core import copy
+from backend.core import generation_run
 from backend.core.errors import AppException, ErrorCode
 from backend.core.llm import llm
 from backend.core.referral import normalize_referral_code, referral_link
@@ -48,6 +49,7 @@ from backend.repositories import (
     memory_repository,
     milestone_repository,
     mood_repository,
+    personality_repository,
     share_repository,
     user_repository,
 )
@@ -81,6 +83,21 @@ AIGC_DOC_METADATA = {
     "subject": "Contains AI-generated content (GB 45438-2025)",
     "keywords": "AIGC;AI-generated",
 }
+
+
+def _aigc_metadata(runs: Optional[dict] = None) -> dict:
+    """AIGC 元数据：有生成留痕时把模型与 run id 一起写进 PDF（O4）。
+
+    声明只说"含 AI 生成内容"是不够的——GB 45438 要求可追溯，元数据带 run id
+    才能从一份转发出去的 PDF 回查到 ai_generation_runs 的具体那次调用。
+    """
+    meta = dict(AIGC_DOC_METADATA)
+    models = (runs or {}).get("models") or []
+    ids = (runs or {}).get("run_ids") or []
+    if models:
+        meta["creator"] = "AI: " + ", ".join(models[:4])
+        meta["keywords"] = f"{meta['keywords']}; {'; '.join(ids[:8])}"
+    return meta
 
 # 注册中文 CID 字体（无需嵌入字体文件）
 try:
@@ -728,12 +745,16 @@ class ShareService:
         lines = self._report_lines(report, language)
         zh = (language or "").startswith("zh")
         brand = await self._brand_for(db, user_id, zh)
-        # 报告正文由 LLM 生成 → AIGC 隐式标识进元数据
+        # 报告正文由 LLM 生成 → AIGC 隐式标识进元数据，并带上那次生成的模型与 run id
+        runs = await generation_run.summarize_runs(
+            db, generation_run.collect_run_ids(report.get("generation_run_id"))
+        )
         return self._render_pdf(
             report.get("period_label") or copy.t("share", "report.default_title", language),
             lines,
             brand=brand,
             aigc=True,
+            aigc_runs=runs,
         )
 
     # ── Life Archive 导出（M6 · 一次性买断）──
@@ -788,10 +809,14 @@ class ShareService:
         archive = await self.export_life_archive(db, user_id, scope, language, regenerate)
         # aigc=True：档案含已落库的 LLM 章节 → 隐式标识进元数据（显式逐章标注另见正文）
         # 不给 brand：Life Archive 是付费私人交付物，带引流二维码会让它转发时变成广告
+        runs = await generation_run.summarize_runs(
+            db, generation_run.collect_run_ids(archive.get("generation_run_ids"))
+        )
         return self._render_pdf(
             self._life_archive_title(archive),
             self._life_archive_lines(archive),
             aigc=True,
+            aigc_runs=runs,
         )
 
     async def _life_archive_gate(
@@ -847,6 +872,7 @@ class ShareService:
             db, user.id, days=window_days or _ALL_HISTORY_DAYS
         )
         milestones = await milestone_repository.list_for_user(db, user.id)
+        portrait_row = await personality_repository.get_latest(db, user.id)
         if window_days is not None:
             milestones = [
                 m for m in milestones if _as_aware(m.achieved_at) >= window_start
@@ -887,6 +913,16 @@ class ShareService:
             "generated_at": utc_now().isoformat(),
             "stats": stats,
             "chapters": chapters,
+            # AIGC 标识的可追溯源（O4）：档案里 AI 章节对应的生成事件
+            "generation_run_ids": ",".join(
+                generation_run.collect_run_ids(
+                    *(
+                        r.generation_run_id
+                        for r in [*patterns, *weekly, *daily, portrait_row]
+                        if r is not None
+                    )
+                )
+            ),
             "aigc_mark": copy.t("share", "aigc.mark", language),
             "aigc_notice": copy.t("share", "aigc.notice", language),
             # 与分享卡不同：Life Archive 是买断的个人档案，不做引流，因此这里保持
@@ -1165,6 +1201,7 @@ class ShareService:
         *,
         brand: Optional[dict] = None,
         aigc: bool = False,
+        aigc_runs: Optional[dict] = None,
     ) -> bytes:
         """文本行 → PDF。brand 非空时在文末追加品牌水印 + 引流二维码（M4 分享卡）。"""
         buf = BytesIO()
@@ -1176,7 +1213,7 @@ class ShareService:
             topMargin=20 * mm,
             bottomMargin=20 * mm,
             title=title,
-            **(AIGC_DOC_METADATA if aigc else {}),
+            **(_aigc_metadata(aigc_runs) if aigc else {}),
         )
 
         title_style = ParagraphStyle(

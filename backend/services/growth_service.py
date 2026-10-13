@@ -406,11 +406,14 @@ class GrowthService:
             f"{mood_desc}\n今日对话：\n{chat_desc}\n最近记忆：\n{memory_desc}"
         )
         content = await self._llm_or_fallback(prompt, language)
+        # 正文来自 LLM 时有 run 可回链，回退模板时为 None（O4：空值即「非 AI 产出」）
+        run_id = llm.current_run_id()
         tags = tag_record_content(f"{content} {mood_desc} {chat_desc}")
         await growth_repository.create(
             db, user_id, "daily_insight", content,
             related_memory_ids=[m.id for m in memories],
             tags=tags,
+            generation_run_id=run_id,
         )
         return content
 
@@ -430,6 +433,8 @@ class GrowthService:
             f"{rec_desc}"
         )
         content = await self._llm_or_fallback(prompt, language)
+        # 正文段与预测段是两次独立生成，回链须各自取（O4）：指针会被后一次调用覆盖
+        body_run_id = llm.current_run_id()
 
         # 结构化摘要：本周情绪分布 + 高频话题
         checkins = await mood_repository.get_history(db, user_id, days=7)
@@ -439,6 +444,7 @@ class GrowthService:
 
         # 预测性洞察：下周预测段（失败安全省略，不影响周报主体）
         forecast = await self._generate_next_week_forecast(db, user_id, user.timezone, language)
+        forecast_run_id = llm.current_run_id() if forecast else None
         if forecast:
             label = copy.t("growth", "forecast_label", language)
             content = f"{content}\n\n【{label}】{forecast}"
@@ -463,6 +469,7 @@ class GrowthService:
             related_memory_ids=ref_ids[:5],
             tags=tags,
             metadata_json=json.dumps(metadata, ensure_ascii=False),
+            generation_run_id=",".join(i for i in (body_run_id, forecast_run_id) if i) or None,
         )
         return content
 
@@ -696,11 +703,13 @@ class GrowthService:
 
         # LLM 生成洞察正文（失败回退模板）
         content = await self._generate_report_body(db, user_id, period, data, language)
+        report_run_id = llm.current_run_id()
 
         # 写入成长记录
         record_type = f"{period}_report"
-        await growth_repository.create(
-            db, user_id, record_type, content, related_memory_ids=[m.id for m in memories[:5]]
+        record = await growth_repository.create(
+            db, user_id, record_type, content, related_memory_ids=[m.id for m in memories[:5]],
+            generation_run_id=report_run_id,
         )
 
         return {
@@ -711,6 +720,8 @@ class GrowthService:
             "mood_distribution": mood_dist,
             "mood_trend": data["mood_trend"],
             "chat_count": chat_count,
+            # 分享导出（AIGC 标识）按这条 run 取 provider/model（O4）
+            "generation_run_id": report_run_id,
             "content": content,
         }
 

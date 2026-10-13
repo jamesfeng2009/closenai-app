@@ -21,6 +21,10 @@ class PersonalityProfile(Base):
     observations: Mapped[str | None] = mapped_column(Text, nullable=True)
     unique_traits: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    # 生成留痕回链（O4）：本画像正文由哪次 LLM 调用产出；模板/规则直出时为空
+    generation_run_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
