@@ -421,6 +421,8 @@
       - ✅ 变异自证 2 处（备份写回恢复，`diff -q` 逐字核验）：摘掉 `auth.py` 的 route_class → 闸门 + 边界条同时红（`visible=False`）；保留声明但撤掉包装里的 commit → 边界条红。⇒ 测试拍的确实是提交时序，不是在等 teardown 跑完
       - ✅ 全量终态：`pytest backend/tests` **597 passed / 1 failed / 1 skipped**（Go 侧 `go test ./...` 同步全绿，PG 清场 `users=0 / refresh_tokens=0`）——唯一那条 `test_commitment.py::test_weekly_quota_defers_third_follow_up` 是本修之前就存在的失败（tasks.md:509 已记根因；该用例 0 处 HTTP、不经 `get_db`，与本修无关）。修复过程中 `test_contract_freeze.py` 曾因 17 个 router 各插入 1 行 import 使 handler 行号整体 +1 而红 ⇒ 按口径重跑 `scripts/export_contract.py` 重生登记表（98 条不变，仅 `file:line` 位移）后转绿，未手改表
       - ✅ 部署件同步：py-api 镜像重建后再跑 `test_go_py_service_interop.py`（**2 passed**），其中新增断言「跨进程写后立刻读 `attempts == 1`」——正是本条取证时量到 404 的那条路径，现在一次命中
+      - ↳ 环境勘误 3（2026-10-13，归 K 节）：该容器级闸的库口令改为 **env-only**（`PG_PASSWORD` 无默认值，未设置时两条 skip 而非 fail）——口令不该跟着测试文件进公开远端。实测：不带口令 `2 skipped`、带口令 `2 passed`
+      - ↳ 远端口径（2026-10-13）：`origin` 由内嵌明文 token 的 HTTPS URL 改为 SSH（`git@github.com:jamesfeng2009/closenai-app.git`）。取证：两枚 token（GitHub 54 字符 / Gitee 39 字符）经 `git log --all -S` 与全树 grep 核验**从未进过任何提交、跟踪文件或工作树未跟踪文件**，只存在于 `.git/config`，因此无需改写历史；`gitee` 远端仍是 HTTPS+token，是否一并改 SSH 未获点名、不动
     - ⛔ 唯一仍缺的动作：`kubectl apply` 打到共享 k3s（需显式授权）+ 镜像推送凭证（与 K5 同批）。本机 namespace `closenai` 是 dry-run 用，用完已回收
   - 验收：Python 签发的 access token 被 Go 验证通过的跨语言用例进 CI；`sqlc generate` 成功
     - ✅ 2026-10-13 前半条达成，且**双向**：Python→Go 用 `go-core/testdata/python_auth_baseline.json`（`scripts/gen_go_auth_fixtures.py` 调真实 `create_access_token/create_refresh_token/hash_password` 生成）断言 access/refresh/expired/wrong-secret/tampered 五类 + argon2 三哈希（含中文密码）；Go→Python 由 `backend/tests/test_go_auth_interop.py`（**10 passed**）跑 `tools/crosscheck` 验 `decode_token` claims 逐字同构、refresh 当访问凭证用两侧都判 40102、`check_needs_rehash is False`

@@ -11,13 +11,15 @@
      `backend/database.py` 的 commit 落在依赖 teardown、跑在响应发出之后所带来的
      可见性窗口；现由 `backend/core/db_route.py` 把提交挪到响应字节发出之前。
 
-前置：本机 docker + 两个本地镜像 + 一个可达的 PostgreSQL。任一缺失一律 skip，
-不算失败——CI 上没有 Docker 时这条不应变红。
+前置：本机 docker + 两个本地镜像 + 一个可达的 PostgreSQL + `PG_PASSWORD`。任一缺失一律
+skip，不算失败——CI 上没有 Docker、或没带库口令时这条都不应变红。
 
   docker build --build-arg GO_IMAGE=docker.m.daocloud.io/library/golang:1.27-alpine \
       -f go-core/Dockerfile -t closenai-go-api:0.1.0-local go-core
   docker build --build-arg PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim \
       -f deploy/Dockerfile.py-api -t closenai-api:0.1.0-local .
+  PG_PASSWORD='<本机 dev 容器口令，不入库>' \
+      .venv/bin/pytest backend/tests/test_go_py_service_interop.py
 """
 
 from __future__ import annotations
@@ -40,7 +42,8 @@ PY_IMAGE = os.environ.get("PY_API_IMAGE", "closenai-api:0.1.0-local")
 PG_CONTAINER = os.environ.get("PG_CONTAINER", "closenai-pg-dev")
 PG_DB = os.environ.get("PG_DB", "closenai")
 PG_USER = os.environ.get("PG_USER", "postgres")
-PG_PASSWORD = os.environ.get("PG_PASSWORD", "devpw")
+# 口令只从环境取，不留默认值：这条闸门文件在公开远端上，本机 dev 容器的口令不该跟着入库。
+PG_PASSWORD = os.environ.get("PG_PASSWORD", "")
 # 容器视角下的宿主机地址；OrbStack 与 Docker Desktop 都注入 host.docker.internal。
 PG_HOST_IN_CONTAINER = os.environ.get("PG_HOST_IN_CONTAINER", "host.docker.internal")
 PG_PORT = os.environ.get("PG_PORT", "55432")
@@ -78,6 +81,8 @@ def stack():
             pytest.skip(f"本机没有镜像 {tag}（构建命令见模块 docstring）")
     if not _pg_reachable():
         pytest.skip(f"容器 {PG_CONTAINER} 里的 PG 不可达，跨服务验收需要真库")
+    if not PG_PASSWORD:
+        pytest.skip("PG_PASSWORD 未设置（口令不入库，运行时用环境变量传入）")
 
     pg_creds = f"{PG_USER}:{PG_PASSWORD}@{PG_HOST_IN_CONTAINER}:{PG_PORT}/{PG_DB}"
     urls = {
