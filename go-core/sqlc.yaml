@@ -1,0 +1,27 @@
+# sqlc 配置（D-7 结案：N1 手写 SQL，sqlc 随 N2 canonical 新表同时上）。
+#
+# schema 三份快照都由 scripts/export_pg_schema.py 从 `alembic upgrade head` 后的
+# PostgreSQL 导出，DDL 属主仍是 backend/alembic（每件头部含导出命令与 alembic revision）；
+# sqlc 只读它们做类型推断，不参与迁移。
+# 0003 是 N7 的 outbox_messages（裁决七-6 N7-1：新迁移而非改已应用的 0002）。
+#
+# 用法：cd go-core && sqlc generate
+# 生成物 internal/store/canonicaldb 入库、禁手改（V3 08 §4）；
+# 漂移闸门在 backend/tests/test_canonical_schema.py。
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema:
+      - "db/schema/0001_legacy_auth.sql"
+      - "db/schema/0002_canonical_runtime.sql"
+      - "db/schema/0003_outbox_messages.sql"
+    queries: "db/queries"
+    gen:
+      go:
+        package: "canonicaldb"
+        out: "internal/store/canonicaldb"
+        sql_package: "pgx/v5"
+        json_tags_case_style: "snake"
+        emit_empty_slices: true
+        emit_interface: false
+        emit_exact_table_names: false

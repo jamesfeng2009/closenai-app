@@ -1,0 +1,507 @@
+"""canonical 表的验收闸（tasks.md N2 + N7）。
+
+这一批表是 N3–N7 的地基，建错的代价是把同一套状态机写两遍（裁决 §八-6 / P5），
+所以闸门拍的 not only「表存在」，而是**六件容易被写歪的事**：
+
+1. 静态口径（无需数据库，常驻 CI）
+   - DDL 里没有 Postgres enum、没有外键、没有 ON DELETE CASCADE、没有 jsonb
+     —— 分别对应裁决 §五-4、D-5、以及实测库现状（`pg_type typtype='e'` 0 行、
+     `information_schema.columns data_type='jsonb'` 0 行、全库仅 refresh_tokens 一条 FK）。
+   - 每张表都带 user_id（D-5 不靠级联删，进不了 PURGE_TARGETS 就永远删不净），
+     唯一例外是投递元数据表（inbox_messages）。
+   - 迁移图仍是单头线性：N2 件 `c8a2e4b6d0f2` 挂在原 head 之后，N7 件 `d9b1f3a5c7e9`
+     再挂在 N2 之上（**outbox 走新迁移而不是改已应用的 N2 件**，见裁决七-6 N7-1）。
+   - Python 侧只允许 purge 一条路径引用 canonical 模型（V3 06 §5「禁直连 canonical」
+     的例外登记在 D-5，闸门保证例外不扩大）。
+   - sqlc 查询覆盖 V3 02 §37 的九个问题；生成物与 `.sql` 无漂移（缺 sqlc 则 skip）。
+2. 实库对账（`TEST_DATABASE_URL`，指向 `alembic upgrade head` 后的库）
+   - 22 张表的列名/可空性/唯一索引与 `backend/models/canonical.py` 的声明逐条一致。
+     这条不是形式主义：指纹唯一索引最初在迁移里被建成普通索引，同一指纹的第二条
+     pattern 直接写进去了，是 Go 侧幂等测试抓出来的；对账闸把它变成跑一次就红。
+3. 迁移往返（`N2_MIGRATE_DATABASE_URL`，指向一次性建的空库）
+   - upgrade head → downgrade -1 → upgrade head 全绿，且回退后本批的表真的消失。
+
+两件迁移的表清单**合并后**过闸（`_all_tables()`/`_all_index_stmts()`），不各写一遍闸：
+outbox 与 canonical 21 表受的是同一套约束（无 enum/FK/CASCADE/jsonb、user_id、
+user_id 打头索引），分件特判就是给下一批表留一个漏检的口子。
+"""
+import importlib.util
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+N2_MIGRATION_PATH = (
+    ROOT / "backend" / "alembic" / "versions"
+    / "c8a2e4b6d0f2_add_canonical_runtime_tables.py"
+)
+N7_MIGRATION_PATH = (
+    ROOT / "backend" / "alembic" / "versions"
+    / "d9b1f3a5c7e9_add_outbox_messages.py"
+)
+QUERIES_PATH = ROOT / "go-core" / "db" / "queries" / "canonical.sql"
+GO_DIR = ROOT / "go-core"
+
+N2_REVISION = "c8a2e4b6d0f2"
+N2_PARENT = "b7d9e1f3a5c8"
+N7_REVISION = "d9b1f3a5c7e9"
+
+# N2 的 21 张新表（ai_generation_runs 属 O4 已交付，N2 沿用同一份 DDL，不在此列）
+N2_TABLES = (
+    "personal_models",
+    "personal_model_versions",
+    "personal_model_events",
+    "source_records",
+    "evidence",
+    "personal_facts",
+    "fact_evidence",
+    "personal_goals",
+    "personal_commitments",
+    "patterns",
+    "pattern_evidence",
+    "insights",
+    "insight_evidence",
+    "insight_patterns",
+    "proactives",
+    "proactive_insights",
+    "proactive_patterns",
+    "outcomes",
+    "outcome_links",
+    "user_feedback",
+    "inbox_messages",
+)
+# N7 的投递面（18 §3 的 outbox；裁决七-6 N7-1）
+N7_TABLES = ("outbox_messages",)
+CANONICAL_TABLES = N2_TABLES + N7_TABLES
+# 不带 user_id 的表：18 §7 的投递元数据，无个人内容，故不入 purge 清单
+NO_USER_ID_TABLES = ("inbox_messages",)
+# 纯关联表：V3 02 §12/§14/§16/§19/§21/§23 原文即只有端点列 + 主键，无 created_at，
+# 时间语义由端点表（evidence/insight/outcome…）承担。inbox_messages 用 18 §4 的 received_at。
+ASSOCIATION_TABLES = (
+    "fact_evidence",
+    "pattern_evidence",
+    "insight_evidence",
+    "insight_patterns",
+    "proactive_insights",
+    "proactive_patterns",
+    "outcome_links",
+)
+
+# V3 02 §37「Minimum V1 Queries」逐问 → sqlc 查询名（缺一问即验收不成立）
+MINIMUM_V1_QUERIES = {
+    "what_do_we_know": ("ListActiveFacts",),
+    "why_do_we_know": ("ListEvidenceForFact",),
+    "what_patterns_exist": ("ListLivePatterns",),
+    "why_does_a_pattern_exist": ("ListEvidenceForPattern",),
+    "what_did_the_ai_tell_the_user": ("ListPublishedInsights",),
+    "why_was_it_said": ("ListEvidenceForInsight", "ListPatternsForInsight"),
+    "what_did_the_user_correct": ("ListUserFeedback",),
+    "what_changed": ("ListModelEvents",),
+    "what_happened_after_intervention": ("ListOutcomesForUser", "ListOutcomeLinks"),
+    # §37 之外，N2 验收点名的两条硬语义：上次何时确认 / 当前在用的模型版本
+    "when_was_it_last_confirmed": ("GetFact",),
+    "which_model_version_is_current": ("GetPersonalModel",),
+}
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _migrations():
+    return (_load_module("n2_migration", N2_MIGRATION_PATH),
+            _load_module("n7_migration", N7_MIGRATION_PATH))
+
+
+def _all_tables() -> dict[str, str]:
+    """两件迁移的表名 → DDL 主体。合并后过闸，键序即两件迁移的先后。"""
+    out: dict[str, str] = {}
+    for mod in _migrations():
+        for name, body in mod._TABLES:
+            assert name not in out, f"{name} 在两件迁移里各建一次，DDL 属主分裂"
+            out[name] = body
+    return out
+
+
+def _all_plain_indexes() -> list[str]:
+    """普通索引清单（不含唯一索引）：两件迁移合并。分开取是因为「唯一索引混进普通
+    清单」这条闸必须拿两份清单对撞，合并后就查不出来了。"""
+    out: list[str] = []
+    for mod in _migrations():
+        out += list(mod._INDEXES)
+    return out
+
+
+def _all_unique_indexes() -> list[str]:
+    out: list[str] = []
+    for mod in _migrations():
+        out += list(mod._UNIQUE_INDEXES)
+    return out
+
+
+def _all_index_stmts() -> list[str]:
+    return _all_plain_indexes() + _all_unique_indexes()
+
+
+# ── 1. 静态口径 ──
+
+
+def test_ddl_has_no_enum_no_fk_no_cascade_no_jsonb():
+    """裁决 §五-4 + D-5：状态用 String、删除靠 purge，不靠库级 enum/FK/CASCADE。
+
+    只看真正的 DDL：每张表的体里夹了带 V3 出处的注释，注释里会出现「JSONB」「REFERENCES」
+    这类被否掉的字面量，不排除就会自我打脸（2026-10-13 首跑即因此误报）。
+    """
+    ddl = "\n".join(_all_tables().values())
+    ddl += "\n" + "\n".join(_all_index_stmts())
+    ddl = "\n".join(line for line in ddl.splitlines() if not line.strip().startswith("--"))
+    upper = ddl.upper()
+    for forbidden in ("CREATE TYPE", "AS ENUM", "REFERENCES", "ON DELETE", "JSONB"):
+        assert forbidden not in upper, f"DDL 里出现了 {forbidden}：本批表的四条覆写口径见迁移 docstring"
+    # 状态类列必须是 varchar（enum 的替代口径）
+    for match in re.finditer(r"^\s*(\w+)\s+([A-Z0-9(, )]+),?$", ddl, re.MULTILINE):
+        name, sql_type = match.group(1), match.group(2).upper()
+        if name in {"status", "role", "origin", "result", "claim_type", "evidence_type",
+                    "feedback_type", "trigger_type", "outcome_type", "target_type",
+                    "source_type", "event_type", "aggregate_type", "reason", "consumer"}:
+            assert sql_type.startswith("VARCHAR"), f"{name} 不是 VARCHAR：{sql_type}"
+
+
+def test_migration_graph_is_single_head_with_n7_on_top():
+    """27 件迁移（含本批）里出现过并行 head（b3c5d7e9f1a2 就是历史上的合并件），所以这条必须拍。
+
+    用 alembic 自己的 ScriptDirectory 而不是手搓正则：仓库里 `revision` 有两种写法
+    （`revision: str = '...'` 与 `revision = "..."`），首跑的正则漏了后者，把 8 个迁移
+    当成孤儿、误报出 9 个 head。离线解析不连库。
+
+    链条拍三段：单头 = N7 件 → N7 挂 N2 → N2 挂原 head。**N7 走新迁移而不是改 N2 件**
+    的理由见裁决七-6 N7-1（改已应用的件＝版本记录与真实 schema 漂移）。
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
+    heads = script.get_heads()
+    assert heads == [N7_REVISION], f"alembic head = {heads}，N7 之后须是单头 {N7_REVISION}"
+    n7_down = script.get_revision(N7_REVISION).down_revision
+    assert n7_down == N2_REVISION, f"N7 迁移挂在 {n7_down}，应为 N2 的 {N2_REVISION}"
+    down = script.get_revision(N2_REVISION).down_revision
+    assert down == N2_PARENT, f"N2 迁移挂在 {down}，应为原 head {N2_PARENT}"
+
+
+def test_every_canonical_table_declares_user_id_and_a_time_column():
+    """D-5：删除靠逐表 rowcount，没有 user_id 的表等于删不净。
+
+    时间列按 V3 原文：实体表用 created_at，inbox_messages 用 18 §4 的 received_at，
+    纯关联表原文就没有时间列（时间语义在端点表上），此处不擅自加列。
+    """
+    tables = _all_tables()
+    assert set(tables) == set(CANONICAL_TABLES), (
+        f"迁移表集合与验收清单不一致：多 {set(tables) - set(CANONICAL_TABLES)} / "
+        f"少 {set(CANONICAL_TABLES) - set(tables)}")
+    for name, body in tables.items():
+        if name in NO_USER_ID_TABLES:
+            assert "user_id" not in body, f"{name} 不该带 user_id（无个人内容，不入 purge 清单）"
+            assert "received_at TIMESTAMPTZ" in body, f"{name} 缺 18 §4 的 received_at"
+            continue
+        assert re.search(r"^\s*user_id VARCHAR\(36\) NOT NULL,$", body, re.MULTILINE), (
+            f"{name} 缺 user_id VARCHAR(36) NOT NULL")
+        if name not in ASSOCIATION_TABLES:
+            assert "created_at TIMESTAMPTZ" in body, f"{name} 缺 created_at"
+    # 投递面（N7）自己的时间三面：入队、可再取、已发布，缺一就没法算退避与租约
+    outbox_body = _all_tables()["outbox_messages"]
+    for col in ("available_at TIMESTAMPTZ", "published_at TIMESTAMPTZ",
+                "updated_at TIMESTAMPTZ"):
+        assert col in outbox_body, f"outbox_messages 缺 {col.split()[0]}（18 §3 的投递面列）"
+
+
+def test_purge_targets_cover_every_canonical_table():
+    from backend.models.canonical import Base  # noqa: F401  触发 metadata 注册
+    from backend.services.user_service import PURGE_TARGETS
+
+    keys = {key for _, key in PURGE_TARGETS}
+    missing = [
+        table for table in CANONICAL_TABLES
+        if table not in NO_USER_ID_TABLES and table not in keys
+    ]
+    assert not missing, f"以下 canonical 表未登记 PURGE_TARGETS：{missing}"
+    for table in NO_USER_ID_TABLES:
+        assert table not in keys, f"{table} 无 user_id，purge 循环会炸在 AttributeError 上"
+
+
+def test_every_canonical_table_has_a_user_id_leading_index():
+    """D-5 的代价：删号靠 `DELETE … WHERE user_id = ?` 逐表跑 22 次，没有以 user_id
+    打头的索引就是一次顺扫。单列索引不重复建（复合索引的前导列已覆盖），
+    所以这条拍的是「至少有且只由复合索引承担」。"""
+    index_stmts = _all_index_stmts()
+    for name, body in _all_tables().items():
+        if name in NO_USER_ID_TABLES:
+            continue
+        leading = [stmt for stmt in index_stmts
+                   if re.search(rf"\bON {name} \(user_id[,)]", stmt)]
+        if not leading:
+            pk = re.search(r"PRIMARY KEY \(user_id[,)]", body)
+            assert pk, f"{name} 没有以 user_id 打头的索引，purge 会退化成顺扫"
+
+
+def test_idempotency_unique_keys_are_declared():
+    """四处唯一性是这几批表的领域语义，不是可选优化：
+    一用户一模型（02 §5）、同版本不重复（02 §6）、同消息同消费者只消费一次（18 §7）、
+    同一权威事件只有一条投递意图（18 §10 的稳定 message_id）。"""
+    bodies = _all_tables()
+    assert "UNIQUE (personal_model_id, version)" in bodies["personal_model_versions"]
+    assert "UNIQUE (message_id, consumer)" in bodies["inbox_messages"]
+    # 18 §10：message_id 是逻辑操作边界的稳定 ID，重试不得新造 ⇒ 唯一键兜住双写
+    assert "UNIQUE (message_id)" in bodies["outbox_messages"]
+    # D-2 薄版：同一既有行只登记一次
+    assert "UNIQUE (user_id, source_table, source_id)" in bodies["source_records"]
+    unique_index_names = {stmt.split()[0] for stmt in _all_unique_indexes()}
+    assert {"ix_personal_models_user_unique", "ix_patterns_user_fingerprint_unique"} <= (
+        unique_index_names)
+    # 唯一索引不许混在普通索引清单里（2026-10-13 实际犯过：指纹索引被建成普通索引）
+    plain_names = {stmt.split()[0] for stmt in _all_plain_indexes()}
+    assert not (plain_names & unique_index_names), f"唯一索引重复出现在普通清单：{plain_names & unique_index_names}"
+
+
+def test_python_reaches_canonical_models_only_through_deletion():
+    """V3 06 §5 禁 Python 直连 canonical；D-5 给 purge 开了一次例外，
+    例外面就这两个文件，任何第三个引用点都算扩大。"""
+    allowed = {
+        ROOT / "backend" / "models" / "canonical.py",
+        ROOT / "backend" / "models" / "__init__.py",
+        ROOT / "backend" / "services" / "user_service.py",
+    }
+    pattern = re.compile(r"from backend\.models\.canonical import|models\.canonical import")
+    offenders = []
+    for path in (ROOT / "backend").rglob("*.py"):
+        if path in allowed or "/tests/" in str(path):
+            continue
+        if pattern.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(path.relative_to(ROOT)))
+    assert not offenders, (
+        f"以下模块引用了 canonical 模型，越过 purge 这条唯一例外（V3 06 §5 / D-5）：{offenders}")
+
+
+@pytest.mark.parametrize("question, names", sorted(MINIMUM_V1_QUERIES.items()))
+def test_sqlc_queries_cover_minimum_v1(question, names):
+    generated = set(re.findall(r"^-- name: (\w+) :", QUERIES_PATH.read_text(encoding="utf-8"),
+                               re.MULTILINE))
+    missing = [name for name in names if name not in generated]
+    assert not missing, f"02 §37「{question}」缺 sqlc 查询：{missing}（现有 {len(generated)} 条）"
+
+
+def test_sqlc_generated_code_matches_queries():
+    """V3 08 §4：生成物入库且禁手改。缺 sqlc 二进制则 skip，宿主无工具链不会红。"""
+    if shutil.which("sqlc") is None:
+        pytest.skip("sqlc 不在 PATH")
+    env = dict(os.environ)
+    goroot = env.get("GOROOT") or "/Users/fengyu/sdk/go1.27.1"
+    env["GOROOT"] = goroot
+    env["PATH"] = f"{goroot}/bin:" + env["PATH"]
+    proc = subprocess.run(["sqlc", "diff"], cwd=GO_DIR, capture_output=True, text=True,
+                          env=env, timeout=180)
+    assert proc.returncode == 0, (
+        f"sqlc 生成物与 .sql 漂移，重跑 `cd go-core && sqlc generate`：\n"
+        f"{proc.stdout}\n{proc.stderr}")
+
+
+# ── 2. 实库对账（需 alembic upgrade head 后的库）──
+
+
+def _pg_url() -> str:
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("TEST_DATABASE_URL 未设置（需 alembic upgrade head 后的库）")
+    return url
+
+
+def test_live_schema_matches_orm_declaration():
+    """逐表比列名/可空性与索引（含唯一性与列序）。ORM 声明与 alembic DDL 是两个
+    事实源，不拍平就会漂移——指纹唯一索引那次就是靠这条变成跑一次就红。
+
+    按 (唯一性, 列元组) 比较而不按索引名：库里的 UNIQUE 约束会同时以
+    `<table>_<cols>_key` 的自动命名索引反射出来，比名字会误报。
+    """
+    from sqlalchemy import create_engine, inspect
+
+    from backend.database import Base
+    import backend.models  # noqa: F401  注册全部表
+
+    engine = create_engine(_pg_url().replace("+asyncpg", "+psycopg"))
+    insp = inspect(engine)
+    diffs: list[str] = []
+    try:
+        live_tables = set(insp.get_table_names())
+        absent = [t for t in CANONICAL_TABLES if t not in live_tables]
+        assert not absent, f"库里没有这些 canonical 表（alembic upgrade head 跑过吗？）：{absent}"
+
+        for table in CANONICAL_TABLES:
+            declared = Base.metadata.tables[table]
+            live_columns = {c["name"]: c["nullable"] for c in insp.get_columns(table)}
+            declared_columns = {c.name: c.nullable for c in declared.columns}
+            if live_columns != declared_columns:
+                diffs.append(
+                    f"{table} 列不一致 缺{set(declared_columns) - set(live_columns)} "
+                    f"多{set(live_columns) - set(declared_columns)} "
+                    f"可空性差异"
+                    f"{[n for n in declared_columns if live_columns.get(n) != declared_columns[n]]}"
+                )
+
+            pk_cols = tuple(insp.get_pk_constraint(table)["constrained_columns"])
+            indexes = insp.get_indexes(table)
+            live_unique = {tuple(i["column_names"]) for i in indexes if i["unique"]}
+            live_unique |= {tuple(u["column_names"])
+                            for u in insp.get_unique_constraints(table)}
+            live_unique |= {pk_cols} if pk_cols else set()
+            live_plain = {tuple(i["column_names"]) for i in indexes if not i["unique"]}
+
+            declared_unique = {pk_cols} if declared.primary_key else set()
+            declared_plain: set[tuple[str, ...]] = set()
+            for idx in declared.indexes:
+                cols = tuple(c.name for c in idx.columns)
+                (declared_unique if idx.unique else declared_plain).add(cols)
+            for cons in declared.constraints:
+                if type(cons).__name__ == "UniqueConstraint":
+                    declared_unique.add(tuple(c.name for c in cons.columns))
+
+            if live_unique != declared_unique:
+                diffs.append(f"{table} 唯一键不一致 库里多{live_unique - declared_unique} "
+                             f"声明里多{declared_unique - live_unique}")
+            if live_plain != declared_plain:
+                diffs.append(f"{table} 普通索引不一致 库里多{live_plain - declared_plain} "
+                             f"声明里多{declared_plain - live_plain}")
+    finally:
+        engine.dispose()
+    assert not diffs, "\n".join(diffs)
+
+
+def test_live_db_has_every_index_the_migration_declares():
+    """迁移 `_INDEXES` 是 DDL 属主，库里缺一条就等于查询计划默默退化成顺扫。
+    2026-10-13 的指纹索引漂移属于「名字在、性质错」，那条由唯一键对账闸兜住。"""
+    from sqlalchemy import create_engine, inspect
+
+    expected = {stmt.split()[0] for stmt in _all_index_stmts()}
+    engine = create_engine(_pg_url().replace("+asyncpg", "+psycopg"))
+    insp = inspect(engine)
+    try:
+        live_names: set[str] = set()
+        for table in CANONICAL_TABLES:
+            live_names |= {i["name"] for i in insp.get_indexes(table)}
+            live_names |= {u["name"] for u in insp.get_unique_constraints(table)}
+    finally:
+        engine.dispose()
+    missing = sorted(expected - live_names)
+    assert not missing, f"迁移声明的索引在库里不存在：{missing}"
+
+
+
+def test_live_db_has_no_enum_or_jsonb_or_new_fk():
+    """把「覆写 V3 的四条口径」拍成库级事实，而不是文件里的注释。"""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(_pg_url().replace("+asyncpg", "+psycopg"))
+    try:
+        with engine.connect() as conn:
+            enums = conn.execute(text(
+                "select typname from pg_type where typtype = 'e'")).scalars().all()
+            jsonb = conn.execute(text(
+                "select table_name || '.' || column_name from information_schema.columns "
+                "where data_type = 'jsonb'")).scalars().all()
+            fks = conn.execute(text(
+                "select conrelid::regclass::text from pg_constraint where contype = 'f'"
+            )).scalars().all()
+            # confdeltype 是 catalog 里的 "char"，非 FK 约束填的是空格 ' ' 而不是 NULL，
+            # 所以必须限定 contype='f'，否则主键/CHECK 全被当成 ON DELETE 子句命中。
+            cascades = conn.execute(text(
+                "select conname from pg_constraint "
+                "where contype = 'f' and confdeltype <> 'a'")).scalars().all()
+    finally:
+        engine.dispose()
+
+    assert not enums, f"库里出现 enum 类型 {enums}（裁决 §五-4 要求 String + Go 侧校验）"
+    assert not jsonb, f"库里出现 jsonb 列 {jsonb}（本项目全库口径是 Text 存 JSON 字符串）"
+    assert set(fks) <= {"refresh_tokens"}, (
+        f"canonical 新表引入了外键 {fks}；D-5 让删除走逐表 rowcount，FK 会把 purge 顺序变成硬依赖")
+    assert not cascades, f"带 ON DELETE 子句的约束 {cascades}（D-5 明确不引入 CASCADE）"
+
+
+# ── 3. 迁移往返（一次性空库，可选）──
+
+
+def test_alembic_roundtrip_on_empty_database():
+    """N2/N7 验收的「alembic upgrade/downgrade 隔离库实测」（两件迁移逐级回退）。
+
+    指向一个**空的**库（库里连 alembic_version 都没有），用独立 env 变量避免误打
+    共享库：
+        docker exec closenai-pg-dev psql -U postgres -c 'CREATE DATABASE n2_roundtrip'
+        N2_MIGRATE_DATABASE_URL='postgresql+asyncpg://postgres:***@127.0.0.1:55432/n2_roundtrip'
+    """
+    url = os.environ.get("N2_MIGRATE_DATABASE_URL")
+    if not url:
+        pytest.skip("N2_MIGRATE_DATABASE_URL 未设置（需一次性空库）")
+
+    from sqlalchemy import create_engine, text
+
+    sync_url = url.replace("+asyncpg", "+psycopg")
+    engine = create_engine(sync_url)
+    with engine.connect() as conn:
+        existing = conn.execute(text(
+            "select count(*) from information_schema.tables where table_schema = 'public'"
+        )).scalar()
+        has_version = conn.execute(text(
+            "select count(*) from information_schema.tables "
+            "where table_name = 'alembic_version'")).scalar()
+    engine.dispose()
+    assert not has_version, (
+        f"目标库已有 alembic_version（{existing} 张表），不是空库——"
+        "本测要求一次性新建库，免得对共享库做 downgrade")
+
+    def alembic(*args: str) -> None:
+        proc = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c",
+             str(ROOT / "backend" / "alembic.ini"), *args],
+            cwd=ROOT, capture_output=True, text=True, timeout=600,
+            env={**os.environ, "DATABASE_URL": url},
+        )
+        assert proc.returncode == 0, f"alembic {args} 失败：\n{proc.stdout}\n{proc.stderr}"
+
+    def tables_and_head() -> tuple[set[str], str | None]:
+        engine = create_engine(sync_url)
+        with engine.connect() as conn:
+            names = {r[0] for r in conn.execute(text(
+                "select tablename from pg_tables where schemaname = 'public'"))}
+            head = conn.execute(text("select version_num from alembic_version")).scalar()
+        engine.dispose()
+        return names, head
+
+    alembic("upgrade", "head")
+    after_up, head = tables_and_head()
+    assert head == N7_REVISION, f"upgrade 后 head = {head}，应为 {N7_REVISION}"
+    assert set(CANONICAL_TABLES) <= after_up, (
+        f"缺表 {set(CANONICAL_TABLES) - after_up}")
+
+    # 逐级回退：先退 N7 件（只该走 outbox_messages），再退 N2 件（21 张全走）。
+    # 一次性 downgrade -1 只够证明最新那件是完整的，两件都得各自证明。
+    alembic("downgrade", "-1")
+    after_down1, head = tables_and_head()
+    assert head == N2_REVISION, f"退一件后 head = {head}，应回到 {N2_REVISION}"
+    left1 = set(N7_TABLES) & after_down1
+    assert not left1, f"退掉 N7 件后仍残留 {left1}（回退件不完整，§11.4 的「仅正向 + 本地可回退」失效）"
+    assert set(N2_TABLES) <= after_down1, (
+        f"退一件就把 N2 的表也带走了，迁移边界没切开：缺 {set(N2_TABLES) - after_down1}")
+
+    alembic("downgrade", "-1")
+    after_down2, head = tables_and_head()
+    assert head == N2_PARENT, f"退两件后 head = {head}，应回到 {N2_PARENT}"
+    left2 = set(CANONICAL_TABLES) & after_down2
+    assert not left2, f"回退到 N2 之前仍残留 {left2}"
+
+    alembic("upgrade", "head")

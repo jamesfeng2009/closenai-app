@@ -21,6 +21,10 @@ type Config struct {
 	JWTRefreshExpireDays   int
 	HTTPAddr               string
 	ShutdownTimeoutSeconds int
+	// InsightEvidenceRead 是 N9 依据展开端点的回退开关（D-3「旧口径留回退开关」）。
+	// 这是本结构里唯一的 Go-only 变量：CLOSEN_ 前缀与 domain 的数值闸同源，
+	// Python 侧没有对应字段，所以它不进上面的跨语言名单口径。
+	InsightEvidenceRead string
 }
 
 const defaultDatabaseURL = "sqlite+aiosqlite:///./closenai.db"
@@ -36,12 +40,21 @@ func Load() (Config, error) {
 		JWTRefreshExpireDays:   envInt("JWT_REFRESH_EXPIRE_DAYS", 30),
 		HTTPAddr:               envString("HTTP_ADDR", ":8000"),
 		ShutdownTimeoutSeconds: envInt("SHUTDOWN_TIMEOUT_SECONDS", 15),
+		InsightEvidenceRead:    envString("CLOSEN_INSIGHT_EVIDENCE_READ", "on"),
 	}
 	if cfg.JWTAlgorithm != "HS256" {
 		return cfg, errors.New("unsupported JWT_ALGORITHM: cross-language baseline is HS256")
 	}
 	if cfg.JWTAccessExpireMinutes <= 0 || cfg.JWTRefreshExpireDays <= 0 {
 		return cfg, errors.New("JWT expiry settings must be positive")
+	}
+	// 开关只有两个合法值：拼错的 "off " / "false" 一律拒绝启动，而不是静默当成 on——
+	// 一个「以为关了其实没关」的回退开关比没有开关更糟（N9 回退开关落点）。
+	switch cfg.InsightEvidenceRead {
+	case "on", "off":
+	default:
+		return cfg, errors.New(
+			"unsupported CLOSEN_INSIGHT_EVIDENCE_READ: only on|off are accepted")
 	}
 	return cfg, nil
 }

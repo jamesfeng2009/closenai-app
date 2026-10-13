@@ -14,6 +14,7 @@ import (
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/auth"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/config"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/httpapi"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
@@ -49,10 +50,13 @@ func main() {
 		time.Duration(cfg.JWTAccessExpireMinutes)*time.Minute,
 		time.Duration(cfg.JWTRefreshExpireDays)*time.Hour*24)
 	service := auth.NewService(store.NewPG(pool), signer, time.Duration(cfg.JWTRefreshExpireDays)*time.Hour*24)
+	// N9 的读面：同一个池，但走 Canonical 的**池面只读**方法（不开事务，
+	// 见 internal/store/canonical_read.go 的分段注释）。
+	explainer := domain.NewInsightExplainer(store.NewCanonical(pool), domain.DefaultPolicy())
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(cfg, signer, service).Handler(),
+		Handler:           httpapi.NewServer(cfg, signer, service, explainer).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

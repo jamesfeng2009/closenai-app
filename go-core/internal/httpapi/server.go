@@ -11,6 +11,7 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/apierr"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/auth"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/config"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 )
 
 const maxBodyBytes = 1 << 20
@@ -19,14 +20,19 @@ type Server struct {
 	cfg        config.Config
 	middleware *Middleware
 	auth       *auth.Service
-	mux        *http.ServeMux
+	// evidence 是 N9 的权威读路径；nil 时端点按信封 404 回，
+	// 让「没接读面」与「读面关闭」对客户端同形（不新增错误码）。
+	evidence *domain.InsightExplainer
+	mux      *http.ServeMux
 }
 
-func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service) *Server {
+func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
+	explainer *domain.InsightExplainer) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
 		auth:       service,
+		evidence:   explainer,
 		mux:        http.NewServeMux(),
 	}
 	s.routes()
@@ -43,6 +49,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
 	s.mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/v1/auth/me", s.handleMe)
+	// N9 的权威依据展开端点（V3 05 §18 逐字形状 + 本项目 /api/v1 前缀）。
+	// 与 /healthz 同理：**不在** contracts/endpoints.md §五 的冻结登记表里，
+	// 登记表由 FastAPI 生成，加一行 Go 专有端点会打红 test_contract_freeze.py。
+	s.mux.HandleFunc("GET /api/v1/personal-model/insights/{id}/evidence", s.handleInsightEvidence)
 	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
 	s.mux.HandleFunc("/", s.handleNotFound)
 }

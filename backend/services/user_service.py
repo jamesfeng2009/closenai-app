@@ -11,6 +11,32 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import local_today, safe_zoneinfo, utc_now
+# N2 canonical 权威表：Python 侧只在这里引用它们。V3 06 §5 禁 Python 直连 canonical，
+# 而 D-5 把新表删除策略定为「沿用 purge 逐表 rowcount、不引入 ON DELETE CASCADE」，
+# 注销链路又跑在 Python —— 两者叠加后「删得净」优先于「不直连」，例外登记在 N2。
+from backend.models.canonical import (
+    Evidence,
+    FactEvidence,
+    Insight,
+    InsightEvidence,
+    InsightPattern,
+    OutboxMessage,
+    Outcome,
+    OutcomeLink,
+    Pattern,
+    PatternEvidence,
+    PersonalCommitment,
+    PersonalFact,
+    PersonalGoal,
+    PersonalModel,
+    PersonalModelEvent,
+    PersonalModelVersion,
+    Proactive,
+    ProactiveInsight,
+    ProactivePattern,
+    SourceRecord,
+    UserFeedback,
+)
 from backend.models.chat import ChatMessage
 from backend.models.generation_run import AiGenerationRun
 from backend.models.growth import GrowthRecord, UserMilestone
@@ -68,6 +94,32 @@ PURGE_TARGETS = (
     (JourneyEvent, "journey_events"),
     (OnboardingProfile, "onboarding_profiles"),
     (SafetyEvent, "safety_events"),
+    # ── N2 canonical 权威表（Go 是唯一写入口，Python 只负责注销清理）──
+    # 无外键、无级联（D-5），所以关联表必须自己出现在清单里，否则永远删不净。
+    (FactEvidence, "fact_evidence"),
+    (PatternEvidence, "pattern_evidence"),
+    (InsightEvidence, "insight_evidence"),
+    (InsightPattern, "insight_patterns"),
+    (ProactiveInsight, "proactive_insights"),
+    (ProactivePattern, "proactive_patterns"),
+    (OutcomeLink, "outcome_links"),
+    (PersonalModelVersion, "personal_model_versions"),
+    (PersonalModelEvent, "personal_model_events"),
+    (PersonalFact, "personal_facts"),
+    (PersonalGoal, "personal_goals"),
+    (PersonalCommitment, "personal_commitments"),
+    (Evidence, "evidence"),
+    (SourceRecord, "source_records"),
+    (Pattern, "patterns"),
+    (Insight, "insights"),
+    (Proactive, "proactives"),
+    (Outcome, "outcomes"),
+    (UserFeedback, "user_feedback"),
+    # N7 投递面：outbox 带 user_id 是因为它的 payload 存的是事件正文（个人数据面），
+    # 不登记就等于注销后残留用户可读内容（裁决七-6 N7-1 偏离①、N7-13）。
+    # inbox_messages 反过来**刻意不登记**：它只有投递元数据、无 user_id（N2 已登记该口径）。
+    (OutboxMessage, "outbox_messages"),
+    (PersonalModel, "personal_models"),
     (RefreshToken, "refresh_tokens"),
     (User, "users"),
 )

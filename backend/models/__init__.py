@@ -9,6 +9,32 @@
 """
 from backend.database import Base
 from backend.models.auth import RefreshToken
+# N2 canonical 权威表：注册进 Base.metadata 即可（purge 清单与闸门按元数据逐表对账），
+# Python 侧不读写，口径见 backend/models/canonical.py 模块 docstring。
+from backend.models.canonical import (  # noqa: F401
+    Evidence,
+    FactEvidence,
+    InboxMessage,
+    Insight,
+    InsightEvidence,
+    InsightPattern,
+    OutboxMessage,
+    Outcome,
+    OutcomeLink,
+    Pattern,
+    PatternEvidence,
+    PersonalCommitment,
+    PersonalFact,
+    PersonalGoal,
+    PersonalModel,
+    PersonalModelEvent,
+    PersonalModelVersion,
+    Proactive,
+    ProactiveInsight,
+    ProactivePattern,
+    SourceRecord,
+    UserFeedback,
+)
 from backend.models.chat import ChatMessage
 from backend.models.generation_run import AiGenerationRun
 from backend.models.growth import GrowthRecord, UserMilestone
