@@ -4,7 +4,7 @@
 覆盖：注册 / 登录（密码 / 验证码 / Apple）/ refresh 轮转 / 登出 /
 忘记密码 / 重置密码 / 改密码 / 改用户名。
 
-事务：repository 仅 flush，commit 由 get_db 依赖在路由层完成（遵循项目约定）。
+事务：repository 仅 flush，commit 由路由层在响应发出前完成（`backend/core/db_route.py`）。
 
 安全要点：
 - refresh token 明文不落库，仅存 sha256 哈希；轮转 + 吊销链防重放

@@ -8,12 +8,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
+from backend.core.db_route import CommitBeforeResponseRoute
 from backend.core.response import success
 from backend.database import get_db
 from backend.models.schemas import AnalyticsBatchRequest
 from backend.services.analytics_service import AnalyticsService, analytics_service
 
-router = APIRouter()
+router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 
 def get_analytics_service() -> AnalyticsService:

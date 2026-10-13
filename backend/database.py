@@ -10,6 +10,7 @@
 """
 from collections.abc import AsyncGenerator
 
+from fastapi import Request
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -50,12 +51,19 @@ SessionLocal = async_sessionmaker(
 )
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI 依赖：为每个请求提供一个数据库会话，成功自动提交，异常回滚。"""
+async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI 依赖：为每个请求提供一个数据库会话，成功自动提交，异常回滚。
+
+    提交点有两处，靠 in_transaction() 去重（见 backend/core/db_route.py）：
+    正常响应由路由层在字节发出**之前**提交；这里的收尾提交只兜 SSE——
+    流式响应体期间才发生的写（chat 落库）是它唯一的提交点。
+    """
     async with SessionLocal() as session:
+        request.state.db_session = session
         try:
             yield session
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
         except Exception:
             await session.rollback()
             raise

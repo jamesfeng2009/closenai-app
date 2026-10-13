@@ -19,13 +19,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
+from backend.core.db_route import CommitBeforeResponseRoute
 from backend.core.language import get_request_language
 from backend.core.response import success
 from backend.database import get_db
 from backend.services.growth_service import GrowthService, growth_service
 from backend.services.user_service import user_service
 
-router = APIRouter()
+router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 
 def get_growth_service() -> GrowthService:

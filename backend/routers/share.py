@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core.auth import get_current_user
+from backend.core.db_route import CommitBeforeResponseRoute
 from backend.core.errors import AppException, ErrorCode
 from backend.core.rate_limit import FixedWindowLimiter, client_ip
 from backend.core.response import success
@@ -30,7 +31,7 @@ from backend.database import get_db
 from backend.models.schemas import LifeArchiveExportRequest, MemoryCardRequest
 from backend.services.share_service import ShareService, share_service
 
-router = APIRouter()
+router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 # 进程内共享单例： limiter 的寿命 = 进程寿命，重启即清零（对反滥用计数无所谓）
 _resolve_limiter = FixedWindowLimiter()

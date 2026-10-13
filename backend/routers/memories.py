@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
+from backend.core.db_route import CommitBeforeResponseRoute
 from backend.core.errors import AppException, ErrorCode
 from backend.core.response import success
 from backend.database import get_db
@@ -22,7 +23,7 @@ from backend.models.schemas import (
 from backend.repositories import memory_repository
 from backend.services.memory_service import MemoryService, memory_service
 
-router = APIRouter()
+router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 
 def get_memory_service() -> MemoryService:

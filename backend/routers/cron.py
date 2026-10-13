@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core.db_route import CommitBeforeResponseRoute
 from backend.core.errors import AppException, ErrorCode
 from backend.core.response import success
 from backend.database import get_db
@@ -36,7 +37,7 @@ from backend.repositories import auth_repository
 from backend.services.cron_service import CronService, cron_service
 from backend.services.user_service import UserService, user_service
 
-router = APIRouter()
+router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 
 def get_cron_service() -> CronService:

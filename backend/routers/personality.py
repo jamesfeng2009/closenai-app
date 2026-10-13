@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
+from backend.core.db_route import CommitBeforeResponseRoute
 from backend.core.response import success
 from backend.database import get_db
 from backend.models.schemas import AssessmentAnswerRequest
@@ -23,7 +24,7 @@ from backend.services.enneagram_service import EnneagramService, enneagram_servi
 from backend.services.personality_service import PersonalityService, personality_service
 from backend.services.user_service import user_service
 
-router = APIRouter()
+router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 
 def get_personality_service() -> PersonalityService:

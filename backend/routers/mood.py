@@ -10,13 +10,14 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
+from backend.core.db_route import CommitBeforeResponseRoute
 from backend.core.language import get_request_language
 from backend.core.response import success
 from backend.database import get_db
 from backend.models.schemas import MoodCheckinRequest
 from backend.services.mood_service import MoodService, mood_service
 
-router = APIRouter()
+router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 
 def get_mood_service() -> MoodService:
