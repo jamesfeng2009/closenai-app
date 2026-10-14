@@ -177,7 +177,8 @@
     - Cron：`GET /cron/bedtime`（verify_cron_secret，vercel.json 每小时）→ `dispatch_bedtime_reminders`：本地 22 点桶（每小时 cron 命中一桶天然每日一条）+ daily 推送档 + 已完成复盘不打扰（半程仍提醒）+ 逐用户独立事务；push_copywriter 新增 `bedtime` 场景 zh/en 模板（温和不施压，过 filter_template）
     - 语言：模板/LLM 以 `users.language` 为事实源（zh* 中文模板，其余英文双表）
     - 验收实测：`backend/tests/test_bedtime.py` **27 例**（step1 落库+digest 零 LLM / 跳过 / 改口覆盖 / 危机拦截+审计+零落库 / step2 refs 硬不变量+related_memory_ids / 无素材模板零 LLM / 幂等 / step3 完成+红线词钉死（预测/注定/运势/predict…）/ get_today 昨日归档+空态 / cron 本地窗口+时区不命中 / 已完成跳过 / 半程仍提醒 / 推送偏好 / 危机停推 / bedtime 文案+场景过闸 / 不写对话流不产生副产物记录）；全量 pytest **486 passed**；OpenAPI 三端点注册核验；conftest `_TIME_PATCH_TARGETS` 登记 bedtime_service（动态冻结口径：取「真实今天 22:30」使 SQLite 真实墙钟 created_at 天然命中当日窗口）
-    - ⚠️ 前端 Screen 26 对接与首页卡兜底属前端批次，本条只覆盖后端管线
+    - ✅ 2026-10-14 前端收口（原「属前端批次」欠账结清）：新建全屏屏 `frontend/src/screens/BedtimeReviewScreen.tsx` + `App.tsx` 注册路由 `BedtimeReview`（参数表 + Stack.Screen 三处齐）——三步同屏常驻（第 1 步过了不消失，收成一行引用）、半程按 `record.steps` 最深一步续接（重进不重发 step1，避免覆盖用户上一句原话）、step2/step3 进阶段自动生成且 `generating` 去重、危机分支按 `intercepted` 判型后**原地停住**并逐字渲染服务端转介文案与热线（不 Alert、不自造危机话术）、403/40303 走 `<AIConsentModal>` 而不是报错、`maxLength` 与后端 `max_length=1000` 同值；首页晚间兜底卡按「设备本地 ≥22:00 且今日未完成」出卡（UI 原型「未授权推送则显示为首页顶部卡片」；判据不依赖推送授权状态——前端只有系统级 permission，`src/services/push.ts` 只落库不发通知，判不出这条推送是否真送达）
+    - ✅ 2026-10-14 验收实测：取数判定住 `frontend/src/config/dailyCards.ts`（jest 跑 node 环境渲染不了 RN 组件，只有纯函数能被断言）；新增 `__tests__/dailyCards.test.ts` **20 例** + `__tests__/dailyCardWiring.test.ts` **30 例**（含四条路径逐字核 `contracts/openapi.json`、源码每个 `t('键')` 在 en 表命中、输入上限回读后端 schema）；`i18nLocales.test.ts` 的 `PLURAL_KEYS` 扩到 9 个复数键；前端 jest **953 passed / 0 failed**（37 套件，基线 901/35 → +52 例/+2 套件）、`tsc --noEmit` exit 0；变异自证 `scripts/mutate_daily_card_gates.py` 红闸 **18/18** 打红 + 绿闸 **2/2** 保持绿（copy2+filecmp 逐字节写回）；后端本批零改动，全量 pytest **627 passed / 1 failed（#62 既有）/ 11 skipped** 与基线逐数相等
   - 验收：晚间 DAU ≥35%、完成率 ≥40%、D7 ≥3pt（上线后观测）
 - [x] **C2 · §5.17 Growth Curriculum**（每周日 21:00 预生成 7 天主题，Rule 优先 + LLM 周规划）✅ 2026-09-30 完成
     - 生成：`GET /cron/curriculum`（vercel.json 每小时）→ `dispatch_curriculum_generation`：用户本地周日 21 点桶 → `curriculum_service.generate_weekly`：近 30 天素材收集（Memory + pattern_discovery records，零 LLM）→ LLM 周规划**一次 lite 调用**出 7 卡 JSON（ref 编号 → 服务端映射素材行，硬不变量：refs 全部归属该用户）→ Rule 卡轮转兜底（LLM 失败/解析失败/单卡违规逐卡回退）；卡内容出口确定性闸 = 全局 filter_template + **curriculum 专属红线词表**（运势/占卜/注定…全局表只有复合词）+ check_or(assertion) 语义层；零素材不生成（内容全部来自用户数据）
@@ -185,7 +186,8 @@
     - 读取：`GET /curriculum/week`（当周 7 卡：revealed=展示日≤今天、read、memory_refs、unread_count；未生成的天不出现在 days）+ `POST /curriculum/{event_id}/read`（payload.read_at，越权 40403，幂等）；均挂 require_ai_consent；目标周规则：本周一，周三及以后生成下周一（cron 48h 补偿窗口语义）
     - 与睡前复盘共用预生成管线：周日晚旅程生成结果作为下周睡前复盘素材池（PRD §5.17 关系段）
     - 验收实测：`backend/tests/test_curriculum.py` **13 例**（LLM 周规划被采用+refs 映射+ scheduled_at 七天落位 / 幂等 skip 零重跑 / 零素材 skip 零 LLM / LLM 坏 JSON 回退 Rule / 单卡"运势"违规回退其余保留 / get_week revealed+unread+mark_read / 空周 / 越权 40403+幂等 / cron 周日命中+跨时区不命中 / 非周日非 21 点不生成 / day_no 跨周编码单调 / kind 注册）；全量 pytest **499 passed**；conftest `_TIME_PATCH_TARGETS` 登记 curriculum_service；固定未来日期冻结（2026-11-01 周日 21:30，curriculum 链路无 created_at 窗口依赖，记忆素材行手动挪窗口）
-    - ⚠️ 首页次位卡片前端对接（主位"一年前的今天"）属前端批次；卡片点击率/对话占比指标上线后观测
+    - ✅ 2026-10-14 首页次位卡前端收口：`HomeScreen` 出「🗺️ 本周主题旅程 · 第 N 天」卡——`GET /curriculum/week` 取数、`pickThemeCard` 只在 `revealed && !read` 里取 `max(date)`（全周读完整卡隐藏，不端旧卡骚扰）、7 格进度由 `weekCells` 按后端同一份 `day_no % 7` 编码还原（未生成的天补 future 而不是少一格）、未读 badge 直取 `unread_count`；点击 `POST /curriculum/{event_id}/read` + 本地乐观收敛 `unread_count`，标记失败不拦跳转（下次仍能看到这张卡，比进不去对话好）；埋点 `track('curriculum_card_opened', {feature:'curriculum', action:'open'})`
+    - ⚠️ 卡片点击率 / 由卡片进入对话的占比：指标上线后观测（本批只出埋点，无观测面板）
 - [x] **C3 · §5.18 承诺回访收尾**（后端）✅ 2026-09-30 完成
   - [x] memories.labels 承诺标签 + Rule 抽取（`commitment_service`，零 LLM）+ 频控退出 + 禁打卡边界验收
     - 捕获：chat 流尾部 `on_user_message`（负向退出优先 → Rule 抽取意图句）→ `create_memory`(goal/self) + labels JSON `{"labels":["commitment"],"commitment":{kind,follow_up_count,muted}}`；重复表达 dedup 命中不重复预写；危机内容不捕获
@@ -194,14 +196,15 @@
     - 渲染：四层公式模板（问候→承诺回放→关心提问→开放 CTA），zh/en `data/journey/*.json`；memory_refs 硬不变量照常；投递 payload 合并预写键（memory_id/captured_day/excerpt 不被 set_payload 覆盖）；发送即 acknowledge（消费面在对话流，不进报告页红点）；PUSH_KINDS 增补（push 深链对话页）
     - 出参：MemoryResponse.labels 透传（无标签 None）
     - 验收实测：`backend/tests/test_commitment.py` 15 例（habit/event 抽取与调度 / 无关消息不捕获 / 危机不捕获 / 重复表达单回访 / 投递渲染+refs+发送即已读 / 负向退出 mute+skip / 无历史负向不误伤 / 周频控第三条顺延一周 / 同承诺 ≤2 后不预写 / zh-en 模板禁打卡词表 / 无成长记录落库+labels JSON 键集+payload 键集 schema 断言 / labels 出参）；全量 pytest **459 passed**；alembic 单头 a7c1e9b4d2f8
-    - ⚠️ 偏离：第二条回访间隔按**实际投递日**+同型间隔（habit 隔周/event 隔天）而非"捕获日+14/3"——顺延后节律自然后移，避免追赶补发
+    - ⚠️ 2026-10-14 偏离口径定稿但**证明有缺口**，显式登记不结案：第二条回访按**实际投递日**+同型间隔（habit +7d / event +1d）而非「捕获日+14/3」，代码落点 `commitment_service._schedule_follow_up` 计划时刻 = `local_today(tz) + interval_days`（backend/services/commitment_service.py:311-320，注释在 :86-87）——顺延后节律自然后移、避免追赶补发。缺口：`test_commitment.py:268 test_same_commitment_max_two_follow_ups` 里捕获日 2026-10-08（:26 `FROZEN_NOW`）、首条 10-15 投递、第二条断言落 10-22 窗口（:280-281），而「捕获日+14」同样等于 10-22 ⇒ **该用例区分不了两种口径，不能当这条偏离的验收证据**。唯一能区分的只有「首条被周频控顺延后再投递」那条路径，而它正是 #62 现在红着的 `test_weekly_quota_defers_third_follow_up`。欠账归 #62：修那条时一并补一条「顺延后 投递日+7 ≠ 捕获日+14」的断言，别把这条偏离当成已验收
 - [x] **C4 · §10.1 记忆考古分享链路**（行动方案 P1-2：回忆卡模板 + 分享出口）✅ 2026-09-30 完成
   - [x] 候选端点 `GET /share/on-this-day`（首页每日主位「N 年前的今天，你在想什么」数据源）
     - 逐往年窗口查询近 3 年（`ARCHAEOLOGY_MAX_YEARS`）：按用户本地时区取今天月日 → `local_day_start_utc` 本地日界窗口 → `memory_repository.list_between(limit=5)`；候选按年份升序（1 年前优先），字段 {memory_id, content, years_ago, created_at}；零 LLM；新用户/无周年 → 空候选不报错
     - 2/29 非闰年 `date()` ValueError 跳过该年（不崩溃不造假数据）；UTC+8 类本地日界覆盖测试（2025-10-31 16:00 UTC 的记忆被 Asia/Shanghai 用户在 11-01 命中）
   - [x] 回忆卡模板补周年标题：`export_memory_card_pdf` 由服务端按真实 `created_at` 自动判定（同月日且年份差 ≥1 → 「一年前的今天」/「N 年前的今天」/ en "A Year Ago Today" / "N Years Ago Today"；否则保持「你说过的话」）——**根治 C3 偏离 2**：任何路径都造不出假周年（判定只依赖记忆行真实时间戳 + 用户时区，与请求方传什么无关）；PDF 测试用 pypdf 解文本断言（pypdf 入 pyproject dev 依赖组）
   - 验收实测：`backend/tests/test_on_this_day.py` **7 例**（候选年份升序+归属隔离+新用户空态 / UTC+8 本地日界 / PDF 周年标题 zh+en / 非周年保持原标题）；全量 pytest **506 passed**（基线 499 + 7）；OpenAPI 路由注册核验
-  - ⚠️ 首页每日主位前端对接属前端批次；本条只覆盖后端候选端点 + 分享卡模板
+  - ✅ 2026-10-14 首页每日主位前端收口：`HomeScreen` 首屏顶部出「🕰️ N 年前的今天」卡——`GET /share/on-this-day` 取数，`archiveCards()` 保服务端年份升序 + 丢空原话 + 截 `ARCHIVE_CARD_LIMIT=3`（首页不是列表页），折叠态只端首条、展开逐条并给日期行（`created_at` 缺失即不显日期，不拿「今天」或年份差反推一个像样的落库日）与分享出口；周年标题走 i18next CLDR 复数键 `home.archiveTitle`（15 语言按各自类别档恰好齐备：en/de/es/fr/it/pt one+other、ru one/few/many/other、其余单形态只 other），前端不自算日期；零候选整卡不出；分享清单 `<ShareManifest>` 两项与实际发出去的两段同源（`trustPresentation.test.ts` 已从三条分享路径扩到四条）
+  - ⚠️ 2026-10-14 偏离登记（新增，未收口）：考古卡的分享出口是「原话 + 带本人推荐码的深链」文本分享（`Share.share`），**没有接 `POST /share/memory-card` 的 PDF**——`frontend/package.json` 22 个运行时依赖实测无 `expo-file-system` / `expo-sharing` / `react-native-share`，落 PDF 要新增原生依赖并牵动 #52 的 SDK 升级，不在前端批次里偷偷塞原生依赖；PDF 物料接入归 #50 K6（真机系统分享面板取证）与 #58（名片/分享卡 PDF 的 AIGC 隐式标识）。`dailyCardWiring.test.ts` 有负向闸钉住「首页源码不出现 `/share/memory-card`」，接上那天要同时改这条闸
 
 ## D. 规范工程（2026-09-28 第六批，无排期依赖，可插队）
 
@@ -209,17 +212,31 @@
   - [x] SafetyService 双语段落 + 注入 message_generator/mood_service/模板出口
   - [x] D 级词汇并入黑名单判定；SentenceGate 单测扩例（因果断言/标签推断样本被拦）
   - 实测：`pytest backend/tests` **276 passed**（基线 243 + 新增 `test_evidence_policy.py` 33 例）。
-  - ⚠️ 注入点范围：按架构方案 §六-4「及未来所有面向用户的生成出口」扩到现存 **15 处**出口（测试 `OUTLETS` 表可逐
-    项核验）——personality 画像×2/组合报告、growth 下周预测/模式发现/报告正文/`_llm_or_fallback`（覆盖每日洞察、
-    周报、主题卡）、reflection 草稿、share 名片标语、push 文案、承诺回访 follow_up、主动消息。
-  - ⚠️ 判定分级：确定性黑名单（§5.16 医疗化词 + §1.4 D 级词）对全部出口生效；**推理越界句式只在
-    `scope="assertion"`**（洞察/模式/报告/主动消息/回访/分享卡）生效，对话流不启用——聊天里"因为他没回你"是
-    正常复述用户叙述，正则拦截会毁掉可用性，该情形交给 L1 段落 + 语义分类器。
-  - ⚠️ 两处刻意不入正则表（理由已写进 `safety_service` 注释）：「高价值/低价值」（已用作 Discovery 幅度分级
-    内部术语，`discovery_service.py:24`、`test_discovery_fusion.py:304` 即误杀样本）与 en 的 `treat`/`therapy`
-    （普通动词与求助语境高频）。两者仍进 L1 段落与 `_CHECK_PROMPT` 语义判定。
-  - 未做：架构方案 §六-1 的 `filter_template()` 静态模板闸——M1/M2/M3 模板尚不存在，随 B1/B2 文案渲染出口一并落地，
-    此项不预先建未被调用的函数。
+  - ✅ 2026-10-14 复核（注入点范围）：按架构方案 §六-4「及未来所有面向用户的生成出口」扩到现存 **15 处**出口——
+    `backend/tests/test_evidence_policy.py:23` 的 `OUTLETS` 表 AST 实测恰好 15 个元组（:42 parametrize 逐条成例）。
+    构成：D1 首批 3 处（`MessageGenerator.generate_chat_stream`、`MoodService._interpret`/`_deep_interpretation`，
+    即架构方案 §六-4 点名的 message_generator / mood_service 注入点）+ 本条扩到 12 处（personality 画像×2/组合报告、
+    growth 下周预测/模式发现/报告正文/`_llm_or_fallback`（覆盖每日洞察、周报、主题卡）、reflection 草稿、share 名片标语、
+    push 文案、承诺回访 follow_up、主动消息）。
+  - ✅ 2026-10-14 复核（判定分级）：确定性黑名单（§5.16 医疗化词 + §1.4 D 级词，`safety_service.py:224` `BANNED_TERMS`）
+    对全部出口生效；**推理越界句式只在 `scope="assertion"`**（`safety_service.py:242` 口径注释）生效，对话流不启用——
+    实测非测试代码里 `scope="assertion"` 调用点 **12 处**（share_service.py:1161、curriculum_service.py:316、
+    growth_service.py:502/758/786/872、message_generator.py:248/392、reflection_service.py:91、mood_service.py:234、
+    personality_service.py:517、bedtime_service.py:311），覆盖洞察/模式/报告/剧本/主动消息/回访/分享卡。
+    聊天里"因为他没回你"是正常复述用户叙述，正则拦截会毁掉可用性，该情形交给 L1 段落 + 语义分类器。
+  - ✅ 2026-10-14 复核（两处刻意豁免，理由在 `safety_service.py:219-223` 注释里）：「高价值/低价值」不入正则表
+    （已用作 Discovery 幅度分级内部术语，`discovery_service.py:24`、`test_discovery_fusion.py:304` 即误杀样本）；
+    en 表不含 `treat`/`therapy`（`BANNED_TERMS["en"]` 实测无这两项，普通动词与求助语境高频，正则误杀率过高）。
+    两者仍进 L1 段落与 `_CHECK_PROMPT` 语义判定。
+  - ✅ 2026-10-14 勘误（原记「未做：架构方案 §六-1 的 `filter_template()` 静态模板闸」）：**这条是台账陈旧，不是能力缺口**。
+    `filter_template()` 已实装并在生产路径被调用：定义 `backend/services/safety_service.py:412-429`（只跑
+    `banned_hit`/`attribution_hit`、**零 LLM**，命中返回 `""` 由调用方降级，命中按 error 级记日志）；模板渲染出口三处
+    ——`first_read_service.py:75`（M1 初读卡）、`journey_service.py:414`（M2 第一周剧本 + M3 level_reward 正文，
+    经该文件 `_gate_tpl()`（:425，填充→过闸→回填原话）覆盖 trial_d5/day0-day7/level_reward/commitment_follow_up
+    共 13 个渲染点）、`curriculum_service.py:77`（§5.17 主题卡 Rule 兜底）。
+    原句「M1/M2/M3 模板尚不存在」在 2026-09-29 成立、现已过期：B1/B2 文案渲染出口落地后函数随之实现，
+    只是没回头改这条台账。模板库自身逐条过闸的负向测试也已存在（`test_first_read.py:147-154`、
+    `test_journey.py:502`、`test_bedtime.py:279/431`、`test_trial_d5.py:173/212`）。
 - [x] **D2 · crisis_intercept 实装（两类触发词）**｜规范 §二 + 架构方案 §六-2 ｜2026-09-29 完成
   - [x] 自伤类 + 关系暴力类（v1 仅 zh/en 词表）；命中→热线→停推→safety_events 审计
   - [x] 验收：暴力样本禁归因/禁沟通建议测试进 pytest
