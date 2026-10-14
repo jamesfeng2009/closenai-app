@@ -1,0 +1,310 @@
+// N8 批 1 的契约回放闸：go-core/testdata/n8_contract.json 由
+// scripts/gen_n8_contract_goldens.py 从**真跑的 FastAPI**（同一份 openapi、同一个 PG）
+// 录成字节，这里逐字重放。
+//
+// 为什么不是「跑几个用例看看像不像」：N8 的验收判据是「切流前后响应契约 diff 为空」，
+// 而 diff 为空这件事只有拿另一侧录下来的**原始字节**当基准才可证。
+// 夹具里三块各有闸别：
+//   - occurred_at_corpus —— speedate 解析器的状态机（无需 HTTP、无需库）
+//   - validation 组 —— 400 体的每一字节（无需库：校验失败根本进不到 store）
+//   - seeded 组 —— 200/404 体（必须真读 users/mood_checkins，同一批行、同一次播种）
+package httpapi
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+type n8CorpusEntry struct {
+	Input     json.RawMessage `json:"input"`
+	OK        bool            `json:"ok"`
+	Iso       string          `json:"iso"`
+	UTCMicros int64           `json:"utc_micros"`
+	Type      string          `json:"type"`
+	Error     *string         `json:"error"`
+}
+
+// 夹具的**键名与空块**都是闸：生成脚本改了输出结构而这里没跟着改，解码会得到空切片，
+// 于是三节测全在空跑（键名带 json tag 的错拼不会报错，只会静默变空）。
+// loadN8Fixture 因此对每一块都拒绝为空。
+type n8Fixture struct {
+	Comment            string          `json:"_comment"`
+	TraceID            string          `json:"trace_id"`
+	MaskedFields       []string        `json:"masked_fields"`
+	GeneratedAtSamples []string        `json:"generated_at_samples"`
+	Seed               n8Seed          `json:"seed"`
+	OccurredAtCorpus   []n8CorpusEntry `json:"occurred_at_corpus"`
+	Cases              []n8Case        `json:"cases"`
+}
+
+type n8Seed struct {
+	Users []struct {
+		ID               string `json:"id"`
+		Language         string `json:"language"`
+		AnalyticsConsent bool   `json:"analytics_consent"`
+	} `json:"users"`
+	MoodCheckins []struct {
+		ID        string  `json:"id"`
+		UserID    string  `json:"user_id"`
+		MoodEmoji string  `json:"mood_emoji"`
+		DaysAgo   float64 `json:"days_ago"`
+	} `json:"mood_checkins"`
+}
+
+type n8Case struct {
+	Name         string            `json:"name"`
+	Group        string            `json:"group"`
+	Method       string            `json:"method"`
+	Path         string            `json:"path"`
+	Headers      map[string]string `json:"headers"`
+	RequestRaw   *string           `json:"request_raw"`
+	Status       int               `json:"status"`
+	ResponseText string            `json:"response_text"`
+}
+
+func loadN8Fixture(t *testing.T) n8Fixture {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "n8_contract.json"))
+	if err != nil {
+		t.Fatalf("read testdata/n8_contract.json（生成方式见 scripts/gen_n8_contract_goldens.py）: %v", err)
+	}
+	var file n8Fixture
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatalf("decode n8_contract.json: %v", err)
+	}
+	for name, empty := range map[string]bool{
+		"occurred_at_corpus": len(file.OccurredAtCorpus) == 0,
+		"cases":              len(file.Cases) == 0,
+		"seed.users":         len(file.Seed.Users) == 0,
+		"masked_fields":      len(file.MaskedFields) == 0,
+	} {
+		if empty {
+			t.Fatalf("夹具的 %s 为空——键名漂移或生成脚本没落这一块，本节测会在空跑", name)
+		}
+	}
+	return file
+}
+
+// n8Divergence 是一条已登记的发散点，**逐字记 Python 侧的实测形态**。
+//
+//   - `"92233720368547758.7"`：µs 还在 int64 内，但 CPython 的换算走浮点，回绕出一个
+//     「看似合法」的 4892-10-07T21:52:49.312625+00:00 ⇒ Python **接受**、Go 拒绝。
+//   - `"922337203685477580.7"`：Python 落回日期解析、报 invalid date separator，
+//     Go 报 dates after 9999 ⇒ 两侧都拒，只是错误词不同。
+//
+// Python 侧的期望写死在这里而不是从夹具现读，是为了让「夹具换了形态」也变红：
+// 见 TestN8OccurredAtDivergenceWhitelistStillExplains。两条均已按 2026-10-14 登记进 tasks.md。
+type n8Divergence struct {
+	pythonOK     bool
+	pythonIso    string
+	pythonType   string
+	pythonError  string
+	goRejectWord string
+}
+
+func (d n8Divergence) pythonSays() string {
+	if d.pythonOK {
+		return "accept iso=" + d.pythonIso
+	}
+	return "reject type=" + d.pythonType + " error=" + d.pythonError
+}
+
+func (d n8Divergence) matches(entry n8CorpusEntry) bool {
+	if d.pythonOK {
+		return entry.OK && entry.Iso == d.pythonIso
+	}
+	if entry.OK || entry.Type != d.pythonType {
+		return false
+	}
+	got := ""
+	if entry.Error != nil {
+		got = *entry.Error
+	}
+	return got == d.pythonError
+}
+
+var n8SpeedateDivergences = map[string]n8Divergence{
+	`"92233720368547758.7"`: {
+		pythonOK:     true,
+		pythonIso:    "4892-10-07T21:52:49.312625+00:00",
+		goRejectWord: after9999Word,
+	},
+	`"922337203685477580.7"`: {
+		pythonType:   "datetime_from_date_parsing",
+		pythonError:  "invalid date separator, expected `-`",
+		goRejectWord: after9999Word,
+	},
+}
+
+func TestN8OccurredAtCorpus(t *testing.T) {
+	file := loadN8Fixture(t)
+	var skipped int
+	for _, entry := range file.OccurredAtCorpus {
+		name := string(entry.Input)
+		if len(name) > 60 {
+			name = name[:60] + "…"
+		}
+		t.Run(name, func(t *testing.T) {
+			value, perr := pyJSONLoads(entry.Input)
+			if perr != nil {
+				t.Fatalf("夹具的 input 自己就不是合法 JSON：%v", perr)
+			}
+			got, gotErr := ParseOccurredAt(value)
+			if div, skip := n8SpeedateDivergences[string(entry.Input)]; skip {
+				if gotErr == nil {
+					t.Fatalf("白名单条目 %s 现在被 Go 接受了（登记理由：Python %s / Go %s）"+
+						"——实现变了，要么删条目要么重新取证",
+						string(entry.Input), div.pythonSays(), div.goRejectWord)
+				}
+				if gotErr.word != div.goRejectWord {
+					t.Fatalf("白名单条目 %s 的 Go 侧错误词从 %q 变成 %q——登记的口径已过期",
+						string(entry.Input), div.goRejectWord, gotErr.word)
+				}
+				skipped++
+				return
+			}
+			switch {
+			case entry.OK && gotErr != nil:
+				t.Fatalf("Python 接受 %s ⇒ iso=%s，Go 却拒绝：%s / %s",
+					entry.Input, entry.Iso, gotErr.kind, gotErr.word)
+			case !entry.OK && gotErr == nil:
+				t.Fatalf("Python 拒绝 %s（type=%s error=%v），Go 却接受成 %s",
+					entry.Input, entry.Type, entry.Error, got.Isoformat())
+			case !entry.OK:
+				if gotErr.kind.String() != entry.Type {
+					t.Fatalf("type 不符：Python=%s Go=%s（输入 %s）",
+						entry.Type, gotErr.kind, entry.Input)
+				}
+				want := ""
+				if entry.Error != nil {
+					want = *entry.Error
+				}
+				if gotErr.word != want {
+					t.Fatalf("错误词不符：Python=%q Go=%q（输入 %s）",
+						want, gotErr.word, entry.Input)
+				}
+			default:
+				if got.Isoformat() != entry.Iso {
+					t.Fatalf("isoformat 不符：Python=%s Go=%s（输入 %s）",
+						entry.Iso, got.Isoformat(), entry.Input)
+				}
+				if got.UTCMicros() != entry.UTCMicros {
+					t.Fatalf("UTC 微秒不符：Python=%d Go=%d（输入 %s）",
+						entry.UTCMicros, got.UTCMicros(), entry.Input)
+				}
+			}
+		})
+	}
+	t.Logf("occurred_at 语料 %d 条逐字比对，其中 %d 条走已登记白名单",
+		len(file.OccurredAtCorpus), skipped)
+	if skipped != len(n8SpeedateDivergences) {
+		t.Fatalf("白名单声明了 %d 条却在语料里命中 %d 条——有条目已经失效",
+			len(n8SpeedateDivergences), skipped)
+	}
+}
+
+// TestN8OccurredAtDivergenceWhitelistStillExplains 防的是白名单烂掉：
+// 每条跳过都必须仍然在夹具里、且 Python 侧仍然是登记的那一形态。
+func TestN8OccurredAtDivergenceWhitelistStillExplains(t *testing.T) {
+	file := loadN8Fixture(t)
+	seen := map[string]bool{}
+	for _, entry := range file.OccurredAtCorpus {
+		key := string(entry.Input)
+		div, wanted := n8SpeedateDivergences[key]
+		if !wanted {
+			continue
+		}
+		seen[key] = true
+		if !div.matches(entry) {
+			var recorded string
+			if entry.OK {
+				recorded = "accept iso=" + entry.Iso
+			} else {
+				recorded = "reject type=" + entry.Type
+				if entry.Error != nil {
+					recorded += " error=" + *entry.Error
+				}
+			}
+			t.Errorf("%s 的 Python 侧形态已变：登记为 %q，夹具现在录到 %q——白名单要重新取证",
+				key, div.pythonSays(), recorded)
+		}
+		value, err := pyJSONLoads(entry.Input)
+		if err != nil {
+			t.Fatalf("%s: %v", key, err)
+		}
+		if _, gotErr := ParseOccurredAt(value); gotErr == nil ||
+			gotErr.word != div.goRejectWord {
+			t.Errorf("%s: Go 侧现在是 %v，不再是登记的 %q——白名单理由已过期",
+				key, gotErr, div.goRejectWord)
+		}
+	}
+	for key, div := range n8SpeedateDivergences {
+		if !seen[key] {
+			t.Errorf("白名单条目 %s 在夹具里已不存在（登记：%s）——请删掉这条跳过", key, div.pythonSays())
+		}
+	}
+}
+
+// TestN8PyISOFormMatchesPydanticSerializer 补的是掩码留下的洞。
+//
+// generated_at 的**值**逐字比一定被掩码遮掉（录制与回放天然差一个时间戳），
+// 但它的**格式**仍然是契约：客户端拿到的是字符串日期。期望值不是推的，是 2026-10-14
+// 用响应面同一个序列化器实测的（backend/.venv，`TypeAdapter(datetime).dump_json`）：
+//
+//	µs=888714 → "…:41.888714Z"   µs=100000 → "…:05.100000Z"（固定 6 位，不去尾零）
+//	µs=1      → "…:05.000001Z"   µs=0      → "…:05Z"（整段小数省略）
+//
+// 顺带记一句为什么不用 `jsonable_encoder`：它给的是 "+00:00"，而夹具里录到的真实字节
+// 是 "Z" ——FastAPI 的 response_model 走的是 pydantic-core 序列化，两者不同。
+// Go 侧只有 `time.Now().UTC()` 进这个函数，非 UTC 入参会被换算（Python 侧保留原 offset），
+// 这一支在本端点上不可达，故不钉。
+func TestN8PyISOFormMatchesPydanticSerializer(t *testing.T) {
+	utc := time.Date(2026, 10, 14, 3, 4, 5, 0, time.UTC)
+	for _, tc := range []struct {
+		at   time.Time
+		want string
+	}{
+		{time.Date(2026, 10, 14, 11, 23, 41, 888714000, time.UTC), "2026-10-14T11:23:41.888714Z"},
+		{utc.Add(100 * time.Millisecond), "2026-10-14T03:04:05.100000Z"},
+		{utc.Add(time.Microsecond), "2026-10-14T03:04:05.000001Z"},
+		{utc, "2026-10-14T03:04:05Z"},
+	} {
+		if got := pyISO(tc.at); got != tc.want {
+			t.Errorf("pyISO = %q，Python 侧 %q", got, tc.want)
+		}
+	}
+}
+
+// TestN8FixtureCorpusCoversBothRejectShapes 是夹具自身的闸：
+// 语料必须同时含「拒绝」与「通过」两类，否则上一节的断言全在空跑。
+func TestN8FixtureCorpusCoversBothRejectShapes(t *testing.T) {
+	file := loadN8Fixture(t)
+	var accepted, rejected, typed, fromParsing int
+	for _, entry := range file.OccurredAtCorpus {
+		switch {
+		case entry.OK:
+			accepted++
+		case entry.Type == "datetime_type":
+			typed++
+			rejected++
+		case entry.Type == "datetime_from_date_parsing":
+			fromParsing++
+			rejected++
+		default:
+			rejected++
+		}
+	}
+	if accepted == 0 || rejected == 0 {
+		t.Fatalf("语料只剩一类：accepted=%d rejected=%d", accepted, rejected)
+	}
+	if typed == 0 || fromParsing == 0 {
+		t.Fatalf("三种错误类型至少要有两类各自观测点：type=%d from_date_parsing=%d",
+			typed, fromParsing)
+	}
+	t.Logf("occurred_at 语料 %d 条：通过 %d / 拒绝 %d（其中 datetime_type %d、"+
+		"datetime_from_date_parsing %d）", len(file.OccurredAtCorpus), accepted, rejected,
+		typed, fromParsing)
+}
