@@ -158,10 +158,16 @@ def test_go_contract_fixture_covers_both_domains():
     """
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert "generated_at" in fixture["masked_fields"], fixture["masked_fields"]
-    assert set(fixture["masked_fields"]) <= {"generated_at", "journey_event_id"}, (
-        fixture["masked_fields"]
-    )
-    cases = [c for c in fixture["cases"] if c["group"] in BATCH1_GROUPS]
+    assert set(fixture["masked_fields"]) <= {
+        # 批 1 generated_at ／批 3 journey 的 uuid 主键
+        # ／批 4 惰性生成的推荐码、本次新写 profile 的 created_at
+        "generated_at", "journey_event_id", "referral_link", "created_at",
+    }, fixture["masked_fields"]
+    # validation 组是**跨域共用**的（批 4 往同一组里放了 onboarding 的 26 条 400 面），
+    # 所以这一节按路径先收成本批两个域的用例，再数覆盖面——不是「夹具里不许有别的域」。
+    cases = [c for c in fixture["cases"]
+             if c["group"] in BATCH1_GROUPS
+             and any(c["path"].startswith(f"/api/v1/{d}") for d in BATCH1_DOMAINS)]
     by_domain: dict[str, dict[str, int]] = {}
     for case in cases:
         domain = next((d for d in BATCH1_DOMAINS if case["path"].startswith(f"/api/v1/{d}")), None)

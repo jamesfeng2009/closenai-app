@@ -350,14 +350,17 @@ def test_event_id_mask_definition_is_the_same_on_both_sides():
     掩码写成两条各扫各的正则时，发散有两种安静的死法：Go 少掩一处 ⇒ 常红，
     有人于是把整组用例降级成「只比状态码」；Go 多掩一处 ⇒ 把真的内容发散掩成绿。
     所以这里要求 Go 源里的正则与掩码串**逐字等于**本文件的常量，
-    并要求 masked_fields 白名单恰好登记两样（第二样属本批）。
+    并要求 masked_fields 里必须有这两样（名单逐批增长：批 4 加了推荐码与 created_at，
+    那两条的定义由 test_n8_batch4_contract.py 逐字核对）。
     """
     replay = _go("internal/httpapi/n8_replay_test.go")
     assert GO_EVENT_ID_PATTERN in replay, "Go 侧的 uuid 掩码正则与本文件不同字面量"
     assert f'const n8MaskedEventID = `{GO_EVENT_ID_MASK}`' in replay, "Go 侧的掩码串不同"
 
     fixture = _fixture()
-    assert fixture["masked_fields"] == ["generated_at", "journey_event_id"], fixture["masked_fields"]
+    assert {"generated_at", "journey_event_id"} <= set(fixture["masked_fields"]), (
+        fixture["masked_fields"]
+    )
     py_pattern = re.compile(GO_EVENT_ID_PATTERN)  # 本侧正则可用，且与 Go 的 RE2 串同源
     cases = _journey_cases()
     masked = [c for c in cases if c["id_masks"] > 0]
