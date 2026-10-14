@@ -54,9 +54,8 @@ var n8EventIDRe = regexp.MustCompile(
 
 const n8MaskedEventID = `"id":"<event_id>"`
 
-// maskJourneyEventIDs 掩掉 uuid 形状主键，并把**次数**交回给调用方核对。
-// 计数不是附属信息：GET /journey/events 会预写六行，第二次访问必须幂等（还是 6 行、
-// 还是掩 6 次）。只看「掩完字节相等」的话，多插 6 行也会得到同样的 6 个 `<event_id>`。
+// maskJourneyEventIDs 是 n8EventIDRe 的「总是应用」版本，只留给掩码自检用
+// （自检要的是「录制体里不该还留着 uuid 形状的主键」，与回放时的按计数应用无关）。
 func maskJourneyEventIDs(body string) (string, int) {
 	var n int
 	out := n8EventIDRe.ReplaceAllStringFunc(body, func(string) string {
@@ -64,6 +63,38 @@ func maskJourneyEventIDs(body string) (string, int) {
 		return n8MaskedEventID
 	})
 	return out, n
+}
+
+// 批 4（onboarding）另两条掩码。与上面两条同一个原则：**只有本次运行真的现算出来的值**
+// 才许掩，其余一律逐字比——所以这两条不是「按组无条件掩」，而是按夹具给的次数掩
+// （见生成脚本 record() 的 runtime_code / run_profiles 两张表）。
+//
+// n8ReferralLinkRe 是录制侧 REFERRAL_LINK_RE 的同一条。字符集写成 [A-Z2-7]{8} 是
+// backend/core/referral.py 那 29 字符（A-Z 去 I/L/O ＋ 2-7）的**超集**：宁可多认也不漏认，
+// 多掩由 code_masks 计数暴露成红。
+var n8ReferralLinkRe = regexp.MustCompile(`/r/[A-Z2-7]{8}`)
+
+const n8MaskedReferralLink = `/r/<code>`
+
+// n8CreatedAtRe 与生成脚本的 CREATED_AT_RE 同一条：只吃字符串形态的 created_at。
+var n8CreatedAtRe = regexp.MustCompile(`"created_at":"[^"]*"`)
+
+const n8MaskedCreatedAt = `"created_at":"<created_at>"`
+
+// maskIf 是三条「按计数应用」的掩码共用的形状。
+//
+// want==0 时**不数也不掩**：夹具记 0 有两种意思——这条响应里根本没有这个值，
+// 或者有、但它是**确定值**（种子已带码 ⇒ `/r/QQ22WW33` 全串、种子行 ⇒ created_at 的
+// 绝对时刻）。后一种正是本批要的证据，把它数出来再断言 0 会把「刻意不掩」读成发散。
+// 漏网的口子由逐字节比对兜住：Go 若在该留原文的地方现算了一个随机值，字节先红。
+//
+// want>0 时数与掩都做，计数就是判据：多一行/多算一次码 ⇒ 次数不等 ⇒ 红。
+func maskIf(body string, re *regexp.Regexp, placeholder string, want int) (string, int) {
+	if want == 0 {
+		return body, 0
+	}
+	n := len(re.FindAllStringIndex(body, -1))
+	return re.ReplaceAllString(body, placeholder), n
 }
 
 // ── 假件 ─────────────────────────────────────────────────────────────────────
@@ -79,6 +110,23 @@ func (f n8ForbiddenStore) UserProfile(_ context.Context, userID string) (domain.
 func (f n8ForbiddenStore) MoodCheckins(_ context.Context, userID string, _ time.Time) ([]domain.Checkin, error) {
 	f.t.Errorf("validation 用例读了 mood_checkins(%s)——Python 侧校验失败根本不进 store", userID)
 	return nil, errors.New("n8: store must not be read")
+}
+
+// n8ForbiddenOnboarding 给 validation 组用。它存在的理由不是「多一个假件」：
+// Batch4 为 nil 时那两条路由**根本不注册**（server.go 的 routes），于是 26 条
+// onboarding 的 400 用例会变成 404 而红——红得没有信息量。挂上这个假件才是
+// 「路由在、但校验失败一次库都不许碰」这条真实依赖顺序。
+type n8ForbiddenOnboarding struct{ t *testing.T }
+
+func (f n8ForbiddenOnboarding) SubmitOnboarding(_ context.Context, userID string,
+	_ domain.OnboardingSubmitBuilder) (string, error) {
+	f.t.Errorf("validation 用例写了 onboarding(%s)——Python 侧校验失败根本不进 store", userID)
+	return "", errors.New("n8: store must not be written")
+}
+
+func (f n8ForbiddenOnboarding) OnboardingProfile(_ context.Context, userID string) (domain.OnboardingProfile, error) {
+	f.t.Errorf("validation 用例读了 onboarding_profiles(%s)——Python 侧校验失败根本不进 store", userID)
+	return domain.OnboardingProfile{}, errors.New("n8: store must not be read")
 }
 
 // n8RecordingRelay 记下发出去的事件，但**绝不联网**（测试里不许打 posthog）。
@@ -106,14 +154,14 @@ func (r *n8RecordingRelay) count() int {
 }
 
 func newN8Server(t *testing.T, users UserProfileReader, moods MoodReader, relay Relay,
-	batch2 *Batch2, batch3 *Batch3) *Server {
+	batch2 *Batch2, batch3 *Batch3, batch4 *Batch4) *Server {
 	t.Helper()
 	cfg := config.Config{AppName: "ClosenAI", Environment: "development", HTTPAddr: ":0"}
 	signer := auth.NewSigner("n8-contract-golden-secret-n8-contract-golden",
 		30*time.Minute, 30*24*time.Hour)
 	// 这两条路由不碰 auth.Service；灰度闸留 nil＝全量由 Go 回答（见 cutover.Selected）。
 	return NewServer(cfg, signer, nil, nil, &Batch1{Users: users, Moods: moods, Relay: relay},
-		batch2, batch3)
+		batch2, batch3, batch4)
 }
 
 // replayN8Case 把一个夹具用例打回 Go 侧，并把响应压到与录制同样的口径。
@@ -135,16 +183,28 @@ func replayN8Case(t *testing.T, handler http.Handler, c n8Case) int {
 		t.Errorf("status = %d，Python 侧 %d\n go: %s\n py: %s",
 			rec.Code, c.Status, rec.Body.String(), c.ResponseText)
 	}
-	// 两道掩码都**同时**作用于两侧：录制体已按同一口径掩过（再掩一次必须无变化，
+	// 四道掩码都**同时**作用于两侧：录制体已按同一口径掩过（再掩一次必须无变化，
 	// 由 TestN8MaskedFieldsStayRedacted 守），Go 体在这里现掩。
+	// 后三道按夹具给的计数应用，理由见 maskIf——种子已带码／种子已有行那些用例的
+	// share_url 与 created_at 是**确定值**，掩掉就把证据掩掉了。
 	text := maskGeneratedAt(rec.Body.String())
-	text, masks := maskJourneyEventIDs(text)
+	text, masks := maskIf(text, n8EventIDRe, n8MaskedEventID, c.IDMasks)
+	text, codeMasks := maskIf(text, n8ReferralLinkRe, n8MaskedReferralLink, c.CodeMasks)
+	text, createdMasks := maskIf(text, n8CreatedAtRe, n8MaskedCreatedAt, c.CreatedAtMasks)
 	if text != c.ResponseText {
 		t.Errorf("响应体逐字不符\n go: %s\n py: %s", text, c.ResponseText)
 	}
 	if masks != c.IDMasks {
 		t.Errorf("%s 掩掉 %d 个 uuid 主键，Python 侧 %d 个——预写的行数变了"+
 			"（字节相同只是因为两侧都被掩成同一串占位符）", c.Name, masks, c.IDMasks)
+	}
+	if codeMasks != c.CodeMasks {
+		t.Errorf("%s 掩掉 %d 个 /r/<code>，Python 侧 %d 个——推荐码那一支走了不同的分支"+
+			"（0＝种子已带码、逐字可比；1＝本次现算）", c.Name, codeMasks, c.CodeMasks)
+	}
+	if createdMasks != c.CreatedAtMasks {
+		t.Errorf("%s 掩掉 %d 个 created_at，Python 侧 %d 个——profile 行是不是本次新写的，"+
+			"两侧读到了不同的事", c.Name, createdMasks, c.CreatedAtMasks)
 	}
 	if got := rec.Header().Get("X-Trace-Id"); got != c.Headers["X-Trace-Id"] {
 		t.Errorf("X-Trace-Id = %q，want %q", got, c.Headers["X-Trace-Id"])
@@ -160,7 +220,9 @@ func replayN8Case(t *testing.T, handler http.Handler, c n8Case) int {
 func TestN8ValidationContractBytes(t *testing.T) {
 	file := loadN8Fixture(t)
 	forbidden := n8ForbiddenStore{t: t}
-	handler := newN8Server(t, forbidden, forbidden, &n8RecordingRelay{t: t}, nil, nil).Handler()
+	onb := n8ForbiddenOnboarding{t: t}
+	handler := newN8Server(t, forbidden, forbidden, &n8RecordingRelay{t: t},
+		nil, nil, &Batch4{Store: onb}).Handler()
 
 	var replayed int
 	for _, c := range file.Cases {
@@ -185,7 +247,7 @@ func TestN8ValidationContractBytes(t *testing.T) {
 // 生成脚本想再掩第三样字段，必须同时在这里登记，否则两侧口径就悄悄分叉了。
 func TestN8MaskedFieldsStayRedacted(t *testing.T) {
 	file := loadN8Fixture(t)
-	want := []string{"generated_at", "journey_event_id"}
+	want := []string{"generated_at", "journey_event_id", "referral_link", "created_at"}
 	if len(file.MaskedFields) != len(want) {
 		t.Fatalf("masked_fields 必须是 %v，实为 %v", want, file.MaskedFields)
 	}
@@ -205,6 +267,7 @@ func TestN8MaskedFieldsStayRedacted(t *testing.T) {
 	}
 
 	var journeyMasks, journeyPlaceholder int
+	var onbCodeMasks, onbCodePlaceholder, onbCreated, onbCreatedPlaceholder int
 	for _, c := range file.Cases {
 		if rest, n := maskJourneyEventIDs(maskGeneratedAt(c.ResponseText)); rest != c.ResponseText || n != 0 {
 			t.Errorf("%s 的录制体里还有未掩码的易变值（漏掩 %d 处）：%s", c.Name, n, c.ResponseText)
@@ -214,9 +277,28 @@ func TestN8MaskedFieldsStayRedacted(t *testing.T) {
 			t.Errorf("%s 录制体里 <event_id> 出现 %d 次，夹具记的 id_masks=%d 不符",
 				c.Name, count, c.IDMasks)
 		}
+		// 这两条**不能**用「再掩一次必须无变化」的形式检查：种子已带码的用例里
+		// `/r/QQ22WW33` 是刻意留下的确定值，掩了就把证据掩了。所以这里比的是
+		// **占位符出现次数＝夹具声明的次数**——多掩/漏掩都会让两边对不上。
+		codePlaceholders := strings.Count(c.ResponseText, n8MaskedReferralLink)
+		if codePlaceholders != c.CodeMasks {
+			t.Errorf("%s 录制体里 /r/<code> 出现 %d 次，夹具记的 code_masks=%d 不符",
+				c.Name, codePlaceholders, c.CodeMasks)
+		}
+		createdPlaceholders := strings.Count(c.ResponseText, n8MaskedCreatedAt)
+		if createdPlaceholders != c.CreatedAtMasks {
+			t.Errorf("%s 录制体里 <created_at> 出现 %d 次，夹具记的 created_at_masks=%d 不符",
+				c.Name, createdPlaceholders, c.CreatedAtMasks)
+		}
 		if c.Group == "journey" {
 			journeyMasks += c.IDMasks
 			journeyPlaceholder += count
+		}
+		if c.Group == "onboarding" {
+			onbCodeMasks += c.CodeMasks
+			onbCodePlaceholder += codePlaceholders
+			onbCreated += c.CreatedAtMasks
+			onbCreatedPlaceholder += createdPlaceholders
 		}
 	}
 	// 闸别：journey 组若整组没有 uuid 主键，上面三条会全绿但一条也没证——
@@ -225,7 +307,40 @@ func TestN8MaskedFieldsStayRedacted(t *testing.T) {
 		t.Errorf("journey 组没有 uuid 主键可掩（id_masks 合计 %d、占位符合计 %d）："+
 			"预写插入那支没被任何用例走到", journeyMasks, journeyPlaceholder)
 	}
-	t.Logf("journey 组共掩掉 %d 个 uuid 主键，非 journey 组录制体零残留", journeyMasks)
+	// 同一个道理套在批 4 的两条新掩码上：整组一条都没掩 ⇒ 惰性生成码那一支
+	// 与「本次新写 profile」那一支都从用例面消失了，上面全绿不证明任何事。
+	// 而且这两条必须是**部分**掩：一条都不掩（全是种子值）与全都掩同样可疑，
+	// 所以还要求「未掩的那一侧」也有观测点（见 n8UnmaskedShareURLCount）。
+	if onbCodeMasks == 0 || onbCodePlaceholder != onbCodeMasks {
+		t.Errorf("onboarding 组没有 /r/<code> 可掩（code_masks 合计 %d、占位符合计 %d）："+
+			"惰性生成码那支没被任何用例走到", onbCodeMasks, onbCodePlaceholder)
+	}
+	if onbCreated == 0 || onbCreatedPlaceholder != onbCreated {
+		t.Errorf("onboarding 组没有 <created_at> 可掩（created_at_masks 合计 %d、占位符合计 %d）："+
+			"profile 的 INSERT 支没被任何用例走到", onbCreated, onbCreatedPlaceholder)
+	}
+	if seeded := n8UnmaskedShareURLCount(file); seeded == 0 {
+		t.Errorf("onboarding 组没有任何一条**未掩**的 share_url：「种子已带码 ⇒ 逐字复用」" +
+			"那支失去观测点，code_masks 就成了「全掩」的空话")
+	}
+	t.Logf("journey 组共掩掉 %d 个 uuid 主键；onboarding 组掩 %d 个码 / %d 个 created_at、"+
+		"另有 %d 条逐字比对的种子码；其余录制体零残留",
+		journeyMasks, onbCodeMasks, onbCreated, n8UnmaskedShareURLCount(file))
+}
+
+// n8UnmaskedShareURLCount 数「录制体里带着**明文**推荐码」的用例条数——
+// 也就是夹具刻意不掩、要靠逐字比来证「已有码不许被换」的那几条。
+func n8UnmaskedShareURLCount(file n8Fixture) int {
+	var n int
+	for _, c := range file.Cases {
+		if c.Group != "onboarding" || c.CodeMasks > 0 {
+			continue
+		}
+		if len(n8ReferralLinkRe.FindAllStringIndex(c.ResponseText, -1)) > 0 {
+			n++
+		}
+	}
+	return n
 }
 
 // ── seeded 组：真库 ──────────────────────────────────────────────────────────
@@ -264,7 +379,11 @@ func n8Pool(t *testing.T) *pgxpool.Pool {
 //   - journey_events 按 scheduled_at **绝对时刻**（批 2 的响应里有 week_start/date，
 //     两侧必须读同一串瞬间，见夹具的 recorded_at）；
 //   - users 的 push_time / created_at 与 onboarding_profiles.created_at 全是**列原文/
-//     绝对时刻**（批 3）：剧本 day_no 由基准日推出，diff 一次就要整批行错位。
+//     绝对时刻**（批 3）：剧本 day_no 由基准日推出，diff 一次就要整批行错位；
+//   - users.referral_code 与 onboarding_profiles 的四列也是**列原文**（批 4）：
+//     NULL 与空串在 submit 的两支里落同一个 share_url，但种子码存在与否决定
+//     「惰性生成」这一支走不走，而那是响应字节；profile 四列里 first_read 的
+//     **键序**直接决定 restore 响应的键序，所以必须原样插同一串字节。
 func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 	t.Helper()
 	ctx := context.Background()
@@ -275,15 +394,15 @@ func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO users (id, timezone, streak_count, relationship_level,
 				chat_count, daily_quota_used, tier, language, analytics_consent,
-				ai_consent, status, push_time, created_at)
-			VALUES ($1, $2, 0, 'L1', 0, 0, 'free', $3, $4, $5, $6, $7, $8)
+				ai_consent, status, push_time, created_at, referral_code)
+			VALUES ($1, $2, 0, 'L1', 0, 0, 'free', $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (id) DO UPDATE SET language = EXCLUDED.language,
 				analytics_consent = EXCLUDED.analytics_consent,
 				timezone = EXCLUDED.timezone, ai_consent = EXCLUDED.ai_consent,
 				status = EXCLUDED.status, push_time = EXCLUDED.push_time,
-				created_at = EXCLUDED.created_at`,
+				created_at = EXCLUDED.created_at, referral_code = EXCLUDED.referral_code`,
 			u.ID, u.Timezone, u.Language, u.AnalyticsConsent, u.AIConsent, u.Status,
-			u.PushTime, u.CreatedAt); err != nil {
+			u.PushTime, u.CreatedAt, u.ReferralCode); err != nil {
 			t.Fatalf("seed user %s: %v", u.ID, err)
 		}
 	}
@@ -312,16 +431,20 @@ func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 			t.Fatalf("seed journey %s: %v", e.ID, err)
 		}
 	}
-	// 其余列按生成脚本的字面量写死（'D01'/'[]'/'{}'/'en'）：这一批只读 created_at，
-	// 但两侧把同一批行写成同一串值，才谈得上「灰度期读同一批行」。
+	// 四列全部来自夹具的**列原文**（批 4 之前这里写死 'D01'/'[]'/'{}'/'en'，
+	// 生成脚本对批 3 那几条至今仍带这四个字面量——所以这条改动不换批 3 的字节）。
+	// 两侧把同一批行写成同一串值，才谈得上「灰度期读同一批行」。
 	for _, p := range seed.OnboardingProfiles {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO onboarding_profiles (id, user_id, persona_type, answers,
 				first_read, language, created_at)
-			VALUES ($1, $2, 'D01', '[]', '{}', 'en', $3)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id,
+				persona_type = EXCLUDED.persona_type, answers = EXCLUDED.answers,
+				first_read = EXCLUDED.first_read, language = EXCLUDED.language,
 				created_at = EXCLUDED.created_at`,
-			p.ID, p.UserID, p.CreatedAt); err != nil {
+			p.ID, p.UserID, p.PersonaType, p.Answers, p.FirstRead, p.Language,
+			p.CreatedAt); err != nil {
 			t.Fatalf("seed onboarding profile %s: %v", p.ID, err)
 		}
 	}
@@ -354,7 +477,7 @@ func TestN8SeededContractBytes(t *testing.T) {
 
 	relay := &n8RecordingRelay{t: t}
 	pg := store.NewPG(pool)
-	handler := newN8Server(t, pg, pg, relay, nil, nil).Handler()
+	handler := newN8Server(t, pg, pg, relay, nil, nil, nil).Handler()
 
 	var replayed, wantRelayed int
 	for _, c := range file.Cases {
@@ -417,7 +540,7 @@ func TestN8CurriculumContractBytes(t *testing.T) {
 
 	forbidden := &n8NoRelayStore{t: t}
 	pg := store.NewPG(pool)
-	srv := newN8Server(t, pg, pg, forbidden, &Batch2{Store: pg}, nil)
+	srv := newN8Server(t, pg, pg, forbidden, &Batch2{Store: pg}, nil, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -465,7 +588,7 @@ func TestN8JourneyContractBytes(t *testing.T) {
 
 	pg := store.NewPG(pool)
 	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t},
-		&Batch2{Store: pg}, &Batch3{Store: pg})
+		&Batch2{Store: pg}, &Batch3{Store: pg}, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -488,4 +611,66 @@ func TestN8JourneyContractBytes(t *testing.T) {
 	}
 	t.Logf("journey 组 %d 条逐字回放（锚点 %s，含预写的读接口），Go 侧掩码合计 %d 次",
 		replayed, anchor.Format(time.RFC3339), goMasks)
+}
+
+// ── onboarding 组：真库 + 冻时钟 + 一次请求写三处 ───────────────────────────────
+
+// TestN8OnboardingContractBytes 是批 4 的验收闸：onboarding 两条端点的响应字节逐字等于
+// 真 FastAPI 录下来的那串，且**三条掩码的次数**也相等。
+//
+// 这一组独有的两件事：
+//  1. 配置面必须取夹具的 share_url_inputs（而不是 Go 侧默认值）。share_url 会**落进
+//     first_read 列**、restore 按列复现不回查配置 ⇒ 两侧站点配置不同＝同一个账号
+//     切流前后拿到两条不同的深链，而那是**列里的字节**，灰度期谁也发现不了。
+//  2. 掩码按夹具给的次数应用：种子已带码的用例（o-code-zh、o-lang-upper-zh、
+//     o-restore-full）比的是**明文全串**，那是「已有码不许被换」的响应面证据；
+//     只有本次现算码的那几条才允许 /r/<code>。created_at 同理（种子行的绝对时刻
+//     钉的是 `+00:00` 序列化形状）。
+//
+// 顺序照夹具走：POST 之后紧跟的 GET 必须读到写过的那一行，restore-before-submit
+// 必须读到 40402。
+func TestN8OnboardingContractBytes(t *testing.T) {
+	file := loadN8Fixture(t)
+	pool := n8Pool(t)
+	n8SeedRows(t, pool, file.Seed)
+	anchor := n8Anchor(t, file)
+
+	pg := store.NewPG(pool)
+	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t}, nil, nil, &Batch4{Store: pg})
+	srv.cfg.SiteURL = file.ShareURLInputs.SiteURL
+	srv.cfg.AppStoreURL = file.ShareURLInputs.AppStoreURL
+	srv.now = func() time.Time { return anchor }
+	handler := srv.Handler()
+
+	var replayed, goMasks, goCodes, goCreated int
+	for _, c := range file.Cases {
+		if c.Group != "onboarding" {
+			continue
+		}
+		replayed++
+		// 已注销账号那两条：Python 的 get_user 过滤掉 deleted ⇒ user is None ⇒
+		// **只写 profile**，一行剧本都不写。Go 若把三处写成同一个条件，
+		// 这里要么 404 要么少一行——两者都是字节差，不需要额外断言。
+		t.Run(c.Name, func(t *testing.T) {
+			goMasks += replayN8Case(t, handler, c)
+		})
+		goCodes += c.CodeMasks
+		goCreated += c.CreatedAtMasks
+	}
+	if replayed == 0 {
+		t.Fatal("onboarding 组为空：分组键 group 漂移了")
+	}
+	// 「不是空跑」的判据：这一组必须有现算码的用例（否则惰性生成分支消失了）、
+	// 有新写 profile 的用例（否则 INSERT 支消失了）、也有 uuid 主键。
+	// 这三个数取的是**夹具声明**的次数——Go 侧实际掩到的次数已在每条用例里
+	// 逐条比过（replayN8Case 里那三条计数），所以这里只需保证「表不是全 0」。
+	if goMasks == 0 || goCodes == 0 || goCreated == 0 {
+		t.Fatalf("onboarding 组掩码计数为 0（uuid %d / 码 %d / created_at %d）："+
+			"profile 的 INSERT 支或惰性生成码那支没被走到，上面全绿不证明任何事",
+			goMasks, goCodes, goCreated)
+	}
+	t.Logf("onboarding 组 %d 条逐字回放（锚点 %s，site_url=%q），"+
+		"Go 侧掩码合计 uuid %d / 码 %d / created_at %d",
+		replayed, anchor.Format(time.RFC3339), file.ShareURLInputs.SiteURL,
+		goMasks, goCodes, goCreated)
 }

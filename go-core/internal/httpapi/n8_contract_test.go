@@ -51,7 +51,51 @@ type n8Fixture struct {
 	// 它不能只靠 journey 那 46 条 HTTP 用例取证——录制与回放只隔几分钟，落在 DST
 	// 跳变日的那几条永远不会被重新走到，而缺位墙钟的换算口径正是这一批最容易写歪的地方。
 	PushMomentCorpus []n8PushEntry `json:"push_moment_corpus"`
-	Cases            []n8Case      `json:"cases"`
+	// TemplateCorpus 钉的是批 4 的措辞闸（safety_service.filter_template）：
+	// 两份 first_read 模板能产出的**每一条**候选文案（断言×选项、filler、closer、
+	// summary_frame×16 persona），want 是 Python 现算的输出。
+	// 为什么不能只靠 HTTP 用例：本域所有模板串实测一条都不该被闸掉，用例只能证「没掉」；
+	// 而 Go 侧若把某条吞了，那张卡只是**静默少一句**——响应形状仍然合法。
+	// 闭包比输出文本才叫「两侧判据同源」。
+	TemplateCorpus []n8TemplateEntry `json:"template_corpus"`
+	// PersonaUpperCorpus 钉的是 CPython 的**全案** str.upper()（不是 strings.ToUpper）：
+	// 整个 BMP 里「upper 会变样，且结果是全 ASCII 或多码位」的码位，逐个给出四位输入的结果。
+	// 它必须成表而不能只靠 "ßß"⇒"SSSS" 那一条用例：`ı`⇒`I`、`ſ`⇒`S` 这两支是
+	// 「非 ASCII 字符拼出合法 persona」的**唯一**来源，用例面只能各挑一个字符。
+	PersonaUpperCorpus []n8UpperEntry `json:"persona_upper_corpus"`
+	// ReferralCorpus 钉的是 `site_url.rstrip('/')`：剥一串斜杠而不是一个。
+	// 深链会**落进 first_read 列**并被 restore 复现，配置读歪一支就是切流前后不同链接。
+	ReferralCorpus []n8LinkEntry `json:"referral_corpus"`
+	// ShareURLInputs 是录制侧 settings 的两个原文；Go 回放必须拿它们构造 cfg，
+	// 而不是用 Go 侧的默认值（见生成脚本 share_url_inputs 的注释）。
+	ShareURLInputs struct {
+		SiteURL     string `json:"site_url"`
+		AppStoreURL string `json:"app_store_url"`
+	} `json:"share_url_inputs"`
+	Cases []n8Case `json:"cases"`
+}
+
+// n8TemplateEntry 一行＝一条模板文案过一遍闸的观测：want 由 Python 现算。
+// Reachable 标出真实流程走得到的那些（pattern×**同题**选项）；交叉格只是保险。
+type n8TemplateEntry struct {
+	Locale    string `json:"locale"`
+	Kind      string `json:"kind"`
+	Raw       string `json:"raw"`
+	Reachable bool   `json:"reachable"`
+	Want      string `json:"out"`
+}
+
+// n8UpperEntry 一行＝一个码位四位输入后的 upper 结果；ASCII4＝结果是否成为合法 persona。
+type n8UpperEntry struct {
+	Raw    string `json:"raw"`
+	Upper  string `json:"upper"`
+	ASCII4 bool   `json:"ascii4"`
+}
+
+// n8LinkEntry 一行＝一个 site_url 变体的深链输出。
+type n8LinkEntry struct {
+	SiteURL string `json:"site_url"`
+	Link    string `json:"link"`
 }
 
 // n8PushEntry 一行＝一个 (push_time, 时区, 日历日) 的推送时刻观测，want 由 Python 现算。
@@ -93,6 +137,12 @@ type n8Seed struct {
 		// CreatedAt 是**绝对** UTC 串：journey 的剧本基准日由它推出，
 		// 用 days_ago 这类相对口径会让「重放当天算出的 day_no」随日期漂移。
 		CreatedAt string `json:"created_at"`
+		// ReferralCode 是 users.referral_code 的**列原文**（批 4）：
+		// nil⇒NULL ⇒ POST 走惰性随机生成那一支（share_url 只能掩）；
+		// 有值 ⇒ submit 复用同一个码，于是 share_url **全串逐字可比**，
+		// 那正是「已有码不许被换」的响应面证据。列上有 UNIQUE（播种时实测撞过），
+		// 所以种子码两两不同。
+		ReferralCode *string `json:"referral_code"`
 	} `json:"users"`
 	MoodCheckins []struct {
 		ID        string `json:"id"`
@@ -122,12 +172,20 @@ type n8Seed struct {
 		SentAt       *string `json:"sent_at"`
 		Acknowledged bool    `json:"acknowledged"`
 	} `json:"journey_events"`
-	// OnboardingProfiles 只需要 created_at 一列：`ensure_prefilled` 的基准日取
-	// `profile.created_at if profile and profile.created_at else user.created_at`，
-	// 所以这里刻意区分三种情况——没有行、有行但列 NULL、有行且有值。
+	// 批 3 只用得到 created_at；批 4 的 restore 把 persona_type / answers /
+	// first_read / language **四列全读进响应**（first_read 的列原文还决定键序），
+	// 所以这四列给的是要插进 TEXT/VARCHAR 列的**原文**（null⇒SQL NULL）。
+	// 批 3 那几条种子的四列仍是 'D01' / '[]' / '{}' / 'en' 四个字面量——
+	// 换了口径就会改动批 3 已结案用例的字节，所以生成脚本按 LEGACY_PROFILE_COLUMNS 原样带出。
 	OnboardingProfiles []struct {
-		ID        string  `json:"id"`
-		UserID    string  `json:"user_id"`
+		ID          string  `json:"id"`
+		UserID      string  `json:"user_id"`
+		PersonaType *string `json:"persona_type"`
+		Answers     *string `json:"answers"`
+		FirstRead   *string `json:"first_read"`
+		Language    *string `json:"language"`
+		// created_at 保留批 3 的三态口径（没有行 / 有行但列 NULL / 有行且有值），
+		// 因为 `ensure_prefilled` 的基准日取的就是这一列，回落 user.created_at。
 		CreatedAt *string `json:"created_at"`
 	} `json:"onboarding_profiles"`
 }
@@ -145,6 +203,12 @@ type n8Case struct {
 	// Go 侧必须掩到**同样多次**：只看「掩完后字节相等」会把「行数变了」这种最要紧的
 	// 发散吃掉——预写幂等那条用例就靠这个数（第二次访问仍必须是 6 次，不是 12 次）。
 	IDMasks int `json:"id_masks"`
+	// CodeMasks / CreatedAtMasks 是批 4 的另两条计数，口径与 IDMasks 相同，
+	// 但**不是每条 onboarding 用例都掩**：种子已带码、种子已有 profile 行的那些用例
+	// 的 share_url / created_at 是夹具给的确定值，录制侧刻意**不掩**（逐字比才是证据）。
+	// 于是 Go 侧必须按夹具给的次数应用这两条掩码，而不是按组无脑掩。
+	CodeMasks      int `json:"code_masks"`
+	CreatedAtMasks int `json:"created_at_masks"`
 }
 
 func loadN8Fixture(t *testing.T) n8Fixture {
@@ -165,6 +229,11 @@ func loadN8Fixture(t *testing.T) n8Fixture {
 		"masked_fields":            len(file.MaskedFields) == 0,
 		"week_window_corpus":       len(file.WeekWindowCorpus) == 0,
 		"push_moment_corpus":       len(file.PushMomentCorpus) == 0,
+		"template_corpus":          len(file.TemplateCorpus) == 0,
+		"persona_upper_corpus":     len(file.PersonaUpperCorpus) == 0,
+		"referral_corpus":          len(file.ReferralCorpus) == 0,
+		"share_url_inputs.site_url": file.ShareURLInputs.SiteURL == "" ||
+			file.ShareURLInputs.AppStoreURL == "",
 	} {
 		if empty {
 			t.Fatalf("夹具的 %s 为空——键名漂移或生成脚本没落这一块，本节测会在空跑", name)

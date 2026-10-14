@@ -51,8 +51,23 @@ GENERATED_AT_RE = re.compile(r'"generated_at":"[^"]*"')
 # 下划线接 id，不会被这条误掩。Go 侧用同一条正则、同一个替换串。
 EVENT_ID_RE = re.compile(r'"id":"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"')
 MASKED_EVENT_ID = '"id":"<event_id>"'
+# 批 4（onboarding）新增的两样易变值。都**不按组无条件掩**，而是只在「这个值本次运行
+# 里真的是现算出来的」那几条用例上掩（判据见 record() 里的 run_created 追踪）：
+#   - referral_link：惰性生成的推荐码是随机的，两侧永远不同；但种子账号**已带码**时
+#     share_url 全串可逐字比，那正是「已有码原样复用」（user_repository.py:373）的证明。
+#     字符集＝backend/core/referral.py 的 29 字符（A-Z 去 I/L/O ＋ 2-7），这里写成
+#     [A-Z2-7]{8} 是它的**超集**：宁可多认也不漏认，掩错由 code_masks 计数暴露。
+#   - created_at：onboarding_profiles.created_at 是 server_default=func.now()，
+#     INSERT 支不写值 ⇒ 落库落的是**库钟**，录制与回放必然差几秒。
+#     种子行给的是绝对时刻 ⇒ 那一侧不掩，逐字比反而证的是 `+00:00` 序列化格式。
+REFERRAL_LINK_RE = re.compile(r"/r/[A-Z2-7]{8}")
+MASKED_REFERRAL_LINK = "/r/<code>"
+CREATED_AT_RE = re.compile(r'"created_at":"[^"]*"')
+MASKED_CREATED_AT = '"created_at":"<created_at>"'
 # 需要真库才能回放的组（这些组里 404 必须是信封体，见 _group）
-DB_GROUPS = frozenset({"curriculum", "journey"})
+DB_GROUPS = frozenset({"curriculum", "journey", "onboarding"})
+# 会现生成 uuid 主键、因而需要按形状掩两组 id 的组（批 3 的预写 INSERT、批 4 的 profile INSERT）。
+ID_MASK_GROUPS = frozenset({"journey", "onboarding"})
 
 
 def _test_db_url() -> str:
@@ -102,6 +117,34 @@ def ago(days: int, hour: int | None = None) -> str:
     if hour is not None:
         at = at.replace(hour=hour, minute=0, second=0, microsecond=0)
     return at.isoformat()
+
+
+def first_read_column(assertions: list[str], summary: str, closer: str, *,
+                      locale: str = "en", persona: str | None = None,
+                      share_url: str = "https://closenai.app/r/AB2CD3EF",
+                      generated_at: str = "2026-10-05T00:00:00+00:00") -> str:
+    """按 submit 落库的形状折出 `onboarding_profiles.first_read` 的**列原文**。
+
+    为什么种子行要按这个形状写而不是随手给个 dict：restore 是 `json.loads(列)` 之后
+    `dict(card["card_payload"])` 再 `update(六键)`——**响应里的键序就是列里的键序**
+    （Python 的 dict 保插入序、json.loads 按文本序落）。所以列原文写歪一格，
+    录到的就是另一条契约。分隔符同 `pyDumpsSpaced`（`", "` / `": "`）、ensure_ascii=False，
+    与 onboarding_repository.upsert 写出去的那一串逐字同形。
+    """
+    card_payload = {
+        "card_type": "first_read",
+        "language": locale,
+        "persona_type": persona,
+        "assertions": assertions,
+        "summary": summary,
+        "closer": closer,
+        "answer_count": len(assertions),
+        "share_url": share_url,
+        "generated_at": generated_at,
+    }
+    outer = {"assertions": assertions, "summary": summary, "closer": closer,
+             "card_payload": card_payload}
+    return json.dumps(outer, ensure_ascii=False)
 
 
 # 播种用户：slug / analytics_consent / language / rows（距今天数, emoji）
@@ -219,13 +262,68 @@ USERS: list[dict] = [
     # 基准日在未来（列允许，且 schedule_trial_d5 那种「绝对历史时刻」同形）⇒ 全不 Past
     {"slug": "j-future", "analytics": True, "language": "en", "push": "09:00",
      "created": "2027-01-05T12:00:00+00:00"},
+    # ── 批 4（onboarding 两条端点）────────────────────────────────────────────
+    # referral＝users.referral_code 的**列原文**（不给⇒SQL NULL⇒POST 现算随机码）。
+    # 已带码的那几条是「已有码原样复用」的逐字证明：share_url 全串不掩。
+    # profile 给 dict⇒四列全给原文（None⇒SQL NULL），给 str/`"null"`⇒批 3 的旧口径。
+    {"slug": "o-code-zh", "analytics": True, "language": "zh", "push": "09:00",
+     "created": ago(3), "referral": "QQ22WW33"},
+    {"slug": "o-nocode", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(1)},
+    # 已注销：get_user 过滤⇒user is None⇒只写 profile，share_url 停在 app_store_url
+    {"slug": "o-deleted", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(1), "status": "deleted", "referral": "ZZ22XX33"},
+    # 恢复用的四列全给真值：language 存的是**请求原文**（这里给 "ｚｈ-CN"，
+    # 与 card_payload 里的 locale "en" 不同形⇒restore 的 outer update 必须看到列原文）
+    {"slug": "o-restore-full", "analytics": True, "language": "zh", "push": "09:00",
+     "created": ago(5), "referral": "AB2CD3EF",
+     "profile": {"persona_type": "INTJ",
+                 "answers": '[{"q": "conflict", "option": "speak_now"}]',
+                 "first_read": first_read_column(
+                     ["在意的事你当场说出来——你不愿意让误会过夜。",
+                      "You say more to yourself than you ever say out loud."],
+                     "你把自己归为 INTJ：先把事情想透再开口。", "",
+                     locale="en", persona=None),
+                 "language": "ｚｈ-CN"}},
+    # first_read 列是坏 JSON ⇒ restore 走 JSONDecodeError ⇒ 40402（与「没有行」同码不同因）
+    {"slug": "o-restore-broken", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(5), "profile": {"persona_type": None, "answers": "",
+                                    "first_read": "{oops", "language": "en"}},
+    # first_read 列 NULL ⇒ `profile.first_read or "{}"`；language 列 NULL ⇒ "language":null
+    {"slug": "o-restore-null", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(5), "profile": {"persona_type": None, "answers": None,
+                                    "first_read": None, "language": None}},
+    # first_read 列是 JSON **标量**（D-8 的无观测点一支：Python 的 card.get 会 AttributeError）
+    # 这里给 "5"，restore 走 `dict(card.get(...) or {})`⇒AttributeError⇒未处理 500，
+    # 录不进夹具（录制客户端直接抛）。所以**不设这条用例**，只登记。
+    {"slug": "o-restore-array", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(5), "profile": {"persona_type": None, "answers": "[]",
+                                    "first_read": "[]", "language": ""}},
+    # locale 归一的四支：""⇒en、"ja"⇒en、"ｚｈ-CN"⇒en（全角不 startswith "zh"）、"ZH"⇒zh
+    {"slug": "o-lang-empty", "analytics": True, "language": "", "push": "09:00",
+     "created": ago(1)},
+    {"slug": "o-lang-ja", "analytics": True, "language": "ja", "push": "09:00",
+     "created": ago(1)},
+    {"slug": "o-lang-fullwidth", "analytics": True, "language": "ｚｈ-CN",
+     "push": "09:00", "created": ago(1)},
+    {"slug": "o-lang-upper-zh", "analytics": True, "language": "ZH", "push": "09:00",
+     # 码必须与 o-code-zh **不同**：users.referral_code 上有 UNIQUE
+     # （uq_users_referral_code，播种时实测撞出来）——这条约束也正是
+     # ensure_referral_code 撞码要重生成那一支存在的原因。
+     "created": ago(1), "referral": "TT55KK77"},
+    # PyUpper 的正证两条：SSSS（1→2 展开凑满四位）、FINT（连字 ﬁ→FI）。
+    # 都不给种子码 ⇒ share_url 的 /r/<code> 必掩，见 record() 的 runtime_code。
+    {"slug": "o-persona-sharp", "analytics": True, "language": "zh", "push": "09:00",
+     "created": ago(1)},
+    {"slug": "o-persona-ligature", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(1)},
 ]
 
 COLUMNS = ("id, timezone, streak_count, relationship_level, chat_count, "
            "daily_quota_used, tier, language, analytics_consent, ai_consent, status, "
-           "push_time, created_at")
+           "push_time, created_at, referral_code")
 INSERT_USER = (f"INSERT INTO users ({COLUMNS}) VALUES (%s, %s, 0, 'L1', 0, 0, 'free', "
-               f"%s, %s, %s, %s, %s, %s)")
+               f"%s, %s, %s, %s, %s, %s, %s)")
 INSERT_MOOD = (
     "INSERT INTO mood_checkins (id, user_id, mood_emoji, created_at) "
     "VALUES (%s, %s, %s, now() - (%s || ' days')::interval)"
@@ -239,10 +337,45 @@ INSERT_EVENT = (
     "payload, memory_refs, status, sent_at, acknowledged) "
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
+# 批 3 只用得到 created_at，所以 persona/answers/first_read/language 四列走四个字面量。
+# 批 4 的 restore 把四列全读出来（language 直接进响应、first_read 决定键序），
+# 于是 INSERT 改成六列显式给值：**批 3 那几行传的还是同四个字面量**，字节不变。
 INSERT_PROFILE = (
     "INSERT INTO onboarding_profiles (id, user_id, persona_type, answers, first_read, "
-    "language, created_at) VALUES (%s, %s, 'D01', '[]', '{}', 'en', %s)"
+    "language, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
 )
+# 批 3 旧口径（profile 给 str 或 "null"）落的四列字面量
+LEGACY_PROFILE_COLUMNS = ("D01", "[]", "{}", "en")
+
+
+def profile_row(user: dict) -> dict | None:
+    """把 `user["profile"]` 换算成一行 onboarding_profiles 播种计划；没有该键⇒None。
+
+    两种形态刻意并存，不改批 3 那六条用例的字节：
+      - str `"null"` ⇒ 只插行、created_at 为 SQL NULL；其它 str ⇒ created_at 是**绝对时刻**；
+      - dict ⇒ 四列全给**列原文**（None⇒SQL NULL，空串就是空串），created_at 可选。
+
+    dict 分支的默认值刻意**不等于 ANCHOR**：restore 响应里的 created_at 取的是
+    `profile.created_at` 列，而回放两侧都把时钟冻在 ANCHOR。若种子也种成 ANCHOR，
+    「从列取」和「从钟算」会算出同一串字节，这条支路就被巧合蒙过了。
+    """
+    spec = user.get("profile")
+    if spec is None:
+        return None
+    uid = f"{SEED_PREFIX}{user['slug']}"
+    if isinstance(spec, dict):
+        persona, answers, first_read, language = (
+            spec.get("persona_type", LEGACY_PROFILE_COLUMNS[0]),
+            spec.get("answers", LEGACY_PROFILE_COLUMNS[1]),
+            spec.get("first_read", LEGACY_PROFILE_COLUMNS[2]),
+            spec.get("language", LEGACY_PROFILE_COLUMNS[3]))
+        created = spec.get("created_at", ago(4))
+    else:
+        persona, answers, first_read, language = LEGACY_PROFILE_COLUMNS
+        created = None if spec == "null" else spec
+    return {"id": f"{uid}-p", "user_id": uid, "persona_type": persona,
+            "answers": answers, "first_read": first_read, "language": language,
+            "created_at": created}
 
 
 def timezone_of(user: dict) -> str:
@@ -468,21 +601,28 @@ JOURNEY_PLAN: dict[str, list[dict]] = {
 
 
 def freeze_clock() -> None:
-    """把 curriculum/journey 服务读到的「当下」钉在 ANCHOR（见上面 ANCHOR 的注释）。
+    """把 curriculum/journey/first_read 服务读到的「当下」钉在 ANCHOR（见上面 ANCHOR 的注释）。
 
     curriculum：get_week 用 local_today 取今天、mark_read 用 utc_now 写 read_at。
     journey：prefill 的 `today = local_today(user.timezone)` 决定哪一行的 Past；
     它的 base_day 由**绝对**播种的 created_at 推出，所以不钉 local_today 的话，
     回放一旦跨过用户本地午夜，六行的 status 就会整批错位（pending vs skipped）。
     窗口端点走的 local_day_start_utc(tz, day) 收的是**显式日期**，不碰时钟。
+    first_read（批 4）：`card_payload["generated_at"] = utc_now().isoformat()`(:163)
+    **直接进响应字节**，不钉就会差录制与回放之间那几秒；`submit` 的
+    `prefill(..., base_day=local_today(user.timezone))`(:195) 决定六行的 day_no，
+    回放跨过本地午夜就会让 POST 预写的那批行整体挪一天（Go 侧对应 Server.now）。
     """
     from backend.services import curriculum_service as curriculum_module
+    from backend.services import first_read_service as first_module
     from backend.services import journey_service as journey_module
 
     curriculum_module.local_today = local_today_at
     curriculum_module.utc_now = lambda: ANCHOR
     journey_module.local_today = local_today_at
     journey_module.utc_now = lambda: ANCHOR
+    first_module.local_today = local_today_at
+    first_module.utc_now = lambda: ANCHOR
 
 
 def seed() -> None:
@@ -504,12 +644,17 @@ def seed() -> None:
             cur.execute(INSERT_USER, (uid, timezone_of(user), user["language"],
                                       user["analytics"], user.get("ai", False),
                                       user.get("status", "active"), user.get("push"),
-                                      user.get("created", ANCHOR.isoformat())))
+                                      user.get("created", ANCHOR.isoformat()),
+                                      # referral_code 不给⇒SQL NULL（POST 走惰性生成那一支）
+                                      user.get("referral")))
             for i, (days_ago, emoji) in enumerate(user.get("rows", [])):
                 cur.execute(INSERT_MOOD, (f"{uid}-m{i}", uid, emoji, str(days_ago)))
-            if "profile" in user:
-                created = None if user["profile"] == "null" else user["profile"]
-                cur.execute(INSERT_PROFILE, (f"{uid}-p", uid, created))
+            row = profile_row(user)
+            if row:
+                cur.execute(INSERT_PROFILE, (row["id"], row["user_id"],
+                                             row["persona_type"], row["answers"],
+                                             row["first_read"], row["language"],
+                                             row["created_at"]))
         for event in seeded_events():
             cur.execute(INSERT_EVENT, (event["id"], event["user_id"], event["event_kind"],
                                        event["day_no"], event["scheduled_at"],
@@ -517,6 +662,10 @@ def seed() -> None:
                                        event["status"], event["sent_at"],
                                        event["acknowledged"]))
     dsn.close()
+
+
+def seeded_profiles() -> list[dict]:
+    return [row for row in (profile_row(user) for user in USERS) if row]
 
 
 def seed_spec() -> dict:
@@ -528,7 +677,9 @@ def seed_spec() -> dict:
              "ai_consent": u.get("ai", False), "status": u.get("status", "active"),
              # push_time 为 None ⇒ SQL NULL（与 "" 同一条 `or "09:00"` 分支，但列上不同）
              "push_time": u.get("push"),
-             "created_at": u.get("created", ANCHOR.isoformat())}
+             "created_at": u.get("created", ANCHOR.isoformat()),
+             # referral_code 的**列原文**（None⇒NULL⇒POST 现算随机码，见掩码注释）
+             "referral_code": u.get("referral")}
             for u in USERS
         ],
         "mood_checkins": [
@@ -538,11 +689,7 @@ def seed_spec() -> dict:
             for i, (days_ago, emoji) in enumerate(u.get("rows", []))
         ],
         "journey_events": seeded_events(),
-        "onboarding_profiles": [
-            {"id": f"{SEED_PREFIX}{u['slug']}-p", "user_id": f"{SEED_PREFIX}{u['slug']}",
-             "created_at": None if u["profile"] == "null" else u["profile"]}
-            for u in USERS if "profile" in u
-        ],
+        "onboarding_profiles": seeded_profiles(),
     }
 
 
@@ -1007,8 +1154,168 @@ def cases() -> list[tuple]:
         ("ack-content-type-text", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
          {"Content-Type": "text/plain"}, "raw:not json"),
     ]
-
+    out += onboarding_cases()
     return out
+
+
+# ── 批 4（onboarding 两条端点）的用例面 ───────────────────────────────────────
+# 两条路径都在同一个前缀下，POST 现算的三处写要按**真实顺序**录：
+# POST⇒GET⇒再 POST⇒再 GET，中间不换用户，这样 restore 读到的才是同一次运行写下的列。
+ONB = "/api/v1/onboarding/first-read"
+ANS_ZH = [{"q": "conflict", "option": "speak_now"},
+          {"q": "uncertainty", "option": "list_out"},
+          {"q": "night", "option": "replay"}]
+ANS_EN = [{"q": "conflict", "option": "hold_in"},
+          {"q": "uncertainty", "option": "talk_out"}]
+
+
+def onboarding_cases() -> list[tuple]:
+    # (name, group, method, path, user slug, headers, body)
+    return [
+        # ── 校验面（validation 组：Go 侧无库回放，读到 store 即红）──
+        # 这四条钉的是 FirstReadRequest/FirstReadAnswer 的**错误累积顺序**与 loc 形状，
+        # 全部在 pydantic 层失败，Python 一次库都没碰（routers/onboarding.py:26 的
+        # `request: FirstReadRequest` 在 Depends(get_db) 之前已由 FastAPI 解完）。
+        ("onb-no-body", "validation", "POST", ONB, "o-code-zh", {}, None),
+        ("onb-answers-not-list", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": "x"}),
+        ("onb-answers-null", "validation", "POST", ONB, "o-code-zh", {}, {"answers": None}),
+        ("onb-answer-item-not-dict", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": ["x"]}),
+        ("onb-answer-missing-option", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": [{"q": "conflict"}]}),
+        ("onb-answer-missing-q", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": [{"option": "speak_now"}]}),
+        # 上面两条各缺一个字段，看不出**同一条 item 内**的错误顺序；只有两个同时缺
+        # 才能钉住「按 schemas.py 声明序 q → option」这一条判据。
+        ("onb-answer-both-missing", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": [{}]}),
+        ("onb-answer-q-not-string", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": [{"q": 5, "option": "speak_now"}]}),
+        # max_length 数的是**码点**：31 个 ASCII 与 31 个全角都越界，但字节数差三倍。
+        ("onb-answer-q-31-ascii", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": [{"q": "x" * 31, "option": "speak_now"}]}),
+        ("onb-answer-q-31-nonascii", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": [{"q": "字" * 31, "option": "speak_now"}]}),
+        ("onb-answer-option-41", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": [{"q": "conflict", "option": "x" * 41}]}),
+        # answers 的 max_length=10（schemas.py:502）⇒ 11 条才越界（3×3+2）。
+        ("onb-answers-11", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": ANS_ZH * 3 + [{"q": "night", "option": "sharpest"},
+                                   {"q": "extra", "option": "entry"}]}),
+        # persona_type 的 ValueError 文案带**原值**（不是 strip/upper 后的值），
+        # 所以 "  int  " 报的必须是含空格的那一串——Go 若先清洗再报错就红。
+        ("onb-persona-three", "validation", "POST", ONB, "o-code-zh", {},
+         {"persona_type": "INT"}),
+        ("onb-persona-spaces-then-short", "validation", "POST", ONB, "o-code-zh", {},
+         {"persona_type": "  int  "}),
+        ("onb-persona-five", "validation", "POST", ONB, "o-code-zh", {},
+         {"persona_type": "INTJJ"}),
+        ("onb-persona-digit", "validation", "POST", ONB, "o-code-zh", {},
+         {"persona_type": "INT1"}),
+        # 全角 iｎｔｊ 的 .upper() 得到**全角** ＩＮＴＪ ⇒ 过不了 [A-Z]{4}；
+        # 这条钉的是「Go 的 PyUpper 不许把非 ASCII 字母折成 ASCII」。
+        ("onb-persona-fullwidth", "validation", "POST", ONB, "o-code-zh", {},
+         {"persona_type": "ｉｎｔｊ"}),
+        # 实测（2026-10-15，.venv 的 pydantic 现场跑）：CPython 的 `.upper()` 做**全案映射**，
+        # ß→SS 是**每个码位各展开一次**，所以 "ßß"⇒"SSSS"（合法！）、"ßßßß"⇒"SSSSSS"（越界）。
+        # 这条取越界那一支：400 的文案回显**原值** "ßßßß"，两侧同形；
+        # 正证（响应里真的出现 "SSSS"）在下面 onboarding 组的 o-persona-sharp。
+        # Go 若只写 strings.ToUpper（对 ß 恒等）会在 o-persona-sharp 那条变 400。
+        ("onb-persona-ss-6-upper", "validation", "POST", ONB, "o-code-zh", {},
+         {"persona_type": "ßßßß"}),
+        ("onb-language-not-string", "validation", "POST", ONB, "o-code-zh", {},
+         {"language": 5}),
+        ("onb-language-11", "validation", "POST", ONB, "o-code-zh", {},
+         {"language": "x" * 11}),
+        ("onb-language-11-nonascii", "validation", "POST", ONB, "o-code-zh", {},
+         {"language": "字" * 11}),
+        # 同一请求里三个字段各错一次 ⇒ 累积顺序＝**字段声明序**（answers, persona_type,
+        # language），不是「谁先校验谁先报错」的猜测。
+        ("onb-three-field-errors", "validation", "POST", ONB, "o-code-zh", {},
+         {"answers": "x", "persona_type": "BAD", "language": 5}),
+        ("onb-json-array-body", "validation", "POST", ONB, "o-code-zh", {}, "raw:[]"),
+        ("onb-json-bad", "validation", "POST", ONB, "o-code-zh", {}, "raw:{oops"),
+        ("onb-json-empty", "validation", "POST", ONB, "o-code-zh", {}, "raw:"),
+        ("onb-content-type-text", "validation", "POST", ONB, "o-code-zh",
+         {"Content-Type": "text/plain"}, "raw:not json"),
+        # 重复键：Python 的 json.loads 取**最后一个**（后写覆盖前写）。
+        # 这里把合法值放前面、非法值放后面 ⇒ 只有「取后」才会报 400。
+        # 于是这条 400 体本身就是 last-wins 的证明：Go 若取前，会写成 200 而红。
+        ("onb-duplicate-keys", "validation", "POST", ONB, "o-code-zh", {},
+         'raw:{"answers": [{"q": "conflict", "option": "speak_now"}], "answers": "x"}'),
+        # GET 没有 body、没有查询参数面：带上的话 FastAPI 直接忽略（与批 3 同判据）。
+        ("onb-get-unknown-query", "onboarding", "GET", f"{ONB}?limit=3",
+         "o-restore-full", {}, None),
+        # ── 成功面（onboarding 组：真库 + 冻时钟，顺序就是契约）──
+        # 还没有行 ⇒ 40402。放在这个位置是因为下面第一条就是它的 POST。
+        ("onb-restore-before-submit", "onboarding", "GET", ONB, "o-code-zh", {}, None),
+        # 种子账号**已带码** ⇒ share_url 全串逐字可比（惰性生成分支被跳过）
+        ("onb-submit-zh", "onboarding", "POST", ONB, "o-code-zh", {},
+         {"answers": ANS_ZH, "persona_type": "INTJ", "language": "zh"}),
+        ("onb-restore-zh", "onboarding", "GET", ONB, "o-code-zh", {}, None),
+        # 第二次 POST 换一份答案 ⇒ upsert 走 UPDATE 支（id 不变、content 以最后一次为准）
+        ("onb-submit-zh-update", "onboarding", "POST", ONB, "o-code-zh", {},
+         {"answers": ANS_EN, "persona_type": None, "language": "zh"}),
+        ("onb-restore-zh-update", "onboarding", "GET", ONB, "o-code-zh", {}, None),
+        # 无码账号 ⇒ 码随机 ⇒ share_url 的 /r/<code> 被掩（code_masks=1）。
+        # answers 里混一支未知 q、一支未知 option ⇒ 只剩一支真断言，fillers 补到 2。
+        ("onb-submit-generate-code", "onboarding", "POST", ONB, "o-nocode", {},
+         {"answers": [{"q": "no-such-q", "option": "speak_now"},
+                      {"q": "conflict", "option": "no-such-option"},
+                      {"q": "night", "option": "sharpest"}],
+          "language": "en"}),
+        # 第二次 POST：**复用**第一次现算的码（掩掉后字节仍应相同，且 code_masks 仍是 1）
+        ("onb-submit-code-reused", "onboarding", "POST", ONB, "o-nocode", {},
+         {"answers": ANS_EN, "persona_type": "inqt", "language": "en"}),
+        ("onb-restore-generated", "onboarding", "GET", ONB, "o-nocode", {}, None),
+        # 已注销账号：get_user 过滤 ⇒ user is None ⇒ 只写 profile，
+        # share_url 停在 **app_store_url 原文**（逐字，不掩），且一行剧本都不写。
+        ("onb-submit-deleted", "onboarding", "POST", ONB, "o-deleted", {},
+         {"answers": ANS_ZH, "persona_type": "ENTJ", "language": "zh"}),
+        ("onb-restore-deleted", "onboarding", "GET", ONB, "o-deleted", {}, None),
+        # 匿名（dev 无 X-User-Id）⇒ user_id="anonymous"，库里没这账号的行，
+        # 但 restore 只 SELECT 不 INSERT ⇒ 40402（POST 那条走不了：profile.user_id 有外键，
+        # Python 会得到 IntegrityError 的**非信封 500**，属 D-8 登记的无观测点一支）。
+        ("onb-restore-anonymous", "onboarding", "GET", ONB, "", {}, None),
+        ("onb-restore-ghost", "onboarding", "GET", ONB, "ghost-user", {}, None),
+        # 播种行的四列全真值：id 与 created_at 都**不掩**（固定值），
+        # 所以这一条同时钉住「restore 的 id 来自列」＋「created_at 的 +00:00 形状」。
+        ("onb-restore-seeded-full", "onboarding", "GET", ONB, "o-restore-full", {}, None),
+        # first_read 列是坏 JSON ⇒ JSONDecodeError ⇒ 与「没有行」同码不同因
+        ("onb-restore-broken-json", "onboarding", "GET", ONB, "o-restore-broken", {}, None),
+        # first_read 列 NULL ⇒ `or "{}"` ⇒ 只剩 update 的六键；language 列 NULL ⇒ null
+        ("onb-restore-null-columns", "onboarding", "GET", ONB, "o-restore-null", {}, None),
+        # "ßß" ⇒ .upper()＝"SSSS"（每个 ß 各展开成 SS）⇒ 合法，且**响应里的
+        # persona_type 就是 "SSSS"**。这是 PyUpper 那 8 条 ASCII 展开表的正证：
+        # strings.ToUpper 对 ß 恒等，少了这张表这一条就变 400（同一请求的字节差异）。
+        ("onb-submit-persona-sharp-s", "onboarding", "POST", ONB, "o-persona-sharp", {},
+         {"answers": ANS_ZH[:2], "persona_type": "ßß", "language": "zh"}),
+        # 紧随其后的 GET：restore 是从 **first_read 列**复现的，所以这一条证的是
+        # 「列原文里的 persona_type 也写成了 SSSS」（列用 `", "` 分隔、响应用紧凑形，
+        # 两侧各自的写法只要与对方逐字同形才可证）。
+        ("onb-restore-persona-sharp-s", "onboarding", "GET", ONB, "o-persona-sharp", {}, None),
+        # 连字 ﬁ（1 码位）⇒ "FI" ⇒ "ﬁnt" 四位输入折成 FINT 合法（1→2 展开凑满长度）
+        ("onb-submit-persona-ligature", "onboarding", "POST", ONB, "o-persona-ligature", {},
+         {"answers": ANS_EN, "persona_type": "ﬁnt", "language": "en"}),
+        ("onb-restore-persona-ligature", "onboarding", "GET", ONB, "o-persona-ligature", {}, None),
+        # locale 归一：""、"ja"、"ｚｈ-CN" 全落 en；"ZH" 落 zh（(language or "").lower()）
+        ("onb-submit-lang-empty", "onboarding", "POST", ONB, "o-lang-empty", {},
+         {"answers": ANS_ZH + [{"q": "night", "option": "slow_down"}],
+          "language": ""}),
+        ("onb-restore-lang-empty", "onboarding", "GET", ONB, "o-lang-empty", {}, None),
+        ("onb-submit-lang-ja", "onboarding", "POST", ONB, "o-lang-ja", {},
+         {"language": "ja"}),
+        ("onb-restore-lang-ja", "onboarding", "GET", ONB, "o-lang-ja", {}, None),
+        ("onb-submit-lang-fullwidth", "onboarding", "POST", ONB, "o-lang-fullwidth", {},
+         {"answers": [ANS_EN[0], ANS_EN[0]], "language": "ｚｈ-CN"}),
+        ("onb-restore-lang-fullwidth", "onboarding", "GET", ONB, "o-lang-fullwidth", {}, None),
+        # "ZH" ⇒ locale zh（大写被 lower 折掉），但**列存请求原文 "ZH"** ⇒
+        # restore 的 outer update 用列原文，于是同一个键两侧值不同（POST 回 zh、GET 回 ZH）
+        ("onb-submit-lang-upper-zh", "onboarding", "POST", ONB, "o-lang-upper-zh", {},
+         {"answers": ANS_ZH[:2], "persona_type": "  INFP  ", "language": "ZH"}),
+        ("onb-restore-lang-upper-zh", "onboarding", "GET", ONB, "o-lang-upper-zh", {}, None),
+    ]
 
 
 def _group(name: str, path: str, declared: str, status: int, text: str) -> str:
@@ -1030,9 +1337,25 @@ def _group(name: str, path: str, declared: str, status: int, text: str) -> str:
     return declared
 
 
-async def record() -> list[dict]:
+async def record() -> tuple[list[dict], list[str]]:
     recorded = []
     generated_at_samples = []
+    # 批 4 的两样易变值**按用例判**，不按组无脑掩（判据见上面两条正则的注释）。
+    # 两张表各自只回答一个问题，而且**都不能按「有没有种子码」推**：
+    #   runtime_code   —— 这次响应里的 share_url 是不是**本次运行现算**的码。
+    #     种子已带码的账号 ⇒ 全串逐字可比，那正是「已有码原样复用」(user_repository.py:373)
+    #     的证据；无码账号 ⇒ 随机 ⇒ 只能掩，并用 code_masks 计数。
+    #   run_profiles   —— 这次响应的 profile 行是不是**本次运行才 INSERT** 的。
+    #     是 ⇒ created_at 走库钟（server_default now()，录制与回放必然差几秒）⇒ 掩；
+    #     种子行的 created_at 是夹具给的绝对时刻 ⇒ 不掩，逐字比钉的是 `+00:00` 形状。
+    # 两张表都只由「POST 且 200」推进：账号是否 active、有没有种子码都与之无关
+    # （o-code-zh 有种子码但没种子 profile ⇒ share_url 可比、created_at 必须掩；
+    #  o-deleted 不写 journey 但照样写 profile ⇒ created_at 也必须掩）。
+    active_slugs = {u["slug"] for u in USERS if u.get("status", "active") == "active"}
+    seeded_referral = {u["slug"]: u.get("referral") for u in USERS}
+    seeded_profile_slugs = {u["slug"] for u in USERS if "profile" in u}
+    run_profiles: set[str] = set()
+    runtime_code: set[str] = set()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         for name, group, method, path, user_slug, extra_headers, body in cases():
@@ -1057,12 +1380,25 @@ async def record() -> list[dict]:
                 generated_at_samples.append(sample.group(0)[len('"generated_at":"'):-1])
                 text = GENERATED_AT_RE.sub(f'"generated_at":"{MASKED}"', text)
             group = _group(name, path, group, res.status_code, text)
+            is_onb = group == "onboarding"
+            # 先登记后掩码：POST 自己那条响应里就同时含现算的码与新行的 id，
+            # 若把登记放在掩码之后，生成码那一条会以「未掩的随机串」进夹具。
+            if is_onb and method == "POST" and res.status_code == 200:
+                if user_slug not in seeded_profile_slugs:
+                    run_profiles.add(user_slug)
+                if user_slug in active_slugs and seeded_referral.get(user_slug) is None:
+                    runtime_code.add(user_slug)
             # 预写的 INSERT 支现生成 uuid4 主键：两侧各自掩成同一条占位串，
             # 并把**掩到的次数**记进夹具——Go 侧必须掩到同样多次，否则「行数变了」
             # 这种最要紧的发散会被掩码本身吃掉（幂等重放那条用例就靠这个数）。
             id_masks = 0
-            if group == "journey":
+            if group in ID_MASK_GROUPS:
                 text, id_masks = EVENT_ID_RE.subn(MASKED_EVENT_ID, text)
+            code_masks = created_at_masks = 0
+            if is_onb and user_slug in runtime_code:
+                text, code_masks = REFERRAL_LINK_RE.subn(MASKED_REFERRAL_LINK, text)
+            if is_onb and user_slug in run_profiles:
+                text, created_at_masks = CREATED_AT_RE.subn(MASKED_CREATED_AT, text)
             recorded.append({
                 "name": name,
                 "group": group,
@@ -1072,6 +1408,8 @@ async def record() -> list[dict]:
                 "request_raw": content.decode() if content is not None else None,
                 "status": res.status_code,
                 "id_masks": id_masks,
+                "code_masks": code_masks,
+                "created_at_masks": created_at_masks,
                 "response_text": text,
             })
     return recorded, generated_at_samples
@@ -1401,39 +1739,250 @@ def push_moment_corpus() -> list[dict]:
     return out
 
 
+def template_corpus() -> list[dict]:
+    """措辞闸的**闭包**语料：两份模板能产出的每一条候选文案，逐条现算 `filter_template`。
+
+    为什么不是采样（D-2）：本域所有模板串实测**一条都不该被闸掉**，采样只能证「没掉」，
+    不能证「两侧判据同源」。把候选串全列出来比**输出文本**才是闭包——闸若在 Go 侧
+    吞掉某条断言，那张卡就静默少一句（响应面看不出错，只有逐字比抓得到）。
+    候选集合＝{pattern.format(option=选项文本)}（每题 3 条断言形 × 同题 3 个选项文本，
+    含**不可达**的交叉格，多给不亏）∪ fillers ∪ closer ∪ {summary_frame.format(每个 persona)}。
+    `reachable` 标出真实流程走得到的那些：交叉格只是保险，不是可达性声明。
+
+    闭包之外还有一组 `hit-*` / `safe-*` 探针（kind 前缀），理由见下面那段注释：
+    闭包 92 条实测全部放行，「命中即吞」那一支在闭包里没有观测点。
+    探针不是模板产出的文本（reachable=False），它们只喂 `filter_template` 这一支函数。
+    """
+    from backend.services.first_read_service import load_template
+    from backend.services.safety_service import safety_service
+
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(locale: str, kind: str, raw: str, reachable: bool) -> None:
+        key = (locale, raw)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"locale": locale, "kind": kind, "raw": raw, "reachable": reachable,
+                    "out": safety_service.filter_template(raw, locale)})
+
+    for locale in ("zh", "en"):
+        template = load_template(locale)
+        questions = {q.get("id"): q for q in template.get("questions") or []}
+        for q_id, by_option in (template.get("assertions") or {}).items():
+            texts = [opt.get("text") for opt in (questions.get(q_id, {}).get("options") or [])]
+            for opt_id, pattern in by_option.items():
+                for fill_id, fill_text in zip(
+                        [o.get("id") for o in (questions.get(q_id, {}).get("options") or [])],
+                        texts):
+                    add(locale, "assertion", pattern.format(option=fill_text),
+                        opt_id == fill_id)
+        for filler in template.get("fillers") or []:
+            add(locale, "filler", filler, True)
+        add(locale, "closer", template.get("closer") or "", True)
+        frame = template.get("summary_frame") or ""
+        for persona, trait in (template.get("personas") or {}).items():
+            add(locale, "summary", frame.format(persona=persona, trait=trait), True)
+
+    # ── 对抗面 ────────────────────────────────────────────────────────────────
+    # 上面那 92 条实测**一条都不被闸掉**，于是「命中即吞」这一整支在闭包里根本没有观测点：
+    # 把 Go 的 bannedHit/attributionHit 整条删掉，措辞闸语料照样全绿。批 2 已经立过这条规矩
+    # （看不见的判据就补夹具，不登记成「已证」），所以这里按**词表本身**造探针。
+    #
+    # 词条一律从 safety_service 的表里现取，脚本不另抄一份：
+    #   hit-*   必须以「被闸掉」收（want==""）
+    #   safe-*  必须以「原样放行」收（want==raw）
+    # 方向不符就直接 raise——那是探针文本自己撞上了别的词，改探针，不改闸。
+    def probe(loc: str, kind: str, raw: str) -> None:
+        verdict = safety_service.filter_template(raw, loc)
+        if kind.startswith("hit-") and verdict != "":
+            raise AssertionError(f"探针 {loc}/{kind} 本该被闸掉却放行了：{raw!r}")
+        if kind.startswith("safe-") and verdict != raw:
+            raise AssertionError(f"探针 {loc}/{kind} 本该放行却被闸掉了：{raw!r} ⇒ {verdict!r}")
+        add(loc, kind, raw, False)
+
+    def plain(text: str) -> bool:
+        return not any(ch in text for ch in "\\[]()?*+|^$.{}")
+
+    def group_word(patterns) -> str:
+        """取一条**能直接拼进文本**的指纹：优先纯字面量（zh 全是），
+        其次剥掉 `\\b` 后的单词（en 的 third/causal 几乎都带边界断言）。
+        剥出来的词在探针文本里两侧都带空格 ⇒ `\b` 是否还在都不影响这一格的方向。
+        """
+        for pattern in patterns:
+            if plain(pattern):
+                return pattern
+        for pattern in patterns:
+            word = pattern.replace("\\b", "")
+            if plain(word) and word:
+                return word
+        raise AssertionError("这一组指纹拼不出可用探针")
+
+    bases = {"zh": "这段话只讲你自己的选择", "en": "This line is about your own choice"}
+    for locale in ("zh", "en"):
+        sep = "" if locale == "zh" else " "
+        banned = safety_service.BANNED_TERMS[locale]
+        markers = safety_service.ATTRIBUTION_MARKERS[locale]
+        label = group_word(markers["label"])
+        causal = group_word(markers["causal"])
+        term = next((t for t in banned if plain(t) and " " not in t), None)
+        if term is None:
+            raise AssertionError(f"{locale} 的黑名单没有可拼的词")
+        # 黑名单命中：把词条贴在模板句尾。zh 走 `term in text`（纯子串），en 走
+        # `\b{term}`（**只有前边界**，Python 的 rf"\b{re.escape(term)}" 没有 \b 收尾）。
+        probe(locale, "hit-banned", f"{bases[locale]}{sep}{term}")
+        if locale == "zh":
+            # 子串判据的另一半：词条中间插一个字就不算命中。
+            probe("zh", "safe-broken-term", f"{bases['zh']}{term[0]}了{term[1:]}")
+        else:
+            # 同一支判据的两个方向：前面粘住字母 ⇒ 不是词首 ⇒ 放行；
+            # 后面接东西 ⇒ 因为没有后边界，照样命中。
+            # 后者是「把 Python 的 \`\\b{term}\` 误写成 \`\\b{term}\\b\`」的唯一观测点——
+            # 那种写法会把 "healing" 从 "heal" 里放出来，是改判据不是复刻。
+            probe("en", "safe-boundary-pre", f"{bases['en']} re{term}")
+            probe("en", "hit-boundary-post", f"{bases['en']} {term}ing")
+        # 越界：third 是**必需**的一支。label∧causal 而没有 third 刻意不算越界
+        # （safety_service.py:341-346 的注释写明了这条口径），所以它必须是 safe-*。
+        if locale == "zh":
+            third = group_word(markers["third"])
+            probe("zh", "hit-label-third", f"{bases['zh']}{third}{label}")
+            probe("zh", "hit-causal-third", f"{bases['zh']}{third}{causal}")
+            probe("zh", "safe-no-third", f"{bases['zh']}{label}{causal}")
+            # 后视断言 `(?<![其这那每])他` 的三格：行首、前一个字不在禁用集、前一个字在集内。
+            # RE2 不支持后视，Go 是按定义手写的（见 domain/first_read_gate.go 的 markerMatcher），
+            # 这三格就是那支手写等价的全部可证面。
+            probe("zh", "hit-third-at-start", f"他说这是{label}")
+            probe("zh", "hit-third-after-verb", f"说他是{label}")
+            probe("zh", "safe-third-lookbehind", f"和其他{label}有关")
+        else:
+            third = group_word(markers["third"])
+            probe("en", "hit-label-third", f"{bases['en']} {third} {label}")
+            probe("en", "hit-causal-third", f"{bases['en']} {third} {causal}")
+            probe("en", "safe-no-third", f"{bases['en']} {label} {causal}")
+    return out
+
+
+def persona_upper_corpus() -> list[dict]:
+    """`persona_type` 的 `.upper()` **闭包**：整个 BMP 里所有「upper 会变样」的码位。
+
+    为什么必须扫全 BMP 而不是手挑（D-4/可达性）：校验器的判据是 `^[A-Z]{4}$`，
+    于是「一个非 ASCII 字符能不能拼出合法的 INTJ」是**响应面**的问题，不是风格问题。
+    CPython 的 str.upper() 有三类输出：单码位恒等、单码位变 ASCII（i→I）、
+    **多码位展开**（ß→SS、ﬁ→FI）。Go 的 strings.ToUpper 第三类是恒等，
+    第一类对非 ASCII 拉丁字母（ß 之外的 ǳ、ŉ…）也不同——只有把整张表录下来逐条比，
+    才说得上「Go 复刻的是 CPython 的 upper，不是 ASCII 的 upper」。
+    每行记 raw=码位×4、upper=Python 的结果、ascii4=是否因此成为**合法** persona。
+    Go 侧不只比这几条：`TestN8PersonaUpperCorpusIsClosed` 用 Go 自己扫一遍 BMP，
+    要求集合等于「这张表的 ascii4 码位 ∪ A-Z」——`'A'.upper()` 恒等，按上面的筛选
+    条件它不在表里，但四位重复后照样合法，所以那一半由 Go 按定义补齐。
+    """
+    out: list[dict] = []
+    for cp in range(0x20, 0x10000):
+        if 0xD800 <= cp <= 0xDFFF:
+            continue
+        char = chr(cp)
+        upper = char.upper()
+        if upper == char:
+            continue
+        if not (upper.isascii() or len(upper) != 1):
+            continue
+        four = next((char * k for k in (1, 2, 3, 4)
+                     if re.fullmatch(r"[A-Z]{4}", (char * k).upper())), char * 4)
+        out.append({"raw": four, "upper": four.upper(),
+                    "ascii4": bool(re.fullmatch(r"[A-Z]{4}", four.upper()))})
+    return out
+
+
+def referral_link_corpus() -> list[dict]:
+    """`referral_link(site_url, code)` 的输入面（backend/core/referral.py:34-37）。
+
+    钉的是 `site_url.rstrip('/')`：剥的是**一串**斜杠而不是一个，所以
+    "https://a//" 也得 https 站点单斜杠。空串与 "/" 这两格是配置写歪时的形状——
+    Go 若写成 TrimSuffix，"https://a//" 会留下双斜杠，深链就指错地方。
+    """
+    from backend.core.referral import referral_link
+
+    variants = [
+        "https://closenai.app", "https://closenai.app/", "https://closenai.app//",
+        "https://closenai.app///", "http://localhost:8080/", "https://a/b",
+        "https://a/b/", "", "/", "///", "  https://a  ",
+    ]
+    return [{"site_url": v, "link": referral_link(v, "QQ22WW33")} for v in variants]
+
+
+def share_url_inputs() -> dict:
+    """夹具带出的两个设置原文：Go 回放测据此构造 cfg，比的是**主机部分逐字**。
+
+    为什么带出来而不是在 Go 侧写死默认值：share_url 会**落进 first_read 列**，
+    restore 按列复现、不回查设置。两侧默认值不同＝同一个账号切流前后拿到不同深链。
+    """
+    from backend.config import settings
+
+    return {"site_url": settings.site_url, "app_store_url": settings.app_store_url}
+
+
 def main() -> None:
     seed()
-
     freeze_clock()
     recorded, samples = asyncio.run(record())
     corpus = datetime_corpus()
+    templates = template_corpus()
+    personae = persona_upper_corpus()
     payload = {
         "_comment": "generated by scripts/gen_n8_contract_goldens.py; do not hand-edit",
         "trace_id": TRACE,
         # curriculum 组的回放必须把 Server.now 钉在这一刻（见 ANCHOR 的注释）。
         "recorded_at": ANCHOR.isoformat(),
-        "masked_fields": ["generated_at", "journey_event_id"],
+        # 四条掩码都是**易变值**，不是「难比对的字段」：
+        #   generated_at      —— 录制与回放必然差一个时刻
+        #   journey_event_id  —— uuid4 主键，预写行数只能靠**次数**证
+        #   referral_link     —— 码由惰性生成；种子已带码的用例**不掩**（逐字比就是
+        #                        「已有码不许被换」的证据，见 record() 的 code_masks）
+        #   created_at        —— 同上：种子 profile 的绝对时刻留着比 `+00:00` 形状，
+        #                        只有本次运行新写的行才掩
+        "masked_fields": ["generated_at", "journey_event_id", "referral_link", "created_at"],
         "generated_at_samples": samples[:4],
+        # Go 侧 cfg 的 SiteURL/AppStoreURL 从这里取，不写死默认值（见 share_url_inputs 注释）
+        "share_url_inputs": share_url_inputs(),
         "seed": seed_spec(),
         "occurred_at_corpus": corpus,
         "week_window_corpus": week_window_corpus(),
         "push_moment_corpus": push_moment_corpus(),
+        # 批 4 的三块**核**语料：措辞闸闭包、CPython upper 闭包、深链拼接。
+        # 它们都不是 HTTP 响应面能取证的——前者的命中会让一张卡静默少一句、
+        # 后者只在改模板/换配置时才显现。
+        "template_corpus": templates,
+        "persona_upper_corpus": personae,
+        "referral_corpus": referral_link_corpus(),
         "cases": recorded,
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
                    encoding="utf-8")
     counts = {g: sum(1 for c in recorded if c["group"] == g)
-              for g in ("validation", "seeded", "curriculum", "journey")}
+              for g in ("validation", "seeded", "curriculum", "journey", "onboarding")}
     accepted = sum(1 for c in corpus if c["ok"])
     print(f"wrote {OUT}: {len(recorded)} cases "
           f"(validation {counts['validation']} / seeded {counts['seeded']} / "
-          f"curriculum {counts['curriculum']} / journey {counts['journey']})")
+          f"curriculum {counts['curriculum']} / journey {counts['journey']} / "
+          f"onboarding {counts['onboarding']})")
     print(f"recorded_at={ANCHOR.isoformat()} journey_events={len(seed_spec()['journey_events'])} "
           f"week_window_corpus={len(payload['week_window_corpus'])} "
           f"push_moment_corpus={len(payload['push_moment_corpus'])} "
-          f"id_masks={sum(c['id_masks'] for c in recorded)}")
+          f"id_masks={sum(c['id_masks'] for c in recorded)} "
+          f"code_masks={sum(c['code_masks'] for c in recorded)} "
+          f"created_at_masks={sum(c['created_at_masks'] for c in recorded)}")
     print(f"occurred_at corpus: {len(corpus)} entries ({accepted} accepted / "
           f"{len(corpus) - accepted} rejected)")
+    probe_rows = [t for t in templates if t["kind"].startswith(("hit-", "safe-"))]
+    print(f"template_corpus={len(templates)} "
+          f"(closure={len(templates) - len(probe_rows)} dropped="
+          f"{sum(1 for t in templates if t['out'] == '' and t not in probe_rows)} "
+          f"probes={len(probe_rows)}) "
+          f"persona_upper_corpus={len(personae)} "
+          f"legal_after_upper={sum(1 for p in personae if p['ascii4'])} "
+          f"referral_corpus={len(payload['referral_corpus'])}")
+    print(f"share_url_inputs={payload['share_url_inputs']}")
     print(f"generated_at samples: {samples[:3]}")
 
 
