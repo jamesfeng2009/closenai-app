@@ -63,7 +63,10 @@ describe('四条分享路径都挂清单，且清单与真实分享字段一致'
   });
 
   it('名片页清单含昵称——后端 share_text 里确实带（share_service.py 名片文案）', () => {
-    const items = block('src/screens/ShareCardScreen.tsx', '<ShareManifest', 0, 10);
+    // 锚点用名片清单里的字段本身而不是「<ShareManifest」：2026-10-14 起同屏有两个清单
+    // （回忆卡的排在前面），按标签定位会静默改成断回忆卡的清单。
+    const items = block('src/screens/ShareCardScreen.tsx', 'card.user_name,', 2, 9);
+    expect(items).toContain('<ShareManifest');
     expect(items).toContain('card.user_name');
     expect(items).toContain('card.mbti_type');
     expect(items).toContain('card.tagline');

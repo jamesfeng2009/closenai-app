@@ -72,10 +72,16 @@ describe('前端：组合卡真的渲染两维度', () => {
 
 describe('跨仓契约：九型只在图片预览，不在纯文本', () => {
   const screen = read('src/screens/ShareCardScreen.tsx');
-  const at = screen.indexOf('<ShareManifest');
+  // 2026-10-14 起屏内有两个 ShareManifest（回忆卡清单在 JSX 里排在名片清单之前），
+  // 所以按名片字段本身定位再回溯，不靠「文件里第一个」——那会静默改成断回忆卡的清单。
+  const cardAt = screen.indexOf('card.user_name,');
+  const at = screen.lastIndexOf('<ShareManifest', cardAt);
   const manifest = screen.slice(at, at + 400);
 
   it('内容清单没有列九型（后端 share_text 不带它，列了就是虚报）', () => {
+    // 锚点自身先验：定位失败时 lastIndexOf 会退回 -1，切片结果就成了另一段文本
+    expect(cardAt).toBeGreaterThan(-1);
+    expect(at).toBeGreaterThan(-1);
     expect(manifest).toContain('card.user_name');
     expect(manifest).toContain('card.tagline');
     expect(manifest).not.toContain('dimensions');

@@ -95,11 +95,17 @@ describe('名片页：加载 / 失败 / 空 三态可分辨且失败能重试', 
     const block = snippet(rel, '{loading ?', 0, 12);
     expect(block).toMatch(/\{loading \? \(/);
     expect(block).toMatch(/\) : error \? \(/);
-    expect(block).toMatch(/\) : !card \? \(/);
+    // 2026-10-14 回忆卡（第四模板）插在 error 与名片空态之间：三态链仍是
+    // loading→error→空，只是「空」按 variant 分岔，两条空态各自可分辨
+    expect(block).toMatch(/\) : variant === 'memory' \? \(/);
+    expect(block).toMatch(/!memory \? \(/);
+    expect(block).toContain("t('share.memoryEmpty')");
+    expect(read(rel)).toMatch(/\) : !card \? \(/);
     expect(block).toContain("t('common.retry')");
-    expect(block).toContain("t('share.empty')");
+    expect(read(rel)).toContain("t('share.empty')");
     // 旧写法：失败被并进 loading 分支（永远转圈）
     expect(read(rel)).not.toMatch(/loading \|\| !card \?/);
+    expect(read(rel)).not.toMatch(/loading \|\| !memory/);
   });
 
   it('失败写进 error 而不是只弹 Alert', () => {
