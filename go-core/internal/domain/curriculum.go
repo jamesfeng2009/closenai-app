@@ -89,7 +89,80 @@ func CurriculumWindow(timezone string, now time.Time) (monday, start, end, today
 // `datetime.combine(day, time.min, tzinfo=tz).astimezone(utc)`（time_utils.py:36-44）。
 // civil 只用它的 Y/M/D，自身承载在哪个时区无关。
 func civilDayStartUTC(zone *time.Location, civil time.Time) time.Time {
-	return time.Date(civil.Year(), civil.Month(), civil.Day(), 0, 0, 0, 0, zone).UTC()
+	return wallClockToUTC(zone, civil.Year(), civil.Month(), civil.Day(), 0, 0)
+}
+
+// wallClockToUTC 把「zone 里的一个墙钟时刻」折成瞬间，口径＝Python 的 fold=0。
+//
+// Python 侧所有本地日历折算都写成 `datetime.combine(..., tzinfo=zone)`，而 PEP 495 的
+// fold=0 对两类异常墙钟各有明确规定：**缺位**（春季拨快跳过去的那一段）用**切换前**的偏移，
+// **重复**（秋季回拨走两遍的那一段）取**第一次**出现。实测（./.venv/bin/python 与
+// go run 对拍，2026-10-14；批 3 的 push_moment_corpus 又补了伦敦/悉尼/豪勋爵岛三条重复日）：
+//
+//	重复：Go 原生**同样没有稳定口径**——同一个函数按区给出相反的两支
+//	  America/New_York 2026-11-01 01:30 → 05:30Z（切换前 EDT）⇒ 与 Python 相同
+//	  Europe/London      2024-10-27 01:30 → 01:30Z（切换后 GMT）⇒ 比 Python 晚一小时
+//	  Australia/Sydney   2024-04-07 02:30 → 16:30Z（切换后 AEST）⇒ 同上
+//	  Australia/Lord_Howe 2026-04-05 01:30 → 15:00Z ⇒ 比 Python(14:30Z) 晚半小时
+//	正常：墙钟可逆 ⇒ 一致
+//	缺位：Go 原生也不稳
+//	  America/New_York 2026-03-08 02:30 → Go 06:30Z（切换后偏移），Python 07:30Z ⇒ 差一小时
+//	  Europe/London   2026-03-29 01:30 → Go 01:30Z（切换前偏移）⇒ 恰好与 Python 相同
+//	  Asia/Tehran     2016-03-21 00:30 → Go 21:00Z 相同；00:00（切换瞬间本身）两侧都 20:30Z
+//	  Pacific/Apia    2011-12-30 00:00 → Go 12-29T10:00Z，Python 12-30T10:00Z（整天不存在）
+//
+// 所以这里**不依赖** time.Date 的猜测，改成按定义求「本地墙钟等于 W 的瞬间集合」：
+// 在 W 附近 ±16h（覆盖 tzdata 全部合法 UTC 偏移）采出出现过的偏移，逐个回代检验
+// `off(W−o) == o`（等价于该瞬间的本地墙钟就是 W）。集合非空时——
+//   - 一个元素＝正常墙钟，答案唯一；
+//   - 两个元素＝重复墙钟，取**最早**那一瞬＝切换前偏移＝fold=0 的「第一次出现」；
+//
+// 集合为空只可能是缺位（拨快跳过了 W），此时按切换前偏移重算：o1＝请求瞬间（把墙钟当
+// unix）所在区的偏移，o2＝(墙钟−o1) 所在区的偏移，缺位时这两个瞬间必然分居切换两侧
+// （证明：W−O_post < T ≤ W−O_pre），而前向跳变恒有 O_pre < O_post ⇒ min(o1,o2) 就是 O_pre。
+//
+// 采样粒度 30 分钟：只有「某个偏移在窗口内持续不到 30 分钟」才会漏掉它的候选瞬间，
+// tzdata 里已知最短的偏移段是小时级；这一支的可证性由夹具 736 条语料守着
+// （internal/httpapi/n8_pushmoment_test.go 逐条比 Python `_push_moment` 的现算结果）。
+func wallClockToUTC(zone *time.Location, year int, month time.Month, day, hour, minute int) time.Time {
+	wall := time.Date(year, month, day, hour, minute, 0, 0, time.UTC)
+
+	var offsets []int
+	for k := -32; k <= 32; k++ { // ±16h，30 分钟一步
+		_, o := time.Unix(wall.Unix()+int64(k)*1800, 0).In(zone).Zone()
+		if !containsInt(offsets, o) {
+			offsets = append(offsets, o)
+		}
+	}
+	earliest, found := int64(0), false
+	for _, o := range offsets {
+		at := wall.Unix() - int64(o)
+		if _, check := time.Unix(at, 0).In(zone).Zone(); check != o {
+			continue
+		}
+		if !found || at < earliest {
+			earliest, found = at, true
+		}
+	}
+	if found {
+		return time.Unix(earliest, 0).UTC()
+	}
+
+	_, o1 := wall.In(zone).Zone()
+	_, o2 := time.Unix(wall.Unix()-int64(o1), 0).In(zone).Zone()
+	if o2 < o1 {
+		o1 = o2
+	}
+	return time.Unix(wall.Unix()-int64(o1), 0).UTC()
+}
+
+func containsInt(xs []int, x int) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }
 
 // weekdayMondayZero 把 Go 的 Sunday=0 换到 Python date.weekday() 的 Monday=0。
