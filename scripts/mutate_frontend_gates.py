@@ -17,9 +17,12 @@ F16–F27（2026-10-14 追加）覆盖 #64 年报入口、#65 游客态埋点与
 埋点 source、language 透传、15 语言键、isLoggedIn 上送门、免费卡决策、40402 空态码、
 暂存清理顺序各打红一次；G2 证明函数体增长不会把切片守卫变成假红。
 
+F28–F30（2026-10-14 再追加）固化 2026-10-13 i18n 审校里只剩口头声明的 3 条反向验证
+（当时的脚本在 /tmp/i18n/，目录已消失，仓内不可重跑）——见下方该段的注释。
+
 用法：
     python3 scripts/mutate_frontend_gates.py --check   # 只验锚点，各命中一次
-    python3 scripts/mutate_frontend_gates.py           # 27 条红 + 2 条绿
+    python3 scripts/mutate_frontend_gates.py           # 30 条红 + 2 条绿
     python3 scripts/mutate_frontend_gates.py --only F1,F9
 """
 from __future__ import annotations
@@ -52,6 +55,7 @@ FUNNEL_SRC = FRONT / "src" / "services" / "funnel.ts"
 APP_TSX = FRONT / "App.tsx"
 AUTH = FRONT / "src" / "context" / "AuthContext.tsx"
 FR = "__tests__/firstRead.test.ts"
+COMBO = "__tests__/comboCard.test.ts"
 
 # ---------------------------------------------------------------- 红闸清单
 # (id, 破坏说明, 文件, 原文, 坏文, 受害测试, 失败用例名片段)
@@ -311,6 +315,50 @@ MUTATIONS += [
         "    flushPendingOnboarding();\n",
         FR,
         "登录与冷启动都挂补调",
+    ),
+]
+
+# ---------------------------------------------------------------- 三条证明缺口固化（2026-10-14，C4 色环批）
+# 2026-10-13 那轮 i18n 审校做了 7 条反向验证，脚本落在 /tmp/i18n/（现已消失），仓内可重跑的只有
+# 4 条：豁免键改回非英文 / 豁免表塞死条目（同一道闸，= F5）、非豁免键写成逐字英文（= F1）、
+# ja 拉丁借词未豁免（= F2）。剩下 3 条「文字集闸不再共用豁免表」「comboCard 术语表回退成英文 token」
+# 「locale 丢 {{count}}」当时只被口头声明过，无法重跑 ⇒ 本批把它们变成可重跑变异（F28/F29/F30）。
+# 前两条破坏的是**守卫自身**（证明那条断言真的在消费豁免表/术语表，不是空转），
+# 第三条破坏的是数据（证明占位符闸真的会抓到少一个 {{count}}）。
+TESTS = FRONT / "__tests__"
+MUTATIONS += [
+    (
+        "F28",
+        "文字集闸摘掉同形词豁免（不再与「不许与英文同字」那道闸共用 HOMOGRAPHS）："
+        "km 的三行 Enneagram 借词当场被判成没落成高棉文",
+        TESTS / "i18nLocales.test.ts",
+        "    const allowed = new Set(HOMOGRAPHS[lng] ?? []);\n"
+        "    const missing = Object.keys(en).filter(\n"
+        "      (k) => k in tables[lng] && !isSharedByDesign(k) && !allowed.has(k) && !re.test(tables[lng][k])",
+        "    const allowed = new Set<string>(); // 变异：不共用豁免表\n"
+        "    const missing = Object.keys(en).filter(\n"
+        "      (k) => k in tables[lng] && !isSharedByDesign(k) && !allowed.has(k) && !re.test(tables[lng][k])",
+        I18N,
+        "每个值都含该语言文字",
+    ),
+    (
+        "F29",
+        "comboCard 的九型断言回退成旧英文 token 口径（/Enneagram/）："
+        "真翻译后的泰语 นพลักษณ์ 会被它判成漏写——正是改口径的理由",
+        TESTS / "comboCard.test.ts",
+        "      expect(v).toMatch(ENNEAGRAM_TERM[lng]);\n",
+        "      expect(v).toMatch(/Enneagram/); // 变异：回退成英文 token 代理断言\n",
+        COMBO,
+        "非 zh 语言点名两个框架",
+    ),
+    (
+        "F30",
+        "zh 的 share.streak_other 丢掉 {{count}}（运行时直出「连续 天」，数字没了）",
+        LOCALES / "zh.ts",
+        '    "streak_other": "连续 {{count}} 天",',
+        '    "streak_other": "连续很多天",',
+        I18N,
+        "名称与个数逐键相等",
     ),
 ]
 
