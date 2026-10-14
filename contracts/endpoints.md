@@ -151,8 +151,8 @@
 | 50 | POST | `/api/v1/iap/notifications` | JSON 信封 | anon | — | 200 | （无声明模型，按 handler 读取） | - | `backend/routers/subscription.py:76` `app_store_notifications` |
 | 51 | GET | `/api/v1/iap/status` | JSON 信封 | auth | frontend/src/services/api.ts:756 | 200 | - | - | `backend/routers/subscription.py:65` `subscription_status` |
 | 52 | POST | `/api/v1/iap/verify` | JSON 信封 | auth | frontend/src/services/api.ts:766 | 200+422 | `ReceiptVerifyRequest`: is_sandbox, product_id*, receipt_data* | - | `backend/routers/subscription.py:31` `verify_receipt` |
-| 53 | GET | `/api/v1/journey/events` | JSON 信封 | auth | frontend/src/services/api.ts:671 | 200 | - | - | `backend/routers/journey.py:24` `list_journey_events` |
-| 54 | POST | `/api/v1/journey/events/acknowledge` | JSON 信封 | auth | frontend/src/services/api.ts:676 | 200+422 | `JourneyAckRequest`: event_id* | - | `backend/routers/journey.py:33` `acknowledge_journey_event` |
+| 53 | GET | `/api/v1/journey/events` | JSON 信封 | auth | frontend/src/services/api.ts:671 | 200 | - | - | `backend/routers/journey.py:30` `list_journey_events` |
+| 54 | POST | `/api/v1/journey/events/acknowledge` | JSON 信封 | auth | frontend/src/services/api.ts:676 | 200+422 | `JourneyAckRequest`: event_id* | - | `backend/routers/journey.py:39` `acknowledge_journey_event` |
 | 55 | GET | `/api/v1/memories` | JSON 信封 | auth | frontend/src/services/api.ts:582 | 200+422 | - | limit(query), category(query) | `backend/routers/memories.py:33` `list_memories` |
 | 56 | POST | `/api/v1/memories` | JSON 信封 | auth | — | 200+422 | `MemoryCreate`: category, content*, conviction, metadata, source | - | `backend/routers/memories.py:59` `create_memory` |
 | 57 | POST | `/api/v1/memories/search` | JSON 信封 | auth | frontend/src/services/api.ts:586 | 200+422 | `MemorySearchRequest`: include_superseded, limit, query* | - | `backend/routers/memories.py:80` `search_memories` |

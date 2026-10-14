@@ -148,13 +148,19 @@ def test_posthog_host_default_matches_across_languages():
 
 
 def test_go_contract_fixture_covers_both_domains():
-    """Go 侧的回放闸不能悄悄变空：每域都要有**成功面**用例，掩码只许 generated_at。
+    """Go 侧的回放闸不能悄悄变空：每域都要有**成功面**用例，掩码只许登记过的字段。
 
     只看 batch1 的两组（validation/seeded）：批 2 起夹具多了 curriculum 组，
     那一组的覆盖面由 test_n8_batch2_contract.py 负责，两边各自钉住自己的批。
+    掩码白名单也逐批增长（批 3 加了 journey 的 uuid 主键，那条由
+    test_n8_batch3_contract.py 钉），所以这里两边都卡：批 1 的 generated_at 必须在里面，
+    而整份名单里不许冒出没在任一批准过形的第三样——新名字必须先被某一登记面接住。
     """
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    assert fixture["masked_fields"] == ["generated_at"], fixture["masked_fields"]
+    assert "generated_at" in fixture["masked_fields"], fixture["masked_fields"]
+    assert set(fixture["masked_fields"]) <= {"generated_at", "journey_event_id"}, (
+        fixture["masked_fields"]
+    )
     cases = [c for c in fixture["cases"] if c["group"] in BATCH1_GROUPS]
     by_domain: dict[str, dict[str, int]] = {}
     for case in cases:

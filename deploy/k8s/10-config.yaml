@@ -29,6 +29,11 @@ data:
   # 全是「用户本地今天」的函数，所以它是第一个带**日历**的域。0% 时 go-api 逐字转交，
   # 放量前唯一的判据是 go-core/testdata/n8_contract.json 的 curriculum 组与 week_window 语料。
   CLOSEN_CUTOVER_CURRICULUM: "0"
+  # 批 3（journey 域）：这一域的 GET /journey/events 是**惰性写入者**——先按剧本预写
+  # （ensure_prefilled，六行一个事务）再读。0% 时 go-api 逐字转交、一行业务都不跑，
+  # 所以写权仍在 Python 一侧；一旦放量，同一账号的预写就由 Go 提交，判据是夹具的
+  # journey 组 46 条逐字节回放（含 uuid 主键的掩码次数，见 n8_replay_test.go）。
+  CLOSEN_CUTOVER_JOURNEY: "0"
   # PostHog 收件箱地址。默认值两侧都是这个字面量（backend/config.py:160），
   # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
   # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。

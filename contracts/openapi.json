@@ -2624,6 +2624,7 @@
     },
     "/api/v1/journey/events": {
       "get": {
+        "deprecated": true,
         "description": "某用户 D0–D7 剧本状态（含每条事件的 payload 与 memory_refs 引用依据）。",
         "operationId": "list_journey_events_api_v1_journey_events_get",
         "responses": {
@@ -2644,6 +2645,7 @@
     },
     "/api/v1/journey/events/acknowledge": {
       "post": {
+        "deprecated": true,
         "description": "用户已读某条剧本事件（清除该条红点）。",
         "operationId": "acknowledge_journey_event_api_v1_journey_events_acknowledge_post",
         "requestBody": {

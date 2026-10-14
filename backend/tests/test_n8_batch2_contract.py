@@ -43,13 +43,15 @@ MANIFESTS = ROOT / "deploy" / "k8s"
 
 BATCH2_DOMAIN = "curriculum"
 BATCH2_PATHS = {"/api/v1/curriculum/week", "/api/v1/curriculum/{event_id}/read"}
-# 批 1 的两条 + 批 2 的两条：已切流域的全量登记表，放量一批就在此处加一批。
-CUT_DOMAINS = ("analytics", "discovery", "curriculum")
+# 批 1 的两条 + 批 2 的两条 + 批 3 的两条：已切流域的全量登记表，放量一批就在此处加一批。
+CUT_DOMAINS = ("analytics", "discovery", "curriculum", "journey")
 CUT_PATHS = {
     "/api/v1/analytics/batch",
     "/api/v1/discovery/daily",
     "/api/v1/curriculum/week",
     "/api/v1/curriculum/{event_id}/read",
+    "/api/v1/journey/events",
+    "/api/v1/journey/events/acknowledge",
 }
 
 

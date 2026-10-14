@@ -50,7 +50,15 @@ spec:
                 name: go-api
                 port:
                   name: http
-          # ── 其余 94 个端点仍由 py-api 回答（后续批次逐域上移）──
+          # ── N8 批 3：journey（第一条**读接口会写库**的域，见 10-config.yaml 的同名开关）──
+          - path: /api/v1/journey
+            pathType: Prefix
+            backend:
+              service:
+                name: go-api
+                port:
+                  name: http
+          # ── 其余 92 个端点仍由 py-api 回答（后续批次逐域上移）──
           - path: /api/v1
             pathType: Prefix
             backend:

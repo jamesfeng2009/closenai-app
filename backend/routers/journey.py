@@ -21,7 +21,13 @@ from backend.services.journey_service import journey_service
 router = APIRouter(route_class=CommitBeforeResponseRoute)
 
 
-@router.get("/journey/events")
+# deprecated=True 是 N8 每域四步的第④步，同 backend/routers/curriculum.py:28-30 的口径：
+# 这两条路的对外形状已由 Go Core 接管（go-core/internal/httpapi/journey_events.go 与
+# journey_ack.go），但**路由本体留着**——灰度回滚＝把 CLOSEN_CUTOVER_JOURNEY 改回 0，
+# 前提是 Python 还答得出。
+# 标废弃只描述**对外契约**的归属：本域还有 cron 侧的写入面（/api/v1/cron/journey，
+# 见本文件 docstring 第 8 行），那一条不在批 3 的切流范围里，仍由 Python 生成正文。
+@router.get("/journey/events", deprecated=True)
 async def list_journey_events(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
@@ -30,7 +36,7 @@ async def list_journey_events(
     return success(await journey_service.list_events(db, user_id))
 
 
-@router.post("/journey/events/acknowledge")
+@router.post("/journey/events/acknowledge", deprecated=True)
 async def acknowledge_journey_event(
     request: JourneyAckRequest,
     db: AsyncSession = Depends(get_db),
