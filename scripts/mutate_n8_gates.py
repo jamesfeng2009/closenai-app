@@ -1,4 +1,4 @@
-"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey）。
+"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey；批 4：onboarding）。
 
 要证的不是「Go 抄得像」，而是**每一条口径都真的有人守着**：把实现按最可能的抄错方式
 破坏一次，对应闸门必须红。打不红的口径＝那条口径其实没闸，写进代码也只是口头声明。
@@ -69,6 +69,23 @@ test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人�
    - Ingress 的 `path == /api/v1/<域>` 形状闸在既有 k8s 文件里（批 1 建），本批只往
      登记表加一个 journey，加错域名的红由 #110 与那条既有闸各自打，不另立条目。
 
+批 4（2026-10-15，onboarding 域）实测：**10/10 打红**（#117–#126）。这一批的条目形态与
+前三批不同，因为批 4 的口径大半落在**函数**上而不是 HTTP 字节上（措辞闸、CPython 的 upper、
+深链的 rstrip），HTTP 面看不见它们；两处「只有这一批才发现打不红」的假口径也当场补成可证：
+- #117 第一轮**打不红**，根因不在闸而在夹具：`persona_upper_corpus` 原先一律记 `char×4`，
+  而 ß 的大写本身是两个字符 ⇒ `ßßßß`→`SSSSSSSS` 永远不合法 ⇒ 「多码位展开」这一整支
+  在这张表里没有观测点。录制侧与 Go 侧同改为「按 k∈{1,2,3,4} 找见证」，合法码位 28⇒34，
+  #117 随即打红；同一处坏实现另立 #118 打 HTTP 字节面，两层各证一次。
+- 措辞闸的闭包 92 条实测**一条都不被闸掉** ⇒ 「命中即吞」没有观测点（把 Go 的整条判据
+  删掉也全绿）。生成脚本补了 14 条 `hit-*`/`safe-*` 探针（词条从 safety_service 的表里
+  现取、方向由录制侧断言），于是 #119–#122 四条各能被打红：少黑名单、third 不必需、
+  `\b` 补后边界、RE2 手写的后视失效。
+- #124/#126 证的是本批新写的两条**语义**：掩码按夹具计数分派（记 0＝确定值，刻意留原文
+  逐字比），以及 profile 的 created_at 种子值必须与冻时钟**不同值**——否则「从列取」与
+  「从钟算」同形，那条支路会被巧合蒙过。
+- #125 不是假想变异：第一版 Go 就是按形状猜写成 `model_type`＋`class_name` 的，
+  `onb-answer-item-not-dict` 的逐字节比对把它打红之后才按实测改正。
+
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
     .venv/bin/python scripts/mutate_n8_gates.py --check    # 只验锚点命中数，不跑测试
@@ -126,6 +143,14 @@ B3 = GO / "internal/httpapi/batch3.go"
 LB3 = GO / "internal/store/legacy_batch3.go"
 DJ = GO / "internal/domain/journey.go"
 RJ = PY / "routers/journey.py"
+
+# 批 4（onboarding 域：措辞闸 / CPython upper / 深链 / 两条端点的字节面）
+PT = GO / "internal/domain/pytext.go"
+FG = GO / "internal/domain/first_read_gate.go"
+OB = GO / "internal/httpapi/onboarding_body.go"
+OR = GO / "internal/httpapi/onboarding_read.go"
+B4 = GO / "internal/httpapi/batch4.go"
+B4_PYTEST = "backend/tests/test_n8_batch4_contract.py"
 
 API_TESTS = GO / "internal/httpapi"
 DOMAIN_TESTS = GO / "internal/domain"
@@ -465,6 +490,41 @@ FX_SEED_FULLWIDTH = ('"status": "active",\n'
                      '        "push_time": "\uff11\uff12:\uff13\uff14",')
 FX_SEED_FULLWIDTH_ASCII = ('"status": "active",\n'
                            '        "push_time": "12:34",')
+
+# 批 4（onboarding）：措辞闸的四种抄错方式、CPython upper 的展开表、深链的 rstrip、
+# 掩码的「按计数应用」语义，以及两条最容易「看起来一样」的字节出口。
+PT_UPPER_SHARP = '\t0xDF:   "SS", // ß\n'
+FG_BANNED_AND_ATTR = ('\tif bannedHit(text, locale) || attributionHit(text, locale) {\n'
+                      '\t\treturn ""\n\t}\n')
+FG_ATTR_ONLY = '\tif attributionHit(text, locale) {\n\t\treturn ""\n\t}\n'
+FG_THIRD_REQUIRED = ('\tthird := groupHit(groups["third"], text)\n'
+                     '\tif !third {\n\t\treturn false\n\t}\n')
+FG_THIRD_IGNORED = '\tthird := groupHit(groups["third"], text)\n\t_ = third\n'
+FG_LOOKBEHIND = ('\t\tm.lookaway = lookaway\n'
+                 '\t\tm.tail = regexp.MustCompile(`(?i)` + tail)\n\t\treturn m\n')
+FG_LOOKBEHIND_DROPPED = '\t\tm.re = regexp.MustCompile(`(?i)` + tail)\n\t\treturn m\n'
+FG_BANNED_LEADING_ONLY = ('\t\tout = append(out, regexp.MustCompile(`(?i)\\b`'
+                          '+regexp.QuoteMeta(term)))\n')
+FG_BANNED_BOTH_EDGES = ('\t\tout = append(out, regexp.MustCompile(`(?i)\\b`'
+                        '+regexp.QuoteMeta(term)+`\\b`))\n')
+B4_LINK_TRIM_RIGHT = '\treturn strings.TrimRight(siteURL, "/") + "/r/" + code\n'
+B4_LINK_TRIM_SUFFIX = '\treturn strings.TrimSuffix(siteURL, "/") + "/r/" + code\n'
+RP_MASK_BY_COUNT = '\tif want == 0 {\n\t\treturn body, 0\n\t}\n'
+RP_MASK_ALWAYS = '\tif want < 0 {\n\t\treturn body, 0\n\t}\n'
+OB_ITEM_NOT_DICT = ('\t\t\tkind:  "model_attributes_type",\n'
+                    '\t\t\tloc:   []any{"body", "answers", index},\n'
+                    '\t\t\tmsg:   "Input should be a valid dictionary or object '
+                    'to extract fields from",\n'
+                    '\t\t\tinput: item,\n')
+OB_ITEM_MODEL_TYPE = ('\t\t\tkind:  "model_type",\n'
+                      '\t\t\tloc:   []any{"body", "answers", index},\n'
+                      '\t\t\tmsg:   "Input should be a valid dictionary or instance '
+                      'of FirstReadAnswer",\n'
+                      '\t\t\tinput: item,\n'
+                      '\t\t\tctx:   pyObjectOf("class_name", pyStringValue('
+                      '"FirstReadAnswer")),\n')
+OR_CREATED_FROM_COLUMN = '\t\tpayload.set("created_at", pyStringValue(pyISOOffset(profile.CreatedAt)))\n'
+OR_CREATED_FROM_CLOCK = '\t\tpayload.set("created_at", pyStringValue(pyISOOffset(s.now())))\n'
 
 MUTATIONS = [
     # ── analytics 的 400 体（FastAPI 的 body 读取面）──────────────────────────
@@ -1140,6 +1200,71 @@ MUTATIONS = [
            "那条用例），摘掉它，Nd 支只剩 domain 表测，HTTP 面上两侧一致与否无人可证",
       "pytest", B3_PYTEST + "::test_seed_face_has_the_journey_row_shapes", "",
       backup(FX), patch(FX, FX_SEED_FULLWIDTH, FX_SEED_FULLWIDTH_ASCII)),
+
+    # ── 批 4（onboarding）：三块「核」语料 + 两条掩码的新语义 + 两条字节出口 ──────
+    m(117, "把 ß⇒SS 那条展开从 pyUpperExpand 里删掉：Go 的 strings.ToUpper 对 ß 恒等，"
+           "于是「Python 复刻的是 CPython 而不是 ASCII」这张表少了一个成员——"
+           "闭包闸按「夹具 ascii4 ∪ A-Z」与 Go 自扫 BMP 相等，少一个就大小不符",
+      "go", API_TESTS, "TestN8PersonaUpperCorpusIsClosed",
+      backup(PT), patch(PT, PT_UPPER_SHARP, "")),
+
+    m(118, "同一处删 ß 的坏实现，换打 **HTTP 字节面**：onb-submit-persona-sharp-s 那条 "
+           "200（「ßß」⇒ 列里存「SSSS」）会掉成 400。#117 证的是函数闭包，这一条证的才是"
+           "「客户端真会看见的那个形状」有人守着",
+      "go", API_TESTS, "TestN8OnboardingContractBytes",
+      backup(PT), patch(PT, PT_UPPER_SHARP, "")),
+
+    m(119, "措辞闸只看越界句式、不看黑名单（`bannedHit(...) || attributionHit(...)` 少一半）："
+           "闭包那 92 条本来一条不被闸掉，删掉整支也全绿——正是批 4 补探针面要抓的那一格："
+           "hit-banned 两条（zh/en）当场放行、方向不符 ⇒ 红",
+      "go", API_TESTS, "TestN8TemplateCorpus",
+      backup(FG), patch(FG, FG_BANNED_AND_ATTR, FG_ATTR_ONLY)),
+
+    m(120, "越界判据把「third 必需」写成「label 或 causal 就行」：Python 的注释"
+           "（safety_service.py:341-346）写明「标签∧因果但没有第三方」刻意不算越界，"
+           "抄成 or 就会把 safe-no-third 两条吞掉，那张卡少一句而响应形状照样合法",
+      "go", API_TESTS, "TestN8TemplateCorpus",
+      backup(FG), patch(FG, FG_THIRD_REQUIRED, FG_THIRD_IGNORED)),
+
+    m(121, "en 黑名单的 `\\b{term}` 补上后边界（写成 `\\b{term}\\b` 是「顺手统一」的经典）："
+           "Python 那条 rf-string 只有前边界，补上后「healing」就不再命中「heal」。"
+           "hit-boundary-post（`depressioning`）当场变放行 ⇒ 红",
+      "go", API_TESTS, "TestN8TemplateCorpus",
+      backup(FG), patch(FG, FG_BANNED_LEADING_ONLY, FG_BANNED_BOTH_EDGES)),
+
+    m(122, "RE2 不支持后视，Go 按定义手写了 `(?<![其这那每])他`；把那段手写换成"
+           "「只编译尾串」＝后视断言被丢掉：safe-third-lookbehind（「和其他焦虑型有关」）"
+           "会被判成越界。这一支只有探针面能证——闭包那 92 条模板文案走不到这一格",
+      "go", API_TESTS, "TestN8TemplateCorpus",
+      backup(FG), patch(FG, FG_LOOKBEHIND, FG_LOOKBEHIND_DROPPED)),
+
+    m(123, "深链把 `rstrip('/')` 抄成 `TrimSuffix`（剥一个而不是剥一串）：site_url 配成 "
+           "多一个尾斜杠时两侧给出两条链接，而那个串会落进 first_read 列并在 restore 复现。"
+           "深链语料 11 个变体里真的有 `//` 结尾的那一个，当场不符 ⇒ 红",
+      "go", API_TESTS, "TestN8ReferralLinkCorpus",
+      backup(B4), patch(B4, B4_LINK_TRIM_RIGHT, B4_LINK_TRIM_SUFFIX)),
+
+    m(124, "三条新掩码的「按夹具计数应用」改成无条件应用：夹具记 0 的语义是"
+           "「这个值是确定值，刻意留原文逐字比」（种子已带码 ⇒ /r/QQ22WW33 全串、"
+           "种子行 ⇒ created_at 的绝对时刻）。无条件掩就把这 8 条证据掩成占位符，"
+           "与录制体逐字不符 ⇒ 红。这一条证的是本批把「掩码次数」写进判据之后，"
+           "计数本身也有观测点",
+      "go", API_TESTS, "TestN8OnboardingContractBytes",
+      backup(RP), patch(RP, RP_MASK_BY_COUNT, RP_MASK_ALWAYS)),
+
+    m(125, "把 answers 列表项不是对象那一条退回「按形状猜」的 model_type＋class_name："
+           "真 FastAPI 给的是 model_attributes_type、无 ctx（批 1 的 events 同一条）。"
+           "这一条不是假想变异——2026-10-15 第一版就是这么写的，被 onb-answer-item-not-dict "
+           "的逐字节比对打红之后才按实测改正",
+      "go", API_TESTS, "TestN8ValidationContractBytes",
+      backup(OB), patch(OB, OB_ITEM_NOT_DICT, OB_ITEM_MODEL_TYPE)),
+
+    m(126, "restore 的 created_at 从列取改成从钟算（`profile.CreatedAt` ⇒ `s.now()`）："
+           "两侧都把时钟冻在 recorded_at，若种子行的 created_at 也种成同一个时刻，这一支"
+           "会被巧合蒙过——所以录制侧把 profile 的默认 created_at 钉在 ago(4)。"
+           "onb-restore-seeded-full 等 8 条 created_at_masks=0 的用例当场差一串字节 ⇒ 红",
+      "go", API_TESTS, "TestN8OnboardingContractBytes",
+      backup(OR), patch(OR, OR_CREATED_FROM_COLUMN, OR_CREATED_FROM_CLOCK)),
 ]
 
 
