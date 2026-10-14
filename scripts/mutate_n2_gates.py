@@ -3,6 +3,12 @@
 手法只用「备份 → 写坏 → 跑那一条测试 → 备份写回 / SQL 反操作 → diff -q 核验」，
 不用 git checkout（2026-10-13 约定：仓里有并行未提交工作，checkout 会连带冲掉）。
 
+2026-10-14 结案（台账 N2 节记录的锚点漂移）：两条 nodeid 已被后续批次改名/拆分，命中 0 次
+等于空转——现换成 `test_migration_graph_is_single_head_with_n7_on_top` 与
+`test_idempotency_unique_keys_are_declared`，并各补一条现断言另一半的破坏（迁移链条第二段、
+inbox 唯一键），10 条 → 12 条。`TEST_DATABASE_URL` 同时改成裸 `postgresql://`：Python 侧由
+`backend/tests/_pg_env.py` 补驱动，Go 侧由 `go-core/internal/dsn` 剥驱动，一个变量喂两侧。
+
 用法：
     .venv/bin/python scripts/mutate_n2_gates.py
 """
@@ -18,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path("/Users/fengyu/Downloads/myproject/workspace/closenai-app")
 MIG = ROOT / "backend/alembic/versions/c8a2e4b6d0f2_add_canonical_runtime_tables.py"
+N7_MIG = ROOT / "backend/alembic/versions/d9b1f3a5c7e9_add_outbox_messages.py"
 SQL = ROOT / "go-core/db/queries/canonical.sql"
 USER_SERVICE = ROOT / "backend/services/user_service.py"
 PROBE = ROOT / "backend/services/_n2_mutation_probe.py"
@@ -38,11 +45,12 @@ def pg_dsn() -> str:
         ).stdout
         pw = next(line[len("POSTGRES_PASSWORD="):] for line in env.splitlines()
                   if line.startswith("POSTGRES_PASSWORD="))
-    return f"postgresql+asyncpg://postgres:{pw}@127.0.0.1:55432/closenai"
+    return f"postgresql://postgres:{pw}@127.0.0.1:55432/closenai"
 
 
 ENV = {
     **os.environ,
+    # 裸 scheme：Python 侧由 backend/tests/_pg_env 补 psycopg3 驱动，Go 侧直接吃
     "TEST_DATABASE_URL": pg_dsn(),
     "GOROOT": "/Users/fengyu/sdk/go1.27.1",
     "PATH": "/Users/fengyu/sdk/go1.27.1/bin:" + os.environ["PATH"],
@@ -91,10 +99,17 @@ MUTATIONS = [
                    " ON DELETE CASCADE,\n"),
      [], "DDL 里不许出现 FK/CASCADE（D-5：删除走逐表 rowcount）"),
 
-    ("test_migration_graph_is_single_head_with_n2_on_top",
+    ("test_migration_graph_is_single_head_with_n7_on_top",
      lambda: patch(MIG, "down_revision: Union[str, Sequence[str], None] = 'b7d9e1f3a5c8'",
                    "down_revision: Union[str, Sequence[str], None] = 'a2f4b6c8d0e2'"),
-     [], "N2 必须挂在唯一 head 之后，迁移图保持单头"),
+     [], "N2 必须挂在原 head 之后（链条拍三段的第三段，2026-10-14 换名："
+         "N7 批把用例改成 _with_n7_on_top，旧 nodeid 从此 not found 空转）"),
+
+    ("test_migration_graph_is_single_head_with_n7_on_top",
+     lambda: patch(N7_MIG, "down_revision: Union[str, Sequence[str], None] = 'c8a2e4b6d0f2'",
+                   "down_revision: Union[str, Sequence[str], None] = 'b7d9e1f3a5c8'"),
+     [], "N7 件必须挂在 N2 之上而不是跳过它——跳过就同时多出 N2 一个 head，"
+         "灰度期的 downgrade 路径会退到错误版本"),
 
     ("test_every_canonical_table_declares_user_id_and_a_time_column",
      lambda: patch(MIG, "            id VARCHAR(36) PRIMARY KEY,\n"
@@ -107,9 +122,15 @@ MUTATIONS = [
      lambda: patch(MIG, '    "ix_personal_goals_user_status ON personal_goals (user_id, status)",\n'),
      [], "删号按 user_id 逐表 DELETE，没有前导索引就是顺扫"),
 
-    ("test_personal_model_version_and_inbox_unique_keys_are_declared",
+    ("test_idempotency_unique_keys_are_declared",
      lambda: patch(MIG, '    "ix_personal_models_user_unique ON personal_models (user_id)",\n'),
-     [], "一用户一模型（02 §5）的唯一性必须声明在 DDL 里"),
+     [], "一用户一模型（02 §5）的唯一性必须声明在 DDL 里（2026-10-14 换名：旧 nodeid 的断言"
+         "已拆进这条，原名字 not found 后这条闸空转）"),
+
+    ("test_idempotency_unique_keys_are_declared",
+     lambda: patch(MIG, "            UNIQUE (message_id, consumer),\n"),
+     [], "同消息同消费者只消费一次（18 §7）——同一个用例的另一半断言，"
+         "不各自破坏一次就不知道它是不是只在第一条断言上活着"),
 
     ("test_purge_targets_cover_every_canonical_table",
      lambda: patch(USER_SERVICE, '    (PersonalFact, "personal_facts"),\n'),
@@ -138,7 +159,7 @@ MUTATIONS = [
 
 
 def main() -> int:
-    backup(MIG, SQL, USER_SERVICE)
+    backup(MIG, N7_MIG, SQL, USER_SERVICE)
     problems: list[str] = []
     for test_name, mutate, cleanup, claim in MUTATIONS:
         try:
