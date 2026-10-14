@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
-  getWeeklyInsight, getPatternDiscovery, getShareReport, getTimeline,
+  getWeeklyInsight, getPatternDiscovery, getShareReport, getYearInReview, getTimeline,
   getUserProfile, ApiError,
 } from '../services/api';
 import type {
@@ -34,6 +34,8 @@ import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode 对齐
 const CODE_PRO_REQUIRED = 40302;
+// 年报卡空态：整年零记录（后端不出数字全 0 的卡，回 40402）
+const CODE_RESOURCE_NOT_FOUND = 40402;
 
 const PERIODS: SharePeriod[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
 const PRO_PERIODS: SharePeriod[] = ['monthly', 'quarterly', 'yearly'];
@@ -63,6 +65,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [reportLoading, setReportLoading] = useState(false);
   // E2：热力图默认近 90 天，「查看全年」展开 365 天（横向滑动）
   const [heatFull, setHeatFull] = useState(false);
+  // 年度报告卡（M4 year_in_review）的分享入口：免费引流卡，不走 Pro 门控
+  const [yearReviewLoading, setYearReviewLoading] = useState(false);
 
   // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
   // 游客态跳过请求（接口均需登录，游客必 401），展示空态
@@ -179,6 +183,33 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
       }
     } catch {
       // 用户取消分享不提示
+    }
+  };
+
+  /**
+   * 分享年度报告卡（M4）。文案直接用后端组装好的 share_text——里面只有计数
+   * 与带本人推荐码的深链，原文一条都不带（这张卡会发到公开社交平台）。
+   * 整年零记录回 40402，按空态提示而不是按错误提示：用户没做错什么。
+   */
+  const onShareYearReview = async () => {
+    if (yearReviewLoading) return;
+    setYearReviewLoading(true);
+    try {
+      const card = await getYearInReview();
+      trackFunnelShare('share_tapped', 'year_review');
+      const res = await Share.share({ message: card.share_text });
+      if (res.action === Share.sharedAction) {
+        trackFunnelShare('share_completed', 'year_review');
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.code === CODE_RESOURCE_NOT_FOUND) {
+        Alert.alert(t('common.error'), t('insights.yearReviewEmpty'));
+        return;
+      }
+      const msg = e instanceof ApiError ? e.message : t('errors.requestFailed');
+      Alert.alert(t('common.error'), msg);
+    } finally {
+      setYearReviewLoading(false);
     }
   };
 
@@ -349,6 +380,14 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
               <HeatGrid days={recentDays(timeline.days, heatFull ? HEAT_FULL_DAYS : HEAT_DEFAULT_DAYS)} />
             </ScrollView>
           </InsightBlurGate>
+          {/* M4 年度报告卡：免费引流物料，所以放在模糊门之外——Pro 与否都能分享出去 */}
+          <TouchableOpacity
+            style={styles.shareReportBtn}
+            onPress={onShareYearReview}
+            disabled={yearReviewLoading}
+          >
+            <Text style={styles.shareReportText}>🧾 {t('insights.shareYearReview')}</Text>
+          </TouchableOpacity>
         </View>
       )}
     </ScrollView>

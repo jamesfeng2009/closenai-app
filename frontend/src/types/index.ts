@@ -443,6 +443,39 @@ export interface ShareReport {
   share_url?: string;
 }
 
+/**
+ * 年度报告卡（架构方案 §二 M4 的 year_in_review 模板位）。
+ *
+ * 字段逐字对齐后端 `share_service.export_year_in_review` 的载荷（零 LLM，
+ * 每个数字都是已落库事实的计数）；`in_progress` 为真表示年份就是今年，
+ * 此时 `range` 只截到今天。免费卡，不做 Pro 门控。
+ */
+export interface YearInReviewCard {
+  card_type: string;
+  year: number;
+  language: string;
+  in_progress: boolean;
+  period_label: string;
+  range: string;
+  stats: {
+    checkin_count: number;
+    checkin_days: number;
+    chat_count: number;
+    memory_count: number;
+    reflection_count: number;
+    milestone_count: number;
+    longest_streak_days: number;
+  };
+  top_moods: { label: string; count: number }[];
+  busiest_day: { day: string; count: number } | null;
+  first_record_date: string | null;
+  milestones: { type: string; name: string; achieved_on: string }[];
+  personality: { mbti: string | null; enneagram: string | null };
+  exported_at: string;
+  share_url: string;
+  share_text: string;
+}
+
 // ═══ Growth Report / Pattern (P1-F03) ═══
 
 export interface PatternDiscovery {

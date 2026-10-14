@@ -490,6 +490,8 @@ const resource = {
     "upgrade": "Tingkatkan",
     "chatCount_other": "{{count}} percakapan",
     "shareReport": "Bagikan Laporan",
+    "shareYearReview": "Bagikan tinjauan tahun Anda",
+    "yearReviewEmpty": "Belum ada catatan untuk tahun itu, jadi belum ada yang bisa ditinjau. Tulis beberapa entri lalu kembali lagi.",
     "timelineTitle": "Peta Panas Setahun"
   },
   "auth": {

@@ -490,6 +490,8 @@ const resource = {
     "upgrade": "アップグレード",
     "chatCount_other": "{{count}}件の会話",
     "shareReport": "レポートを共有",
+    "shareYearReview": "今年の振り返りをシェアする",
+    "yearReviewEmpty": "その年の記録がまだないので、振り返れません。いくつか書いた頃にまた来てください。",
     "timelineTitle": "年間ヒートマップ"
   },
   "auth": {

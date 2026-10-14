@@ -514,6 +514,8 @@ const resource = {
     "chatCount_many": "Диалогов: {{count}}",
     "chatCount_other": "Диалогов: {{count}}",
     "shareReport": "Поделиться отчётом",
+    "shareYearReview": "Поделиться итогами года",
+    "yearReviewEmpty": "В этом году пока нечего разбирать. Оставьте несколько записей и вернитесь позже.",
     "timelineTitle": "Тепловая карта года"
   },
   "auth": {

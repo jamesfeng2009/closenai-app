@@ -498,6 +498,8 @@ const resource = {
     "chatCount_one": "{{count}} conversazione",
     "chatCount_other": "{{count}} conversazioni",
     "shareReport": "Condividi report",
+    "shareYearReview": "Condividi il mio bilancio dell'anno",
+    "yearReviewEmpty": "Non ci sono ancora appunti per quell'anno, quindi niente da ripassare. Scrivi qualche nota e torna.",
     "timelineTitle": "Mappa di calore dell'anno"
   },
   "auth": {

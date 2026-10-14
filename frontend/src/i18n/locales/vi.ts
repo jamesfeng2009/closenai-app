@@ -490,6 +490,8 @@ const resource = {
     "upgrade": "Nâng cấp",
     "chatCount_other": "{{count}} cuộc trò chuyện",
     "shareReport": "Chia sẻ báo cáo",
+    "shareYearReview": "Chia sẻ tổng kết năm của bạn",
+    "yearReviewEmpty": "Năm đó chưa có dữ liệu nào nên chưa có gì để nhìn lại. Hãy viết vài mục rồi quay lại.",
     "timelineTitle": "Bản đồ nhiệt cả năm"
   },
   "auth": {

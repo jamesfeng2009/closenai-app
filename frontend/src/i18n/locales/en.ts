@@ -498,6 +498,8 @@ const resource = {
     "chatCount_one": "{{count}} conversation",
     "chatCount_other": "{{count}} conversations",
     "shareReport": "Share Report",
+    "shareYearReview": "Share My Year in Review",
+    "yearReviewEmpty": "There are no records for that year yet, so there is nothing to look back on. Write a few entries and come back.",
     "timelineTitle": "Year Heatmap"
   },
   "auth": {

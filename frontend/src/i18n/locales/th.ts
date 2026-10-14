@@ -490,6 +490,8 @@ const resource = {
     "upgrade": "อัปเกรด",
     "chatCount_other": "{{count}} การสนทนา",
     "shareReport": "แชร์รายงาน",
+    "shareYearReview": "แชร์สรุปปีของฉัน",
+    "yearReviewEmpty": "ยังไม่มีบันทึกในปีนั้น จึงยังไม่มีอะไรให้ย้อนดู เขียนสักสองสามข้อแล้วกลับมาใหม่",
     "timelineTitle": "แผนภาพความร้อนทั้งปี"
   },
   "auth": {

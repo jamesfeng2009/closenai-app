@@ -13,9 +13,13 @@
 出现那条失败用例的名字→备份写回。**恢复用 copy2 + filecmp，不用 git checkout**
 （见 [[feedback-mutation-restore-no-git-checkout]]）。
 
+F16–F27（2026-10-14 追加）覆盖 #64 年报入口、#65 游客态埋点与 B1 登录补调这三批新闸：
+埋点 source、language 透传、15 语言键、isLoggedIn 上送门、免费卡决策、40402 空态码、
+暂存清理顺序各打红一次；G2 证明函数体增长不会把切片守卫变成假红。
+
 用法：
     python3 scripts/mutate_frontend_gates.py --check   # 只验锚点，各命中一次
-    python3 scripts/mutate_frontend_gates.py           # 15 条红 + 1 条绿
+    python3 scripts/mutate_frontend_gates.py           # 27 条红 + 2 条绿
     python3 scripts/mutate_frontend_gates.py --only F1,F9
 """
 from __future__ import annotations
@@ -39,6 +43,15 @@ REFLECT = FRONT / "src" / "screens" / "ReflectScreen.tsx"
 I18N = "__tests__/i18nLocales.test.ts"
 REFERRAL = "__tests__/referral.test.ts"
 FEEDBACK = "__tests__/feedbackStates.test.ts"
+YR = "__tests__/yearInReviewEntry.test.ts"
+GUEST = "__tests__/analyticsGuestQueue.test.ts"
+FUNNEL = "__tests__/funnel.test.ts"
+SCREEN = FRONT / "src" / "screens" / "InsightsScreen.tsx"
+API = FRONT / "src" / "services" / "api.ts"
+FUNNEL_SRC = FRONT / "src" / "services" / "funnel.ts"
+APP_TSX = FRONT / "App.tsx"
+AUTH = FRONT / "src" / "context" / "AuthContext.tsx"
+FR = "__tests__/firstRead.test.ts"
 
 # ---------------------------------------------------------------- 红闸清单
 # (id, 破坏说明, 文件, 原文, 坏文, 受害测试, 失败用例名片段)
@@ -180,6 +193,127 @@ MUTATIONS: list[tuple[str, str, Path, str, str, str, str]] = [
     ),
 ]
 
+# ------------------------------------------------- 年报入口 / 游客埋点两批新闸（2026-10-14，#64 #65）
+# 对应 tasks.md:147（后端有能力、前端零入口）与 tasks.md:140（游客态 flush 口径未取证）。
+MUTATIONS += [
+    (
+        "F16",
+        "删掉 InsightsScreen 的 share_tapped 埋点（分享分子当场归零，转化率断链）",
+        SCREEN,
+        "      trackFunnelShare('share_tapped', 'year_review');\n",
+        "",
+        YR,
+        "source 用的是枚举里的 year_review",
+    ),
+    (
+        "F17",
+        "把 year_review 从 FUNNEL_SOURCES 摘掉（调用点变成枚举外野字符串）",
+        FUNNEL_SRC,
+        "  'year_review',\n",
+        "",
+        FUNNEL,
+        "全仓漏斗调用里没有枚举外的 step/source",
+    ),
+    (
+        "F18",
+        "getYearInReview 不再透传 language（后端按 en 生成，中文用户拿到英文年报）",
+        API,
+        "`/share/year-in-review?language=${langParam()}${suffix}`",
+        "`/share/year-in-review${suffix}`",
+        YR,
+        "getYearInReview 打的是后端那条 GET",
+    ),
+    (
+        "F19",
+        "ko 的 shareYearReview 填英文原文（正是 317b390 那类写法）",
+        LOCALES / "ko.ts",
+        '    "shareYearReview": "올해 회고 공유하기",',
+        '    "shareYearReview": "Share My Year in Review",',
+        I18N,
+        "没有任何一个值逐字等于英文",
+    ),
+    (
+        "F20",
+        "ko 漏掉 yearReviewEmpty 键（空态文案静默回退英文）",
+        LOCALES / "ko.ts",
+        '    "yearReviewEmpty": "그해에는 기록이 없어서 돌아볼 게 없어요. 몇 개 남긴 뒤에 다시 와보세요.",\n',
+        "",
+        I18N,
+        "键集合与 en 完全一致",
+    ),
+    (
+        "F21",
+        "冷启动首帧的 flush 去掉 isLoggedIn() 门（游客打出必 401 的请求）",
+        APP_TSX,
+        "        // 首帧后上送本地分析事件队列（仅已登录；后端校验 consent + 匿名化转发 PostHog）\n"
+        "        if (isLoggedIn()) flushAnalytics().catch(() => {});\n",
+        "        // 首帧后上送本地分析事件队列（仅已登录；后端校验 consent + 匿名化转发 PostHog）\n"
+        "        flushAnalytics().catch(() => {});\n",
+        GUEST,
+        "App.tsx 的两个上送点都在 isLoggedIn() 门内",
+    ),
+    (
+        "F22",
+        "回前台的 flush 去掉 isLoggedIn() 门（另一个上送点同口径）",
+        APP_TSX,
+        "        // 回到前台时上送累积的分析事件（离线期间的事件延迟批量上送，口径按 occurred_at）\n"
+        "        if (isLoggedIn()) flushAnalytics().catch(() => {});\n",
+        "        // 回到前台时上送累积的分析事件（离线期间的事件延迟批量上送，口径按 occurred_at）\n"
+        "        flushAnalytics().catch(() => {});\n",
+        GUEST,
+        "App.tsx 的两个上送点都在 isLoggedIn() 门内",
+    ),
+    (
+        "F23",
+        "给年报路径加上 Pro 门控（推翻自定决策 ①：它是引流免费卡）",
+        SCREEN,
+        "    setYearReviewLoading(true);\n",
+        "    setYearReviewLoading(true);\n      if (!isPro) { showProAlert(); return; }\n",
+        YR,
+        "不做 Pro 门控",
+    ),
+    (
+        "F24",
+        "空态判定码从 40402 改成 404（后端不返 404，零记录年份会弹通用报错）",
+        SCREEN,
+        "const CODE_RESOURCE_NOT_FOUND = 40402;",
+        "const CODE_RESOURCE_NOT_FOUND = 404;",
+        YR,
+        "整年零记录按空态提示（40402）",
+    ),
+    (
+        "F25",
+        "把 clearPendingFirstRead 提到 POST 之前（POST 一失败暂存就没了，初读卡永久丢）",
+        AUTH,
+        "      const card = await postFirstRead(pending.answers, pending.persona_type);\n"
+        "      await saveFirstReadCard(card);\n"
+        "      await clearPendingFirstRead();\n",
+        "      await clearPendingFirstRead();\n"
+        "      const card = await postFirstRead(pending.answers, pending.persona_type);\n"
+        "      await saveFirstReadCard(card);\n",
+        FR,
+        "清暂存排在 POST 之后",
+    ),
+    (
+        "F26",
+        "去掉「无暂存直接返回」早退（老用户每次登录都被打一次空 POST）",
+        AUTH,
+        "      if (!pending) return;\n",
+        "",
+        FR,
+        "无暂存直接返回",
+    ),
+    (
+        "F27",
+        "登录里的补调去掉 void 前缀（裸 Promise 无人接管 rejection，补调失败=未捕获告警噪音）",
+        AUTH,
+        "    void flushPendingOnboarding();\n",
+        "    flushPendingOnboarding();\n",
+        FR,
+        "登录与冷启动都挂补调",
+    ),
+]
+
 # ---------------------------------------------------------------- 绿闸清单
 # 破坏「不该打红」的东西＝证明这条守卫不是假红制造机。
 GREEN: list[tuple[str, str, Path, str, str, str]] = [
@@ -191,6 +325,16 @@ GREEN: list[tuple[str, str, Path, str, str, str]] = [
         "    setSavingId(msg.id);\n",
         "    setSavingId(msg.id);\n" + "".join(f"    // 增长占位 {i}\n" for i in range(20)),
         FEEDBACK,
+    ),
+    (
+        "G2",
+        "往 onShareYearReview 函数体插 15 行注释（同类增长）："
+        "年报的函数体切片守卫（Pro 门控 / 空态码 / share_text）不该因此变红",
+        SCREEN,
+        "    setYearReviewLoading(true);\n",
+        "    setYearReviewLoading(true);\n"
+        + "".join(f"      // 增长占位 {i}\n" for i in range(15)),
+        YR,
     ),
 ]
 

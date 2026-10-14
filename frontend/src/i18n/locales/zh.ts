@@ -490,6 +490,8 @@ const resource = {
     "upgrade": "升级",
     "chatCount_other": "对话 {{count}} 轮",
     "shareReport": "分享报告",
+    "shareYearReview": "分享我的年度回顾",
+    "yearReviewEmpty": "这一年还没有任何记录，暂时无从回顾。先写下几条，再回来看看。",
     "timelineTitle": "年度热力图"
   },
   "auth": {

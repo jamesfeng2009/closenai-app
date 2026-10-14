@@ -73,7 +73,7 @@ describe('事件名与属性', () => {
     ].sort());
     expect([...SHARE_STEPS].sort()).toEqual(['share_completed', 'share_tapped']);
     expect([...FUNNEL_SOURCES].sort()).toEqual([
-      'first_read', 'life_archive', 'memory', 'period_report', 'personality_card',
+      'first_read', 'life_archive', 'memory', 'period_report', 'personality_card', 'year_review',
     ].sort());
   });
 });
@@ -225,6 +225,7 @@ describe('调用点在位（.tsx 无法渲染，按源码守卫）', () => {
     ['src/screens/FirstReadCardScreen.tsx', 'first_read'],
     ['src/screens/ShareCardScreen.tsx', 'personality_card'],
     ['src/screens/InsightsScreen.tsx', 'period_report'],
+    ['src/screens/InsightsScreen.tsx', 'year_review'],
   ];
 
   it.each(shareSites)('%s：调起上报 tapped、真的分享出去才报 completed', (rel, source) => {
@@ -233,7 +234,10 @@ describe('调用点在位（.tsx 无法渲染，按源码守卫）', () => {
     expect(src).toContain(`trackFunnelShare('share_completed', '${source}')`);
     // 取消分享在 iOS 同样 resolve，必须按 action 判完成，否则完成率＝100% 是假的
     expect(src).toContain('res.action === Share.sharedAction');
-    const call = src.indexOf("trackFunnelShare('share_completed'");
+    // 一个屏里可以挂多种物料（InsightsScreen 同时有周期报告与年报卡），
+    // 所以这道邻接断言必须按 source 定位，否则第二条物料会被第一条的 Share.share 顶包
+    const call = src.indexOf(`trackFunnelShare('share_completed', '${source}')`);
+    expect(call).toBeGreaterThan(0);
     expect(src.slice(Math.max(0, call - 500), call)).toContain('await Share.share(');
   });
 
@@ -256,7 +260,7 @@ describe('调用点在位（.tsx 无法渲染，按源码守卫）', () => {
     }
     // 五段台阶 + 三个分享物料都真的被调用
     for (const step of ONE_TIME_STEPS) expect(steps.has(step)).toBe(true);
-    for (const source of ['first_read', 'personality_card', 'period_report']) {
+    for (const source of ['first_read', 'personality_card', 'period_report', 'year_review']) {
       expect(sources.has(source)).toBe(true);
     }
   });

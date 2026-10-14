@@ -37,6 +37,7 @@ export const FUNNEL_SOURCES = [
   'first_read',
   'personality_card',
   'period_report',
+  'year_review',
   'memory',
   'life_archive',
 ] as const;

@@ -490,6 +490,8 @@ const resource = {
     "upgrade": "Naik Taraf",
     "chatCount_other": "{{count}} perbualan",
     "shareReport": "Kongsi Laporan",
+    "shareYearReview": "Kongsi imbasan tahun anda",
+    "yearReviewEmpty": "Tiada rekod untuk tahun itu, jadi belum ada apa-apa untuk diimbas. Tulis beberapa entri kemudian kembali.",
     "timelineTitle": "Peta Haba Tahunan"
   },
   "auth": {

@@ -498,6 +498,8 @@ const resource = {
     "chatCount_one": "Gespräche: {{count}}",
     "chatCount_other": "Gespräche: {{count}}",
     "shareReport": "Bericht teilen",
+    "shareYearReview": "Meinen Jahresrückblick teilen",
+    "yearReviewEmpty": "Für dieses Jahr gibt es noch keine Einträge, also noch nichts, worauf man zurückblicken kann. Schreib ein paar Notizen und komm wieder.",
     "timelineTitle": "Jahres-Heatmap"
   },
   "auth": {

@@ -22,7 +22,7 @@ import type {
   UserProfile, UserSettings,
   DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
-  ShareLink,
+  ShareLink, YearInReviewCard,
   FirstReadAnswer, FirstReadCard,
   JourneyEventsResponse, MemoryRef,
   SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult, LifeArchiveResult,
@@ -604,6 +604,18 @@ export async function getPersonalityCard(variant: ShareCardVariant): Promise<Per
 /** 导出周期报告（weekly 免费；monthly/quarterly/yearly 为 Pro 权益 40302；同周期后端缓存）。 */
 export async function getShareReport(period: SharePeriod): Promise<ShareReport> {
   return request<ShareReport>(`/share/report/${period}?language=${langParam()}`);
+}
+
+/**
+ * 年度报告卡（M4 year_in_review）：一个自然年的落库事实计数 + 带本人推荐码的深链。
+ *
+ * 免费卡、不走 Pro 门控（当引流物料，AI 年度长文报告仍是 Pro 权益），所以这里
+ * 没有 40302 分支；整年零记录后端回 40402 空态。缺省年份由后端定
+ * （上一个完整自然年），前端不自己算——两端各算一份迟早分叉。
+ */
+export async function getYearInReview(year?: number): Promise<YearInReviewCard> {
+  const suffix = year ? `&year=${year}` : '';
+  return request<YearInReviewCard>(`/share/year-in-review?language=${langParam()}${suffix}`);
 }
 
 /**

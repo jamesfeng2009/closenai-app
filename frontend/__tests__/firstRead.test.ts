@@ -111,3 +111,64 @@ describe('初读卡 i18n（15 语言键齐全）', () => {
     }
   });
 });
+
+/**
+ * 登录补调链路（tasks.md:96 登记的游客态约束，2026-10-14 收口）。
+ *
+ * .tsx/Context 在 node 环境跑不起来（react-native 顶层 import），按本仓既有口径做源码闸：
+ * 顺序、fire-and-forget、失败保留这三件事一旦被改坏都必须变红。
+ */
+describe('登录补调链路（AuthContext 源码闸）', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'context', 'AuthContext.tsx'),
+    'utf8'
+  ) as string;
+
+  const body = src.slice(
+    src.indexOf('const flushPendingOnboarding'),
+    src.indexOf('const login = useCallback')
+  );
+
+  it('补调链在位且顺序是 取暂存 → POST 生成 → 落缓存 → 清暂存', () => {
+    expect(body.trim().length).toBeGreaterThan(200); // 防切片空跑
+    const order = [
+      'await peekPendingFirstRead()',
+      'await postFirstRead(',
+      'await saveFirstReadCard(card)',
+      'await clearPendingFirstRead()',
+    ];
+    const at = order.map((s) => body.indexOf(s));
+    for (const idx of at) {
+      expect(idx).toBeGreaterThan(-1);
+    }
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+  });
+
+  it('清暂存排在 POST 之后：POST 抛错时暂存保留，下次登录还能重试', () => {
+    const post = body.indexOf('await postFirstRead(');
+    const clear = body.indexOf('await clearPendingFirstRead()');
+    expect(clear).toBeGreaterThan(post);
+    // catch 块里不许出现 clear/POST 之外的写操作（失败路径必须什么都不清）
+    const catchBlock = body.slice(body.indexOf('} catch {', post), body.indexOf('}, []);'));
+    expect(catchBlock).not.toContain('clearPendingFirstRead');
+  });
+
+  it('无暂存直接返回：未走引导的老用户不会被打一次空 POST', () => {
+    expect(body).toContain('if (!pending) return;');
+  });
+
+  it('登录与冷启动都挂补调，且是 fire-and-forget（不阻断登录主流程）', () => {
+    // 逐点定位：只写 toContain('void …') 会被冷启动那一处顶包（F27 变异就是这么溜过去的）
+    const loginBody = src.slice(
+      src.indexOf('const login = useCallback'),
+      src.indexOf('}, [flushPendingOnboarding]);')
+    );
+    expect(loginBody.trim().length).toBeGreaterThan(200); // 防切片空跑
+    expect(loginBody).toContain('void flushPendingOnboarding();');
+    expect(loginBody).not.toMatch(/^\s*flushPendingOnboarding\(\);/m);
+    expect(src).toContain('if (user) void flushPendingOnboarding();');
+    expect(src).not.toContain('await flushPendingOnboarding()');
+  });
+});
