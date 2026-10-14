@@ -203,6 +203,29 @@
     - 2/29 非闰年 `date()` ValueError 跳过该年（不崩溃不造假数据）；UTC+8 类本地日界覆盖测试（2025-10-31 16:00 UTC 的记忆被 Asia/Shanghai 用户在 11-01 命中）
   - [x] 回忆卡模板补周年标题：`export_memory_card_pdf` 由服务端按真实 `created_at` 自动判定（同月日且年份差 ≥1 → 「一年前的今天」/「N 年前的今天」/ en "A Year Ago Today" / "N Years Ago Today"；否则保持「你说过的话」）——**根治 C3 偏离 2**：任何路径都造不出假周年（判定只依赖记忆行真实时间戳 + 用户时区，与请求方传什么无关）；PDF 测试用 pypdf 解文本断言（pypdf 入 pyproject dev 依赖组）
   - 验收实测：`backend/tests/test_on_this_day.py` **7 例**（候选年份升序+归属隔离+新用户空态 / UTC+8 本地日界 / PDF 周年标题 zh+en / 非周年保持原标题）；全量 pytest **506 passed**（基线 499 + 7）；OpenAPI 路由注册核验
+  - ✅ 2026-10-14 回忆卡第四模板 + 情绪色环收口（把 E2 那条「色环本批不做」的立项兑掉）：
+    `ShareCardScreen` 的 `VARIANTS` 加 `'memory'`（`types/index.ts` 的 `ShareCardVariant` 与 `App.tsx` 的
+    `ShareCard: { variant?, memory_id? }` 同步）；首页展开态每条考古卡给「做成回忆卡」按钮，带 `memory_id` 跳入
+    （`HomeScreen.tsx:411-422`）并打 `memory_card_opened`。memory 分支走 `getOnThisDay()` 而不是 `getPersonalityCard()`
+    ——回忆卡是免费引流出口，走错就撞 40302 Pro 门；按 `memory_id` 命中、否则取首条有原话的候选、缺参只回 classic 不猜记忆。
+    卡面四要素＝日期大字（`memoryCardDate(服务端 date, years_ago)`，不碰 `created_at`、不看设备时钟）+ 当年原文
+    （`memoryCardExcerpt` 截 `MEMORY_CARD_EXCERPT_MAX=220`）+ 情绪色环 + App 水印；分享出口仍是「原话 + 带本人推荐码深链」
+    两段（`memoryCardShareMessage`），深链只在真要分享时取、防连点、失败走屏内 error 出口不开新 Alert 站点。
+    - 色环规格（2026-10-14 拍板「静态五段环 + 当前段高亮」，①–⑤ 逐条写在 `frontend/src/config/memoryRing.ts` 抬头）：
+      五段等分 360/5=72°、起始 −90°（12 点）顺时针、段序号＝情绪值；色相 0°→120° 线性（SATURATION 72 / LIGHTNESS 55，
+      与 `HEAT_COLORS`、后端 `MOOD_COLORS` 的「低落偏红、开心偏绿」同向）；当前段 opacity 1 且外半径 +2、其余 0.28；
+      当日无签到 → 五段全 `rgba(255,255,255,0.18)` 且中心不放 emoji；无 Animated（分享卡要能被截图，补间帧不可复现）。
+      换算全部住纯函数，SVG 组件 `charts/MoodRing.tsx` 只消费 `ringSegments()`/`annularSectorPath()`，不自算几何。
+    - 数据源：`share_service.on_this_day` 的候选加 `mood`——用**同一条本地日界窗口**（`local_day_start_utc`）取当日签到，
+      首条为准、`label` 缺失按 `users.language` 兜底、分值复用 `MOOD_MAP` 同一张表（表外 emoji 折中 3）、无签到返回 `None`；
+      前端零额外请求，也就不新增第二个同意门/配额面。
+    - 验收实测：后端 `backend/tests/test_on_this_day.py` **13 例**（原 7 + mood 6：候选带 mood / 取当日首条而非别条 /
+      label 空兜底 / 签到随本地日界 / 别日签到负向 / 表外 emoji 折中 3）；前端新增 `__tests__/memoryRing.test.ts` **31 例**
+      + `__tests__/memoryCardWiring.test.ts` **51 例**；全量 jest 39 套件 **1035 passed**（基线 37 套件 953）、`tsc --noEmit`
+      exit 0、契约冻结 `test_contract_freeze.py` **10 passed**（`contracts/openapi.json` 字节未变，无需重导）；
+      新文案 6 键（`home.archiveRecallCard` + `share.memory` / `memoryEmpty` / `memoryMoodNone` / `memoryMoodA11y` /
+      `memoryShareFailed`）× 15 语言，`i18nLocales.test.ts` **107 passed**；变异自证
+      `python3 scripts/mutate_memory_card_gates.py` → **红闸 31/31 打红、绿闸 2/2 保持绿**，源文件逐字节复原无差异。
   - ✅ 2026-10-14 首页每日主位前端收口：`HomeScreen` 首屏顶部出「🕰️ N 年前的今天」卡——`GET /share/on-this-day` 取数，`archiveCards()` 保服务端年份升序 + 丢空原话 + 截 `ARCHIVE_CARD_LIMIT=3`（首页不是列表页），折叠态只端首条、展开逐条并给日期行（`created_at` 缺失即不显日期，不拿「今天」或年份差反推一个像样的落库日）与分享出口；周年标题走 i18next CLDR 复数键 `home.archiveTitle`（15 语言按各自类别档恰好齐备：en/de/es/fr/it/pt one+other、ru one/few/many/other、其余单形态只 other），前端不自算日期；零候选整卡不出；分享清单 `<ShareManifest>` 两项与实际发出去的两段同源（`trustPresentation.test.ts` 已从三条分享路径扩到四条）
   - ⚠️ 2026-10-14 偏离登记（新增，未收口）：考古卡的分享出口是「原话 + 带本人推荐码的深链」文本分享（`Share.share`），**没有接 `POST /share/memory-card` 的 PDF**——`frontend/package.json` 22 个运行时依赖实测无 `expo-file-system` / `expo-sharing` / `react-native-share`，落 PDF 要新增原生依赖并牵动 #52 的 SDK 升级，不在前端批次里偷偷塞原生依赖；PDF 物料接入归 #50 K6（真机系统分享面板取证）与 #58（名片/分享卡 PDF 的 AIGC 隐式标识）。`dailyCardWiring.test.ts` 有负向闸钉住「首页源码不出现 `/share/memory-card`」，接上那天要同时改这条闸
 
@@ -251,8 +274,11 @@
   - 误报控制：词表取多字信号词，`(?<!动)打我` 负向后视专防"打动我"；测试含 4 条误报样本（含中英）必须不触发。
     自伤类优先于暴力类（同句双命中按生命风险排序）。
   - 转介文案自身过黑名单（`test_crisis_copy_passes_wording_blacklist` 保证文案不含 §5.16 ① 医疗化词）。
-  - ⚠️ 未做（随各自立项接入同一函数）：§5.16 睡前复盘挂载 → C1；D0–D7 剧本渲染挂载 → B2；
-    15 语言词表 → 决策点 3 明确不在 v1。
+  - ↳ **2026-10-14 结案（本行原为「⚠️ 未做」，实为台账陈旧）**：两条挂载都已落地并有测试钉住——
+    §5.16 睡前复盘 → `services/bedtime_service.py:118`（`test_bedtime.py:145 test_step1_crisis_intercept_blocks_and_audits`）；
+    D0–D7 剧本渲染 → `services/journey_service.py:456`（引用原话前拦）与 `:851`（候选记忆回放前拦），
+    `test_journey.py:318/:396` 各钉一条；另有 `message_generator.py:85`、`commitment_service.py:180` 两处出口。
+    剩下的「15 语言词表」不是欠账而是范围决定：决策点 3 明确 crisis 词表不进 v1（非 zh/en 走英文词表 + 转介文案按 `users.language` 出稿）。
   - 实测：新增 `backend/tests/test_crisis_intercept.py` **17 例**（含规范 §二 2.3 三条验收）；
     全量 `pytest backend/tests` **293 passed**。
 - [ ] **D3 · 说话人锚定纪律**（纸面预留，随"截图复盘收窄版"立项才实施；立项前不动代码）｜规范 §三
@@ -268,7 +294,11 @@
   - [x] `src/components/charts/transforms.ts` 纯函数（jest node 环境可测，SVG 组件不进测试——沿 M5 偏离 2 口径）：`toLineSegments`（折线分段：value=0 未签到断线不插值，返回 segments≥2 点 + singles 孤点，x 按有值序列索引均分）+ `toHeatMatrix`（GitHub 式矩阵：列=自然周周一起始、行=星期几，首列按首日星期补前导 null，缺失日 null 格，非法日期/空输入回 7 行空矩阵不崩溃）+ `HEAT_COLORS` 自 InsightsScreen 上收共享
   - [x] `MoodLineChart.tsx`（Polyline 连段 + Circle 标孤点，金色主线）+ `HeatGrid.tsx`（SVG Rect rx=3）接入 InsightsScreen 热力图卡：近 7 天折线（X=日期 Y=情绪值 1-5，PRD §P0 情绪趋势可视化）+ 热力图默认近 90 天、「查看全年」toggle 切 365 天横向滑动（PRD 默认/展开视图口径）
   - 验收实测：`__tests__/chartTransforms.test.ts` **8 例**（连续段/断线成两段+孤点/全空回空/断口两侧 x 均分不挤压/首列对齐/缺失日 null/跨周换列/空与非法日期）；tsc 0 + jest **847 passed**
-  - ⚠️ 色环（行动方案「回忆卡·情绪色环」）依赖 ShareCardScreen 回忆卡第四模板（C4 前端批次），届时再建 SVG 色环组件，本批不做；无需单独设计文档，随第四模板立项时 brainstorming 一并出视觉规格（占色环弧段映射、情绪值→色相、静态/动画口径）
+  - ↳ **2026-10-14 结案（本行原为「⚠️ 色环本批不做」）**：色环已随 C4 回忆卡第四模板立项落地。
+    视觉规格定稿（静态五段环 + 当前段高亮）写在 `frontend/src/config/memoryRing.ts` 的抬头注释①–⑤，
+    组件 `frontend/src/components/charts/MoodRing.tsx` 只消费换算结果；数据源是 `GET /share/on-this-day`
+    候选自带的 `mood`（与记忆共用同一条本地日界窗口，前端零额外请求）。沿本条口径：几何/颜色仍是
+    `memoryRing.test.ts` 里的纯函数断言，SVG 组件不进渲染测试。
 - [ ] **E3 · 部署迁移 QStash → arq + Redis Pod**（k3s 清单见架构方案 §十；inline 回退保留）
 - [ ] **E4 · Expo SDK 升级（51 → 53+）**——提审后技术债第一项（连带校验 react-native-iap 兼容性）
 
@@ -280,7 +310,11 @@
   - [x] `InsightBlurGate.tsx`（expo-blur ~13.0.3，`npx expo install` SDK 51 配套）：locked 时 BlurView 低强度覆盖（intensity 30 ≈ PRD「CSS blur 4px」原生观感）+ 整层可点 → 调用方导航 Paywall + 常驻「解锁高清」金色角标；free 态聚合最小洞察（weekly_insight 卡）保留在闸门外
   - [x] 落点（PRD §5.20 模糊对象仅限洞察层）：① Home「Growth This Week」指标+迷你热力图包闸（header/提示行不模糊，点卡进 Insights 不变、点模糊区进 Paywall）② Insights「Pattern 卡」免费 = 模糊样张 + 角标、**不调 LLM**（样张静态模板零成本，升级才触发生成）③ Insights「情绪趋势 + 年度热力图」卡包闸（免费锁呈现，原始签到数据在 Reflect 页永远可看可查）
   - 验收实测：后端 `test_dashboard_is_pro_flag`（free→False / pro→True）+ 全量 pytest **507 passed**；前端 `__tests__/insightTier.test.ts` 4 例（free/pro/pro_plus/未知 tier 边界）；i18n 15 语言新增 unlockHd/patternPreview/heatmapFullYear/heatmap90（#39 英文兜底守卫通过：13 小语种全部正式翻译非英文）
-  - ⚠️ Paywall 左右对比区块 + 首次解锁「揭幕」过渡动画（§5.20 设计规范另两条）划归 F2（F2 本就要动 Paywall，试用文案与对比区块一体做）
+  - ↳ **2026-10-14 结案（本行原为「⚠️ 划归 F2」）**：两条都已在 F2 批次落地——
+    Paywall 左右对比区块 `frontend/src/screens/PaywallScreen.tsx:448-459`（免费列 BlurView 样张 + 金框 Pro 列），
+    首次解锁「揭幕」过渡 `frontend/src/screens/HomeScreen.tsx:265-277`（本地一次性标记）与 `:720-723`（遮罩层）。
+    实测口径：这两处**没有专门的接线闸**（jest node 环境渲染不了 BlurView/Animated，前一批只在 F2 台账里记了落点），
+    补结构闸属测试资产桶、不在本批范围内。
 - [x] **F2 · Pro 7 天试用 + D5/D7 损失转化触点**（依赖 B2 剧本触点）✅ 2026-09-30 完成
   - [x] D5 触点载体：journey 新 kind `trial_d5`（`models/journey.py` 白名单登记 + `PUSH_KINDS` 加盟）——复用 deliver 频控链（每日一条/主动消息互斥/危机停推/沉默降频全部自动生效，与剧本 D5 同日竞争由频控 1 顺延）
   - [x] 预写：`iap_service._validate` 判定 `is_trial`（收据 `is_trial_period`）→ `_schedule_trial_touchpoint` → `journey_service.schedule_trial_d5`（试用开始 = `expires_at - TRIAL_LENGTH_DAYS=7` 反推，落点 = 开始日+5 天的本地推送窗口；时刻已过不追溯补发；幂等靠 `(user, trial_d5, day_no=5)` 仓库查重——Apple intro offer 一人一次；预写失败仅告警降级不阻断购买主流程）
@@ -321,7 +355,11 @@
     - ↳ 2026-09-30：已开工为下方 **M 节（#42）**，M1（文案库架构 + 5 个 service 迁移）完成
   - 回归守卫：新增 `frontend/__tests__/i18nLocales.test.ts` **92 例** = ① 14 语言键集与 en 精确相等 ② 值非空 ③ `{{占位符}}` 名称与个数逐键相等 ④ 换行个数逐键相等 ⑤ 无逐字等于英文的值，除非落在逐条写了理由的同字白名单（语言自称呼 / `Pro` `Pro+` / `{{hour}}:00` / 版本号 / 厂商名 / 演示角色名）+ 同形词豁免表（es/fr/de/it/pt 的 `Social` `Details` `Stress` —— 这些语言本来就这么写），且**豁免表不许留死条目**（源文案一改就不再同字，留着等于给以后的漏翻预留合法位置） ⑥ 6 个非拉丁语言每个值必须含目标文字 ⑦ 任何语言都不许出现「连续 ≥3 个英文虚词」的整句英文
   - 反向验证 7 条全部 CAUGHT、逐字节复原无 RESTORE-FAIL（恢复只走备份写回，不碰 `git checkout`）：英文兜底值 / 整键缺失 / 占位符改名 / 整句英文混进 km / 两段式并成一段 / 豁免表留死条目 / 非拉丁语言留纯英文标签。脚本 `/Users/fengyu/Downloads/myproject/tmp/i18n_guard_mutation.js`
-  - ⚠️ 改了一条既有断言的口径：`comboCard.test.ts` 原要求非 zh 语言的 `share.proGateMessage` 含英文 token `/16-type/` 与 `/Enneagram/`——那是**只有英文兜底存在时**才可能过的代理断言，真翻译之后 ms（`Sembilan Personaliti`）与 th（`นพลักษณ์`）的正经译名会被它判成漏写 → 改成「含数字 16 + 该语言的 Enneagram 译名」逐语言术语表
+  - ↳ **2026-10-14 结案（本行原挂 ⚠️）**：改口径这件事已落地并被变异守住。`comboCard.test.ts` 原要求非 zh 语言的
+    `share.proGateMessage` 含英文 token `/16-type/` 与 `/Enneagram/`——那是**只有英文兜底存在时**才可能过的代理断言，
+    真翻译之后 ms（`Sembilan Personaliti`）与 th（`นพลักษณ์`）的正经译名会被它判成漏写 → 改成「含数字 16 +
+    该语言的 Enneagram 译名」逐语言术语表（`comboCard.test.ts:114 ENNEAGRAM_TERM`，:136-137 逐语言断言）。
+    回退成旧口径会当场打红：`scripts/mutate_frontend_gates.py` 的 **F29**（2026-10-14 实测 3/3 打红的一条即它）。
   - 全量：jest 29 套件 **809 passed**（本轮 +92）；tsc exit 0；pytest **444 passed**（后端零改动）
 
 - [x] **L2 · 13 个语言的母语审校轮**（把 L1 那句「未经母语者审校」兑掉）｜✅ 2026-09-30 完成
@@ -331,6 +369,11 @@
   - 审校抓出的**机器闸结构性盲区**（前一轮的字节同字闸看不到）：为躲「不许与英文同字」而造的生造词——ms `Sembilan Personaliti`、vi/km/id 的 `9 Kiểu Tính Cách`/`បញ្ហាបី`-式拼凑、it `Distinctivi`、fr `Distinctif`。这类词的正确写法本就与英文同字，所以同形词豁免表从 5 语言 7 键扩到 **9 语言 37 键**，逐条写理由，且「不许留死条目」那条断言继续保证它们此刻真的同字
   - 连带改动：`i18nLocales.test.ts` 的「非拉丁文字必含目标文字」闸此前只豁免 `SHARED_BY_DESIGN`，与同形词表互相矛盾（km 的 `Enneagram` 被它判成漏翻）→ 两道闸改为**共用同一张豁免表**；`comboCard.test.ts` 的 ms 译名从生造词改成 `Enneagram`
   - 反向验证 7 条全部 CAUGHT、逐字节复原（脚本 `/tmp/i18n/review_guard_mutation.js`，恢复只走进程内备份写回）：豁免键被改回非英文 / 非豁免键被写成逐字英文 / 豁免表塞死条目 / ja 写成拉丁借词却未豁免 / 文字集闸不再共用豁免 / comboCard 术语表回退 / `{{count}}` 被丢
+    - ↳ **2026-10-14 勘误（证明缺口，不是结论改动）**：`/tmp/i18n/` 已消失，那 7 条当场不可重跑，属于「只剩口头声明」。
+      可重跑的只有前 4 条的等价变异（`scripts/mutate_frontend_gates.py` 的 F1 非豁免键写成逐字英文、F2 拉丁借词未豁免、
+      F5 豁免条目变死条目——它同时覆盖「豁免键改回非英文」）；后 3 条本批固化成 **F28/F29/F30**（前两条破坏守卫自身，
+      证明它真的在消费 HOMOGRAPHS / ENNEAGRAM_TERM；第三条破坏数据，证明占位符闸抓得到丢掉的 `{{count}}`）。
+      实测：`python3 scripts/mutate_frontend_gates.py --only F28,F29,F30` → **3/3 打红**、逐字节复原无差异；全量 30 条锚点 `--check` 各命中一次
   - 本轮**当时没修**的一类结构缺口（审校 3 个语言同时点名，不是措辞问题）：8 个含 `{{count}}`/`{{days}}` 的键在所有语言都只有单数形态，`de` 因此出现「1 Gespräche」、`it` 出现「1 messaggi」——i18next 的 `key_one`/`key_other` 复数变形一个都没建。修它要动 15 个 locale 的键结构 + 调用点传参口径，属独立批次，登记为 L1 之外的待办，#17 提审前不要把它当已修 → ✅ 已由 **L4** 修复（2026-09-30）
   - 全量：jest 30 套件 **820 passed**；tsc exit 0；后端零改动
 
@@ -490,7 +533,7 @@
     - ↳ **D-5 的连带义务（原任务未写，实测才发现躲不掉）**：不引入 CASCADE ⇒ 每张 canonical 表都必须带 `user_id` 并进 `PURGE_TARGETS`，否则 7 张关联表与 `personal_model_versions` 永远删不净。已在 `backend/services/user_service.py` 登记 **20 条**（`inbox_messages` 是投递元数据、无个人内容，故不带 user_id 也不入清单）
     - ↳ V3 文档自身缺列、按下游约束补齐 6 处（逐处出处写在迁移 docstring）：`patterns.scope`←01 §5.2、`insights.claim_type`←03 §14、`outcomes.outcome_type`←04 §15、`evidence.observation`←03 §4、`generation_run_id`/`reject_reason`/`model_version`←不变量 8 + N3/N6 需要、`patterns.fingerprint`←08 §3 + 18 §11
     - ↳ 与 V3 原文的 4 处分歧按本项目裁定执行，不照抄：① 不用 enum（裁决 §五-4，状态列全 VARCHAR + Go 侧合法集合校验）② 不引入 `ON DELETE CASCADE`（D-5）③ PK 用 `VARCHAR(36)` + 应用侧 uuid4，不用 `UUID + gen_random_uuid()`（全库既有 PK 皆如此，pgcrypto 未装）④ JSON 用 TEXT，不用 JSONB
-  - [x] ⚠️ **建表即改判**：《架构与技术方案-2026-09-06》§五-5「承诺=memories 增列，不建新表」在 Go 权威侧反转（canonical 模型独立重建），登记 ↳ 2026-10-12 改判
+  - [x] **建表即改判（冲突已结案，2026-10-12 拍板反转）**：《架构与技术方案-2026-09-06》§五-5「承诺=memories 增列，不建新表」在 Go 权威侧反转（canonical 模型独立重建），登记 ↳ 2026-10-12 改判
     - ✅ 已建 `personal_commitments`（02 §16），旧 `memories` 表结构一字未动
   - [x] `memories`/`chat_messages`/`growth_records` 保留为 source 层与展示层；新旧关系用「新表增量 + 旧表不动」，禁止一次性搬数据
     - ✅ 迁移正文只有 `CREATE TABLE`/`CREATE INDEX`，**0 条 INSERT/UPDATE/ALTER 旧表**；`source_records` 是指针表，数据搬运归 N4/N9
@@ -578,7 +621,7 @@
     - ✅ 分类型下限：`ConfidenceMinFor` 按 trigger 取（memory_recall 0.75 / pattern_followup 0.80 / 其余 0.70），敏感域再抬到 ≥0.85（04:139 的「更严」至少不低于 N3 已拍的敏感下限）；最小证据按类型分叉——memory_recall ≥1 条、强证据强度 ≥0.65、pattern_followup 需 ≥2 条**独立**观测（复用 N4 的独立观测口径，不采信提案方自报条数）、reflection_prompt ≥1 条
     - ✅ safety 是 hard gate：不参与任何加权，危机/敏感处置的输入缺失即 `safety_unresolved` 拦下（fail-closed，D-8 / 01 不变量 10）。`eligibility_score` 只由命中层数决定，safety 从不进分子——「加权平均里 safety 占 20%」是 V3 04:77-85 的六因子口径，七-4 P-8 已判不采纳
     - ✅ `RecheckProactive` 就是 04:104 的发送时刻二次校验：终态守卫 → 到期检查 → 重解析 packet → **重跑十一关**（频次用当时的真实历史）→ 才 `MarkProactiveSent`。三处 fail-closed：safety 输入缺失、偏好行读不到、`eligibility_detail` 解析不出，一律判「不能发」而不是「放行」
-  - [x] ⚠️ 数值以 PRD §5.19 与 `journey_events` deliver 现行频控链为唯一事实源（D-4）；V3 的 1/24h·3/7d·8/30d 与 quiet hours 22:00–08:00 属其自造默认值，仅交叉核对
+  - [x] 数值口径（与 V3 的冲突已由 D-4 结案）：以 PRD §5.19 与 `journey_events` deliver 现行频控链为唯一事实源；V3 的 1/24h·3/7d·8/30d 与 quiet hours 22:00–08:00 属其自造默认值，仅交叉核对
     - ✅ 生效值逐条带出处：每日 1 条（closenai.html:596 + `journey_service.py:272-282`）、free 5 / pro 100 / pro+ 1000（closenai.html:590 + `config.py:138-143`）、沉默 2/5/14 阶梯（closenai.html:674）、回访本周 2 条 + 同承诺 2 次（closenai.html:2953）、静默窗只拦本地 **00:00–08:00** 且 22:30 放行（覆盖 V3 04 §8 的 22:00 起，七-4 P-5——PRD 的睡前复盘就发在 22 点，closenai.html:2902）
     - ↳ **V3 的 3/7d·8/30d 未采纳**：PRD 没有这两个数，写进政策等于造出项目里不存在的门；`MinIntervalHours` 因此默认 **0（该门不设限）** 并在注释标为取证缺口，`CLOSEN_PROACTIVE_MIN_INTERVAL_HOURS` 可开。同理 `QuietStartHour==QuietEndHour` 语义是「关掉静默门」，不是「全天静默」
     - ↳ 窗口一律按**用户本地时区**：日窗 `localDayStartUTC`、周窗本地周一 00:00 起**整 7 天**；不可解析时区退 **UTC 判定**（不误放行、也不报错拦死），有正向 + 退路两侧用例
