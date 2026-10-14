@@ -1,4 +1,4 @@
-"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum）。
+"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey）。
 
 要证的不是「Go 抄得像」，而是**每一条口径都真的有人守着**：把实现按最可能的抄错方式
 破坏一次，对应闸门必须红。打不红的口径＝那条口径其实没闸，写进代码也只是口头声明。
@@ -49,6 +49,25 @@ test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人�
    冻时钟的口径因此由**机制存在**两面守：#72–#74 让「录制侧真的冻了钟」「锚点形状」
    「播种用绝对时刻」各能被打红一次；跨过本地周一之后回放会自然红，那是它的真实生效时刻。
    留这条勘误，免得后来人把「回放全绿」当成冻时钟已被验证。
+8. 批 3②：`replayN8Case` 里那句「Go 侧掩码次数必须等于夹具的 id_masks」**不打独立红**，
+   所以不进变异表。根因是它与逐字比看的是同一支：uuid 形状的行数一变，响应里的
+   `events` 数组长度就变，掩完的字节先红。它的价值只在诊断（坏的时候能一眼说出是
+   「行数变了」还是「字节变了」），不是一条独立口径——写在这里免得被当成第五条已证。
+9. 批 3④（2026-10-15）的分工与批 1 同一条：**坏 Go 源、红 Python 闸**（#99–#110，12 条）
+   ＋**坏夹具/录制面、红 Python 闸**（#111–#116，6 条）。这一批的口径大半是
+   「两侧的常量、SQL 谓词、掩码正则还同不同源」，Go 的逐字节回放看不见这些——
+   它只比字节，常量漂了只要两侧一起漂它就全绿。所以 journey 那 16 条 Python 闸
+   每条都要能被打红一次，否则改 Go 的人本地 CI 一片绿、上线放量才现形。
+   实测（2026-10-15，串行三趟）：**18/18 打红**，覆盖 journey 那 16 条 Python 闸
+   （`test_list_limit_and_push_fallback_literals_match_go` 与
+   `test_ack_contract_literals_match_go` 各由两条不同变异打红）；
+   备份写回后 Go 五个包与四份 Python 闸文件全绿。
+   本批**没做**变异的只剩两处，都不是闸门缺位而是没有观测点：
+   - Go 侧 `TestN8MaskedFieldsStayRedacted` 的「录制体再掩一次必须无变化」：夹具体里的
+     uuid 早就掩成 `<event_id>` 了，形状再掩一次恒等；白名单漂一个键名由 #108（改正则）
+     与 Python 侧 `masked_fields == [generated_at, journey_event_id]` 双向挡住。
+   - Ingress 的 `path == /api/v1/<域>` 形状闸在既有 k8s 文件里（批 1 建），本批只往
+     登记表加一个 journey，加错域名的红由 #110 与那条既有闸各自打，不另立条目。
 
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
@@ -58,6 +77,7 @@ test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人�
 from __future__ import annotations
 
 import filecmp
+import json
 import os
 import re
 import shutil
@@ -98,6 +118,15 @@ FX = GO / "testdata/n8_contract.json"
 GS = ROOT / "scripts/gen_n8_contract_goldens.py"
 RC = PY / "routers/curriculum.py"
 
+# 批 3（journey 域）
+JE = GO / "internal/httpapi/journey_events.go"
+JA = GO / "internal/httpapi/journey_ack.go"
+PB = GO / "internal/httpapi/pybody.go"
+B3 = GO / "internal/httpapi/batch3.go"
+LB3 = GO / "internal/store/legacy_batch3.go"
+DJ = GO / "internal/domain/journey.go"
+RJ = PY / "routers/journey.py"
+
 API_TESTS = GO / "internal/httpapi"
 DOMAIN_TESTS = GO / "internal/domain"
 CUT_TESTS = GO / "internal/cutover"
@@ -106,6 +135,7 @@ STORE_TESTS = GO / "internal/store"
 
 B1_PYTEST = "backend/tests/test_n8_batch1_contract.py"
 B2_PYTEST = "backend/tests/test_n8_batch2_contract.py"
+B3_PYTEST = "backend/tests/test_n8_batch3_contract.py"
 K8S_PYTEST = "backend/tests/test_k8s_manifests.py"
 
 
@@ -156,6 +186,18 @@ def patch(path: Path, old: str, new: str):
         text = path.read_text(encoding="utf-8")
         assert text.count(old) == 1, f"变异锚点命中 {text.count(old)} 次，应为 1：{old[:70]!r}"
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+    return run
+
+
+def patch_all(path: Path, old: str, new: str):
+    """夹具那种「同一形态重复多次」的面：要坏就整批坏，命中 0 次才算锚点失效。"""
+
+    def run() -> None:
+        text = path.read_text(encoding="utf-8")
+        n = text.count(old)
+        assert n >= 1, f"变异锚点命中 0 次：{old[:70]!r}"
+        path.write_text(text.replace(old, new), encoding="utf-8")
 
     return run
 
@@ -293,7 +335,8 @@ READ_FORBIDDEN = (
 REVEALED = '\t\trevealed := !day.After(today)\n'
 UNREAD_COND = '\t\tif revealed && !card.HasReadAt {\n'
 MONDAY_ZERO = '\treturn (int(d.Weekday()) + 6) % 7\n'
-CIVIL_START = '\treturn time.Date(civil.Year(), civil.Month(), civil.Day(), 0, 0, 0, 0, zone).UTC()\n'
+CIVIL_START = ('\treturn wallClockToUTC(zone, civil.Year(), civil.Month(), civil.Day(), '
+               '0, 0)\n')
 SLOT_NEG = '\tif slot < 0 {\n'
 SQL_WINDOW = ('\tWHERE user_id = $1 AND event_kind = $2 AND scheduled_at >= $3 '
               'AND scheduled_at < $4\n')
@@ -323,9 +366,105 @@ _fx_anchor = re.search(
 assert _fx_anchor, "夹具 recorded_at 不再是 +00:00 形状，#73 的锚点要跟着改"
 FX_ANCHOR = f'"recorded_at": "{_fx_anchor.group(1)}+00:00"'
 FX_ANCHOR_Z = f'"recorded_at": "{_fx_anchor.group(1)}Z"'
-FX_SCHED = '"scheduled_at": "2026-10-12T01:00:00+00:00"'
+FX_SCHED = f'"scheduled_at": "{json.loads(_fx_text)["seed"]["journey_events"][0]["scheduled_at"]}"'
 DEP_WEEK = '@router.get("/curriculum/week", deprecated=True)\n'
 READ_ROUTE = '@router.post("/curriculum/{event_id}/read", deprecated=True)\n'
+
+# ── 批 3（journey 域）的锚点 ─────────────────────────────────────────────────
+PAST_STRICT = '\t\t\tPast:        day.Before(today),\n'
+PAST_LOOSE = '\t\t\tPast:        !day.After(today),\n'
+SPACED_COMMA = '\t\t\t\tb.WriteString(", ")\n'
+PREFILL_HEAD = ('func (s *Server) ensurePrefilled(ctx context.Context, userID string) '
+                '*apierr.Error {\n')
+PREFILL_HEAD_NOOP = PREFILL_HEAD + '\treturn nil\n'
+LIST_CALL = ('\trows, err := s.batch3.Store.JourneyEvents(r.Context(), userID, '
+             'domain.JourneyListLimit)\n')
+LIST_CALL_AFTER_COUNT = ('\t_, _ = s.batch3.Store.JourneyUnseenCount(r.Context(), userID)\n'
+                         + LIST_CALL)
+SCHED_ISO = '\t\titem.set("scheduled_at", pyStringValue(pyISOOffset(row.ScheduledAt)))\n'
+SCHED_ISO_Z = '\t\titem.set("scheduled_at", pyStringValue(pyISO(row.ScheduledAt)))\n'
+PAYLOAD_RAW = '\t\titem.set("payload", parseJSONColumn(row.Payload, pyObjectValue()))\n'
+PAYLOAD_DICT = '\t\titem.set("payload", payloadObject(row.Payload))\n'
+ACK_OWNER_GATE = '\tif !owner.Found || owner.UserID != userID {\n'
+ACK_ECHO_REQ = '\tout.set("acknowledged", pyStringValue(eventID))\n'
+ACK_ECHO_COL = '\tout.set("acknowledged", pyStringValue(owner.ID))\n'
+ACK_LEN_RUNE = '\tcase utf8.RuneCountInString(value.str) > maxJourneyEventID:\n'
+ACK_LEN_BYTE = '\tcase len(value.str) > maxJourneyEventID:\n'
+UTF8_IMPORT = '\t"unicode/utf8"\n'
+SKIP_GATE = '\t\tif row.Past && status == "pending" {\n'
+SKIP_NO_STATUS = '\t\tif row.Past {\n'
+INSERT_IN_TX = ('\t\t\tif _, err := tx.Exec(ctx, insertJourneyEvent, id, userID, '
+                'row.Kind, row.DayNo,\n')
+INSERT_AUTOCOMMIT = INSERT_IN_TX.replace("tx.Exec", "p.pool.Exec")
+BATCH3_GUARD = '\tif s.batch3 != nil {\n'
+CFG_JOURNEY = '\t\tCutoverJourney:         envInt("CLOSEN_CUTOVER_JOURNEY", 0),\n'
+# int() 的字符集四支（#91–#94）：全按「最可能顺手写成的 ASCII 版」破坏。
+ND_LOOKUP = '\tlo, ok := ndRunStart(r)\n'
+ND_NO_ND = '\tlo, ok := rune(0), false\n'
+ND_MOD10 = '\treturn int((r - lo) % 10)\n'
+ND_RAW_OFFSET = '\treturn int(r - lo)\n'
+USCORE_GATE = ('\t\t\tif !prevDigit || i+1 >= len(runes) '
+               '|| digitValue(runes[i+1]) < 0 {\n')
+USCORE_LOOSE = '\t\t\tif !prevDigit && false {\n'
+SPACE_TRIM = '\tfor len(runes) > 0 && unicode.IsSpace(runes[0]) {\n'
+SPACE_ASCII = '\tfor len(runes) > 0 && strings.IndexRune(" \\t\\n\\r\\v\\f", runes[0]) >= 0 {\n'
+
+# 批 3②（2026-10-15）：wallClockToUTC 换成「按定义求自洽瞬间集合」之后的四支。
+# 起因是 push_moment_corpus 第一次把**重复墙钟**摆到闸面前——批 2 的 week_window 语料
+# 只撞得上「缺位」那一支，而 Go 原生 time.Date 在重复墙钟上按区给相反答案
+# （纽约取切换前、伦敦/悉尼/豪勋爵岛取切换后），老的「先信 guess、只有不可逆才重算」
+# 写法对后者整支隐形。
+WALL_LATEST = '\t\tif !found || at > earliest {\n'
+WALL_EARLIEST = '\t\tif !found || at < earliest {\n'
+WALL_CONSISTENCY = '\t\tif _, check := time.Unix(at, 0).In(zone).Zone(); check != o {\n'
+WALL_CONSISTENCY_OFF = '\t\tif _, check := time.Unix(at, 0).In(zone).Zone(); check != o && false {\n'
+WALL_NARROW_SCAN = '\tfor k := 0; k <= 1; k++ { // 变异：只采 W 附近一小时\n'
+WALL_SCAN = '\tfor k := -32; k <= 32; k++ { // ±16h，30 分钟一步\n'
+WALL_GAP_MIN = '\tif o2 < o1 {\n'
+WALL_GAP_MIN_OFF = '\tif false && o2 < o1 {\n'
+
+# 批 3④（2026-10-15）：坏 **Go 源**、打红的是 **Python 侧** test_n8_batch3_contract.py。
+# 分工与批 1 相同：这一支的存在理由是「改 Go 的人本地 pytest 必须红」——
+# 只让 Go 的回放红，等于改错了要等上线放量才发现。
+SCRIPT_ORDER = '\t{"day3_weak_assert", 3},\n\t{"day5_stat", 5},\n'
+SCRIPT_SWAPPED = '\t{"day5_stat", 5},\n\t{"day3_weak_assert", 3},\n'
+LIST_LIMIT_50 = 'const JourneyListLimit = 50\n'
+LIST_LIMIT_200 = 'const JourneyListLimit = 200\n'
+PUSH_HOUR_9 = '\tdefaultPushHour   = 9\n'
+PUSH_HOUR_8 = '\tdefaultPushHour   = 8\n'
+ACK_MSG_FULL = 'const forbiddenJourneyMessage = "事件不存在 / Event not found"\n'
+ACK_MSG_ZH_ONLY = 'const forbiddenJourneyMessage = "事件不存在"\n'
+ACK_ID_36 = "const maxJourneyEventID = 36\n"
+ACK_ID_64 = "const maxJourneyEventID = 64\n"
+UNSEEN_IS_FALSE = "AND acknowledged IS FALSE`"
+UNSEEN_EQ_FALSE = "AND acknowledged = false`"
+ACK_SQL_OWNER = "SET status = 'seen', acknowledged = true WHERE id = $1"
+ACK_SQL_OWNER_ADD = "SET status = 'seen', acknowledged = true WHERE id = $1 AND user_id = $2"
+SILENT_USER_RETURN = '\tif !user.Found {\n\t\treturn nil\n\t}\n'
+SILENT_USER_40401 = ('\tif !user.Found {\n'
+                      '\t\treturn apierr.New(apierr.CodeUserNotFound, '
+                      '"用户不存在 / User not found")\n\t}\n')
+MASK_EVENT_RE = '"id":"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"'
+MASK_EVENT_RE_TIGHT = '"id":"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{11}"'
+DELEGATE_DOMAIN = 'Gate.Delegate(w, r, "journey", userID)'
+DELEGATE_DOMAIN_TYPO = 'Gate.Delegate(w, r, "journeys", userID)'
+CM_JOURNEY_ZERO = '  CLOSEN_CUTOVER_JOURNEY: "0"\n'
+CM_JOURNEY_FULL = '  CLOSEN_CUTOVER_JOURNEY: "100"\n'
+# 夹具面与录制面（#111–#114）：坏的是**语料/登记**，不是 Go 实现。
+FX_GROUP_JOURNEY = '"group": "journey"'
+FX_GROUP_TYPO = '"group": "journeyp"'
+FX_CORPUS_KEY = '"push_moment_corpus"'
+FX_CORPUS_KEY_TYPO = '"push_moment_corpusz"'
+GS_FREEZE_JOURNEY_TODAY = '    journey_module.local_today = local_today_at\n'
+GS_FREEZE_WRONG_MODULE = '    time_utils.local_today = local_today_at\n'
+RJ_GET_DEPRECATED = '@router.get("/journey/events", deprecated=True)\n'
+RJ_GET_LIVE = '@router.get("/journey/events")\n'
+UPDATE_IN_TX = '\t\t\tif _, err := tx.Exec(ctx, updateJourneySchedule, id, row.ScheduledAt,\n'
+UPDATE_AUTOCOMMIT = '\t\t\tif _, err := p.pool.Exec(ctx, updateJourneySchedule, id, row.ScheduledAt,\n'
+FX_SEED_FULLWIDTH = ('"status": "active",\n'
+                     '        "push_time": "\uff11\uff12:\uff13\uff14",')
+FX_SEED_FULLWIDTH_ASCII = ('"status": "active",\n'
+                           '        "push_time": "12:34",')
 
 MUTATIONS = [
     # ── analytics 的 400 体（FastAPI 的 body 读取面）──────────────────────────
@@ -736,9 +875,10 @@ MUTATIONS = [
       backup(FX), patch(FX, FX_ANCHOR, '"recorded_at": "2026-10-14T14:45:30Z"')),
 
     m(74, "播种行改回相对当下：curriculum 的窗口按「本周」取行，相对播种会让两侧"
-          "在不同日期读到不同一周，28 条回放的字节就成了掷骰子",
+          "在不同日期读到不同一周，28 条回放的字节就成了掷骰子"
+          "（批 3 重录夹具后同一 scheduled_at 形态出现 15 次，所以整批换掉）",
       "pytest", f"{B2_PYTEST}::test_anchor_is_recorded_for_the_frozen_clock", "",
-      backup(FX), patch(FX, FX_SCHED, '"scheduled_at": "days_ago:2"')),
+      backup(FX), patch_all(FX, FX_SCHED, '"scheduled_at": "days_ago:2"')),
 
     # ── 批 1 登记「没有观测点」的两支，补夹具后第一次可证 ─────────────────────
     m(75, "repr(bytes) 的引号选择：体里含单引号且不含双引号时 Python 用双引号包裹 "
@@ -759,6 +899,247 @@ MUTATIONS = [
           "400 体换成 json_invalid 形态（batch-content-type-duplicate-json）",
       "go", API_TESTS, "TestN8ValidationContractBytes",
       backup(AB), patch(AB, CT_RETURN, CT_JSONISH)),
+
+    # ── 批 3（journey 域）：只有这里能打红的四类口径 ────────────────────────────
+    # 分工：#78–#84 打的是 Go 单元/集成测（假件与真库），逐字节回放看不到「为什么」；
+    # #85–#87 打的是机制存在性（接线开关、灰度默认值）。
+    m(78, "Past 的边界从 `day < today` 松成 `day <= today`：day0 恰好是基准日那天时，"
+          "Python 不判过期、Go 判过期 ⇒ 当天就把自己刚生成的 day0 事件 skip 掉，"
+          "unseen 计数与剧本行状态同时分家（domain 表测钉的就是这个边界）",
+      "go", DOMAIN_TESTS, "TestJourneyPrefillPlanShape",
+      backup(DJ), patch(DJ, PAST_STRICT, PAST_LOOSE)),
+
+    m(79, "写进 payload 列的文本用响应面的紧凑分隔符：Python 那边是 "
+          "`json.dumps(dict)` 的**默认**分隔符（逗号后带空格、冒号后带空格），"
+          "两侧写出的列文本不同⇒下一轮读取时「谁覆盖谁」就可能比出差异",
+      "go", API_TESTS, "PyDumpsSpaced|TestJourneyPrefillPayloadText",
+      backup(PB), patch(PB, SPACED_COMMA, '\t\t\t\tb.WriteString(",")\n')),
+
+    m(80, "GET 不做预写：journey 的列表端点是**惰性写入者**（ensure_prefilled），"
+          "把它撤掉后新用户的 events 直接空数组，而响应形状看不出少了六行",
+      "go", API_TESTS, "TestJourneyEventsCallOrderMatchesListEvents",
+      backup(B3), patch(B3, PREFILL_HEAD, PREFILL_HEAD_NOOP)),
+
+    m(81, "未读数挪到列表之前：Python 的 list_events 是「预写⇒列表⇒count_unseen」，"
+          "count 在预写之后才把刚插入的 pending 算进 unseen_count 的**反面**（sent 才算）。"
+          "顺序换侧在单条响应上可能同值，所以这里钉的是调用序列",
+      "go", API_TESTS, "TestJourneyEventsCallOrderMatchesListEvents",
+      backup(JE), patch(JE, LIST_CALL, LIST_CALL_AFTER_COUNT)),
+
+    m(82, "时间戳改用 pydantic 的 Z 形：这条端点没有 response_model，"
+          "走的是 jsonable_encoder ⇒ datetime.isoformat() ⇒ `+00:00`；"
+          "写成 Z 就是逐字节不同（批 1 的 discovery 有模型，那边才是 Z）",
+      "go", API_TESTS, "TestJourneyEventsDatetimeISOHasNoZAndKeepsSixMicroDigits",
+      backup(JE), patch(JE, SCHED_ISO, SCHED_ISO_Z)),
+
+    m(83, "文本列照抄批 2 的 dict 强制：journey 用的是 parse_json，"
+          "**没有** isinstance 检查——列里存 5 就回 5、存数组就回数组；"
+          "换成 payloadObject 会把非对象静默变成 {}（契约里是值，不是疏忽）",
+      "go", API_TESTS, "TestJourneyEventsPassTextColumnsThroughWithoutKindCheck",
+      backup(JE), patch(JE, PAYLOAD_RAW, PAYLOAD_DICT)),
+
+    m(84, "max_length 按 UTF-8 字节数而不是码点：26 个汉字码点＝39 字节，"
+          "Python 判合法、按字节判就成 400（37 个 ASCII 与 40 个汉字两侧同结论，"
+          "只有这个差集能打红）",
+      "go", API_TESTS, "TestJourneyAckLengthCountsCodePointsNotBytes",
+      backup(PB), patch(PB, ACK_LEN_RUNE, ACK_LEN_BYTE),
+      patch(PB, UTF8_IMPORT, '\t_ "unicode/utf8"\n')),
+
+    m(85, "acknowledge 丢掉归属判定：repository.get 不带 user_id 谓词，"
+          "「别人的事件」只能靠 service 那句比对挡下；撤掉后这条端点变成"
+          "把事件改成 seen 的跨用户写入口",
+      "go", API_TESTS, "TestJourneyAckMissingAndForeignAreIdentical",
+      backup(JA), patch(JA, ACK_OWNER_GATE, '\tif !owner.Found {\n')),
+
+    m(86, "响应回显列值而不是请求里的 event_id（routers/journey.py:41 回的是入参）："
+          "假件把列值故意设成另一个串，所以这一条改法必然打红",
+      "go", API_TESTS, "TestJourneyAckSuccessAndOwnership",
+      backup(JA), patch(JA, ACK_ECHO_REQ, ACK_ECHO_COL)),
+
+    m(87, "注册挪出「批 3 已接线」开关：机制没接线时 Go 也答这一域，"
+          "Ingress 一刀指过来就是 panic/500，而不是回落到 py-api",
+      "go", API_TESTS, "TestJourneyRoutesAbsentWithoutBatch3",
+      backup(SV), patch(SV, BATCH3_GUARD, '\tif true {\n')),
+
+    m(88, "journey 灰度默认 100：忘了配键的部署直接把这一域全给 Go，"
+          "「部署了但没开灰度」这一安全态就没了（与批 1/批 2 同一条口径）",
+      "go", CFG_TESTS, "TestN8CutoverDefaults",
+      backup(CF), patch(CF, CFG_JOURNEY,
+                        '\t\tCutoverJourney:         envInt("CLOSEN_CUTOVER_JOURNEY", 100),\n')),
+
+    m(89, "skip 不看**落库前**的 status：Python 在 schedule() 之后读的是既有行的 status"
+          "（schedule 不改 status），已 sent 的行即使落在过去也必须留在 sent；"
+          "写成「Past 就 skip」等于把已送达的推送记录擦成 skipped",
+      "go", STORE_TESTS, "TestPrefillJourneyNeverRewritesSentRow",
+      backup(LB3), patch(LB3, SKIP_GATE, SKIP_NO_STATUS)),
+
+    m(90, "prefill 的 INSERT 走 autocommit：Python 那六组改/插在同一请求事务里，"
+          "任何一步抛异常整批回滚；逐条提交会留下「前六行已写、第七行失败」的半份剧本，"
+          "两侧下一轮读出的字节就不同（真库用 day_no 溢出打断第七行）",
+      "go", STORE_TESTS, "TestPrefillJourneyRollsBackWholeBatch",
+      backup(LB3), patch(LB3, INSERT_IN_TX, INSERT_AUTOCOMMIT)),
+
+    # 2026-10-15 追加：push_time 的 int() 字符集。起因是实测发现入口校验
+    # `re.fullmatch(r"\d{2}:\d{2}")`（backend/models/schemas.py:400）里的 \d 是
+    # **Unicode 感知**的，「１２:３４」5 个字符正好落进 VARCHAR(5)（models/user.py:29）
+    # ⇒ 这不是历史脏值才碰得到的分支。四支各打一条，打红的是同一个表测。
+    m(91, "int() 只认 ASCII 数字（撤掉 Nd 查表）：全角/阿拉伯-印度 push_time 在 Python "
+          "那边是 12:30，在 Go 这边静默落回 9:00 兜底⇒预写进库的 scheduled_at 差 3.5 小时，"
+          "而响应只回日期时间，看不出是谁算错的",
+      "go", DOMAIN_TESTS, "TestJourneyPushTimeParsing",
+      backup(DJ), patch(DJ, ND_LOOKUP, ND_NO_ND)),
+
+    m(92, "Nd 位值不做 %10：Go 的 unicode.Nd.R32 把五个数学数字 run 并成 "
+          "1D7CE-1D7FF 一条，𝟙 的偏移是 11 而不是 1⇒「𝟙𝟚:𝟘𝟛」算成 11:3（Python 给 12:3）",
+      "go", DOMAIN_TESTS, "TestJourneyPushTimeParsing",
+      backup(DJ), patch(DJ, ND_MOD10, ND_RAW_OFFSET)),
+
+    m(93, "下划线闸门撤掉（当成任意位置都合法）：CPython 只认两个数字之间的单个下划线，"
+          "「1__0」在它那边是 ValueError⇒9:00；松判定会读成 10:00",
+      "go", DOMAIN_TESTS, "TestJourneyPushTimeParsing",
+      backup(DJ), patch(DJ, USCORE_GATE, USCORE_LOOSE)),
+
+    m(94, "首尾只剥 ASCII 空白：CPython 的空白集与 Go 的 unicode.IsSpace 实测是同一个"
+          "25 码位集合（含 NBSP/ideographic space，不含 001C-001F），退回 ASCII 表 "
+          "就让「\\xa09:30」落回 9:00 而不是 9:30",
+      "go", DOMAIN_TESTS, "TestJourneyPushTimeParsing",
+      backup(DJ), patch(DJ, SPACE_TRIM, SPACE_ASCII)),
+
+    # ── 批 3②：墙钟→瞬间的四支（push_moment_corpus 736 条才第一次打得到的那面）──
+    # 老写法是「先信 time.Date 的 guess，只有墙钟不可逆才重算」，而 Go 原生在
+    # **重复墙钟**上按区给相反答案：纽约给切换前（与 Python 同），伦敦/悉尼/豪勋爵岛
+    # 给切换后（与 Python 差 30–60 分钟）。批 2 的 week_window 语料只撞得上缺位，
+    # 所以那支错误实现整批绿；下面四条就是把「重复」这一支钉住。
+    m(95, "重复墙钟取**第二次**出现（`at < earliest` 换成 `>`）：伦敦 2024-10-27 01:30 "
+          "从 00:30Z 变 01:30Z，悉尼 2024-04-07、豪勋爵岛 2026-04-05 同步差 30–60 分钟；"
+          "Python 的 fold=0 恒取第一次",
+      "go", API_TESTS, "TestN8PushMomentCorpus",
+      backup(DC), patch(DC, WALL_EARLIEST, WALL_LATEST)),
+
+    m(96, "撤掉自洽回代检验（`check != o` 松成永假）：候选集合里会混进「该瞬间的本地墙钟"
+          "其实不是 W」的偏移，取到的最早瞬间落在另一小时；缺位/重复两支都失去判据",
+      "go", API_TESTS, "TestN8PushMomentCorpus",
+      backup(DC), patch(DC, WALL_CONSISTENCY, WALL_CONSISTENCY_OFF)),
+
+    m(97, "缺位分支不再取两个邻域探测里的较小偏移：o1＝把墙钟当 unix 瞬间查到的偏移，"
+          "在拨快之后就是**切换后**偏移 ⇒ Tehran 2016-03-21 00:30、Santiago 2026-09-06 "
+          "00:30、Apia 2011-12-30 各差一小时或一整天（批 3① 修掉的那条真实缺陷）",
+      "go", DOMAIN_TESTS, "TestWallClockToUTC|TestCivilDayStartUTC|TestPushMomentOnDST",
+      backup(DC), patch(DC, WALL_GAP_MIN, WALL_GAP_MIN_OFF)),
+
+    m(98, "采样窗口收缩到 W 附近一小时：切换前的偏移落在窗外就采不到，重复墙钟只剩"
+          "「切换后」那一个候选 ⇒ 与伦敦/悉尼那几条同形；这一条证的是 ±16h 那个"
+          "「覆盖 tzdata 全部合法偏移」的界不是随手写的数",
+      "go", API_TESTS, "TestN8PushMomentCorpus",
+      backup(DC), patch(DC, WALL_SCAN, WALL_NARROW_SCAN)),
+
+    # ── 批 3④：坏 Go 源 ⇒ 红的是 Python 侧的跨语言登记闸（backend/tests/
+    #    test_n8_batch3_contract.py）。这一批的口径大半在「两侧字面量/谓词是否还同源」，
+    #    Go 的回放闸看不见（它只比字节），所以必须有一条能让**改 Go 的人本地立刻红**的闸。──
+    m(99, "Go 的 ScriptEvents 把 D3/D5 两行调换顺序：Python 按 SCRIPT_EVENTS 的顺序在同一"
+          "事务里写六行，行序就是响应数组的字节序；顺序抄混逐字节回放会红，但「常量表本身"
+          "还与不 Python 同字面量」这件事只有这一条闸看得见",
+      "pytest", B3_PYTEST + "::test_script_events_table_matches_go_row_for_row", "",
+      backup(DJ), patch(DJ, SCRIPT_ORDER, SCRIPT_SWAPPED)),
+
+    m(100, "JourneyListLimit 从 50 抬到 200（仓库默认值那一批 Python 常量最容易「顺手统一」）："
+           "limit=50 在 Python 侧有两处——journey_repository.list_for_user 的默认值与 "
+           "journey_service.py:888 的显式实参；只改 Go 就与其中一处分家，第 51 行起两侧不同",
+      "pytest", B3_PYTEST + "::test_list_limit_and_push_fallback_literals_match_go", "",
+      backup(DJ), patch(DJ, LIST_LIMIT_50, LIST_LIMIT_200)),
+
+    m(101, "兜底推送时刻从 9:00 改成 8:00：`user.push_time or \"09:00\"` 与 "
+           "`except …: hour, minute = 9, 0` 两条分支在 Go 合成这一对常量，改一个数就让"
+           "所有没设偏好的用户整条剧本平移一小时",
+      "pytest", B3_PYTEST + "::test_list_limit_and_push_fallback_literals_match_go", "",
+      backup(DJ), patch(DJ, PUSH_HOUR_9, PUSH_HOUR_8)),
+
+    m(102, "越权文案丢掉后半句英文（journey_service.py:911 是双语字面量）："
+           "404 体逐字节不同，而这条端点的「越权与不存在合成同一条」正是防 id 枚举的那格",
+      "pytest", B3_PYTEST + "::test_ack_contract_literals_match_go", "",
+      backup(JA), patch(JA, ACK_MSG_FULL, ACK_MSG_ZH_ONLY)),
+
+    m(103, "event_id 的长度上限从 36 抬到 64：schemas.py:534 的 max_length=36 是 422/400 的"
+           "判据来源，Go 放宽后 37 字符的入参在两侧一个回 400 一个回 40402",
+      "pytest", B3_PYTEST + "::test_ack_contract_literals_match_go", "",
+      backup(PB), patch(PB, ACK_ID_36, ACK_ID_64)),
+
+    m(104, "未读数的 `acknowledged IS FALSE` 写成 `= false`：SQLAlchemy 的 `.is_(False)` "
+           "与前者同形，后者在 NULL 行上不给 true；acknowledged 可空，这是谓词不是风格",
+      "pytest", B3_PYTEST + "::test_count_unseen_predicate_and_call_order_match_go", "",
+      backup(LB3), patch(LB3, UNSEEN_IS_FALSE, UNSEEN_EQ_FALSE)),
+
+    m(105, "acknowledge 的 UPDATE 加进 user_id 谓词：归属判定在 service（"
+           "journey_service.py:910），写进 SQL 会让「越权」从 40402 变成 0 行受影响⇒200，"
+           "错误形状就换了；这条也是「SQL 里没有 user_id」这一形状的闸",
+      "pytest", B3_PYTEST + "::test_ack_update_sets_two_columns_without_owner_predicate", "",
+      backup(LB3), patch(LB3, ACK_SQL_OWNER, ACK_SQL_OWNER_ADD)),
+
+    m(106, "惰性写入者的沉默升成 40401：`if !user.Found` 在 Python 那边是 "
+           "`if user is None: return`（get_user 过滤 status='active'），静默返回后照样列行"
+           "⇒注销用户回 200。改成报错看着更合理，但灰度期同一账号两侧状态码不同",
+      "pytest", B3_PYTEST + "::test_lazy_writer_silence_is_not_promoted_to_an_error", "",
+      backup(B3), patch(B3, SILENT_USER_RETURN, SILENT_USER_40401)),
+
+    m(107, "scheduled_at 改用批 1 的 pyISO（\"Z\"）：journey 的路由没有 response_model，"
+           "FastAPI 走 jsonable_encoder⇒isoformat⇒\"+00:00\"；两处格式不同是两条序列化路径，"
+           "「统一成一种」就是改契约",
+      "pytest", B3_PYTEST + "::test_journey_datetimes_serialize_with_offset_not_z", "",
+      backup(JE), patch(JE, SCHED_ISO, SCHED_ISO_Z)),
+
+    m(108, "uuid 掩码正则的最后一段从 12 收成 11：末段没被掩掉的预写行走的是另一条出口"
+           "（Go 少掩 ⇒ 常红，多掩 ⇒ 把真发散掩成绿），两侧的正则必须是同一条字面量",
+      "pytest", B3_PYTEST + "::test_event_id_mask_definition_is_the_same_on_both_sides", "",
+      backup(RP), patch(RP, MASK_EVENT_RE, MASK_EVENT_RE_TIGHT)),
+
+    m(109, "转交判定的域名写成 \"journeys\"：编译通过、测试里假件也不看这个串（它是 cutover "
+           "登记表的键），后果是这一域永远不在桶里⇒永远只多一跳代理，放量那次才发现",
+      "pytest", B3_PYTEST + "::test_go_registers_both_journey_routes_under_the_batch3_switch", "",
+      backup(JE, JA), patch(JE, DELEGATE_DOMAIN, DELEGATE_DOMAIN_TYPO),
+      patch(JA, DELEGATE_DOMAIN, DELEGATE_DOMAIN_TYPO)),
+
+    m(110, "ConfigMap 的 journey 灰度键从 0 抬到 100：清单是运维侧唯一说「这一批只接不放量」"
+           "的地方，改它是一次上线动作，必须被闸拦住（与批 1/批 2 的 k8s 闸同一条口径）",
+      "pytest", B3_PYTEST + "::test_cutover_journey_switch_exists_in_go_and_manifest_not_python",
+      "", backup(CFG), patch(CFG, CM_JOURNEY_ZERO, CM_JOURNEY_FULL)),
+
+    # 夹具面与录制面：坏的不是 Go 实现，而是「语料/登记」本身。
+    m(111, "夹具里 journey 组的组名漂成 journey p（46 处一起改）：回放闸按组取用例，"
+           "组名一漂，Python 侧的「46 条 + 惰性写入者各分支点名」就看见空组——"
+           "这一条证的是覆盖面闸不是只在数自己写的数",
+      "pytest", B3_PYTEST + "::test_journey_group_cases_cover_the_lazy_writer_branches", "",
+      backup(FX), patch_all(FX, FX_GROUP_JOURNEY, FX_GROUP_TYPO)),
+
+    m(112, "录制侧把时钟钉到**错的模块**（time_utils 而不是 journey_service 的模块全局）："
+           "prefill 里的 `local_today(...)` 是晚绑定，钉 time_utils 一点作用都没有，"
+           "录出来的 scheduled_at 属于录制那一刻；这一条证的是 test_recorder_freezes… 的锚点"
+           "必须按行首匹配（注释掉的那行也不算冻钟）",
+      "pytest", B3_PYTEST + "::test_recorder_freezes_the_journey_clock", "",
+      backup(GS), patch(GS, GS_FREEZE_JOURNEY_TODAY, GS_FREEZE_WRONG_MODULE)),
+
+    m(113, "语料键名漂移（push_moment_corpus ⇒ push_moment_corpusz）：Go 的结构体标签与"
+           "Python 的 `fixture[...]` 都按这个键取，键一漂两侧就在**空语料**上空跑；"
+           "与 #41 同一条口径，只是换到批 3 新加的这支日历核",
+      "pytest", B3_PYTEST + "::test_push_moment_corpus_does_not_degenerate", "",
+      backup(FX), patch(FX, FX_CORPUS_KEY, FX_CORPUS_KEY_TYPO)),
+
+    m(114, "第④步少标一条：GET /journey/events 的 deprecated 被摘掉。客户端在 openapi 里"
+           "看到的路径归属与 Ingress/ConfigMap 说的不再一致，放量那次会以为自己在切一条"
+           "其实还全量由 Python 答的线（批 2 的 #71/#72 证过同一条机制，这里补 journey）",
+      "pytest", B3_PYTEST + "::test_both_journey_routes_deprecated_yet_still_routable", "",
+      backup(RJ), patch(RJ, RJ_GET_DEPRECATED, RJ_GET_LIVE)),
+
+    m(115, "prefill 的 UPDATE 那一支挪出事务（改完计划时刻就 autocommit）：Go 侧「事务内"
+           "四条语句」的形状是原子性的唯一可见证据，真库回滚测（#90）看的是插入支，"
+           "这一条补上命中既有行那一支",
+      "pytest", B3_PYTEST + "::test_prefill_is_one_transaction_on_both_sides", "",
+      backup(LB3), patch(LB3, UPDATE_IN_TX, UPDATE_AUTOCOMMIT)),
+
+    m(116, "播种面把全角 push_time 写成 ASCII（列值形状没了）：`１２:３４` 是这一批唯一"
+           "让「CPython 的 int() 认 Nd」走到**对外字节**那一层的输入（events-push-fullwidth "
+           "那条用例），摘掉它，Nd 支只剩 domain 表测，HTTP 面上两侧一致与否无人可证",
+      "pytest", B3_PYTEST + "::test_seed_face_has_the_journey_row_shapes", "",
+      backup(FX), patch(FX, FX_SEED_FULLWIDTH, FX_SEED_FULLWIDTH_ASCII)),
 ]
 
 
@@ -816,8 +1197,8 @@ def main() -> int:
             print((proc.stdout + proc.stderr)[-2000:])
             return 1
     proc = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, K8S_PYTEST,
-         "-q", "--no-header"],
+        [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, B3_PYTEST,
+         K8S_PYTEST, "-q", "--no-header"],
         cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
     print(f"[{'GREEN' if proc.returncode == 0 else 'BROKEN'}] 复跑 Python 侧闸门："
