@@ -60,7 +60,8 @@ func TestN8CutoverDefaults(t *testing.T) {
 	t.Setenv("JWT_SECRET", "unit-test-secret-unit-test-unit-test")
 	for _, key := range []string{"CLOSEN_PY_API_URL", "CLOSEN_CUTOVER_ANALYTICS",
 		"CLOSEN_CUTOVER_DISCOVERY", "CLOSEN_CUTOVER_CURRICULUM", "CLOSEN_CUTOVER_JOURNEY",
-		"POSTHOG_API_KEY", "POSTHOG_HOST"} {
+		"CLOSEN_CUTOVER_ONBOARDING", "POSTHOG_API_KEY", "POSTHOG_HOST",
+		"SITE_URL", "APP_STORE_URL"} {
 		if os.Getenv(key) != "" {
 			t.Fatalf("环境里已有 %s，这条用例会比错值", key)
 		}
@@ -70,10 +71,10 @@ func TestN8CutoverDefaults(t *testing.T) {
 		t.Fatalf("默认配置 Load: %v", err)
 	}
 	if cfg.CutoverAnalytics != 0 || cfg.CutoverDiscovery != 0 || cfg.CutoverCurriculum != 0 ||
-		cfg.CutoverJourney != 0 {
-		t.Errorf("灰度默认 = (%d, %d, %d, %d)，期望 (0, 0, 0, 0)",
+		cfg.CutoverJourney != 0 || cfg.CutoverOnboarding != 0 {
+		t.Errorf("灰度默认 = (%d, %d, %d, %d, %d)，期望全 0",
 			cfg.CutoverAnalytics, cfg.CutoverDiscovery, cfg.CutoverCurriculum,
-			cfg.CutoverJourney)
+			cfg.CutoverJourney, cfg.CutoverOnboarding)
 	}
 	if cfg.CutoverPyAPIURL != "" {
 		t.Errorf("CLOSEN_PY_API_URL 不该有默认值：%q", cfg.CutoverPyAPIURL)
@@ -85,6 +86,15 @@ func TestN8CutoverDefaults(t *testing.T) {
 	if cfg.PosthogAPIKey != "" {
 		t.Errorf("POSTHOG_API_KEY 不该有默认值：%q", cfg.PosthogAPIKey)
 	}
+	// 两条深链站点默认值抄的是 backend/config.py:118、:123 的字面量。
+	// 它们会**落进 first_read 列**（restore 之后按列复现、不再回查设置），
+	// 所以抄歪不是「显示不一样」而是同一个账号在两侧拿到不同的分享链接。
+	if cfg.SiteURL != "https://closenai.app" {
+		t.Errorf("SITE_URL 默认 = %q，期望 https://closenai.app", cfg.SiteURL)
+	}
+	if cfg.AppStoreURL != "https://apps.apple.com/app/closenai/id6740000000" {
+		t.Errorf("APP_STORE_URL 默认 = %q，与 backend/config.py:118 不同", cfg.AppStoreURL)
+	}
 }
 
 // TestN8CutoverPercentRefusesOutOfRange 是那句「越界拒绝启动而不是夹紧」：
@@ -92,7 +102,7 @@ func TestN8CutoverDefaults(t *testing.T) {
 func TestN8CutoverPercentRefusesOutOfRange(t *testing.T) {
 	t.Setenv("JWT_SECRET", "unit-test-secret-unit-test-unit-test")
 	for _, key := range []string{"CLOSEN_CUTOVER_ANALYTICS", "CLOSEN_CUTOVER_DISCOVERY",
-		"CLOSEN_CUTOVER_CURRICULUM", "CLOSEN_CUTOVER_JOURNEY"} {
+		"CLOSEN_CUTOVER_CURRICULUM", "CLOSEN_CUTOVER_JOURNEY", "CLOSEN_CUTOVER_ONBOARDING"} {
 		for _, bad := range []string{"-5", "101", "1000"} {
 			t.Setenv("CLOSEN_INSIGHT_EVIDENCE_READ", "on")
 			t.Setenv(key, bad)

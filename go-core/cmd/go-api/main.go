@@ -69,6 +69,7 @@ func main() {
 		"discovery":  cfg.CutoverDiscovery,
 		"curriculum": cfg.CutoverCurriculum,
 		"journey":    cfg.CutoverJourney,
+		"onboarding": cfg.CutoverOnboarding,
 	})
 	if err != nil {
 		log.Fatalf("go-api: cutover: %v", err)
@@ -87,10 +88,14 @@ func main() {
 	// 所以这个域是三条里唯一**带写**的（见 httpapi/batch3.go 的事务口径）。
 	batch3 := &httpapi.Batch3{Store: pg, Gate: gate}
 
+	// N8 批 4（onboarding 域）：一次 POST 写三处（users.referral_code、
+	// onboarding_profiles、journey_events 六行），三处包在同一个 pgx 事务里。
+	batch4 := &httpapi.Batch4{Store: pg, Gate: gate}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewServer(cfg, signer, service, explainer,
-			batch1, batch2, batch3).Handler(),
+			batch1, batch2, batch3, batch4).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -28,6 +28,12 @@ type Config struct {
 	// app.posthog.com——两侧要打到同一个收件箱，只能以 settings 为准。
 	PosthogAPIKey string
 	PosthogHost   string
+	// SiteURL / AppStoreURL 与 backend/config.py:118、:123 同名同默认值：
+	// onboarding 的 share_url 由它们拼出，且**落进 first_read 列**（restore 之后按列复现、
+	// 不再回查设置），所以默认值抄歪会让两侧给同一个账号写出不同的深链。
+	// Python 的 BaseSettings 没有 env_prefix ⇒ 变量名就是大写字段名，无前缀。
+	SiteURL     string
+	AppStoreURL string
 	// CutoverPyAPIURL 与各域百分比是 N8 的灰度面，全带 CLOSEN_ 前缀：
 	// Python 侧没有对应字段（它不知道自己被切了多少），所以它们**不进**跨语言变量名单。
 	// 默认 0＝Go 一条都不自己答，只当代理，于是「部署了但没开灰度」是安全态。
@@ -37,6 +43,8 @@ type Config struct {
 	CutoverCurriculum int
 	// CutoverJourney 是 N8 批 3（journey 域）的放量键，口径与上面三个相同。
 	CutoverJourney int
+	// CutoverOnboarding 是 N8 批 4（onboarding 域）的放量键，口径同上。
+	CutoverOnboarding int
 	// InsightEvidenceRead 是 N9 依据展开端点的回退开关（D-3「旧口径留回退开关」）。
 	// 这是本结构里唯一的 Go-only 变量：CLOSEN_ 前缀与 domain 的数值闸同源，
 	// Python 侧没有对应字段，所以它不进上面的跨语言名单口径。
@@ -59,11 +67,14 @@ func Load() (Config, error) {
 		InsightEvidenceRead:    envString("CLOSEN_INSIGHT_EVIDENCE_READ", "on"),
 		PosthogAPIKey:          envString("POSTHOG_API_KEY", ""),
 		PosthogHost:            envString("POSTHOG_HOST", "https://eu.i.posthog.com"),
+		SiteURL:                envString("SITE_URL", "https://closenai.app"),
+		AppStoreURL:            envString("APP_STORE_URL", "https://apps.apple.com/app/closenai/id6740000000"),
 		CutoverPyAPIURL:        envString("CLOSEN_PY_API_URL", ""),
 		CutoverAnalytics:       envInt("CLOSEN_CUTOVER_ANALYTICS", 0),
 		CutoverDiscovery:       envInt("CLOSEN_CUTOVER_DISCOVERY", 0),
 		CutoverCurriculum:      envInt("CLOSEN_CUTOVER_CURRICULUM", 0),
 		CutoverJourney:         envInt("CLOSEN_CUTOVER_JOURNEY", 0),
+		CutoverOnboarding:      envInt("CLOSEN_CUTOVER_ONBOARDING", 0),
 	}
 	if cfg.JWTAlgorithm != "HS256" {
 		return cfg, errors.New("unsupported JWT_ALGORITHM: cross-language baseline is HS256")
@@ -78,6 +89,7 @@ func Load() (Config, error) {
 		"CLOSEN_CUTOVER_DISCOVERY":  cfg.CutoverDiscovery,
 		"CLOSEN_CUTOVER_CURRICULUM": cfg.CutoverCurriculum,
 		"CLOSEN_CUTOVER_JOURNEY":    cfg.CutoverJourney,
+		"CLOSEN_CUTOVER_ONBOARDING": cfg.CutoverOnboarding,
 	} {
 		if pct < 0 || pct > 100 {
 			return cfg, fmt.Errorf("%s must be 0..100, got %d", name, pct)

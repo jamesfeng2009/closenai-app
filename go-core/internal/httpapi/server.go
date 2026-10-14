@@ -35,6 +35,11 @@ type Server struct {
 	// 所以「不注册」在灰度期意味着**连补写都不发生**——未放量的用户仍由 py-api 补，
 	// 两侧行为一致的前提是 0% 时请求真的整条转交（internal/cutover）。
 	batch3 *Batch3
+	// batch4 是 N8 批 4（onboarding 域）的依赖面；nil 时那两条路由不注册，口径同批 3。
+	// 这个域是已切流域里唯一**一次请求写三处**的（users.referral_code、
+	// onboarding_profiles、journey_events 六行），且三处的写条件不同源，
+	// 见 batch4.go 头注释——所以未放量时的逐字一致完全依赖 0% 真转交。
+	batch4 *Batch4
 	// now 是**时钟注入点**，默认 time.Now。契约回放必须把它冻在录制那一刻：
 	// curriculum 的 week_start/每张卡的 date 都是「今天所在本地周」的函数，
 	// 夹具跨天重放会得到另一周（同 discovery 的 7/14 天窗口，但周视图是整周平移，
@@ -46,7 +51,7 @@ type Server struct {
 
 func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2,
-	batch3 *Batch3) *Server {
+	batch3 *Batch3, batch4 *Batch4) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
@@ -55,6 +60,7 @@ func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 		batch1:     batch1,
 		batch2:     batch2,
 		batch3:     batch3,
+		batch4:     batch4,
 		now:        time.Now,
 		mux:        http.NewServeMux(),
 	}
@@ -91,6 +97,12 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("GET /api/v1/journey/events", s.handleJourneyEvents)
 		s.mux.HandleFunc("POST /api/v1/journey/events/acknowledge",
 			s.handleJourneyAcknowledge)
+	}
+	// N8 批 4 的 onboarding 域（两条都在同一个 /onboarding/first-read path 上，
+	// 只是方法不同；POST 一次写三处，GET 只读一行）。
+	if s.batch4 != nil {
+		s.mux.HandleFunc("POST /api/v1/onboarding/first-read", s.handleFirstReadSubmit)
+		s.mux.HandleFunc("GET /api/v1/onboarding/first-read", s.handleFirstReadRestore)
 	}
 	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
 	s.mux.HandleFunc("/", s.handleNotFound)
