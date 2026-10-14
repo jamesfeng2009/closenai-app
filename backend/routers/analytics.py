@@ -21,7 +21,12 @@ def get_analytics_service() -> AnalyticsService:
     return analytics_service
 
 
-@router.post("/analytics/batch")
+# deprecated=True 是 N8 每域四步的第④步：该域的对外 HTTP 形状已由 Go Core 接管
+# （go-core/internal/httpapi/analytics_batch.go，逐字节契约见
+# go-core/testdata/n8_contract.json），这里保留实现只为「回滚＝把灰度改回 0」还成立。
+# 客户端零改动：deprecated 只进 openapi，不改响应体（backend/tests/test_contract_freeze.py
+# 逐字节校验的就是这份导出）。
+@router.post("/analytics/batch", deprecated=True)
 async def analytics_batch(
     request: AnalyticsBatchRequest,
     db: AsyncSession = Depends(get_db),

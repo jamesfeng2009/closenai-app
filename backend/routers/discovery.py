@@ -21,7 +21,9 @@ def get_discovery_service() -> DiscoveryService:
     return discovery_service
 
 
-@router.get("/discovery/daily")
+# deprecated=True：N8 每域四步的第④步，同 backend/routers/analytics.py 的注释口径
+# （Go 侧实现在 go-core/internal/httpapi/discovery_daily.go）。
+@router.get("/discovery/daily", deprecated=True)
 async def daily(
     db: AsyncSession = Depends(get_db),
     language: str = Depends(get_request_language),

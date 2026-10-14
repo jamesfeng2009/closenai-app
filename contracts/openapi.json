@@ -1034,6 +1034,7 @@
   "paths": {
     "/api/v1/analytics/batch": {
       "post": {
+        "deprecated": true,
         "description": "批量上报前端本地分析事件队列。\n\n后端校验用户 analytics_consent（未同意则丢弃），匿名化后按真实\noccurred_at 中继到 PostHog。返回 {relayed, dropped}，前端据此将\n已中继事件标记 synced=1 并清理。",
         "operationId": "analytics_batch_api_v1_analytics_batch_post",
         "requestBody": {
@@ -2054,6 +2055,7 @@
     },
     "/api/v1/discovery/daily": {
       "get": {
+        "deprecated": true,
         "description": "每日发现。\n\n基于 Personal Dataset 对比生成当日数据洞察。\n内容作为 AI 主动消息（P0-F01）四层公式的第②层发出。\n数据对比无显著变化时返回 has_discovery=false。",
         "operationId": "daily_api_v1_discovery_daily_get",
         "responses": {
