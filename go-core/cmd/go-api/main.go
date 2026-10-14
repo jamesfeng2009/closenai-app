@@ -14,9 +14,11 @@ import (
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/auth"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/config"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/cutover"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/dsn"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/httpapi"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/posthog"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
 
@@ -47,17 +49,34 @@ func main() {
 		log.Fatalf("go-api: postgres ping: %v", err)
 	}
 
+	pg := store.NewPG(pool)
 	signer := auth.NewSigner(cfg.JWTSecret,
 		time.Duration(cfg.JWTAccessExpireMinutes)*time.Minute,
 		time.Duration(cfg.JWTRefreshExpireDays)*time.Hour*24)
-	service := auth.NewService(store.NewPG(pool), signer, time.Duration(cfg.JWTRefreshExpireDays)*time.Hour*24)
+	service := auth.NewService(pg, signer, time.Duration(cfg.JWTRefreshExpireDays)*time.Hour*24)
 	// N9 的读面：同一个池，但走 Canonical 的**池面只读**方法（不开事务，
 	// 见 internal/store/canonical_read.go 的分段注释）。
 	explainer := domain.NewInsightExplainer(store.NewCanonical(pool), domain.DefaultPolicy())
 
+	// N8 批 1（analytics + discovery）的依赖面。灰度百分比未到的请求逐字转交 py-api，
+	// 所以 CLOSEN_PY_API_URL 缺失而百分比 <100 时是**拒绝启动**而不是静默 404。
+	gate, err := cutover.New(cfg.CutoverPyAPIURL, map[string]int{
+		"analytics": cfg.CutoverAnalytics,
+		"discovery": cfg.CutoverDiscovery,
+	})
+	if err != nil {
+		log.Fatalf("go-api: cutover: %v", err)
+	}
+	batch1 := &httpapi.Batch1{
+		Users: pg,
+		Moods: pg,
+		Relay: posthog.New(cfg.PosthogAPIKey, cfg.PosthogHost),
+		Gate:  gate,
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(cfg, signer, service, explainer).Handler(),
+		Handler:           httpapi.NewServer(cfg, signer, service, explainer, batch1).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -23,16 +23,21 @@ type Server struct {
 	// evidence 是 N9 的权威读路径；nil 时端点按信封 404 回，
 	// 让「没接读面」与「读面关闭」对客户端同形（不新增错误码）。
 	evidence *domain.InsightExplainer
-	mux      *http.ServeMux
+	// batch1 是 N8 批 1（analytics + discovery）的依赖面；nil 时这两条路由
+	// **不注册**，于是它们与「Go 侧从来没有这个域」同形（落到 handleNotFound），
+	// 灰度期把百分比压回 0 也不必改代码。
+	batch1 *Batch1
+	mux    *http.ServeMux
 }
 
 func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
-	explainer *domain.InsightExplainer) *Server {
+	explainer *domain.InsightExplainer, batch1 *Batch1) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
 		auth:       service,
 		evidence:   explainer,
+		batch1:     batch1,
 		mux:        http.NewServeMux(),
 	}
 	s.routes()
@@ -53,6 +58,11 @@ func (s *Server) routes() {
 	// 与 /healthz 同理：**不在** contracts/endpoints.md §五 的冻结登记表里，
 	// 登记表由 FastAPI 生成，加一行 Go 专有端点会打红 test_contract_freeze.py。
 	s.mux.HandleFunc("GET /api/v1/personal-model/insights/{id}/evidence", s.handleInsightEvidence)
+	// N8 批 1 的两个切流域。注册在 batch1 非 nil 时才有，见上面字段注释。
+	if s.batch1 != nil {
+		s.mux.HandleFunc("POST /api/v1/analytics/batch", s.handleAnalyticsBatch)
+		s.mux.HandleFunc("GET /api/v1/discovery/daily", s.handleDiscoveryDaily)
+	}
 	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
 	s.mux.HandleFunc("/", s.handleNotFound)
 }
