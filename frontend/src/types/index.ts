@@ -408,7 +408,7 @@ export interface FirstReadCard {
 
 // ═══ Share (P1-F04) ═══
 
-export type ShareCardVariant = 'classic' | 'minimal' | 'combo';
+export type ShareCardVariant = 'classic' | 'minimal' | 'combo' | 'memory';
 export type SharePeriod = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 
 export interface PersonalityCard {
@@ -566,12 +566,22 @@ export interface ShareLink {
 // ═══ 记忆考古（§10.1 ① · C4 首页每日主位）═══
 
 /** GET /share/on-this-day 的单条候选：某年今天你说过的原话（零 LLM，字段逐字对齐 share_service.on_this_day）。 */
+/** 回忆卡色环数据：原话那一日的首个签到（服务端按用户时区同窗口取，非今天）。 */
+export interface MemoryDayMood {
+  emoji: string;
+  label: string;
+  /** 情绪值 1–5（服务端 MOOD_MAP 口径，表外 emoji 折中为 3）。 */
+  value: number;
+}
+
 export interface OnThisDayCandidate {
   memory_id: string;
   content: string;
   /** 距今年数（1=一年前）；候选按它升序，同年内按落库序。 */
   years_ago: number;
   created_at: string | null;
+  /** 当日无签到 → null：色环走中性降级，不拿别日签到冒充当天。 */
+  mood?: MemoryDayMood | null;
 }
 
 export interface OnThisDayResponse {

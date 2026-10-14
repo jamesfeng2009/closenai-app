@@ -408,6 +408,18 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
                       {sharingId === c.memory_id ? t('common.saving') : t('home.archiveShare')}
                     </Text>
                   </TouchableOpacity>
+                  {/* 回忆卡（§10.1 ① 行动方案「日期大字＋当年原文＋情绪色环＋水印」）：
+                      带 memory_id 进分享屏的第四模板，情绪数据来自候选自带的 mood */}
+                  <TouchableOpacity
+                    style={styles.archiveRecallBtn}
+                    onPress={() => {
+                      track('memory_card_opened', { feature: 'memory', action: 'open' });
+                      navigation.navigate('ShareCard', { variant: 'memory', memory_id: c.memory_id });
+                    }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.archiveRecallText}>{t('home.archiveRecallCard')}</Text>
+                  </TouchableOpacity>
                 </>
               )}
             </View>
@@ -768,6 +780,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm, borderWidth: 1, borderColor: 'rgba(167,139,250,0.35)',
   },
   archiveShareText: { fontSize: FontSize.md, color: '#A78BFA' },
+  archiveRecallBtn: {
+    marginTop: Spacing.sm, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10,
+    borderRadius: BorderRadius.sm, borderWidth: 1, borderColor: Colors.borderGold,
+  },
+  archiveRecallText: { fontSize: FontSize.md, color: Colors.gold400 },
   archiveToggle: { marginTop: Spacing.sm, fontSize: FontSize.md, color: Colors.textTertiary },
   themeTitle: { fontSize: FontSize.xl, fontWeight: '600', color: Colors.textPrimary },
   themeAssertion: {

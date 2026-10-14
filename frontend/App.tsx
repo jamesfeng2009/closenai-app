@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { ShareCardVariant } from './src/types';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { I18nextProvider, useTranslation } from 'react-i18next';
@@ -70,7 +71,8 @@ export type RootStackParamList = {
   Paywall: undefined;
   Memories: undefined;
   RelationshipTimeline: undefined;
-  ShareCard: undefined;
+  // 回忆卡走第四模板时带 memory_id；不传即三张性格名片
+  ShareCard: { variant?: ShareCardVariant; memory_id?: string } | undefined;
   FirstReadCard: undefined;
   Week1Report: undefined;
   // 睡前复盘全屏（§5.16 S1 / UI Screen 26）：三步流程带输入框，不做 modal

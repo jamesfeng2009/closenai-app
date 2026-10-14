@@ -5,6 +5,9 @@
  * - 名片做"减法"：类型 + 标语 + 特质，可系统分享（微信/Ins/Twitter）
  * - 变体：classic 完整 / minimal 极简 / combo Pro 双维度组合（16 型 × 九型）
  * - combo 为 Pro 权益（40302 → 引导 Paywall）
+ * - memory 回忆卡（§10.1 ① C4 第四模板）：日期大字 + 当年原文 + 情绪色环 + 水印。
+ *   数据源是 GET /share/on-this-day 的候选（零 LLM、用户自己的原话），
+ *   不走 getPersonalityCard、也不挂 Pro 门控——它和首页考古卡是同一条引流出口。
  */
 import React, { useEffect, useState } from 'react';
 import {
@@ -12,22 +15,39 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
-import { getPersonalityCard, ApiError } from '../services/api';
+import { getPersonalityCard, getOnThisDay, getShareLink, ApiError } from '../services/api';
 import { trackFunnelShare } from '../services/funnel';
 import ShareManifest from '../components/ShareManifest';
-import type { PersonalityCard, ShareCardVariant } from '../types';
+import MoodRing from '../components/charts/MoodRing';
+import {
+  memoryCardDate, memoryCardExcerpt, memoryCardShareMessage,
+} from '../config/memoryRing';
+import type { OnThisDayCandidate, PersonalityCard, ShareCardVariant } from '../types';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode.PRO_REQUIRED 对齐（组合名片为 Pro 权益）
 const CODE_PRO_REQUIRED = 40302;
 
-const VARIANTS: ShareCardVariant[] = ['classic', 'minimal', 'combo'];
+const VARIANTS: ShareCardVariant[] = ['classic', 'minimal', 'combo', 'memory'];
 
-export default function ShareCardScreen({ navigation }: { navigation: any }) {
+export default function ShareCardScreen({
+  navigation,
+  route,
+}: {
+  navigation: any;
+  route?: { params?: { variant?: ShareCardVariant; memory_id?: string } };
+}) {
   const { t } = useTranslation();
-  const [variant, setVariant] = useState<ShareCardVariant>('classic');
+  // 从首页考古卡带 memory_id 进来时直达回忆卡；手输/深链缺参也只回到 classic，不猜一条记忆
+  const [variant, setVariant] = useState<ShareCardVariant>(
+    route?.params?.variant === 'memory' ? 'memory' : 'classic',
+  );
   const [card, setCard] = useState<PersonalityCard | null>(null);
+  const [memory, setMemory] = useState<OnThisDayCandidate | null>(null);
+  // 「今天」由服务端按用户时区下发，日期大字用它倒推年份，前端不自算周年
+  const [memoryToday, setMemoryToday] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [sharing, setSharing] = useState(false);
   // 失败态必须与「还在加载」「没有数据」分开呈现：旧写法 loading||!card 让请求
   // 失败后永远停在转圈，用户既不知道出错也没有重试入口。
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +60,22 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
       try {
         setLoading(true);
         setError(null);
+        // 两条数据路各自清空：换 variant 时不能拿上一张卡的内容渲染新卡
+        setCard(null);
+        setMemory(null);
+        if (variant === 'memory') {
+          const data = await getOnThisDay();
+          const wanted = route?.params?.memory_id;
+          const picked =
+            data.candidates.find((c) => c.memory_id === wanted)
+            ?? data.candidates.find((c) => !!c.content?.trim())
+            ?? null;
+          if (!stale) {
+            setMemory(picked);
+            setMemoryToday(data.date);
+          }
+          return;
+        }
         const data = await getPersonalityCard(variant);
         if (!stale) setCard(data);
       } catch (e) {
@@ -63,8 +99,29 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
     return () => { stale = true; };
   }, [variant, reloadTick]);
 
-  // 系统分享（分享文案由后端按语言生成，含 App Store 落地链接）
+  // 系统分享（性格名片走后端生成的 share_text；回忆卡走「原话 + 本人深链」两段文本）
   const onShare = async () => {
+    if (variant === 'memory') {
+      if (!memory || sharing) return; // 防连点：并发取链会白烧一个推荐码
+      try {
+        setSharing(true);
+        // 深链只在真要分享时取（后端首次调用才惰性生成 referral_code）
+        const { link } = await getShareLink();
+        trackFunnelShare('share_tapped', 'memory');
+        const res = await Share.share({
+          message: memoryCardShareMessage(memory.content, link),
+        });
+        if (res.action === Share.sharedAction) {
+          trackFunnelShare('share_completed', 'memory');
+        }
+      } catch (e) {
+        // 走屏内错误出口，不开新的 Alert 站点（Alert 站点数由 trustPresentation 盯）
+        setError(e instanceof ApiError ? e.message : t('share.memoryShareFailed'));
+      } finally {
+        setSharing(false);
+      }
+      return;
+    }
     if (!card) return;
     try {
       trackFunnelShare('share_tapped', 'personality_card');
@@ -105,6 +162,61 @@ export default function ShareCardScreen({ navigation }: { navigation: any }) {
             <Text style={styles.retryText}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
+      ) : variant === 'memory' ? (
+        !memory ? (
+          <Text style={styles.stateText}>{t('share.memoryEmpty')}</Text>
+        ) : (
+          <>
+            {/* 回忆卡：日期大字 + 当年原文 + 情绪色环 + App 水印（行动方案 §10.1 ①） */}
+            <LinearGradient
+              colors={Colors.gradCosmic}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.card}
+            >
+              <Text style={styles.memoryDate}>
+                {memoryCardDate(memoryToday, memory.years_ago) ?? '—'}
+              </Text>
+              <Text style={styles.memoryTitle}>
+                {t('home.archiveTitle', { count: memory.years_ago, years: memory.years_ago })}
+              </Text>
+              <Text style={styles.memoryQuote}>「{memoryCardExcerpt(memory.content)}」</Text>
+              <MoodRing
+                value={memory.mood?.value ?? null}
+                emoji={memory.mood?.emoji}
+                accessibilityLabel={
+                  memory.mood
+                    ? t('share.memoryMoodA11y', {
+                        emoji: memory.mood.emoji,
+                        label: memory.mood.label,
+                        value: memory.mood.value,
+                      })
+                    : t('share.memoryMoodNone')
+                }
+              />
+              <Text style={styles.memoryMoodNote}>
+                {memory.mood ? `${memory.mood.emoji} ${memory.mood.label}` : t('share.memoryMoodNone')}
+              </Text>
+              <View style={styles.memoryFootRow}>
+                <Text style={styles.cardWatermark}>ClosenAI</Text>
+              </View>
+            </LinearGradient>
+
+            {/* 清单与实际发出去的两段同源：原话 + 带推荐码的深链 */}
+            <ShareManifest items={[t('home.archiveManifestQuote'), t('share.manifestLink')]} />
+
+            <TouchableOpacity
+              style={styles.shareBtn}
+              disabled={sharing}
+              onPress={onShare}
+              accessibilityRole="button"
+            >
+              <Text style={styles.shareBtnText}>
+                📤 {sharing ? t('common.saving') : t('share.shareBtn')}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )
       ) : !card ? (
         <Text style={styles.stateText}>{t('share.empty')}</Text>
       ) : (
@@ -236,6 +348,27 @@ const styles = StyleSheet.create({
   cardFooter: {
     alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginTop: Spacing.lg, paddingTop: Spacing.md,
+    borderTopWidth: 1, borderTopColor: 'rgba(255,215,0,0.12)',
+  },
+  // 回忆卡（第四模板）
+  memoryDate: {
+    fontSize: 34, fontWeight: '800', color: Colors.textPrimary, letterSpacing: 1,
+    lineHeight: 44,
+  },
+  memoryTitle: {
+    fontSize: FontSize.md, color: Colors.gold400, marginTop: 4, letterSpacing: 1,
+    lineHeight: LineHeight.caption,
+  },
+  memoryQuote: {
+    fontSize: FontSize.xxl, color: Colors.textSecondary, fontStyle: 'italic', textAlign: 'center',
+    marginTop: Spacing.md, marginBottom: Spacing.md, lineHeight: LineHeight.body,
+  },
+  memoryMoodNote: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.sm,
+    lineHeight: LineHeight.caption, textAlign: 'center',
+  },
+  memoryFootRow: {
+    alignSelf: 'stretch', alignItems: 'flex-end', marginTop: Spacing.lg, paddingTop: Spacing.md,
     borderTopWidth: 1, borderTopColor: 'rgba(255,215,0,0.12)',
   },
   cardFooterText: { fontSize: FontSize.sm, color: Colors.textTertiary },
