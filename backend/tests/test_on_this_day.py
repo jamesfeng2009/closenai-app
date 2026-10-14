@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from backend.repositories import memory_repository
+from backend.repositories import memory_repository, mood_repository
 from backend.services.share_service import share_service
 
 # 固定未来日期冻结：候选窗口与周年判定全部走显式传入的 today 参数 +
@@ -19,8 +19,8 @@ TZ = "UTC"
 USER_KW = dict(timezone="UTC", language="zh", ai_consent=True)
 
 
-def _local(year: int, month: int, day: int, hour: int = 10) -> datetime:
-    return datetime(year, month, day, hour, tzinfo=timezone.utc)
+def _local(year: int, month: int, day: int, hour: int = 10, minute: int = 0) -> datetime:
+    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
 
 
 async def _seed_memory(db, user_id: str, content: str, created: datetime):
@@ -30,6 +30,16 @@ async def _seed_memory(db, user_id: str, content: str, created: datetime):
     memory.created_at = created
     await db.flush()
     return memory
+
+
+async def _seed_checkin(db, user_id: str, emoji: str, created: datetime, label: str = ""):
+    """按 created_at 落一条签到（色环取数走 list_between 的时间窗，不看 checkin_date）。"""
+    row = await mood_repository.create(
+        db, user_id, mood_emoji=emoji, mood_label=label, ai_interpretation=""
+    )
+    row.created_at = created
+    await db.flush()
+    return row
 
 
 # ── 1. 考古候选选取 ──
@@ -88,6 +98,92 @@ async def test_on_this_day_local_day_boundary(db, make_user, time_travel):
     result = await share_service.on_this_day(db, "u1", TODAY, "Asia/Shanghai")
 
     assert [c["memory_id"] for c in result["candidates"]] == [memory.id]
+
+
+# ── 1b. 候选当日情绪（回忆卡第四模板 · 情绪色环数据源）──
+
+
+async def test_on_this_day_candidate_carries_day_mood(db, make_user, time_travel):
+    """有签到的那年带 emoji/label/value，没签到的那年为 null——不拿别年冒充。"""
+    time_travel.set(TODAY)
+    await make_user("u1", **USER_KW)
+    await _seed_memory(db, "u1", "一年前的今天我在准备面试", _local(2025, 11, 1))
+    await _seed_memory(db, "u1", "两年前的今天搬家了", _local(2024, 11, 1))
+    await _seed_checkin(db, "u1", "😰", _local(2025, 11, 1, 21), label="焦虑")
+
+    result = await share_service.on_this_day(db, "u1", TODAY, TZ)
+    by_year = {c["years_ago"]: c for c in result["candidates"]}
+
+    mood = by_year[1]["mood"]
+    assert mood["emoji"] == "😰"
+    assert mood["value"] == 2  # MOOD_MAP 同口径：焦虑=2
+    assert mood["label"] == "焦虑"
+    assert by_year[2]["mood"] is None
+
+
+async def test_on_this_day_mood_uses_first_checkin_of_day(db, make_user, time_travel):
+    """同一天多次签到取当日第一条（那天的起点），不是最后一条。"""
+    time_travel.set(TODAY)
+    await make_user("u1", **USER_KW)
+    await _seed_memory(db, "u1", "一年前的今天", _local(2025, 11, 1))
+    await _seed_checkin(db, "u1", "😢", _local(2025, 11, 1, 8))
+    await _seed_checkin(db, "u1", "😊", _local(2025, 11, 1, 22))
+
+    result = await share_service.on_this_day(db, "u1", TODAY, TZ)
+
+    assert result["candidates"][0]["mood"]["emoji"] == "😢"
+    assert result["candidates"][0]["mood"]["value"] == 1
+
+
+async def test_on_this_day_mood_label_falls_back_to_copy(db, make_user, time_travel):
+    """历史行 mood_label 为空时按用户语言出标签（与年报 _top_moods 同一兜底）。"""
+    time_travel.set(TODAY)
+    await make_user("u1", **{**USER_KW, "language": "en"})
+    await _seed_memory(db, "u1", "a year ago today", _local(2025, 11, 1))
+    await _seed_checkin(db, "u1", "😌", _local(2025, 11, 1, 12), label="")
+
+    result = await share_service.on_this_day(db, "u1", TODAY, TZ)
+    mood = result["candidates"][0]["mood"]
+
+    assert mood["label"] and mood["label"] != "平静"
+    assert mood["value"] == 4
+
+
+async def test_on_this_day_mood_local_day_boundary(db, make_user, time_travel):
+    """签到与记忆共用同一条本地日界窗口：UTC+8 的 11-01 00:30 签到（UTC 10-31 16:30）
+    要落进 11-01 的候选，不能因为跨 UTC 日而丢色环数据。"""
+    time_travel.set(TODAY)
+    await make_user("u1", **{**USER_KW, "timezone": "Asia/Shanghai"})
+    await _seed_memory(db, "u1", "上海时间的周年记忆", _local(2025, 10, 31, 16))
+    await _seed_checkin(db, "u1", "😊", _local(2025, 10, 31, 16, 30))
+
+    result = await share_service.on_this_day(db, "u1", TODAY, "Asia/Shanghai")
+
+    assert result["candidates"][0]["mood"]["value"] == 5
+
+
+async def test_on_this_day_ignores_other_day_checkin(db, make_user, time_travel):
+    """负向：别日的签到不进候选（宁可空环，不冒充当天的情绪）。"""
+    time_travel.set(TODAY)
+    await make_user("u1", **USER_KW)
+    await _seed_memory(db, "u1", "一年前的今天", _local(2025, 11, 1))
+    await _seed_checkin(db, "u1", "😊", _local(2025, 11, 2))
+
+    result = await share_service.on_this_day(db, "u1", TODAY, TZ)
+
+    assert result["candidates"][0]["mood"] is None
+
+
+async def test_on_this_day_mood_neutral_for_unknown_emoji(db, make_user, time_travel):
+    """表外 emoji 折中记 3（与 growth_service 同口径），不新造第二份分值表。"""
+    time_travel.set(TODAY)
+    await make_user("u1", **USER_KW)
+    await _seed_memory(db, "u1", "一年前的今天", _local(2025, 11, 1))
+    await _seed_checkin(db, "u1", "🤔", _local(2025, 11, 1, 12))
+
+    result = await share_service.on_this_day(db, "u1", TODAY, TZ)
+
+    assert result["candidates"][0]["mood"]["value"] == 3
 
 
 # ── 2. memory-card 自动周年标题（C3 偏离 2 根治）──

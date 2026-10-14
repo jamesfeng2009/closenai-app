@@ -345,6 +345,7 @@ class ShareService:
 
         逐往年窗口查询（本地日界，时区铁律）：内容全部来自用户历史数据，
         零 LLM；按年份升序（1 年前优先）。新用户/无周年记忆 → 空候选。
+        每条候选带当日情绪 mood（回忆卡色环数据源；当日无签到 → null）。
         """
         user = await user_repository.get_user(db, user_id)
         if user is None:
@@ -364,16 +365,42 @@ class ShareService:
             start = local_day_start_utc(tz_name, local_day)
             end = local_day_start_utc(tz_name, local_day + timedelta(days=1))
             rows = await memory_repository.list_between(db, user_id, start, end, limit=5)
+            if not rows:
+                continue
+            # 同窗口再取一次当日签到：回忆卡第四模板的情绪色环数据源
+            checkins = await mood_repository.list_between(db, user_id, start, end)
+            mood = self._day_mood(checkins, user.language or "en")
             candidates += [
                 {
                     "memory_id": r.id,
                     "content": r.content,
                     "years_ago": years_ago,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "mood": mood,
                 }
                 for r in rows
             ]
         return {"date": today_local.date().isoformat(), "candidates": candidates}
+
+    def _day_mood(self, checkins: List, language: str) -> Optional[dict]:
+        """当日首个签到 → 色环数据（§10.1 ① 回忆卡第四模板）。
+
+        取首条即「那天第一次记下的心情」：`list_between` 按 created_at 升序，与
+        memories 用同一条本地日界窗口（时区铁律同口径）。无签到返回 None——
+        前端色环走中性降级，不拿别日的签到冒充当天。
+        value 复用 growth_service 同一张分值表与同一个折中口径（表外 emoji 记 3），
+        不另建第二份 emoji→分值映射。
+        """
+        if not checkins:
+            return None
+        from backend.services.mood_service import MOOD_MAP, mood_label_for
+
+        first = checkins[0]
+        return {
+            "emoji": first.mood_emoji,
+            "label": first.mood_label or mood_label_for(first.mood_emoji, language),
+            "value": MOOD_MAP.get(first.mood_emoji, (None, 3))[1],
+        }
 
     async def get_share_link(self, db: AsyncSession, user_id: str) -> dict:
         """本人深链与推荐码（App 内各分享入口统一取这里，不各自拼 URL）。
