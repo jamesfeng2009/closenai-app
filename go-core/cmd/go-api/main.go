@@ -68,6 +68,7 @@ func main() {
 		"analytics":  cfg.CutoverAnalytics,
 		"discovery":  cfg.CutoverDiscovery,
 		"curriculum": cfg.CutoverCurriculum,
+		"journey":    cfg.CutoverJourney,
 	})
 	if err != nil {
 		log.Fatalf("go-api: cutover: %v", err)
@@ -82,9 +83,14 @@ func main() {
 	// N8 批 2（curriculum 域）：两条端点都只碰 users + journey_events，零 LLM。
 	batch2 := &httpapi.Batch2{Store: pg, Gate: gate}
 
+	// N8 批 3（journey 域）：同样是 users + journey_events，但 GET 会补写剧本，
+	// 所以这个域是三条里唯一**带写**的（见 httpapi/batch3.go 的事务口径）。
+	batch3 := &httpapi.Batch3{Store: pg, Gate: gate}
+
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(cfg, signer, service, explainer, batch1, batch2).Handler(),
+		Addr: cfg.HTTPAddr,
+		Handler: httpapi.NewServer(cfg, signer, service, explainer,
+			batch1, batch2, batch3).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -37,7 +37,7 @@ func newTestServer(t *testing.T, environment string) (*httpapi.Server, *auth.Sig
 	cfg := config.Config{AppName: "ClosenAI", Environment: environment, HTTPAddr: ":0"}
 	signer := auth.NewSigner("golden-test-secret-golden-test-secret", 30*time.Minute, 30*24*time.Hour)
 	service := auth.NewService(fake, signer, 30*24*time.Hour)
-	return httpapi.NewServer(cfg, signer, service, nil, nil, nil), signer, fake
+	return httpapi.NewServer(cfg, signer, service, nil, nil, nil, nil), signer, fake
 }
 
 func loadGoldens(t *testing.T) goldenFile {

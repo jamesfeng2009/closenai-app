@@ -60,7 +60,7 @@ func newEvidenceServer(t *testing.T, environment, switchValue string,
 			domain.Policy{Read: domain.ReadPolicy{EvidenceMaxItems: 20, PatternMaxItems: 6}})
 	}
 	return httpapi.NewServer(cfg, signer, auth.NewService(store.NewFakeStore(), signer,
-		30*24*time.Hour), explainer, nil, nil), signer
+		30*24*time.Hour), explainer, nil, nil, nil), signer
 }
 
 const evidencePath = "/api/v1/personal-model/insights/i1/evidence"

@@ -30,6 +30,11 @@ type Server struct {
 	batch1 *Batch1
 	// batch2 是 N8 批 2（curriculum 域）的依赖面；nil 时那两条路由不注册，与批 1 同策。
 	batch2 *Batch2
+	// batch3 是 N8 批 3（journey 域）的依赖面；nil 时那两条路由不注册。
+	// 这个域与批 1/2 的差别是 GET 会写库（见 batch3.go 的 ensurePrefilled），
+	// 所以「不注册」在灰度期意味着**连补写都不发生**——未放量的用户仍由 py-api 补，
+	// 两侧行为一致的前提是 0% 时请求真的整条转交（internal/cutover）。
+	batch3 *Batch3
 	// now 是**时钟注入点**，默认 time.Now。契约回放必须把它冻在录制那一刻：
 	// curriculum 的 week_start/每张卡的 date 都是「今天所在本地周」的函数，
 	// 夹具跨天重放会得到另一周（同 discovery 的 7/14 天窗口，但周视图是整周平移，
@@ -40,7 +45,8 @@ type Server struct {
 }
 
 func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
-	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2) *Server {
+	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2,
+	batch3 *Batch3) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
@@ -48,6 +54,7 @@ func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 		evidence:   explainer,
 		batch1:     batch1,
 		batch2:     batch2,
+		batch3:     batch3,
 		now:        time.Now,
 		mux:        http.NewServeMux(),
 	}
@@ -78,6 +85,12 @@ func (s *Server) routes() {
 	if s.batch2 != nil {
 		s.mux.HandleFunc("GET /api/v1/curriculum/week", s.handleCurriculumWeek)
 		s.mux.HandleFunc("POST /api/v1/curriculum/{event_id}/read", s.handleCurriculumRead)
+	}
+	// N8 批 3 的 journey 域（GET 会补写剧本、POST 只改一行状态，两条都零 LLM）。
+	if s.batch3 != nil {
+		s.mux.HandleFunc("GET /api/v1/journey/events", s.handleJourneyEvents)
+		s.mux.HandleFunc("POST /api/v1/journey/events/acknowledge",
+			s.handleJourneyAcknowledge)
 	}
 	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
 	s.mux.HandleFunc("/", s.handleNotFound)

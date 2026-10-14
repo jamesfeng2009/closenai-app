@@ -35,6 +35,8 @@ type Config struct {
 	CutoverAnalytics  int
 	CutoverDiscovery  int
 	CutoverCurriculum int
+	// CutoverJourney 是 N8 批 3（journey 域）的放量键，口径与上面三个相同。
+	CutoverJourney int
 	// InsightEvidenceRead 是 N9 依据展开端点的回退开关（D-3「旧口径留回退开关」）。
 	// 这是本结构里唯一的 Go-only 变量：CLOSEN_ 前缀与 domain 的数值闸同源，
 	// Python 侧没有对应字段，所以它不进上面的跨语言名单口径。
@@ -61,6 +63,7 @@ func Load() (Config, error) {
 		CutoverAnalytics:       envInt("CLOSEN_CUTOVER_ANALYTICS", 0),
 		CutoverDiscovery:       envInt("CLOSEN_CUTOVER_DISCOVERY", 0),
 		CutoverCurriculum:      envInt("CLOSEN_CUTOVER_CURRICULUM", 0),
+		CutoverJourney:         envInt("CLOSEN_CUTOVER_JOURNEY", 0),
 	}
 	if cfg.JWTAlgorithm != "HS256" {
 		return cfg, errors.New("unsupported JWT_ALGORITHM: cross-language baseline is HS256")
@@ -74,6 +77,7 @@ func Load() (Config, error) {
 		"CLOSEN_CUTOVER_ANALYTICS":  cfg.CutoverAnalytics,
 		"CLOSEN_CUTOVER_DISCOVERY":  cfg.CutoverDiscovery,
 		"CLOSEN_CUTOVER_CURRICULUM": cfg.CutoverCurriculum,
+		"CLOSEN_CUTOVER_JOURNEY":    cfg.CutoverJourney,
 	} {
 		if pct < 0 || pct > 100 {
 			return cfg, fmt.Errorf("%s must be 0..100, got %d", name, pct)
