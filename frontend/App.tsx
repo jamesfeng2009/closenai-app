@@ -29,6 +29,7 @@ import RelationshipTimelineScreen from './src/screens/RelationshipTimelineScreen
 import ShareCardScreen from './src/screens/ShareCardScreen';
 import FirstReadCardScreen from './src/screens/FirstReadCardScreen';
 import Week1ReportScreen from './src/screens/Week1ReportScreen';
+import BedtimeReviewScreen from './src/screens/BedtimeReviewScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import MessagesScreen from './src/screens/MessagesScreen';
 import PrivacySecurityScreen from './src/screens/PrivacySecurityScreen';
@@ -72,6 +73,8 @@ export type RootStackParamList = {
   ShareCard: undefined;
   FirstReadCard: undefined;
   Week1Report: undefined;
+  // 睡前复盘全屏（§5.16 S1 / UI Screen 26）：三步流程带输入框，不做 modal
+  BedtimeReview: undefined;
   Insights: undefined;
   Messages: undefined;
   PrivacySecurity: undefined;
@@ -275,6 +278,11 @@ function AppRoot() {
               <Stack.Screen
                 name="Week1Report"
                 component={Week1ReportScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="BedtimeReview"
+                component={BedtimeReviewScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen

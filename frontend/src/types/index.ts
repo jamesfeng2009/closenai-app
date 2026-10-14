@@ -563,6 +563,100 @@ export interface ShareLink {
   app_store_url: string;
 }
 
+// ═══ 记忆考古（§10.1 ① · C4 首页每日主位）═══
+
+/** GET /share/on-this-day 的单条候选：某年今天你说过的原话（零 LLM，字段逐字对齐 share_service.on_this_day）。 */
+export interface OnThisDayCandidate {
+  memory_id: string;
+  content: string;
+  /** 距今年数（1=一年前）；候选按它升序，同年内按落库序。 */
+  years_ago: number;
+  created_at: string | null;
+}
+
+export interface OnThisDayResponse {
+  /** 服务端按用户时区算出的「今天」（YYYY-MM-DD），前端不自算周年。 */
+  date: string;
+  candidates: OnThisDayCandidate[];
+}
+
+// ═══ Growth Curriculum（§5.17 · C2 首页次位）═══
+
+/** 当周 7 张主题卡之一（未生成的天后端不出行）。 */
+export interface CurriculumDayCard {
+  id: string;
+  /** 展示日（YYYY-MM-DD，ISO 周一起算）。 */
+  date: string;
+  /** 编码后的全局序（ISO 周序*7 + 周内序），跨周单调。 */
+  day_no: number;
+  /** 展示日 ≤ 今天。 */
+  revealed: boolean;
+  /** 已点击进对话（payload.read_at）。 */
+  read: boolean;
+  memory_refs: MemoryRef[];
+  title: string | null;
+  assertion: string | null;
+  question: string | null;
+}
+
+export interface CurriculumWeekResponse {
+  week_start: string;
+  days: CurriculumDayCard[];
+  /** 已揭晓未读张数。 */
+  unread_count: number;
+}
+
+// ═══ 睡前复盘（§5.16 S1 · C1 Screen 26）═══
+
+/** step1 的当日参考摘要：服务端零 LLM 拼装（签到/对话数/每日洞察/当日记忆数）。 */
+export interface BedtimeDigest {
+  has_data: boolean;
+  mood: { emoji: string; label: string } | null;
+  chat_count: number;
+  insight: string | null;
+  memory_count: number;
+}
+
+/** 三步内容（存 growth_records.metadata_json，缺步即该步未提交）。 */
+export interface BedtimeSteps {
+  step1?: { text: string | null; skipped: boolean };
+  step2?: { content: string; memory_refs: MemoryRef[] };
+  step3?: { content: string };
+}
+
+export interface BedtimeRecord {
+  id: string;
+  /** step3 已提交。 */
+  completed: boolean;
+  content: string;
+  steps: BedtimeSteps;
+  created_at: string | null;
+}
+
+export interface BedtimeTodayResponse {
+  date: string;
+  completed: boolean;
+  record: BedtimeRecord | null;
+  digest: BedtimeDigest;
+  /** 昨日归档（23:59 后未完成即成为昨天那条）；无则 null。 */
+  yesterday: BedtimeRecord | null;
+}
+
+/** step1 命中危机触发词时的转介载荷（reply 已由服务端按用户语言出稿，前端不再自译）。 */
+export interface BedtimeCrisis {
+  kind: string;
+  reply: string;
+  hotline: string;
+  advice_blocked: boolean;
+}
+
+/** POST /bedtime/step 出参按步分形；危机分支无 step 键。 */
+export type BedtimeStepResponse =
+  | { step: 1; skipped: boolean; digest: BedtimeDigest; record: BedtimeRecord }
+  | { step: 2; content: string; memory_refs: MemoryRef[]; record: BedtimeRecord }
+  | { step: 3; content: string; completed: true; record: BedtimeRecord }
+  | { intercepted: true; crisis: BedtimeCrisis };
+
 // ═══ Auth ═══
 
 export type CodePurpose = 'register' | 'login' | 'reset';

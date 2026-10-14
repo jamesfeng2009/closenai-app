@@ -12,19 +12,29 @@
  */
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Animated,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Animated, Share,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
-import { getGrowthDashboard, getMoodHistory, moodCheckin, getJourneyEvents, ApiError } from '../services/api';
-import { trackFunnelOnce } from '../services/funnel';
+import {
+  getGrowthDashboard, getMoodHistory, moodCheckin, getJourneyEvents,
+  getOnThisDay, getCurriculumWeek, markCurriculumRead, getBedtimeToday, getShareLink, ApiError,
+} from '../services/api';
+import { trackFunnelOnce, trackFunnelShare } from '../services/funnel';
+import { track } from '../services/analytics';
+import {
+  ARCHIVE_TITLE_KEY, archiveCards, archiveShareMessage, pickThemeCard, showBedtimeCard, weekCells, weekSlot,
+} from '../config/dailyCards';
 import { isFirstReadUnseen, loadFirstReadCard } from '../services/firstRead';
 import { settingsRepo } from '../services/db/settingsRepository';
 import { moodCheckinRepo, type MoodCheckinRow } from '../services/db/moodCheckinRepository';
 import { toLocalDate } from '../utils/datetime';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import InsightBlurGate from '../components/InsightBlurGate';
-import type { GrowthDashboard, MoodEmoji } from '../types';
+import ShareManifest from '../components/ShareManifest';
+import type {
+  GrowthDashboard, MoodEmoji, OnThisDayCandidate, OnThisDayResponse, CurriculumWeekResponse,
+} from '../types';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 MOOD_MAP 严格一致（schemas.py: emoji 字段契约）
@@ -166,6 +176,90 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
     }, [isLoggedIn])
   );
 
+  // 首页每日卡三张（C4 记忆考古主位 / C2 本周主题次位 / C1 睡前复盘晚间兜底）
+  // 考古卡是用户自己的历史原话、零 LLM（share_service.on_this_day），不挂同意门；
+  // 主题卡与复盘两条挂 require_ai_consent：未同意 → 403/40303，首页只把卡收起来继续走
+  // （同意弹窗归 AI 入口屏 ReflectScreen，不在首页拦人）。
+  // 请求各自独立：一条失败不牵连另两条出卡。
+  const [archive, setArchive] = useState<OnThisDayResponse | null>(null);
+  // 折叠态只端第一条候选，展开后才列满并逐条给分享出口
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [week, setWeek] = useState<CurriculumWeekResponse | null>(null);
+  const [bedtimeDone, setBedtimeDone] = useState(false);
+  // 晚间窗口判定用设备本地时刻，每次聚焦重取：跨午夜后窗口自然结束（复盘归为昨日）
+  const [minutesOfDay, setMinutesOfDay] = useState(0);
+  // 分享进行中的候选 id（取深链是一次网络请求，无反馈时用户会连点）
+  const [sharingId, setSharingId] = useState<string | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!isLoggedIn) {
+        setArchive(null);
+        setWeek(null);
+        setBedtimeDone(false);
+        return;
+      }
+      const now = new Date();
+      setMinutesOfDay(now.getHours() * 60 + now.getMinutes());
+      getOnThisDay()
+        .then((data) => {
+          setArchive(data);
+          setArchiveOpen(false);
+        })
+        .catch(() => setArchive(null));
+      getCurriculumWeek()
+        .then(setWeek)
+        .catch(() => setWeek(null));
+      getBedtimeToday()
+        .then((data) => setBedtimeDone(data.completed))
+        .catch(() => setBedtimeDone(false));
+    }, [isLoggedIn])
+  );
+
+  const visibleCards = archiveCards(archive?.candidates ?? []);
+  const themeCard = week ? pickThemeCard(week.days) : null;
+  const bedtimeCardVisible = showBedtimeCard(minutesOfDay, bedtimeDone);
+
+  // 短失败的单一出口：长文一律屏内卡片，Alert 只留这一处 + 配额引导（trustPresentation 盯计数）。
+  const showError = (msg: string) => Alert.alert(t('common.error'), msg);
+
+  /** 考古卡分享：原话 + 带本人推荐码的深链（PDF 出口缺原生依赖，见 tasks.md 勘误）。 */
+  const onArchiveShare = async (candidate: OnThisDayCandidate) => {
+    if (sharingId) return; // 防连点：并发请求会白取一个推荐码
+    try {
+      setSharingId(candidate.memory_id);
+      // 深链只在真要分享时取（后端首次调用才惰性生成 referral_code）
+      const { link } = await getShareLink();
+      trackFunnelShare('share_tapped', 'memory');
+      const res = await Share.share({ message: archiveShareMessage(candidate.content, link) });
+      if (res.action === Share.sharedAction) trackFunnelShare('share_completed', 'memory');
+    } catch (e) {
+      showError(e instanceof ApiError ? e.message : t('home.archiveShareFailed'));
+    } finally {
+      setSharingId(null);
+    }
+  };
+
+  /** 主题卡：先记已读（消费当周未读），再进对话——点击的语义就是「今天聊这个」。 */
+  const onThemePress = async (eventId: string) => {
+    track('curriculum_card_opened', { feature: 'curriculum', action: 'open' });
+    try {
+      await markCurriculumRead(eventId);
+      setWeek((prev) =>
+        prev
+          ? {
+              ...prev,
+              days: prev.days.map((d) => (d.id === eventId ? { ...d, read: true } : d)),
+              unread_count: Math.max(0, prev.unread_count - 1),
+            }
+          : prev
+      );
+    } catch {
+      // 已读标记失败不拦跳转：下次仍会看到这张卡，比进不去对话好
+    }
+    navigation.navigate('Tabs', { screen: 'Reflect' });
+  };
+
   // F2 · PRD §5.20 揭幕动画：首次发现 is_pro=true 时的一次性庆祝遮罩
   // （本地标记只打一次，之后不再打扰；闪烁感来自淡入→停留→淡出，全程不可交互）
   const REVEAL_FLAG_KEY = '@closenai/pro_reveal_celebrated';
@@ -254,7 +348,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         return;
       }
       const msg = e instanceof ApiError ? e.message : t('errors.checkinFailed');
-      Alert.alert(t('common.error'), msg);
+      showError(msg);
     } finally {
       setCheckingIn(false);
     }
@@ -276,6 +370,121 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         <Text style={styles.date}>{dashboard?.date || '...'}</Text>
         <Text style={styles.greeting}>{dashboard?.greeting || t('home.greeting')}</Text>
       </View>
+
+      {/* 记忆考古 · 首页每日主位（C4 / §10.1 ①「N 年前的今天，你在想什么」）
+          内容全是用户自己的历史原话，零 LLM；周年判定取服务端 years_ago，前端不自算日期 */}
+      {visibleCards.length > 0 && (
+        <View style={styles.dailyCard}>
+          <View style={styles.dailyCardHeader}>
+            <Text style={styles.dailyCardKicker}>
+              🕰️ {t(ARCHIVE_TITLE_KEY, {
+                count: visibleCards[0].years_ago,
+                years: visibleCards[0].years_ago,
+              })}
+            </Text>
+            <Text style={styles.dailyCardTag}>{t('home.archiveTag')}</Text>
+          </View>
+          {(archiveOpen ? visibleCards : visibleCards.slice(0, 1)).map((c) => (
+            <View key={c.memory_id} style={styles.archiveQuoteBox}>
+              <Text style={styles.archiveQuote}>{c.content}</Text>
+              {/* 日期不可知就不写日期：不拿「今天」或年份差反推一个看起来像的落库日 */}
+              {!!c.created_at && (
+                <Text style={styles.archiveSource}>
+                  —— {toLocalDate(c.created_at)} · {t('home.archiveSourceSuffix')}
+                </Text>
+              )}
+              {archiveOpen && (
+                <>
+                  <ShareManifest
+                    items={[t('home.archiveManifestQuote'), t('share.manifestLink')]}
+                  />
+                  <TouchableOpacity
+                    style={styles.archiveShareBtn}
+                    disabled={sharingId === c.memory_id}
+                    onPress={() => onArchiveShare(c)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.archiveShareText}>
+                      {sharingId === c.memory_id ? t('common.saving') : t('home.archiveShare')}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          ))}
+          <TouchableOpacity
+            onPress={() => setArchiveOpen((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: archiveOpen }}
+          >
+            <Text style={styles.archiveToggle}>
+              {archiveOpen
+                ? t('home.archiveCollapse')
+                : t('home.archiveMore', { n: Math.max(0, visibleCards.length - 1) })}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* 本周主题旅程 · 首页次位（C2 / §5.17）：服务端周日预生成，断网与零输入也有内容 */}
+      {!!themeCard && (
+        <TouchableOpacity
+          style={styles.dailyCard}
+          onPress={() => onThemePress(themeCard.id)}
+          accessibilityRole="button"
+        >
+          <View style={styles.dailyCardHeader}>
+            <Text style={styles.dailyCardKicker}>
+              🗺️ {t('home.themeTitle')} ·{' '}
+              {t('home.themeDay', { n: weekSlot(themeCard.day_no) + 1 })}
+            </Text>
+            <View style={styles.themeTagRow}>
+              {(week?.unread_count ?? 0) > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{week?.unread_count}</Text>
+                </View>
+              )}
+              <Text style={styles.dailyCardTag}>{t('home.themeTag')}</Text>
+            </View>
+          </View>
+          {!!themeCard.title && <Text style={styles.themeTitle}>「{themeCard.title}」</Text>}
+          {!!themeCard.assertion && (
+            <Text style={styles.themeAssertion}>{themeCard.assertion}</Text>
+          )}
+          <View style={styles.weekProgressRow}>
+            {weekCells(week?.days ?? []).map((cell, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.weekCell,
+                  cell === 'read' && styles.weekCellRead,
+                  cell === 'unread' && styles.weekCellUnread,
+                ]}
+              />
+            ))}
+            <Text style={styles.weekProgressHint}>{t('home.themeHint')}</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* 睡前复盘 · 晚间兜底卡（C1 / §5.16 S1）：UI 原型「未授权推送则显示为首页顶部卡片」
+          已完成即整卡消失——晚间重复打扰的闸门就是完成态本身 */}
+      {bedtimeCardVisible && (
+        <TouchableOpacity
+          style={styles.dailyCard}
+          onPress={() => {
+            track('bedtime_card_opened', { feature: 'bedtime', action: 'open' });
+            navigation.navigate('BedtimeReview');
+          }}
+          accessibilityRole="button"
+        >
+          <View style={styles.dailyCardHeader}>
+            <Text style={styles.dailyCardKicker}>🌙 {t('bedtime.title')}</Text>
+            <Text style={styles.dailyCardTag}>{t('bedtime.windowTag')}</Text>
+          </View>
+          <Text style={styles.bedtimeHint}>{t('bedtime.homeEntry')}</Text>
+        </TouchableOpacity>
+      )}
 
       {/* D0 性格初读卡入口（P1-B01：初读卡 → 首条记录，死亡谷漏斗第一环） */}
       {showFirstReadEntry && (
@@ -530,6 +739,50 @@ const styles = StyleSheet.create({
   firstReadTextBlock: { flex: 1 },
   firstReadTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.gold400 },
   firstReadHint: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 2 },
+  // 首页每日卡三张（C4 主位 / C2 次位 / C1 晚间兜底）：紫色系与「理解的呈现」同色，
+  // 与金色系的里程碑、用户自产入口区分开（UI 原型 screen-home 同款配色）
+  dailyCard: {
+    backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.15)',
+    borderRadius: BorderRadius.xl, padding: Spacing.md, marginBottom: Spacing.md,
+  },
+  dailyCardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    gap: Spacing.sm, marginBottom: Spacing.sm,
+  },
+  dailyCardKicker: {
+    flexShrink: 1, fontSize: FontSize.xl, fontWeight: '600', color: '#A78BFA',
+    lineHeight: LineHeight.small,
+  },
+  dailyCardTag: { fontSize: FontSize.sm, color: Colors.textTertiary },
+  archiveQuoteBox: {
+    backgroundColor: 'rgba(255,255,255,0.04)', borderLeftWidth: 3,
+    borderLeftColor: 'rgba(165,180,252,0.5)', borderRadius: BorderRadius.sm,
+    padding: Spacing.md, marginTop: Spacing.sm,
+  },
+  archiveQuote: { fontSize: FontSize.lg, color: Colors.textSecondary, lineHeight: LineHeight.caption },
+  archiveSource: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 6, lineHeight: LineHeight.caption,
+  },
+  archiveShareBtn: {
+    marginTop: Spacing.sm, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 10,
+    borderRadius: BorderRadius.sm, borderWidth: 1, borderColor: 'rgba(167,139,250,0.35)',
+  },
+  archiveShareText: { fontSize: FontSize.md, color: '#A78BFA' },
+  archiveToggle: { marginTop: Spacing.sm, fontSize: FontSize.md, color: Colors.textTertiary },
+  themeTitle: { fontSize: FontSize.xl, fontWeight: '600', color: Colors.textPrimary },
+  themeAssertion: {
+    fontSize: FontSize.lg, color: Colors.textSecondary, marginTop: 6, lineHeight: LineHeight.caption,
+  },
+  themeTagRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  weekProgressRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: Spacing.md },
+  weekCell: { width: 18, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.12)' },
+  weekCellRead: { backgroundColor: 'rgba(167,139,250,0.8)' },
+  weekCellUnread: { backgroundColor: Colors.gold400 },
+  weekProgressHint: {
+    flexShrink: 1, fontSize: FontSize.xs, color: Colors.textTertiary, marginLeft: 4,
+    lineHeight: LineHeight.caption,
+  },
+  bedtimeHint: { fontSize: FontSize.lg, color: Colors.textSecondary, lineHeight: LineHeight.caption },
   streakBar: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
     padding: 10, backgroundColor: 'rgba(255,215,0,0.04)',

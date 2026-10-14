@@ -23,8 +23,11 @@ import type {
   DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
   ShareLink, YearInReviewCard,
+  OnThisDayResponse,
   FirstReadAnswer, FirstReadCard,
   JourneyEventsResponse, MemoryRef,
+  CurriculumWeekResponse,
+  BedtimeTodayResponse, BedtimeStepResponse,
   SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult, LifeArchiveResult,
   LifeArchiveScope,
   ReflectionDraft, ReflectionItem,
@@ -628,6 +631,17 @@ export async function getShareLink(): Promise<ShareLink> {
   return request<ShareLink>('/share/link');
 }
 
+/**
+ * 记忆考古候选（§10.1 ① · C4 首页每日主位）：近 3 年「N 年前的今天」你说过的原话。
+ *
+ * 零 LLM、按年份升序（1 年前优先）、本地日界由服务端按用户时区判定，所以「今天」
+ * 与周年都取自响应里的 date/years_ago，前端不自己算日期。
+ * 不挂 require_ai_consent（内容是用户自己的历史原话，无 AI 加工），只要登录态。
+ */
+export async function getOnThisDay(): Promise<OnThisDayResponse> {
+  return request<OnThisDayResponse>('/share/on-this-day');
+}
+
 // ═══ Onboarding 性格初读卡 (P1-B01 · 架构方案 §二 M1) ═══
 
 /** 生成初读卡并落库（幂等 upsert；后端静态模板直出，零 LLM）。 */
@@ -662,6 +676,50 @@ export async function acknowledgeJourneyEvent(eventId: string): Promise<{ acknow
   return request<{ acknowledged: string }>('/journey/events/acknowledge', {
     method: 'POST',
     body: JSON.stringify({ event_id: eventId }),
+  });
+}
+
+// ═══ Growth Curriculum (P1-C2 · 架构方案 §二 C2) ═══
+
+/**
+ * 当周 7 张主题卡（首页次位数据源）。
+ *
+ * 生成在服务端 cron（周日 21 点本地窗口），本端点只读；未生成的天不返回行，
+ * 所以 days 少于 7 不是错误而是「这周还没铺满」，由首页走兜底态。
+ * 挂 require_ai_consent：未同意 → 403/40303。
+ */
+export async function getCurriculumWeek(): Promise<CurriculumWeekResponse> {
+  return request<CurriculumWeekResponse>('/curriculum/week');
+}
+
+/** 点击主题卡 → 已读标记（服务端幂等；越权 40403）。 */
+export async function markCurriculumRead(eventId: string): Promise<{ id: string; read: boolean }> {
+  return request<{ id: string; read: boolean }>(`/curriculum/${eventId}/read`, { method: 'POST' });
+}
+
+// ═══ Bedtime Review (P1-C1 · §5.16 S1 / UI Screen 26) ═══
+
+/**
+ * 今日三步状态 + 当日摘要参考（零 LLM）+ 昨日归档。
+ *
+ * 挂 require_ai_consent：未同意 → 403/40303，由调用方弹同意窗（合规 5.1.2(i)）。
+ */
+export async function getBedtimeToday(): Promise<BedtimeTodayResponse> {
+  return request<BedtimeTodayResponse>('/bedtime/today');
+}
+
+/**
+ * 逐步提交复盘。step1 的 text 空/缺省 = 跳过（服务端记 skipped，零 LLM）；
+ * step2/step3 不带用户输入，服务端幂等返回已生成内容，不重复消耗 LLM。
+ * step1 命中危机触发词 → 返回 `{intercepted, crisis}`，此时未落任何复盘记录。
+ */
+export async function postBedtimeStep(
+  step: 1 | 2 | 3,
+  text?: string | null,
+): Promise<BedtimeStepResponse> {
+  return request<BedtimeStepResponse>('/bedtime/step', {
+    method: 'POST',
+    body: JSON.stringify({ step, text: text ?? null }),
   });
 }
 
