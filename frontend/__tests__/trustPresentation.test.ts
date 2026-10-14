@@ -40,15 +40,26 @@ describe('分享内容清单组件', () => {
   });
 });
 
-describe('三条分享路径都挂清单，且清单与真实分享字段一致', () => {
+describe('四条分享路径都挂清单，且清单与真实分享字段一致', () => {
   it.each([
     'src/screens/ShareCardScreen.tsx',
     'src/screens/FirstReadCardScreen.tsx',
     'src/screens/InsightsScreen.tsx',
+    'src/screens/HomeScreen.tsx',
   ])('%s 引入并渲染 ShareManifest', (rel) => {
     const src = read(rel);
     expect(src).toContain("import ShareManifest from '../components/ShareManifest'");
     expect(src).toContain('<ShareManifest');
+  });
+
+  it('首页考古卡：清单两条＝原话 + 链接，实际 Share.share 也只发这两段', () => {
+    const rel = 'src/screens/HomeScreen.tsx';
+    const items = block(rel, '<ShareManifest', 0, 3);
+    expect(items).toContain("t('home.archiveManifestQuote')");
+    expect(items).toContain("t('share.manifestLink')");
+    // 同源核验：分享正文由 archiveShareMessage(原话, 深链) 拼装，没有清单外的第三个字段
+    const body = block(rel, 'Share.share({', 1, 1);
+    expect(body).toContain('archiveShareMessage(candidate.content, link)');
   });
 
   it('名片页清单含昵称——后端 share_text 里确实带（share_service.py 名片文案）', () => {
@@ -122,7 +133,11 @@ describe('首页签到解读：长文出 Alert 改屏内卡片', () => {
   });
 
   it('其余 Alert 保留（本次口径：只改这一处长文）', () => {
-    expect(countNeedle(rel, /Alert\.alert\(/g)).toBe(2); // 配额引导 + 请求失败
+    // 短失败的出口收敛在 showError：站点数仍是 2（配额引导 + showError 本体），
+    // 新增需求一律走 showError 或屏内卡片，不许再开第三个 Alert 站点。
+    expect(countNeedle(rel, /Alert\.alert\(/g)).toBe(2);
+    expect(countNeedle(rel, /const showError = /g)).toBe(1);
+    expect(countNeedle(rel, /showError\(/g)).toBe(2); // 两个调用点：签到失败 + 考古卡分享失败
   });
 });
 

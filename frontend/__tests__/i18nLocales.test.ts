@@ -33,13 +33,14 @@ const tables: Record<string, Record<string, string>> = Object.fromEntries(
 
 /**
  * 复数形态键（P0-2）：count 驱动 i18next 的 CLDR 类别选择。
- * 这 8 个键拆成 `_one`/`_few`/`_many`/`_other` 变体后，扁平键名因语言而异
+ * 这 9 个键拆成 `_one`/`_few`/`_many`/`_other` 变体后，扁平键名因语言而异
  * （zh 只有 `_other`，ru 有四档），键集断言必须按逻辑键归一，否则全红。
  */
 const PLURAL_KEYS = new Set([
   'relationship.toNextLevel',
   'relationship.dayChats',
   'home.milestoneStreak',
+  'home.archiveTitle',
   'personality.quotaLeft',
   'personality.signalsCount',
   'personality.stageEta',
@@ -178,7 +179,7 @@ describe('复数键的 CLDR 类别齐备（P0-2）', () => {
   };
   const allTables: Record<string, Record<string, string>> = { en, ...tables };
 
-  it.each(Object.keys(allTables))('%s：8 个复数键的变体键恰好等于该语言的类别集（缺档=裸键名，多档=死键）', (lng) => {
+  it.each(Object.keys(allTables))('%s：9 个复数键的变体键恰好等于该语言的类别集（缺档=裸键名，多档=死键）', (lng) => {
     const table = allTables[lng];
     for (const base of PLURAL_KEYS) {
       const present = Object.keys(table).filter(
