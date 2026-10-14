@@ -165,8 +165,8 @@ ARCHAEOLOGY_MAX_YEARS = 3
 
 # ── 年度报告卡（架构方案 §二 M4 year_in_review 模板位）──
 # share_exports.period 列是 String(20)，"year_in_review" 14 字符放得下；
-# period_key 用 year_2025 而不是裸 2025：与周期报告的 yearly（键就是年份）区分开，
-# 否则年报卡会把「年度人生报告」的缓存吃掉。
+# period_key 用 year_2025_en 而不是裸 2025：与周期报告的 yearly（键就是年份）区分开，
+# 否则年报卡会把「年度人生报告」的缓存吃掉；语种后缀见 _year_in_review_key。
 _YEAR_IN_REVIEW_PERIOD = "year_in_review"
 
 _YEAR_IN_REVIEW_EMPTY = {
@@ -438,13 +438,16 @@ class ShareService:
         年度取哪一个（默认上一个完整自然年）与空年口径见 _resolve_review_year；
         整年没有任何记录 → 40402 空态，不出数字全 0 的卡片。
 
-        同 (user, year) 命中 share_exports 缓存：卡上的数字全部来自落库事实，
+        同 (user, year, 语种) 命中 share_exports 缓存：卡上的数字全部来自落库事实，
         一年内重算结果本就一致（新增记录也只在当年才会改变它），重算只是白读一遍库。
+        语种进键是因为卡上的日期标签、区间措辞与 share_text 都是按语种生成的，
+        不进键就会让换语言的用户拿到首次生成那个语种的卡（缓存按规范化语言码，
+        zh / zh-CN 命中同一条）。
         """
         user = await user_repository.require_user(db, user_id)
         lang = language or user.language or "en"
         target = self._resolve_review_year(user, year)
-        period_key = f"year_{target}"
+        period_key = self._year_in_review_key(target, lang)
         cached = await share_repository.get_cached(
             db, user_id, _YEAR_IN_REVIEW_PERIOD, period_key
         )
@@ -481,6 +484,15 @@ class ShareService:
                 " / Review year is out of range",
             )
         return year
+
+    def _year_in_review_key(self, year: int, language: str) -> str:
+        """年报卡缓存键：year_{yyyy}_{语言码}。
+
+        带 year_ 前缀是与周期报告的 yearly（裸年份键）区分开的既有口径，
+        后缀取 copy.locale_for 的规范化码（15 语言清单内 2 字母），
+        整键最长 12 字符，放在 String(20) 的 period_key 列里。
+        """
+        return f"year_{year}_{copy.locale_for(language)}"
 
     async def _build_year_in_review(
         self, db: AsyncSession, user: User, year: int, language: str

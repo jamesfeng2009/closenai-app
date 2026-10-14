@@ -5,7 +5,7 @@
 1. 取哪一年：缺省上一个完整自然年；首年用户退到当年并如实标 in_progress；越界 400。
 2. 窗口边界：自然年（不是「距今 N 天」的滚动窗口）、只截到今天、按用户本地时区算日界。
 3. 聚合：计数精确（软删除/其他类型不计）、streak 断档、top_moods 排序与标签语言、里程碑只算当年。
-4. 分享：文案只带计数不带原文、深链带推荐码、同 (user, year) 命中缓存、PDF 无 AIGC 标识。
+4. 分享：文案只带计数不带原文、深链带推荐码、同 (user, year, 语种) 命中缓存、PDF 无 AIGC 标识。
 """
 from datetime import date, datetime, time as dt_time, timezone
 from uuid import uuid4
@@ -339,7 +339,7 @@ async def test_export_is_cached_once_per_year(db, make_user, time_travel):
 
 
 async def test_cache_row_uses_year_scoped_period_key(db, make_user, time_travel):
-    """period_key 必须带 year_ 前缀：yearly 报告用的是裸年份，两者不能互相命中缓存。"""
+    """period_key 必须带 year_ 前缀 + 语种后缀：yearly 报告用的是裸年份，两者不能互相命中缓存。"""
     from sqlalchemy import select as _select
 
     await make_user("u1", created_at=datetime(2024, 1, 1, tzinfo=UTC), timezone="UTC")
@@ -348,7 +348,58 @@ async def test_cache_row_uses_year_scoped_period_key(db, make_user, time_travel)
     await share_service.export_year_in_review(db, "u1", 2025, "en")
 
     rows = list((await db.execute(_select(ShareExport))).scalars().all())
-    assert [(r.period, r.period_key) for r in rows] == [("year_in_review", "year_2025")]
+    assert [(r.period, r.period_key) for r in rows] == [("year_in_review", "year_2025_en")]
+
+
+async def test_cache_key_is_language_scoped(db, make_user, time_travel):
+    """缓存键必须含语种：卡上的 period_label / share_text / 情绪与里程碑标签都是按语种生成的，
+    不进键就会让换语言的用户拿到首次生成那个语种的卡（2026-10-14 收口的 ⚠️ 自定决策 ②）。"""
+    from sqlalchemy import select as _select
+
+    await make_user("u1", created_at=datetime(2024, 1, 1, tzinfo=UTC), timezone="UTC")
+    time_travel.set(datetime(2026, 5, 1, tzinfo=UTC))
+    await _checkin(db, "u1", date(2025, 3, 1))
+
+    zh = await share_service.export_year_in_review(db, "u1", 2025, "zh")
+    await _checkin(db, "u1", date(2025, 3, 2))
+    en = await share_service.export_year_in_review(db, "u1", 2025, "en")
+
+    assert zh["period_label"] == "2025 年度回顾"
+    assert "次情绪签到" in zh["share_text"]
+    assert en["period_label"] == "Your 2025 in Review"
+    assert "mood check-ins" in en["share_text"]
+    # 真重算而不是拿回 zh 那条：en 读得到 zh 导出之后新增的那次签到
+    assert (zh["stats"]["checkin_count"], en["stats"]["checkin_count"]) == (1, 2)
+
+    rows = sorted(
+        (r.period, r.period_key)
+        for r in (await db.execute(_select(ShareExport))).scalars().all()
+    )
+    assert rows == [
+        ("year_in_review", "year_2025_en"),
+        ("year_in_review", "year_2025_zh"),
+    ]
+
+
+async def test_cache_hits_within_same_language_including_region_variant(
+    db, make_user, time_travel
+):
+    """同语种（含 zh-CN 这类地区变体）命中缓存：不重算、不新落行。"""
+    from sqlalchemy import select as _select
+
+    await make_user("u1", created_at=datetime(2024, 1, 1, tzinfo=UTC), timezone="UTC")
+    time_travel.set(datetime(2026, 5, 1, tzinfo=UTC))
+    await _checkin(db, "u1", date(2025, 3, 1))
+
+    first = await share_service.export_year_in_review(db, "u1", 2025, "zh-CN")
+    await _checkin(db, "u1", date(2025, 3, 2))
+    again = await share_service.export_year_in_review(db, "u1", 2025, "zh")
+
+    assert again["exported_at"] == first["exported_at"]
+    assert again["stats"] == first["stats"]  # 命中缓存 → 第二次那条签到不进卡
+    rows = (await db.execute(_select(ShareExport))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].period_key == "year_2025_zh"
 
 
 async def test_share_text_carries_counts_not_content_and_links_to_own_code(
