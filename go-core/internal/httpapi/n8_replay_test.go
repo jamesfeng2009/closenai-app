@@ -81,13 +81,14 @@ func (r *n8RecordingRelay) count() int {
 	return len(r.seen)
 }
 
-func newN8Server(t *testing.T, users UserProfileReader, moods MoodReader, relay Relay) *Server {
+func newN8Server(t *testing.T, users UserProfileReader, moods MoodReader, relay Relay,
+	batch2 *Batch2) *Server {
 	t.Helper()
 	cfg := config.Config{AppName: "ClosenAI", Environment: "development", HTTPAddr: ":0"}
 	signer := auth.NewSigner("n8-contract-golden-secret-n8-contract-golden",
 		30*time.Minute, 30*24*time.Hour)
 	// 这两条路由不碰 auth.Service；灰度闸留 nil＝全量由 Go 回答（见 cutover.Selected）。
-	return NewServer(cfg, signer, nil, nil, &Batch1{Users: users, Moods: moods, Relay: relay})
+	return NewServer(cfg, signer, nil, nil, &Batch1{Users: users, Moods: moods, Relay: relay}, batch2)
 }
 
 // replayN8Case 把一个夹具用例打回 Go 侧，并把响应压到与录制同样的口径。
@@ -124,7 +125,7 @@ func replayN8Case(t *testing.T, handler http.Handler, c n8Case) {
 func TestN8ValidationContractBytes(t *testing.T) {
 	file := loadN8Fixture(t)
 	forbidden := n8ForbiddenStore{t: t}
-	handler := newN8Server(t, forbidden, forbidden, &n8RecordingRelay{t: t}).Handler()
+	handler := newN8Server(t, forbidden, forbidden, &n8RecordingRelay{t: t}, nil).Handler()
 
 	var replayed int
 	for _, c := range file.Cases {
@@ -159,7 +160,7 @@ func TestN8MaskOnlyGeneratedAt(t *testing.T) {
 		}
 	}
 	for _, c := range file.Cases {
-		if c.Group != "seeded" {
+		if c.Group != "seeded" && c.Group != "curriculum" {
 			continue
 		}
 		if maskGeneratedAt(c.ResponseText) != c.ResponseText {
@@ -199,8 +200,10 @@ func n8Pool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// n8SeedRows 按夹具的 days_ago **相对当下**播种：录制与回放可能相隔数小时，
-// 用绝对时间戳会让 7/14 天窗口两侧落在不同侧，那就不再是「同一批行」。
+// n8SeedRows 播种夹具给的同一批行：
+//   - mood_checkins 按 days_ago **相对当下**（批 1 只有 7/14 天窗口，没有日历字段）；
+//   - journey_events 按 scheduled_at **绝对时刻**（批 2 的响应里有 week_start/date，
+//     两侧必须读同一串瞬间，见夹具的 recorded_at）。
 func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 	t.Helper()
 	ctx := context.Background()
@@ -210,11 +213,14 @@ func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 	for _, u := range seed.Users {
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO users (id, timezone, streak_count, relationship_level,
-				chat_count, daily_quota_used, tier, language, analytics_consent)
-			VALUES ($1, 'UTC', 0, 'L1', 0, 0, 'free', $2, $3)
+				chat_count, daily_quota_used, tier, language, analytics_consent,
+				ai_consent, status)
+			VALUES ($1, $2, 0, 'L1', 0, 0, 'free', $3, $4, $5, $6)
 			ON CONFLICT (id) DO UPDATE SET language = EXCLUDED.language,
-				analytics_consent = EXCLUDED.analytics_consent`,
-			u.ID, u.Language, u.AnalyticsConsent); err != nil {
+				analytics_consent = EXCLUDED.analytics_consent,
+				timezone = EXCLUDED.timezone, ai_consent = EXCLUDED.ai_consent,
+				status = EXCLUDED.status`,
+			u.ID, u.Timezone, u.Language, u.AnalyticsConsent, u.AIConsent, u.Status); err != nil {
 			t.Fatalf("seed user %s: %v", u.ID, err)
 		}
 	}
@@ -228,13 +234,30 @@ func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 			t.Fatalf("seed mood %s: %v", m.ID, err)
 		}
 	}
+	for _, e := range seed.JourneyEvents {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO journey_events (id, user_id, event_kind, day_no, scheduled_at,
+				payload, memory_refs)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id,
+				event_kind = EXCLUDED.event_kind, day_no = EXCLUDED.day_no,
+				scheduled_at = EXCLUDED.scheduled_at, payload = EXCLUDED.payload,
+				memory_refs = EXCLUDED.memory_refs`,
+			e.ID, e.UserID, e.EventKind, e.DayNo, e.ScheduledAt, e.Payload, e.MemoryRefs); err != nil {
+			t.Fatalf("seed journey %s: %v", e.ID, err)
+		}
+	}
 }
 
 func n8CleanSeedRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
 	t.Helper()
-	// mood_checkins.user_id 有外键，子表先删。
+	// mood_checkins.user_id 有外键，子表先删；journey_events.user_id 没有外键，
+	// 但同一批 id 的旧行会撞主键，也必须先清。
 	if _, err := pool.Exec(ctx, `DELETE FROM mood_checkins WHERE id LIKE 'n8b1-%'`); err != nil {
 		t.Fatalf("clean mood_checkins: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM journey_events WHERE id LIKE 'n8b1-%'`); err != nil {
+		t.Fatalf("clean journey_events: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id LIKE 'n8b1-%'`); err != nil {
 		t.Fatalf("clean users: %v", err)
@@ -251,7 +274,7 @@ func TestN8SeededContractBytes(t *testing.T) {
 
 	relay := &n8RecordingRelay{t: t}
 	pg := store.NewPG(pool)
-	handler := newN8Server(t, pg, pg, relay).Handler()
+	handler := newN8Server(t, pg, pg, relay, nil).Handler()
 
 	var replayed, wantRelayed int
 	for _, c := range file.Cases {
@@ -279,4 +302,66 @@ func TestN8SeededContractBytes(t *testing.T) {
 	}
 	t.Logf("seeded 组 %d 条（真读 users/mood_checkins）逐字回放，外发事件 %d 条",
 		replayed, relay.count())
+}
+
+// ── curriculum 组：真库 + 冻时钟 ──────────────────────────────────────────────
+
+// n8Anchor 把夹具的 recorded_at 读成 UTC 时刻；读不出就等于夹具换了格式。
+func n8Anchor(t *testing.T, file n8Fixture) time.Time {
+	t.Helper()
+	if file.RecordedAt == "" {
+		t.Fatal("夹具没有 recorded_at：curriculum 的周视图会随重放日期整周平移，" +
+			"逐字比失去意义（生成方式见 scripts/gen_n8_contract_goldens.py）")
+	}
+	at, err := time.Parse(time.RFC3339, file.RecordedAt)
+	if err != nil {
+		t.Fatalf("recorded_at %q 不是 RFC3339: %v", file.RecordedAt, err)
+	}
+	return at.UTC()
+}
+
+// TestN8CurriculumContractBytes 是批 2 的验收闸：curriculum 两条端点的响应字节
+// 逐字等于真 FastAPI 录下来的那串。
+//
+// 时钟必须钉在 recorded_at：week_start、days[].date、revealed 都由「用户本地今天」推出，
+// 回放只要跨过本地午夜（更常见是跨过周一），Go 侧算出的就是另一周——那时逐字比在比
+// 两个不同的周，红与绿都不证明任何事。
+//
+// 用例**按夹具顺序**跑：POST /curriculum/{id}/read 会真写库，紧随其后的 GET 必须读到
+// 写后的状态（Python 录制时就是同一串顺序、同一个 session 提交在响应之前）。
+func TestN8CurriculumContractBytes(t *testing.T) {
+	file := loadN8Fixture(t)
+	pool := n8Pool(t)
+	n8SeedRows(t, pool, file.Seed)
+	anchor := n8Anchor(t, file)
+
+	forbidden := &n8NoRelayStore{t: t}
+	pg := store.NewPG(pool)
+	srv := newN8Server(t, pg, pg, forbidden, &Batch2{Store: pg})
+	srv.now = func() time.Time { return anchor }
+	handler := srv.Handler()
+
+	var replayed int
+	for _, c := range file.Cases {
+		if c.Group != "curriculum" {
+			continue
+		}
+		replayed++
+		t.Run(c.Name, func(t *testing.T) {
+			replayN8Case(t, handler, c)
+		})
+	}
+	if replayed == 0 {
+		t.Fatal("curriculum 组为空：分组键 group 漂移了")
+	}
+	t.Logf("curriculum 组 %d 条逐字回放（锚点 %s，真读 users/journey_events）",
+		replayed, anchor.Format(time.RFC3339))
+}
+
+// n8NoRelayStore 给 curriculum 组用：这两条端点一条外发都不该有。
+type n8NoRelayStore struct{ t *testing.T }
+
+func (n *n8NoRelayStore) Capture(context.Context, posthog.Event) error {
+	n.t.Errorf("curriculum 用例发起了外发——Python 侧这个域一个分析事件都不打")
+	return nil
 }

@@ -52,12 +52,14 @@ func TestN9EvidenceReadSwitchValues(t *testing.T) {
 }
 
 // TestN8CutoverDefaults 钉住「部署了但没开灰度」这一安全态：
-// 两个百分比默认 0，于是 go-api 起来后一条都不自己答，只当 py-api 的代理。
+// 每个已切流域的百分比默认 0，于是 go-api 起来后一条都不自己答，只当 py-api 的代理。
 // 默认值变了就等于把「上线即全量」写进了镜像，这条测是唯一的拦法。
+// 批 2 加了 curriculum：每接一个域就要在这里加一个键，漏一个键＝那个域逃过了默认值闸。
 func TestN8CutoverDefaults(t *testing.T) {
 	t.Setenv("JWT_SECRET", "unit-test-secret-unit-test-unit-test")
 	for _, key := range []string{"CLOSEN_PY_API_URL", "CLOSEN_CUTOVER_ANALYTICS",
-		"CLOSEN_CUTOVER_DISCOVERY", "POSTHOG_API_KEY", "POSTHOG_HOST"} {
+		"CLOSEN_CUTOVER_DISCOVERY", "CLOSEN_CUTOVER_CURRICULUM",
+		"POSTHOG_API_KEY", "POSTHOG_HOST"} {
 		if os.Getenv(key) != "" {
 			t.Fatalf("环境里已有 %s，这条用例会比错值", key)
 		}
@@ -66,8 +68,9 @@ func TestN8CutoverDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("默认配置 Load: %v", err)
 	}
-	if cfg.CutoverAnalytics != 0 || cfg.CutoverDiscovery != 0 {
-		t.Errorf("灰度默认 = (%d, %d)，期望 (0, 0)", cfg.CutoverAnalytics, cfg.CutoverDiscovery)
+	if cfg.CutoverAnalytics != 0 || cfg.CutoverDiscovery != 0 || cfg.CutoverCurriculum != 0 {
+		t.Errorf("灰度默认 = (%d, %d, %d)，期望 (0, 0, 0)",
+			cfg.CutoverAnalytics, cfg.CutoverDiscovery, cfg.CutoverCurriculum)
 	}
 	if cfg.CutoverPyAPIURL != "" {
 		t.Errorf("CLOSEN_PY_API_URL 不该有默认值：%q", cfg.CutoverPyAPIURL)
@@ -85,7 +88,8 @@ func TestN8CutoverDefaults(t *testing.T) {
 // 把 150 当 100、把 -5 当 0 都是「运维以为切了/以为关了，其实另一回事」。
 func TestN8CutoverPercentRefusesOutOfRange(t *testing.T) {
 	t.Setenv("JWT_SECRET", "unit-test-secret-unit-test-unit-test")
-	for _, key := range []string{"CLOSEN_CUTOVER_ANALYTICS", "CLOSEN_CUTOVER_DISCOVERY"} {
+	for _, key := range []string{"CLOSEN_CUTOVER_ANALYTICS", "CLOSEN_CUTOVER_DISCOVERY",
+		"CLOSEN_CUTOVER_CURRICULUM"} {
 		for _, bad := range []string{"-5", "101", "1000"} {
 			t.Setenv("CLOSEN_INSIGHT_EVIDENCE_READ", "on")
 			t.Setenv(key, bad)

@@ -31,13 +31,32 @@ type n8CorpusEntry struct {
 // 于是三节测全在空跑（键名带 json tag 的错拼不会报错，只会静默变空）。
 // loadN8Fixture 因此对每一块都拒绝为空。
 type n8Fixture struct {
-	Comment            string          `json:"_comment"`
-	TraceID            string          `json:"trace_id"`
-	MaskedFields       []string        `json:"masked_fields"`
-	GeneratedAtSamples []string        `json:"generated_at_samples"`
-	Seed               n8Seed          `json:"seed"`
-	OccurredAtCorpus   []n8CorpusEntry `json:"occurred_at_corpus"`
-	Cases              []n8Case        `json:"cases"`
+	Comment            string   `json:"_comment"`
+	TraceID            string   `json:"trace_id"`
+	MaskedFields       []string `json:"masked_fields"`
+	GeneratedAtSamples []string `json:"generated_at_samples"`
+	// RecordedAt 是录制那一刻的 UTC 时钟；回放时把 Server.now 冻在这里。
+	// 没有它，curriculum 的 week_start 会随重放日期整周平移（见 server.go 的 now 字段）。
+	RecordedAt       string          `json:"recorded_at"`
+	Seed             n8Seed          `json:"seed"`
+	OccurredAtCorpus []n8CorpusEntry `json:"occurred_at_corpus"`
+	// WeekWindowCorpus 钉的是批 2 的日历核：给定「瞬间 + 时区名」，Python 侧现行
+	// 实现算出的本地周一/今天/窗口两端是什么。这些形状不能只靠 HTTP 用例取证——
+	// 录制与回放隔几分钟，week_start 永远落在同一周里。
+	WeekWindowCorpus []n8WindowEntry `json:"week_window_corpus"`
+	Cases            []n8Case        `json:"cases"`
+}
+
+// n8WindowEntry 一行＝一个 (时区, 瞬间) 的窗口观测，四个值全部由 Python 现算。
+// Gap=true 表示这一行本地今天的零点不唯一（春季拨快缺位，或秋季回拨重复）。
+type n8WindowEntry struct {
+	TZ     string `json:"tz"`
+	At     string `json:"at"`
+	Monday string `json:"monday"`
+	Today  string `json:"today"`
+	Start  string `json:"start"`
+	End    string `json:"end"`
+	Gap    bool   `json:"gap"`
 }
 
 type n8Seed struct {
@@ -45,13 +64,31 @@ type n8Seed struct {
 		ID               string `json:"id"`
 		Language         string `json:"language"`
 		AnalyticsConsent bool   `json:"analytics_consent"`
+		AIConsent        bool   `json:"ai_consent"`
+		Timezone         string `json:"timezone"`
+		Status           string `json:"status"`
 	} `json:"users"`
 	MoodCheckins []struct {
-		ID        string  `json:"id"`
-		UserID    string  `json:"user_id"`
-		MoodEmoji string  `json:"mood_emoji"`
-		DaysAgo   float64 `json:"days_ago"`
+		ID        string `json:"id"`
+		UserID    string `json:"user_id"`
+		MoodEmoji string `json:"mood_emoji"`
+		// DaysAgo 是**相对当下**的播种口径（批 1 沿用）：discovery 的响应里没有日历
+		// 字段，只有 7/14 天窗口，两侧各用真实当下读同一批行即可；换成绝对时间戳反而
+		// 会让跨过窗口边界的回放不再是「同一批行」。
+		DaysAgo float64 `json:"days_ago"`
 	} `json:"mood_checkins"`
+	// JourneyEvents 是批 2（curriculum）的播种面：payload / memory_refs 给的是
+	// **要插进 TEXT 列的原文**（null 就是 SQL NULL——parse_json 的空值分支只能这么造），
+	// 两侧插同一串字节，解析结果才同源。
+	JourneyEvents []struct {
+		ID          string  `json:"id"`
+		UserID      string  `json:"user_id"`
+		EventKind   string  `json:"event_kind"`
+		DayNo       int     `json:"day_no"`
+		ScheduledAt string  `json:"scheduled_at"`
+		Payload     *string `json:"payload"`
+		MemoryRefs  *string `json:"memory_refs"`
+	} `json:"journey_events"`
 }
 
 type n8Case struct {
@@ -80,6 +117,7 @@ func loadN8Fixture(t *testing.T) n8Fixture {
 		"cases":              len(file.Cases) == 0,
 		"seed.users":         len(file.Seed.Users) == 0,
 		"masked_fields":      len(file.MaskedFields) == 0,
+		"week_window_corpus": len(file.WeekWindowCorpus) == 0,
 	} {
 		if empty {
 			t.Fatalf("夹具的 %s 为空——键名漂移或生成脚本没落这一块，本节测会在空跑", name)
