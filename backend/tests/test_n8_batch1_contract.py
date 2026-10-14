@@ -33,6 +33,8 @@ FIXTURE = GO / "testdata" / "n8_contract.json"
 
 BATCH1_DOMAINS = ("analytics", "discovery")
 BATCH1_PATHS = {"/api/v1/analytics/batch", "/api/v1/discovery/daily"}
+# 夹具里的分组：批 2 的 curriculum 组自带一套判据，不混进本文件。
+BATCH1_GROUPS = ("validation", "seeded")
 
 
 def _go(rel: str) -> str:
@@ -50,7 +52,12 @@ def _string_slice(name: str, source: str) -> list[str]:
 
 
 def test_only_batch1_paths_are_deprecated():
-    """N8 第④步的边界：只标这一批，别把还没切流的域也标成废弃。"""
+    """N8 第④步的边界：批 1 这两条**必须**被标上，且路由本体留着。
+
+    「不得提前标废弃未切流的域」这条反向判据不在这里了——批 2 起夹具与 deprecated 集合
+    都会长大，逐批改这里等于把闸写死在第一轮；全量集合由
+    backend/tests/test_n8_batch2_contract.py::test_deprecated_set_is_exactly_the_cut_domains 守。
+    """
     paths = app.openapi()["paths"]
     deprecated = {
         p
@@ -58,9 +65,9 @@ def test_only_batch1_paths_are_deprecated():
         for op in item.values()
         if isinstance(op, dict) and op.get("deprecated")
     }
-    assert deprecated == BATCH1_PATHS, (
-        f"deprecated 集合 = {sorted(deprecated)}，期望 {sorted(BATCH1_PATHS)}；"
-        "多出来＝提前标废弃未切流的域，少了＝第④步没做"
+    assert BATCH1_PATHS <= deprecated, (
+        f"deprecated 集合 = {sorted(deprecated)}，缺 {sorted(BATCH1_PATHS - deprecated)}；"
+        "＝第④步没做"
     )
 
 
@@ -141,10 +148,14 @@ def test_posthog_host_default_matches_across_languages():
 
 
 def test_go_contract_fixture_covers_both_domains():
-    """Go 侧的回放闸不能悄悄变空：每域都要有**成功面**用例，掩码只许 generated_at。"""
+    """Go 侧的回放闸不能悄悄变空：每域都要有**成功面**用例，掩码只许 generated_at。
+
+    只看 batch1 的两组（validation/seeded）：批 2 起夹具多了 curriculum 组，
+    那一组的覆盖面由 test_n8_batch2_contract.py 负责，两边各自钉住自己的批。
+    """
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert fixture["masked_fields"] == ["generated_at"], fixture["masked_fields"]
-    cases = fixture["cases"]
+    cases = [c for c in fixture["cases"] if c["group"] in BATCH1_GROUPS]
     by_domain: dict[str, dict[str, int]] = {}
     for case in cases:
         domain = next((d for d in BATCH1_DOMAINS if case["path"].startswith(f"/api/v1/{d}")), None)
@@ -158,7 +169,7 @@ def test_go_contract_fixture_covers_both_domains():
     # seeded 组必须**真的**覆盖了 200 与 404 两种形态（discovery 的 require_user 分支）。
     statuses = {c["status"] for c in cases if c["group"] == "seeded"}
     assert {200, 404} <= statuses, statuses
-    assert len(cases) >= 100, f"夹具用例数掉到 {len(cases)}，覆盖面在缩"
+    assert len(cases) >= 110, f"批 1 用例数掉到 {len(cases)}，覆盖面在缩"
 
 
 def test_fixture_seed_users_cover_the_decisions_they_prove():

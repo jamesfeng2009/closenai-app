@@ -1,4 +1,4 @@
-"""N8 批 1（analytics + discovery）切流闸门的变异自证。
+"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum）。
 
 要证的不是「Go 抄得像」，而是**每一条口径都真的有人守着**：把实现按最可能的抄错方式
 破坏一次，对应闸门必须红。打不红的口径＝那条口径其实没闸，写进代码也只是口头声明。
@@ -12,14 +12,23 @@
 「Go 实现抄错」由 Go 的回放抓，「Go 常量与 Python 字面量分家」由 Python 侧的
 test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人本地 CI 一片绿。
 
+批 2 多出三类只有这边能打的口径，所以条目形态和批 1 不同：
+- **库谓词**（窗口半开、正序、status='active'、UPDATE 不碰 memory_refs）：
+  逐字节回放只看到「这批行」，看不到 SQL 为什么这样写；实库测才看得见谓词。
+- **日历**（本地周一、civil 日折瞬间、day_no % 7、revealed 含今天）：
+  899 条 week_window 语料 + domain 表测。
+- **机制存在性**（Ingress/ConfigMap/openapi 三个登记面必须给出同一个域集合、
+  路由挂在接线开关下、二进制嵌了 IANA 时区库）：只有 Python 侧的源面/清单闸看得见。
+
 库口令只从环境取（CLOSEN_PG_PASSWORD，否则现取容器 env 的白名单点名键），
 脚本与输出都不落明文。
 
 几处刻意不做的事（写了免得被当成漏了）：
-1. `pyBytesRepr` 的引号选择（单引号体改双引号）与非 ASCII→`\\xNN` 两支不做变异：
-   夹具里非 JSON 请求体（batch-content-type-*）全是 ASCII 且都含双引号，
-   改这两支打不出红——不是闸门，是没有观测点。要钉它得先往生成脚本补一条
-   「非 ASCII 的 text/plain 体」用例，那是批 2 的补夹具，不在本批口径内。
+1. ~~`pyBytesRepr` 的引号选择与非 ASCII→`\\xNN` 两支不做变异~~（批 1 登记：夹具里
+   非 JSON 请求体全是 ASCII 且都含双引号，改这两支打不出红——不是闸门，是没有观测点）。
+   **批 2 已按登记的口径补夹具**：生成脚本新增「非 ASCII 的 text/plain 体」「含单引号
+   不含双引号的体」「重复逗号的 Content-Type」三条，于是 #75/#76 第一次可证，#77 补上
+   `isJSONContentType` 的 `+json` 判定面（此前只由 #1 从主类型那一侧打过）。
 2. `anonymizeProperties` 的过滤动作本身不做变异：白名单在 Go 侧失效只会改变**外发事件
    的内容**，而 relayed 计数不看内容、测试里也不联网，逐字节回放看不到。
    它由 #15（白名单表加内容字段⇒ Python 侧红）从**另一侧**守：那张表是隐私红线，
@@ -33,6 +42,13 @@ test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人�
    `pr.Out.Header.Set("X-Trace-Id", trace)`，把它删掉**打不出红**——ReverseProxy 的
    `pr.Out` 本来就是 `pr.In` 的克隆，头一定会带过去。按 N9 的口径（打不出红的守卫不是
    闸门是冗余防御），那句已删；#32 改成在转交处**删头**，红的是可观测的那一面。
+7. 批 2：`Server.now` 钉回真实时钟（把夹具锚点撤掉）**打不出红**，因此不做这条变异。
+   根因是 curriculum 的响应里没有时刻字段（`week_start`/`days[].date` 是日历日，
+   写回库的 `read_at` 不进响应），而锚点 2026-10-14 与跑测那天同处一个本地周
+   （周一 2026-10-12..周日 10-18）⇒ 撤掉锚点这一轮看不出差别。
+   冻时钟的口径因此由**机制存在**两面守：#72–#74 让「录制侧真的冻了钟」「锚点形状」
+   「播种用绝对时刻」各能被打红一次；跨过本地周一之后回放会自然红，那是它的真实生效时刻。
+   留这条勘误，免得后来人把「回放全绿」当成冻时钟已被验证。
 
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
@@ -70,12 +86,26 @@ RA = PY / "routers/analytics.py"
 RD = PY / "routers/discovery.py"
 RM = PY / "routers/mood.py"
 
+# 批 2（curriculum 域）
+CW = GO / "internal/httpapi/curriculum_week.go"
+CR = GO / "internal/httpapi/curriculum_read.go"
+B2 = GO / "internal/httpapi/batch2.go"
+DC = GO / "internal/domain/curriculum.go"
+LB = GO / "internal/store/legacy_batch2.go"
+MG = GO / "cmd/go-api/main.go"
+SV = GO / "internal/httpapi/server.go"
+FX = GO / "testdata/n8_contract.json"
+GS = ROOT / "scripts/gen_n8_contract_goldens.py"
+RC = PY / "routers/curriculum.py"
+
 API_TESTS = GO / "internal/httpapi"
 DOMAIN_TESTS = GO / "internal/domain"
 CUT_TESTS = GO / "internal/cutover"
 CFG_TESTS = GO / "internal/config"
+STORE_TESTS = GO / "internal/store"
 
 B1_PYTEST = "backend/tests/test_n8_batch1_contract.py"
+B2_PYTEST = "backend/tests/test_n8_batch2_contract.py"
 K8S_PYTEST = "backend/tests/test_k8s_manifests.py"
 
 
@@ -156,6 +186,10 @@ def m(num: int, claim: str, kind: str, target, test: str, *steps):
 # ── 变异锚点（逐字取自当前源码，命中数由 patch 断言）─────────────────────────
 CT_RETURN = '\treturn main == "application" && (sub == "json" || strings.HasSuffix(sub, "+json"))\n'
 CT_LOOSE = '\treturn (sub == "json" || strings.HasSuffix(sub, "+json") || main != "") && sub != ""\n'
+# 批 2 补夹具后才有的两个观测点（非 ASCII 的 text/plain 体、含单引号不含双引号的体）
+CT_JSONISH = '\treturn main == "application" && strings.Contains(sub, "json")\n'
+BYTES_QUOTE = "\tif bytes.ContainsRune(raw, '\\'') && !bytes.ContainsRune(raw, '\"') {\n"
+BYTES_ESC = "\t\tcase c < 0x20 || c >= 0x7f:\n"
 EMPTY_BODY = "\tif len(raw) == 0 {\n"
 NULL_BODY = ("\tcase pyNull:\n"
              "\t\t// FastAPI 把空 body 与 JSON null 都当成「没给 body」⇒ missing，而不是类型错误。\n"
@@ -232,6 +266,66 @@ ING_CATCHALL = ("          - path: /api/v1\n"
 DEP_ANALYTICS = '@router.post("/analytics/batch", deprecated=True)\n'
 DEP_MOOD = '@router.post("/mood/checkin")\n'
 DISC_PATH = '@router.get("/discovery/daily", deprecated=True)\n'
+
+# ── 批 2（curriculum）的锚点 ──────────────────────────────────────────────────
+SECOND_GATE = (
+    '\t// 第二趟：Python 侧的 require_user 再打一条同样的 SELECT，也再判一次 40401。\n'
+    '\tsecond, err := s.batch2.Store.CurriculumUser(ctx, userID)\n'
+    '\tif err != nil {\n'
+    '\t\treturn second, apierr.New(apierr.CodeDatabaseError, "数据库错误 / Database error")\n'
+    '\t}\n'
+    '\tif !second.Found {\n'
+    '\t\treturn second, apierr.New(apierr.CodeUserNotFound, "用户不存在 / User not found")\n'
+    '\t}\n'
+    '\treturn second, nil\n')
+PYSTRING_TRUTHY = '\tcase pyString:\n\t\treturn v.str != ""\n'
+REFS_FALLBACK = '\t\treturn pyArrayValue()\n'
+WEEK_TZ = '\tmonday, start, end, today := domain.CurriculumWindow(user.Timezone, now)\n'
+WEEK_KEYS = '\t\tfor _, key := range []string{"title", "assertion", "question"} {\n'
+READ_CALL = '\t\tpayload.set("read_at", pyStringValue(pyISOOffset(s.now().UTC())))\n'
+READ_HELPER = '\treturn pyISO(t)[:len(pyISO(t))-1] + "+00:00"\n'
+READ_GUARD = '\tif !pyTruthy(payloadGet(payload, "read_at")) {\n'
+READ_FORBIDDEN = (
+    '\tif !event.Found || event.UserID != user.ID || event.Kind != domain.CurriculumKind {\n'
+    '\t\twriteJSONError(w, r, apierr.New(apierr.CodeForbidden, forbiddenCardMessage))\n'
+    '\t\treturn\n'
+    '\t}\n')
+REVEALED = '\t\trevealed := !day.After(today)\n'
+UNREAD_COND = '\t\tif revealed && !card.HasReadAt {\n'
+MONDAY_ZERO = '\treturn (int(d.Weekday()) + 6) % 7\n'
+CIVIL_START = '\treturn time.Date(civil.Year(), civil.Month(), civil.Day(), 0, 0, 0, 0, zone).UTC()\n'
+SLOT_NEG = '\tif slot < 0 {\n'
+SQL_WINDOW = ('\tWHERE user_id = $1 AND event_kind = $2 AND scheduled_at >= $3 '
+              'AND scheduled_at < $4\n')
+SQL_ORDER = '\tORDER BY scheduled_at ASC\n'
+SQL_ACTIVE = "\tWHERE id = $1 AND status = 'active'"
+SQL_UPDATE = '\tUPDATE journey_events SET payload = $2 WHERE id = $1`\n'
+LIMIT_50 = '\tCurriculumListLimit = 50\n'
+KIND_LIT = '\tCurriculumKind = "curriculum"\n'
+FORBID_MSG = 'const forbiddenCardMessage = "无权访问该主题卡"\n'
+CONSENT_MSG = ('const errAIAgreementRequired = "使用 AI 功能前，请先阅读并同意 AI 数据共享说明 / " +\n'
+               '\t"Please review and agree to the AI data sharing notice before using AI features"\n')
+BATCH2_GUARD = '\tif s.batch2 != nil {\n'
+CFG_CURR = '\t\tCutoverCurriculum:      envInt("CLOSEN_CUTOVER_CURRICULUM", 0),\n'
+CM_CURR = '  CLOSEN_CUTOVER_CURRICULUM: "0"\n'
+ING_CURR = ('          - path: /api/v1/curriculum\n'
+            '            pathType: Prefix\n'
+            '            backend:\n'
+            '              service:\n'
+            '                name: go-api\n')
+TZDATA_LINE = '\t_ "time/tzdata"\n'
+FREEZE_UTC_NOW = '    curriculum_module.utc_now = lambda: ANCHOR\n'
+# recorded_at 每次重录都会变，锚点从夹具现读而不是写死日期；形状仍要求 +00:00，
+# 因为 #73 要证的就是「写成 Z 结尾」这一形态分家。
+_fx_text = FX.read_text(encoding="utf-8")
+_fx_anchor = re.search(
+    r'"recorded_at": "(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\+00:00"', _fx_text)
+assert _fx_anchor, "夹具 recorded_at 不再是 +00:00 形状，#73 的锚点要跟着改"
+FX_ANCHOR = f'"recorded_at": "{_fx_anchor.group(1)}+00:00"'
+FX_ANCHOR_Z = f'"recorded_at": "{_fx_anchor.group(1)}Z"'
+FX_SCHED = '"scheduled_at": "2026-10-12T01:00:00+00:00"'
+DEP_WEEK = '@router.get("/curriculum/week", deprecated=True)\n'
+READ_ROUTE = '@router.post("/curriculum/{event_id}/read", deprecated=True)\n'
 
 MUTATIONS = [
     # ── analytics 的 400 体（FastAPI 的 body 读取面）──────────────────────────
@@ -429,8 +523,9 @@ MUTATIONS = [
       backup(RA), patch(RA, DEP_ANALYTICS, '@router.post("/analytics/batch")\n')),
 
     m(38, "提前标废弃未切流的域：mood 还在 py-api 手里就写 deprecated，"
-          "客户端会收到「这条路要没了」的错误信号",
-      "pytest", f"{B1_PYTEST}::test_only_batch1_paths_are_deprecated", "",
+          "客户端会收到「这条路要没了」的错误信号（2026-10-15 改指批 2 的 exact-set 闸： "
+          "批 1 那条已改成子集口径，反向判据由 `test_deprecated_set_is_exactly_the_cut_domains` 全量守）",
+      "pytest", f"{B2_PYTEST}::test_deprecated_set_is_exactly_the_cut_domains", "",
       backup(RM), patch(RM, DEP_MOOD, '@router.post("/mood/checkin", deprecated=True)\n')),
 
     m(39, "回滚面：路由本体一改路径，灰度调回 0 时 Python 也答不上这条 URL——"
@@ -450,8 +545,220 @@ MUTATIONS = [
       "go", API_TESTS, "TestN8FixtureCorpusCoversBothRejectShapes",
       backup(RP, GO / "internal/httpapi/n8_contract_test.go"),
       patch(GO / "internal/httpapi/n8_contract_test.go",
-            '\tOccurredAtCorpus   []n8CorpusEntry `json:"occurred_at_corpus"`\n',
-            '\tOccurredAtCorpus   []n8CorpusEntry `json:"occurred_at_corpuss"`\n')),
+            '\tOccurredAtCorpus []n8CorpusEntry `json:"occurred_at_corpus"`\n',
+            '\tOccurredAtCorpus []n8CorpusEntry `json:"occurred_at_corpuss"`\n')),
+
+    # ══ 批 2：curriculum 域 ══════════════════════════════════════════════════
+    # ── HTTP 层：同意门、时区、真值判定与回退分支 ─────────────────────────────
+    m(42, "两道同意门合并成一次 SELECT：Python 是 require_ai_consent 与 require_user 各查一次，"
+          "合并后「用户已注销」与「卡片越权」谁先报错换一侧（次序本身是契约）",
+      "go", API_TESTS, "TestCurriculumWeekReadsConsentBeforeCards",
+      backup(B2), patch(B2, SECOND_GATE, "\treturn first, nil\n")),
+
+    m(43, "周窗口取的是**用户**时区：写成 UTC 后非 UTC 用户（夹具里的 curr-sh，Asia/Shanghai）"
+          "整周 week_start/date/revealed 平移，28 条回放全红",
+      "go", API_TESTS, "TestN8CurriculumContractBytes",
+      backup(CW), patch(CW, WEEK_TZ,
+                        '\tmonday, start, end, today := domain.CurriculumWindow("UTC", now)\n')),
+
+    m(44, "payload 三个内容键的书写序＝Python get_week 里那个 dict 字面量的顺序："
+          "换序后响应字节不同（键序是契约，不是排版）",
+      "go", API_TESTS, "TestN8CurriculumContractBytes",
+      backup(CW), patch(CW, WEEK_KEYS,
+                        '\t\tfor _, key := range []string{"title", "question", "assertion"} {\n')),
+
+    m(45, "`bool(payload.get(\"read_at\"))` 写成「非空即可」：payload 里 read_at 若是空串，"
+          "Python 判未读而 Go 判已读 ⇒ read 与 unread_count 一起逐字不同",
+      "go", API_TESTS, "TestPyTruthyIsPythonBoolNotNullCheck",
+      backup(B2), patch(B2, PYSTRING_TRUTHY, '\tcase pyString:\n\t\treturn true\n')),
+
+    m(46, "坏 memory_refs 的回退值：Python `_refs` 回 []，nil/null 会让前端拿到 null。"
+          "回退成 pyNull 后 refsArray 的 kind 就不是数组",
+      "go", API_TESTS, "TestRefsArrayFallsBackToEmptyArrayNotNull",
+      backup(B2), patch(B2, REFS_FALLBACK, '\t\treturn pyNullValue()\n')),
+
+    m(47, "isoformat 的 UTC 后缀（helper 本体）：read_at 走的是 Python 自己的 "
+          "`datetime.isoformat()`（+00:00），不是 pydantic 序列化器的 Z；"
+          "两条格式合并成一条，写回库的文本就换了一种形状",
+      "go", API_TESTS, "TestPyISOOffsetAndPyISOAreDifferentFormats",
+      backup(B2), patch(B2, READ_HELPER, '\treturn pyISO(t)\n')),
+
+    m(48, "越权三情形拆开报错：行不存在改回 40401 ⇒ 这个端点变成 id 枚举 oracle"
+          "（能区分「不存在」与「无权」），Python 侧是合成同一条 403",
+      "go", API_TESTS, "TestCurriculumReadForbiddenIsOneMergedCode",
+      backup(CR), patch(CR, READ_FORBIDDEN,
+                        '\tif !event.Found {\n'
+                        '\t\twriteJSONError(w, r, apierr.New(apierr.CodeUserNotFound, '
+                        '"用户不存在 / User not found"))\n'
+                        '\t\treturn\n'
+                        '\t}\n'
+                        '\tif event.UserID != user.ID || event.Kind != domain.CurriculumKind {\n'
+                        '\t\twriteJSONError(w, r, apierr.New(apierr.CodeForbidden, '
+                        'forbiddenCardMessage))\n'
+                        '\t\treturn\n'
+                        '\t}\n')),
+
+    m(49, "已读门的幂等性：`if !pyTruthy(...)` 失效后第二次调用照样 UPDATE，"
+          "read_at 被覆盖成当下 ⇒ 同一张卡两次请求改了两行历史",
+      "go", API_TESTS, "TestCurriculumReadIsIdempotentInStoreCalls",
+      backup(CR), patch(CR, READ_GUARD,
+                        '\tif !pyTruthy(payloadGet(payload, "read_at")) || true {\n')),
+
+    m(50, "read_at 的写回格式（调用点）：换成 pyISO 就是 Z 结尾，"
+          "而 Python 写进库的是 +00:00；这个文本不进响应，只有这里的写回断言看得见",
+      "go", API_TESTS, "TestCurriculumReadIsIdempotentInStoreCalls",
+      backup(CR), patch(CR, READ_CALL,
+                        '\t\tpayload.set("read_at", pyStringValue(pyISO(s.now().UTC())))\n')),
+
+    # ── 域层：日历算术（批 2 独有的负担）──────────────────────────────────────
+    m(51, "revealed 的今日界：Python 是 `day <= today`，改成严格小于 ⇒ 今天那张卡"
+          "不出卡、unread_count 少 1（周视图最右侧一整格消失）",
+      "go", DOMAIN_TESTS, "TestBuildCurriculumWeek",
+      backup(DC), patch(DC, REVEALED, '\t\trevealed := day.Before(today)\n')),
+
+    m(52, "unread 只算已揭开且未读：去掉 revealed 条件后未来格子也计未读，"
+          "unread_count 比 Python 大 ⇒ 前端红点数量错",
+      "go", DOMAIN_TESTS, "TestBuildCurriculumWeek",
+      backup(DC), patch(DC, UNREAD_COND, '\t\tif !card.HasReadAt {\n')),
+
+    m(53, "Go 的 Sunday=0 换 Python 的 Monday=0：少这一折算时，周日用户的「本周」"
+          "少一整天，899 条 week_window 语料当场对不上",
+      "go", API_TESTS, "TestN8WeekWindowCorpus",
+      backup(DC), patch(DC, MONDAY_ZERO, '\treturn int(d.Weekday())\n')),
+
+    m(54, "日历日与瞬间的分家：把本地周一直接当 UTC 午夜用，Santiago/Tehran 那两条"
+          "「本地零点缺位」的语料窗口两端各错一小时（gap 分支正是为此存在）",
+      "go", DOMAIN_TESTS, "TestCivilDayStartUTCUsesPreTransitionOffset",
+      backup(DC), patch(DC, CIVIL_START, '\treturn civil.UTC()\n')),
+
+    m(55, "day_no % 7 的负数支：Python 的 % 对负数返回非负，Go 跟着被除数符号；"
+          "少了归一，历史脏值（day_no=-1）那一格在 Go 永远不出卡而 Python 会出",
+      "go", DOMAIN_TESTS, "TestCurriculumSlotMatchesPythonModulo",
+      backup(DC), patch(DC, SLOT_NEG, '\tif false {\n')),
+
+    # ── 库层谓词（实库测才看得见：逐字节回放只看「这批行」）───────────────────
+    m(56, "周窗口右端必须开：`scheduled_at < end` 改成闭区间后，下周一 00:00:00 整的卡"
+          "同时属于两周，Python 的 list_kind_between 不会这样取",
+      "go", STORE_TESTS, "TestCurriculumCardsWindowIsHalfOpen",
+      backup(LB), patch(LB, SQL_WINDOW,
+                        SQL_WINDOW.replace("scheduled_at < $4", "scheduled_at <= $4"))),
+
+    m(57, "取行顺序不能动：同一格「后写覆盖先写」，DESC 之后被覆盖的是另一行，"
+          "响应里的 id/payload 跟着换（Python 侧 ORDER BY scheduled_at ASC）",
+      "go", STORE_TESTS, "TestCurriculumCardsOrderAndLimit",
+      backup(LB), patch(LB, SQL_ORDER, '\tORDER BY scheduled_at DESC\n')),
+
+    m(58, "users 的 status='active' 谓词：去掉后已注销用户变成「查得到但没同意」，"
+          "Python 侧这里直接 40401（user_repository.get_user 同一条 WHERE）",
+      "go", STORE_TESTS, "TestCurriculumUserStatusAndConsent",
+      backup(LB), patch(LB, SQL_ACTIVE, "\tWHERE id = $1")),
+
+    m(59, "写回 payload 时不许碰 memory_refs：Python 的 set_payload 只带 payload 参数时"
+          "不写这列；顺带清空 = 回链数据被读卡动作销毁",
+      "go", STORE_TESTS, "TestSetJourneyPayloadLeavesOtherColumns",
+      backup(LB), patch(LB, SQL_UPDATE,
+                        '\tUPDATE journey_events SET payload = $2, memory_refs = NULL '
+                        'WHERE id = $1`\n')),
+
+    # ── Python 侧：跨语言字面量、登记面与机制存在性 ────────────────────────────
+    m(60, "周窗行数上限 50（journey_repository.list_kind_between 的默认 limit）："
+          "Go 侧改一个数字，Python 的跨语言闸必须红",
+      "pytest", f"{B2_PYTEST}::test_kind_week_days_and_limit_match_go", "",
+      backup(DC), patch(DC, LIMIT_50, '\tCurriculumListLimit = 51\n')),
+
+    m(61, "event_kind 字面量：curriculum 的存储刻意复用 journey_events，"
+          "改一个字母就查不到任何卡，而 Go 侧全绿（回空数组）",
+      "pytest", f"{B2_PYTEST}::test_kind_week_days_and_limit_match_go", "",
+      backup(DC), patch(DC, KIND_LIT, '\tCurriculumKind = "curriculums"\n')),
+
+    m(62, "越权文案逐字：Go 少抄或改写「无权访问该主题卡」，403 体就与 Python 不同字节",
+      "pytest", f"{B2_PYTEST}::test_forbidden_card_message_and_codes_match_go", "",
+      backup(CR), patch(CR, FORBID_MSG, 'const forbiddenCardMessage = "无权访问该主题卡哦"\n')),
+
+    m(63, "AI 同意文案的英文半句：40303 的 message 是中英拼在一起的一条字面量，"
+          "少半句就是另一种契约字节",
+      "pytest", f"{B2_PYTEST}::test_ai_consent_message_matches_go_literal", "",
+      backup(B2), patch(B2, CONSENT_MSG,
+                        'const errAIAgreementRequired = "使用 AI 功能前，请先阅读并同意 '
+                        'AI 数据共享说明"\n')),
+
+    m(64, "同一处「合并第二趟 SELECT」从**另一侧**看：改 Go 的人本地只跑 Go 测也行，"
+          "但 Python 侧的源面闸必须同时红——否则跨语言口径靠人记得",
+      "pytest", f"{B2_PYTEST}::test_consent_checks_run_before_any_event_read", "",
+      backup(B2), patch(B2, SECOND_GATE, "\treturn first, nil\n")),
+
+    m(65, "第④步的 curriculum/week 撤掉 deprecated：openapi 与 Ingress 归属互相说谎"
+          "（清单说这条已归 Go，契约却说 Python 权威）",
+      "pytest", f"{B2_PYTEST}::test_deprecated_set_is_exactly_the_cut_domains", "",
+      backup(RC), patch(RC, DEP_WEEK, '@router.get("/curriculum/week")\n')),
+
+    m(66, "回滚面：路由本体一改路径，灰度调回 0 时 Python 答不上这条 URL",
+      "pytest", f"{B2_PYTEST}::test_cut_paths_are_still_routable_for_rollback", "",
+      backup(RC), patch(RC, READ_ROUTE,
+                        '@router.post("/curriculum/{event_id}/mark-read", deprecated=True)\n')),
+
+    m(67, "注册挪出「批 2 已接线」开关：机制没接线时 Go 也答这一域，"
+          "Ingress 一刀指过来就是 500/空响应，而不是回落到 py-api",
+      "pytest", f"{B2_PYTEST}::test_go_registers_both_curriculum_routes", "",
+      backup(SV), patch(SV, BATCH2_GUARD, '\tif true {\n')),
+
+    m(68, "三个登记面的一致性：把 curriculum 的 Ingress backend 改回 py-api，"
+          "0% 下**功能没有变化**（Go 本来只逐字转交），但「这一域已交给 Go」在"
+          "Ingress 处失联——放量那次会以为自己在切一条没接管的域",
+      "pytest", f"{B2_PYTEST}::test_three_registers_agree_on_the_cut_domains", "",
+      backup(ING), patch(ING, ING_CURR, ING_CURR.replace("name: go-api", "name: py-api"))),
+
+    m(69, "二进制不嵌 IANA 时区库：运行镜像是 alpine 且没装 tzdata（2026-10-14 实测），"
+          "LoadLocation 对每个真实用户失败 ⇒ 静默退回 UTC，"
+          "而那条回退与 Python 的 safe_zoneinfo 同形，899 条语料与 28 条回放全都看不出",
+      "pytest", f"{B2_PYTEST}::test_runtime_images_agree_on_where_zoneinfo_comes_from", "",
+      backup(MG), patch(MG, TZDATA_LINE, '\t// 变异：撤掉嵌入的时区数据库\n')),
+
+    m(70, "curriculum 灰度默认 100：忘了配键的部署直接把这一域全给 Go，"
+          "「部署了但没开灰度」这一安全态就没了（与批 1 的 analytics 同一条口径）",
+      "go", CFG_TESTS, "TestN8CutoverDefaults",
+      backup(CF), patch(CF, CFG_CURR,
+                        '\t\tCutoverCurriculum:      envInt("CLOSEN_CUTOVER_CURRICULUM", 100),\n')),
+
+    m(71, "ConfigMap 里 curriculum 放量到 1：本轮判据是「百分比仍为 0」，"
+          "改这里而不同步改断言＝悄悄放量没人知道",
+      "pytest", f"{K8S_PYTEST}::test_ingress_is_at_zero_percent_rollout", "",
+      backup(CFG), patch(CFG, CM_CURR, '  CLOSEN_CUTOVER_CURRICULUM: "1"\n')),
+
+    m(72, "录制侧不冻 utc_now：录出来的 read_at/week 属于录制那一刻，"
+          "而 Go 侧锚点钉在夹具的 recorded_at，两侧比的不是同一个星期",
+      "pytest", f"{B2_PYTEST}::test_recorder_freezes_python_clock_for_curriculum", "",
+      backup(GS), patch(GS, FREEZE_UTC_NOW, '    # 变异：忘了冻 utc_now\n')),
+
+    m(73, "锚点的形状：recorded_at 写成 Z 结尾后，Go 侧 `time.Parse(RFC3339)` 仍能读，"
+          "但夹具与 Python 的 isoformat 口径分家（播种行、read_at 都是 +00:00 形）",
+      "pytest", f"{B2_PYTEST}::test_anchor_is_recorded_for_the_frozen_clock", "",
+      backup(FX), patch(FX, FX_ANCHOR, '"recorded_at": "2026-10-14T14:45:30Z"')),
+
+    m(74, "播种行改回相对当下：curriculum 的窗口按「本周」取行，相对播种会让两侧"
+          "在不同日期读到不同一周，28 条回放的字节就成了掷骰子",
+      "pytest", f"{B2_PYTEST}::test_anchor_is_recorded_for_the_frozen_clock", "",
+      backup(FX), patch(FX, FX_SCHED, '"scheduled_at": "days_ago:2"')),
+
+    # ── 批 1 登记「没有观测点」的两支，补夹具后第一次可证 ─────────────────────
+    m(75, "repr(bytes) 的引号选择：体里含单引号且不含双引号时 Python 用双引号包裹 "
+          "（`b\"it's fine\"`）。固定用单引号会写成 `b'it\\'s fine'`，"
+          "400 体的 input 逐字不同（batch-content-type-text-plain-single-quote）",
+      "go", API_TESTS, "TestN8ValidationContractBytes",
+      backup(AB), patch(AB, BYTES_QUOTE, "\tif false {\n")),
+
+    m(76, "repr(bytes) 的 >=0x7f 转义：非 ASCII 字节的 repr 必须是 `\\xNN`，"
+          "原样写出 UTF-8 字节会让 400 体里的 input 变成另一串字节"
+          "（batch-content-type-text-plain-nonascii）",
+      "go", API_TESTS, "TestN8ValidationContractBytes",
+      backup(AB), patch(AB, BYTES_ESC, "\t\tcase c < 0x20:\n")),
+
+    m(77, "Content-Type 的 +json 判定松成「子类型里含 json 就行」：重复逗号头 "
+          "`application/json, application/json` 的 sub 是 `json, application/json`，"
+          "两侧实测都判**非 JSON**（走 bytes repr）；松判定会让 Go 去解 JSON，"
+          "400 体换成 json_invalid 形态（batch-content-type-duplicate-json）",
+      "go", API_TESTS, "TestN8ValidationContractBytes",
+      backup(AB), patch(AB, CT_RETURN, CT_JSONISH)),
 ]
 
 
@@ -499,7 +806,7 @@ def main() -> int:
 
     # 复跑受影响面：证明每份备份都写回去了。变异脚本最怕的不是打红，是打红后把源码留在坏状态。
     for pkg in ("./internal/httpapi/", "./internal/domain/", "./internal/cutover/",
-                "./internal/config/"):
+                "./internal/config/", "./internal/store/"):
         proc = subprocess.run(["go", "test", pkg, "-count=1"], cwd=GO,
                               capture_output=True, text=True, env=ENV, timeout=900)
         tail = (proc.stdout + proc.stderr).strip().splitlines()
@@ -509,7 +816,7 @@ def main() -> int:
             print((proc.stdout + proc.stderr)[-2000:])
             return 1
     proc = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, K8S_PYTEST,
+        [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, K8S_PYTEST,
          "-q", "--no-header"],
         cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
     tail = (proc.stdout + proc.stderr).strip().splitlines()

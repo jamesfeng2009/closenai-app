@@ -170,7 +170,7 @@ def test_ingress_is_at_zero_percent_rollout():
         assert re.fullmatch(r"-?\d+", str(value)), f"{key} 必须是整数百分比，实际 {value!r}"
         assert 0 <= int(value) <= 100, f"{key}={value} 越界（Go 侧会拒绝启动）"
         assert int(value) == 0, (
-            f"{key}={value}：批 1 落地时每个已接管域都必须是 0%。"
+            f"{key}={value}：批 1/批 2 落地时每个已接管域都必须是 0%。"
             "真要放量是一次有意的上线动作，改这条断言就是那次动作的登记点。"
         )
 
