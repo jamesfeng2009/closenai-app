@@ -301,6 +301,68 @@ describe('演示档案：游客态隔离', () => {
   });
 });
 
+/**
+ * 三处「实现与原文档不一致」的落点，各配一条结构闸（tasks.md B3 偏离 1 / 5 / 6）。
+ *
+ * 这三条都很容易被"顺手改回去"破坏：把数据搬去 src/data、把小 A 换成打包 JSON、
+ * 或往屏里再塞一类内容。闸只认文件位与源码结构，不认注释。
+ */
+describe('M5 偏离面：文件位 / 生成方式 / 三段结构', () => {
+  const root = path.join(__dirname, '..');
+  const exists = (p: string) => fs.existsSync(path.join(root, p));
+  const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf8');
+  const dataSrc = read('src/config/demoPersona.ts');
+  const screenSrc = read('src/screens/DemoArchiveScreen.tsx');
+
+  /** 偏离 1：§二 M5 原文写 `src/data/demoArchive.ts`，实落 `src/config/`（纯模块位）。 */
+  it('数据层住 src/config/demoPersona.ts，src/data/ 与 .tsx 都不许出现', () => {
+    expect(exists('src/config/demoPersona.ts')).toBe(true);
+    expect(exists('src/config/demoPersona.tsx')).toBe(false);
+    expect(exists('src/data/demoArchive.ts')).toBe(false);
+    expect(exists('src/data')).toBe(false);
+    // .tsx 里放纯数据就无法在 node 环境断言（jest testMatch 只收 .test.ts）
+    expect(screenSrc).toContain("from '../config/demoPersona'");
+  });
+
+  /** 偏离 5：P1-1 第 4 条的「本地打包 assets/demo_profile.json」→ 改为函数生成。 */
+  it('没有打包 JSON 资产，数字一律由 buildDemoArchive 现算', () => {
+    expect(exists('assets/demo_profile.json')).toBe(false);
+    expect(exists('assets')).toBe(false);
+    expect(dataSrc).not.toMatch(/demo_profile|\.json|require\(|JSON\.parse|fs\.readFile/);
+    // 三类内容（Pattern / 原话 / 时间线）同源于一次 days 生成：换锚点就整体平移
+    const archive = buildDemoArchive('2026-09-29');
+    const dayNos = new Set(archive.days.map((d) => d.dayNo));
+    expect(archive.patterns.every((p) => p.evidence.every((n) => dayNos.has(n)))).toBe(true);
+    expect(archive.memories.every((m) => dayNos.has(m.dayNo))).toBe(true);
+    expect(archive.timeline.every((t) => dayNos.has(t.dayNo))).toBe(true);
+  });
+
+  /** 偏离 6：P1-1 第 2 条列了「1 条 AI 断言示例」→ 没另造第五类内容。 */
+  it('屏内只有概览 / Pattern / 时间线+原话四类卡片，没有第五类断言示例', () => {
+    const titles = [...screenSrc.matchAll(/<Text style=\{styles\.cardTitle\}>.*?\{t\('demo\.(\w+)'\)/g)]
+      .map((m) => m[1]);
+    expect(titles).toEqual(['overviewTitle', 'patternTitle', 'timelineTitle', 'memoryTitle']);
+    expect(DEMO_KEYS.filter((k) => /assertion|example/i.test(k))).toEqual([]);
+  });
+
+  /** 偏离 6 的正面：断言示例这张卡的形态就是「Pattern + 依据行」，每条都得有依据。 */
+  it('每条 Pattern 都渲染 demo.patternBasis 依据行，且依据非空', () => {
+    expect(screenSrc).toMatch(
+      /const basis = \(pattern: DemoPattern\) =>\s*\n\s*t\('demo\.patternBasis', \{ refs: pattern\.evidence\.join\(' · '\) \}\);/,
+    );
+    // 依据行只在 Pattern 卡的 map 里渲染一次，且渲染的就是当条 pattern 自己的 evidence
+    const map = screenSrc.slice(
+      screenSrc.indexOf('{archive.patterns.map('),
+      screenSrc.indexOf('{archive.memories.map('),
+    );
+    expect([...map.matchAll(/basis\(p\)/g)]).toHaveLength(1);
+    expect(map).toContain('<Text style={styles.patternBasis}>{basis(p)}</Text>');
+    for (const { archive } of archives) {
+      expect(archive.patterns.every((p) => p.evidence.length > 0)).toBe(true);
+    }
+  });
+});
+
 describe('演示档案：15 语言文案', () => {
   it('15 个语言全部在册', () => {
     expect(LANGUAGES).toHaveLength(15);

@@ -9,10 +9,12 @@ B4 · M4 分享卡体系（架构方案 §二 M4 / 决策点 3）。
    AIGC 隐式标识只落在 AI 产出的 PDF 上。
 """
 import pytest
+from datetime import datetime, timezone
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from backend.config import settings
+from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
 from backend.core.referral import (
     REFERRAL_ALPHABET,
@@ -203,6 +205,129 @@ async def test_memory_card_pdf_owns_by_user(db, make_user):
     with pytest.raises(AppException) as exc_info:
         await share_service.export_memory_card_pdf(db, "u1", "m-other")
     assert exc_info.value.code == ErrorCode.MEMORY_NOT_FOUND
+
+
+# ── 记忆卡周年口径：标题按本地日界判周年，正文永不提周年 ──
+#
+# 这两侧的口径是**不同**的（B4 偏离 2 的落点）：
+#   标题 _memory_card_title —— 同月日且年差 ≥1 才写「N 年前的今天」（C3 偏离 2 根治）；
+#   正文 _memory_card_lines —— 恒为 intro + 原话 + 日期，不含任何周年词。
+# 所以这里的闸要同时防两种漂移：标题把假周年放出去、正文哪天又混进周年词。
+
+ANNIV_ZH = ("一年前的今天", "年前的今天")
+
+
+def _memory(content: str, created: datetime | None) -> Memory:
+    """内存态 Memory：title/lines 只读属性，不入库就不受 server_default 影响。"""
+    mem = Memory(id="m-card", user_id="u1", content=content)
+    if created is not None:
+        mem.created_at = created
+    else:
+        mem.created_at = None
+    return mem
+
+
+def _title(memory: Memory, user, today: datetime | None, tz: str | None, language: str) -> str:
+    return share_service._memory_card_title(memory, user, today, tz, language)
+
+
+async def test_memory_card_title_one_year_is_anniversary_first_form(db, make_user):
+    """整一年（同月日、年差 1）走 anniversary_one，不是 anniversary_n.format(1)。"""
+    user = await make_user("u1", timezone="Asia/Shanghai")
+    today = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+    created = datetime(2025, 10, 14, 12, 0, tzinfo=timezone.utc)
+
+    for language, expected in (("zh", "一年前的今天"), ("en", "A Year Ago Today")):
+        title = _title(_memory("每周跑一次。", created), user, today, None, language)
+        assert title == expected
+        assert title == copy.t("share", "memory.anniversary_one", language)
+
+
+async def test_memory_card_title_multi_year_anniversary_formats_the_count(db, make_user):
+    """年差 ≥2 走 anniversary_n，{{n}} 必须被替换成真实年数（直出花括号就是坏卡）。"""
+    user = await make_user("u1", timezone="UTC")
+    today = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+    created = datetime(2023, 10, 14, 12, 0, tzinfo=timezone.utc)
+
+    assert _title(_memory("每周跑一次。", created), user, today, "UTC", "zh") == "3 年前的今天"
+    assert _title(_memory("每周跑一次。", created), user, today, "UTC", "en") == "3 Years Ago Today"
+
+
+@pytest.mark.parametrize(
+    "created,label",
+    [
+        (datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc), "同月日但年差 0"),
+        (datetime(2025, 9, 14, 12, 0, tzinfo=timezone.utc), "年差 1 但月份不同"),
+        (datetime(2025, 10, 13, 12, 0, tzinfo=timezone.utc), "年差 1 但早一天"),
+        (datetime(2025, 10, 15, 12, 0, tzinfo=timezone.utc), "年差 1 但晚一天"),
+        (datetime(2027, 10, 14, 12, 0, tzinfo=timezone.utc), "created 在未来：年差为负"),
+    ],
+)
+async def test_memory_card_title_never_fabricates_an_anniversary(
+    db, make_user, created, label
+):
+    """邻近界都不算周年：差一天/差一月/今年/未来都回原模板，绝不写「N 年前的今天」。"""
+    user = await make_user("u1", timezone="UTC")
+    today = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+
+    title = _title(_memory("每周跑一次。", created), user, today, "UTC", "zh")
+    assert title == "你说过的话", label
+    assert title == copy.t("share", "memory.title", "zh")
+    for word in ANNIV_ZH:
+        assert word not in title
+
+
+async def test_memory_card_title_uses_the_user_local_day_boundary(db, make_user):
+    """时区铁律：同一对 UTC 时刻，本地日界不同 → 周年判定不同。
+
+    created=2025-10-13T20:00Z 在上海是 10-14（与 today 的本地日 10-14 同月日 → 周年），
+    在 UTC 是 10-13（与 today 不同日 → 不是周年）。tz 参数缺省时取用户资料里的时区。
+    """
+    shanghai = await make_user("u1", timezone="Asia/Shanghai")
+    utc_user = await make_user("u2", timezone="UTC")
+    today = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+    created = datetime(2025, 10, 13, 20, 0, tzinfo=timezone.utc)
+
+    assert _title(_memory("每周跑一次。", created), shanghai, today, None, "zh") == "一年前的今天"
+    assert _title(_memory("每周跑一次。", created), utc_user, today, None, "zh") == "你说过的话"
+
+
+async def test_memory_card_title_treats_naive_created_at_as_utc(db, make_user):
+    """历史脏行（created_at 无 tzinfo）按 UTC 解释，不拿本地墙上时间乱判周年。"""
+    user = await make_user("u1", timezone="UTC")
+    today = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+
+    assert _title(_memory("每周跑一次。", datetime(2025, 10, 14, 12, 0)), user, today, "UTC", "zh") == "一年前的今天"
+    assert _title(_memory("每周跑一次。", datetime(2025, 10, 13, 23, 0)), user, today, "UTC", "zh") == "你说过的话"
+
+
+async def test_memory_card_title_without_created_at_falls_back_to_template(db, make_user):
+    """created_at 缺失时不崩、不猜：回原模板，正文日期位为空串。"""
+    user = await make_user("u1", timezone="UTC")
+    memory = _memory("每周跑一次。", None)
+
+    assert _title(memory, user, datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc), "UTC", "zh") == "你说过的话"
+    assert share_service._memory_card_lines(memory, "zh")[-1] == ""
+
+
+@pytest.mark.parametrize("language,words", (("zh", ANNIV_ZH), ("en", ("Ago Today",))))
+async def test_memory_card_body_never_mentions_the_anniversary(db, make_user, language, words):
+    """真周年的那张卡，正文五个位置一个不多一个不少：intro / 空 / 「原话」 / 空 / 日期。"""
+    user = await make_user("u1", timezone="UTC")
+    created = datetime(2025, 10, 14, 12, 0, tzinfo=timezone.utc)
+    memory = _memory("  我答应自己每周跑一次。  ", created)
+    today = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+
+    assert _title(memory, user, today, "UTC", language) != copy.t("share", "memory.title", language)
+    assert share_service._memory_card_lines(memory, language) == [
+        copy.t("share", "memory.intro", language),
+        "",
+        "「我答应自己每周跑一次。」",
+        "",
+        "2025-10-14",
+    ]
+    for word in words:
+        assert word not in "".join(share_service._memory_card_lines(memory, language))
 
 
 async def test_year_in_review_never_fabricates_a_card(db, make_user):

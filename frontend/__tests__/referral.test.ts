@@ -187,6 +187,77 @@ describe('归因链路的环境注入（#38：不再有写死的 localhost 与�
     expect(router.slice(start, end)).toMatch(/dependencies=\[Depends\(guard_resolve_rate\)\]/);
   });
 });
+/**
+ * B4 偏离 3：归因**只有深链这一条路**（决策点 3 原文里的 utm + 剪贴板 handoff 没做）。
+ *
+ * 口径是「referral 统计是下界，不能当分享总数看」，它成立的前提是这条路上没有旁门：
+ * 一旦有人加了剪贴板读取、或注册页塞了手工填码框，历史数据的口径就同时被改了
+ * （分子里混进手工填的码），而且前者是 App Store 审核高风险项。
+ * 所以这几条负向闸守的是"不存在"，正向上面的深链用例已经守过。
+ */
+describe('归因只有深链一条路（下界口径的成立条件）', () => {
+  const root = path.join(__dirname, '..');
+  const read = (...parts: string[]) =>
+    fs.readFileSync(path.join(root, ...parts), 'utf8');
+  const appSrc = read('App.tsx');
+  const apiSrc = read('src', 'services', 'api.ts');
+  const authSrc = read('src', 'screens', 'AuthScreen.tsx');
+
+  /** 递归取 src 下所有 .ts/.tsx（排除 i18n 文案：那里出现"推荐码"字样是正常的用户话术）。 */
+  function sources(dir: string): string[] {
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === 'i18n' ? [] : sources(full);
+      return /\.(ts|tsx)$/.test(entry.name) ? [fs.readFileSync(full, 'utf8')] : [];
+    });
+  }
+
+  it('没有剪贴板：依赖不装、源码不读不写', () => {
+    const pkg = JSON.parse(read('package.json'));
+    for (const field of ['dependencies', 'devDependencies']) {
+      expect(Object.keys(pkg[field])).not.toContain('expo-clipboard');
+      expect(Object.keys(pkg[field])).not.toContain('@react-native-clipboard/clipboard');
+    }
+    const hits = sources(path.join(root, 'src'))
+      .concat(appSrc)
+      .filter((src) => /Clipboard\.(setString|getString|hasContents|readOnly)/.test(src));
+    expect(hits).toEqual([]);
+  });
+
+  it('取码入口只有 Linking 两处：冷启动 initialURL 与运行期 url 事件', () => {
+    expect(appSrc).toContain('Linking.getInitialURL()');
+    expect(appSrc).toContain("Linking.addEventListener('url'");
+    // savePendingReferral 只在 ingestReferral 这一个收口里调用（别处再写一次就是第二条路）
+    expect([...appSrc.matchAll(/savePendingReferral\(/g)]).toHaveLength(1);
+    expect(authSrc).not.toMatch(/savePendingReferral|parseReferralFromUrl/);
+  });
+
+  it('注册页没有手工填码入口：三个建号请求的 ref 只能来自暂存', () => {
+    expect(authSrc).not.toMatch(/referral|ref_?[Cc]ode|邀请码|推荐码/i);
+    // referralBody 是唯一的注入点，且它只读 AsyncStorage 暂存
+    const body = apiSrc.slice(apiSrc.indexOf('async function referralBody'));
+    expect(body.slice(0, 300)).toContain('await peekPendingReferral()');
+    expect(body.slice(0, 300)).not.toMatch(/Linking|route\.params|props\./);
+    expect([...apiSrc.matchAll(/\.\.\.\(await referralBody\(\)\)/g)]).toHaveLength(3);
+  });
+
+  it('下界口径的注释在位（谁改数据口径谁先撞上这条）', () => {
+    const head = referralSrc().slice(0, 1200);
+    expect(head).toContain('统计口径是**下界**');
+    expect(head).toContain('不做剪贴板');
+    expect(head).toContain('手工填码');
+  });
+
+  it('落地页也只给「打开 App」一条路：没有可填码的表单', () => {
+    const landing = fs.readFileSync(
+      path.join(root, '..', 'site', 'public', 'r', 'index.html'),
+      'utf8'
+    );
+    expect(landing).not.toMatch(/<input|<textarea|<form/i);
+    expect(landing).not.toMatch(/Clipboard\.(setString|getString)/);
+  });
+});
+
 /** referral.ts 里那条正则的字符类（常量未导出，只能按文本对表）。 */
 function referralSrc(): string {
   return fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'referral.ts'), 'utf8');

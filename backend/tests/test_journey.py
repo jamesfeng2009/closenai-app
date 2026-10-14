@@ -37,6 +37,7 @@ from backend.services.journey_service import (
     journey_service,
     load_template,
 )
+from backend.services.mood_service import mood_label_for
 from backend.services.push import push_service
 from backend.services.safety_service import safety_service
 
@@ -184,6 +185,84 @@ async def test_day2_backfills_real_quote_after_the_gate(db, make_user, time_trav
     assert len(proactive) == 1
     assert proactive[0].memory_ids == refs[0]["memory_id"]
     assert proactive[0].ai_generated is False
+
+
+async def test_day2_is_template_direct_and_never_touches_the_llm(
+    db, make_user, time_travel, monkeypatch
+):
+    """M2 偏离 1（D2 文案口径冲突）的落地证据：取「模板直出」，生成期间零 LLM。
+
+    架构方案 §二 M2 写「D2 走模板直出」，PRD §5.19.3 表格写「复用主动消息四层公式」，
+    实现按前者——与 M2 零 LLM 总方针一致，且剧本不占 LLM 配额。这条把「零 LLM」
+    从叙述变成可复判计数：谁把 D2 接回 LLM 出口，这里就红。
+    """
+    import inspect
+
+    from backend.services import journey_service as journey_module
+    from backend.services.message_generator import MessageGenerator
+
+    # 结构面：整个模块不 import 任何 LLM 出口（连懒加载的口子都没有）
+    source = inspect.getsource(journey_module)
+    for forbidden in ("message_generator", "openai", "llm_client"):
+        assert forbidden not in source
+
+    calls = []
+
+    async def _spy(self, *args, **kwargs):
+        calls.append("llm")
+        raise AssertionError("剧本渲染不许调 LLM")
+
+    for name in ("generate_proactive_message", "generate_chat_stream", "generate_follow_up"):
+        monkeypatch.setattr(MessageGenerator, name, _spy)
+
+    time_travel.set(NOW)
+    await _prefilled(db, make_user)
+    await _memory(db, "u1", "我还是把那封邮件发出去了", days_ago=1)
+
+    event = await _event(db, "u1", "day2_first_outreach")
+    assert await journey_service.deliver(db, event.id) == "sent"
+    assert calls == []
+
+
+async def test_day2_prefers_yesterday_mood_over_quote(db, make_user, time_travel):
+    """三层回退的优先级：昨日签到情绪 > 昨日原话 > 无断言兜底问句。
+
+    情绪分支不引原话，所以按引用不变量 memory_refs 必须恒空——引了才要带。
+    """
+    time_travel.set(NOW)
+    await _prefilled(db, make_user)
+    await _memory(db, "u1", "我还是把那封邮件发出去了", days_ago=1)
+    await _checkin(db, "u1", "😴", days_ago=1)
+
+    event = await _event(db, "u1", "day2_first_outreach")
+    assert await journey_service.deliver(db, event.id) == "sent"
+
+    refreshed = await journey_repository.get(db, event.id)
+    body = json.loads(refreshed.payload)["body"]
+    expected = load_template("zh")["day2_first_outreach"]["with_mood"].format(
+        mood=mood_label_for("😴", "zh")
+    )
+    assert body == expected
+    assert "我还是把那封邮件发出去了" not in body
+    assert json.loads(refreshed.memory_refs) == []
+
+
+async def test_day2_falls_back_to_plain_question_without_any_signal(db, make_user, time_travel):
+    """既没签到也没原话 → 兜底问句，且不带任何断言（无引用、无残留占位符）。
+
+    这条是「不编造依据」的下界：没素材时宁可问一句，也不许拼出一句像懂用户的话。
+    """
+    time_travel.set(NOW)
+    await _prefilled(db, make_user)
+
+    event = await _event(db, "u1", "day2_first_outreach")
+    assert await journey_service.deliver(db, event.id) == "sent"
+
+    refreshed = await journey_repository.get(db, event.id)
+    body = json.loads(refreshed.payload)["body"]
+    assert body == load_template("zh")["day2_first_outreach"]["plain"]
+    assert json.loads(refreshed.memory_refs) == []
+    assert "{" not in body and "}" not in body
 
 
 async def test_statistics_events_carry_no_invented_quotes(db, make_user, time_travel):
