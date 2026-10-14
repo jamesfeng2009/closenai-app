@@ -34,6 +34,13 @@ data:
   # 所以写权仍在 Python 一侧；一旦放量，同一账号的预写就由 Go 提交，判据是夹具的
   # journey 组 46 条逐字节回放（含 uuid 主键的掩码次数，见 n8_replay_test.go）。
   CLOSEN_CUTOVER_JOURNEY: "0"
+  # 批 4（onboarding 域）：这一域的 POST 是**一次请求写三处**——推荐码惰性生成、
+  # onboarding_profiles upsert（无条件）、六行剧本预写，Python 用请求级事务在响应前一次提交，
+  # Go 侧对应 SubmitOnboarding 的单个 pgx 事务。另两处只有本批有的判据：响应里的文案要过
+  # 措辞闸（filter_template，零 LLM），share_url 的深链形状由 site_url＋推荐码字符集决定。
+  # 0% 时 go-api 逐字转交，三处写与闸都仍归 Python；放量判据＝夹具 onboarding 组 28 条
+  # 逐字节回放＋template_corpus 106 条（闭包 92＋对抗探针 14）。
+  CLOSEN_CUTOVER_ONBOARDING: "0"
   # PostHog 收件箱地址。默认值两侧都是这个字面量（backend/config.py:160），
   # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
   # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。

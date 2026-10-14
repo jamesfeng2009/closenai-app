@@ -58,7 +58,15 @@ spec:
                 name: go-api
                 port:
                   name: http
-          # ── 其余 92 个端点仍由 py-api 回答（后续批次逐域上移）──
+          # ── N8 批 4：onboarding（第一条**一次请求写三处**的域，见 10-config.yaml 的同名开关）──
+          - path: /api/v1/onboarding
+            pathType: Prefix
+            backend:
+              service:
+                name: go-api
+                port:
+                  name: http
+          # ── 其余 90 个端点仍由 py-api 回答（后续批次逐域上移）──
           - path: /api/v1
             pathType: Prefix
             backend:
