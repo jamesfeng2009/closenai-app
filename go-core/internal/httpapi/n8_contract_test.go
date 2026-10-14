@@ -4,10 +4,12 @@
 //
 // 为什么不是「跑几个用例看看像不像」：N8 的验收判据是「切流前后响应契约 diff 为空」，
 // 而 diff 为空这件事只有拿另一侧录下来的**原始字节**当基准才可证。
-// 夹具里三块各有闸别：
+// 夹具里各块各有闸别：
 //   - occurred_at_corpus —— speedate 解析器的状态机（无需 HTTP、无需库）
+//   - week_window_corpus / push_moment_corpus —— 两个日历核（无需 HTTP、无需库）
 //   - validation 组 —— 400 体的每一字节（无需库：校验失败根本进不到 store）
-//   - seeded 组 —— 200/404 体（必须真读 users/mood_checkins，同一批行、同一次播种）
+//   - seeded / curriculum / journey 组 —— 200/404 体（必须真读同一批行、同一次播种；
+//     后两组的时钟钉在 recorded_at）
 package httpapi
 
 import (
@@ -44,7 +46,24 @@ type n8Fixture struct {
 	// 实现算出的本地周一/今天/窗口两端是什么。这些形状不能只靠 HTTP 用例取证——
 	// 录制与回放隔几分钟，week_start 永远落在同一周里。
 	WeekWindowCorpus []n8WindowEntry `json:"week_window_corpus"`
-	Cases            []n8Case        `json:"cases"`
+	// PushMomentCorpus 钉的是批 3 的推送时刻核：给定「users.push_time 列原文 +
+	// 时区名 + 剧本日」，Python 的 `_push_moment` 算出哪一个 UTC 瞬间。
+	// 它不能只靠 journey 那 46 条 HTTP 用例取证——录制与回放只隔几分钟，落在 DST
+	// 跳变日的那几条永远不会被重新走到，而缺位墙钟的换算口径正是这一批最容易写歪的地方。
+	PushMomentCorpus []n8PushEntry `json:"push_moment_corpus"`
+	Cases            []n8Case      `json:"cases"`
+}
+
+// n8PushEntry 一行＝一个 (push_time, 时区, 日历日) 的推送时刻观测，want 由 Python 现算。
+// PushTime 用指针区分「列值为 NULL」与「列值是空串」——这两者在 `_push_moment` 里走
+// 同一条 `or "09:00"`，但在列上是两种值，夹具必须都能表达。
+// Transition=true 表示这一天在该时区有 DST 跳变（本地午夜缺位或重复）。
+type n8PushEntry struct {
+	TZ         string  `json:"tz"`
+	PushTime   *string `json:"push_time"`
+	Day        string  `json:"day"`
+	Want       string  `json:"want"`
+	Transition bool    `json:"transition"`
 }
 
 // n8WindowEntry 一行＝一个 (时区, 瞬间) 的窗口观测，四个值全部由 Python 现算。
@@ -67,6 +86,13 @@ type n8Seed struct {
 		AIConsent        bool   `json:"ai_consent"`
 		Timezone         string `json:"timezone"`
 		Status           string `json:"status"`
+		// PushTime 是 users.push_time 的**列原文**（VARCHAR(5)）。nil⇒SQL NULL，
+		// 与空串在 Python 的 `user.push_time or "09:00"` 里落同一分支但列上不同；
+		// "7"（一个字符）走 int() 成功那支 ⇒ 语义是 00:07，不是 07:00。
+		PushTime *string `json:"push_time"`
+		// CreatedAt 是**绝对** UTC 串：journey 的剧本基准日由它推出，
+		// 用 days_ago 这类相对口径会让「重放当天算出的 day_no」随日期漂移。
+		CreatedAt string `json:"created_at"`
 	} `json:"users"`
 	MoodCheckins []struct {
 		ID        string `json:"id"`
@@ -88,7 +114,22 @@ type n8Seed struct {
 		ScheduledAt string  `json:"scheduled_at"`
 		Payload     *string `json:"payload"`
 		MemoryRefs  *string `json:"memory_refs"`
+		// 这三列批 1/批 2 靠 server_default（'pending'/NULL/false）就够了，因为那两个域
+		// 只读 scheduled_at/payload。journey 的 GET 把三列全列进响应、unseen_count 的
+		// 判据就是 `status='sent' AND acknowledged IS FALSE`，所以批 3 必须能播种四种
+		// status 与「sent 但未读 / 已读」两种组合。
+		Status       string  `json:"status"`
+		SentAt       *string `json:"sent_at"`
+		Acknowledged bool    `json:"acknowledged"`
 	} `json:"journey_events"`
+	// OnboardingProfiles 只需要 created_at 一列：`ensure_prefilled` 的基准日取
+	// `profile.created_at if profile and profile.created_at else user.created_at`，
+	// 所以这里刻意区分三种情况——没有行、有行但列 NULL、有行且有值。
+	OnboardingProfiles []struct {
+		ID        string  `json:"id"`
+		UserID    string  `json:"user_id"`
+		CreatedAt *string `json:"created_at"`
+	} `json:"onboarding_profiles"`
 }
 
 type n8Case struct {
@@ -100,6 +141,10 @@ type n8Case struct {
 	RequestRaw   *string           `json:"request_raw"`
 	Status       int               `json:"status"`
 	ResponseText string            `json:"response_text"`
+	// IDMasks 是录制侧把响应体里 uuid4 形状的主键换成 `<event_id>` 的次数。
+	// Go 侧必须掩到**同样多次**：只看「掩完后字节相等」会把「行数变了」这种最要紧的
+	// 发散吃掉——预写幂等那条用例就靠这个数（第二次访问仍必须是 6 次，不是 12 次）。
+	IDMasks int `json:"id_masks"`
 }
 
 func loadN8Fixture(t *testing.T) n8Fixture {
@@ -113,11 +158,13 @@ func loadN8Fixture(t *testing.T) n8Fixture {
 		t.Fatalf("decode n8_contract.json: %v", err)
 	}
 	for name, empty := range map[string]bool{
-		"occurred_at_corpus": len(file.OccurredAtCorpus) == 0,
-		"cases":              len(file.Cases) == 0,
-		"seed.users":         len(file.Seed.Users) == 0,
-		"masked_fields":      len(file.MaskedFields) == 0,
-		"week_window_corpus": len(file.WeekWindowCorpus) == 0,
+		"occurred_at_corpus":       len(file.OccurredAtCorpus) == 0,
+		"cases":                    len(file.Cases) == 0,
+		"seed.users":               len(file.Seed.Users) == 0,
+		"seed.onboarding_profiles": len(file.Seed.OnboardingProfiles) == 0,
+		"masked_fields":            len(file.MaskedFields) == 0,
+		"week_window_corpus":       len(file.WeekWindowCorpus) == 0,
+		"push_moment_corpus":       len(file.PushMomentCorpus) == 0,
 	} {
 		if empty {
 			t.Fatalf("夹具的 %s 为空——键名漂移或生成脚本没落这一块，本节测会在空跑", name)

@@ -8,9 +8,13 @@ users/mood_checkins/journey_events 的那些域）必须有同一批行、同一
 口径：
 - 同一个 TEST_DATABASE_URL：Python 侧走 `psycopg_url()`，Go 侧走 `dsn.Postgres()`（N4 方言归一）。
 - `cases[].group`：`validation` 的响应不进 store（Go 测不需库），`seeded` 的必须先播种，
-  `curriculum` 的除播种外还要把 Go 的时钟钉在夹具的 `recorded_at`。
-- volatile 字段（`generated_at`，值＝请求当下的 utc_now()）在两侧都按同一条正则替换成
-  `"<generated_at>"` 后再逐字比——其余字节一个都不许掩码，否则「diff 为空」就成了空话。
+  `curriculum` 与 `journey` 的除播种外还要把 Go 的时钟钉在夹具的 `recorded_at`
+  ——批 3 的 journey 组里有一条 POST（acknowledge）会真写库，顺序同样是契约。
+- volatile 字段只有两样，两侧各按**同一条正则**替换后再逐字比：
+  `generated_at`（值＝请求当下的 utc_now()）⇒ `"<generated_at>"`；
+  `journey_events` 的**uuid4 主键**（批 3 的 INSERT 支现生成）⇒ `"<event_id>"`，
+  并且每条用例记下掩到的次数 `id_masks`，Go 侧必须掩到同样多次——否则「diff 为空」
+  就成了空话。其余字节一个都不许掩。
 - 播种行用 `days_ago`（相对当下）而不是绝对时间戳：回放可能比录制晚几分钟到几小时，
   窗口边界（7/14 天）两侧必须落在同一侧，所以每行距边界至少留 1.5 天。
   批 2 的 curriculum 例外：它的响应里有**日历字段**，必须冻时钟＋绝对 scheduled_at，
@@ -42,6 +46,13 @@ SEED_PREFIX = "n8b1-"
 MASKED = "<generated_at>"
 EPOCH_UTC = dt_datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
 GENERATED_AT_RE = re.compile(r'"generated_at":"[^"]*"')
+# 必须匹配 Python `str(uuid4())` 的**形状**（8-4-4-4-12 小写十六进制），而且要带
+# 前面的 `"id":"`——`"trace_id":"00000000-…"` 与 refs 里的 `"memory_id":"…"` 都以
+# 下划线接 id，不会被这条误掩。Go 侧用同一条正则、同一个替换串。
+EVENT_ID_RE = re.compile(r'"id":"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"')
+MASKED_EVENT_ID = '"id":"<event_id>"'
+# 需要真库才能回放的组（这些组里 404 必须是信封体，见 _group）
+DB_GROUPS = frozenset({"curriculum", "journey"})
 
 
 def _test_db_url() -> str:
@@ -79,6 +90,19 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 # mood_checkins 仍按 days_ago 相对回放当下播种：批 1 的响应里没有日历字段，只有 7/14 天
 # 窗口，两侧各用**自己那一侧的真实当下**读同一批行即可。
 ANCHOR = dt_datetime.now(dt_timezone.utc).replace(microsecond=0)
+
+def ago(days: int, hour: int | None = None) -> str:
+    """ANCHOR 往前 days 天的**绝对** UTC 时刻（hour 给了就把时分秒钉死）。
+
+    为什么绝对而不是像 mood_checkins 那样按 days_ago 相对回放当下：journey 的响应里有
+    scheduled_at，而它由「基准日的**本地日历日**」推出。相对口径下回放只要跨过用户本地
+    午夜，day0 就换了一天，六行的字节全体平移——那不再是契约 diff，是两次不同的预写。
+    """
+    at = ANCHOR - dt_timedelta(days=days)
+    if hour is not None:
+        at = at.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return at.isoformat()
+
 
 # 播种用户：slug / analytics_consent / language / rows（距今天数, emoji）
 #   ai_consent（批 2 curriculum 的前置门）/ timezone（本地周视图的窗口函数）/ status
@@ -132,18 +156,92 @@ USERS: list[dict] = [
     {"slug": "curr-kind", "analytics": True, "language": "en", "ai": True},
     # 已注销（status='deleted'）：get_user 过滤 ⇒ 40401，不是 40303
     {"slug": "curr-deleted", "analytics": True, "language": "en", "ai": True, "status": "deleted"},
+    # ── 批 3（journey）───────────────────────────────────────────────────────
+    # push=users.push_time 的**列原文**（None⇒NULL，与 "" 同一条 `or "09:00"` 分支）；
+    # created=users.created_at 的**绝对时刻**（剧本基准日由它推出，相对口径会让
+    # 跨午夜的回放整条剧本平移一天，见上面 ANCHOR 的注释）；
+    # profile=onboarding_profiles.created_at（"null"⇒插一行但列为 NULL）。
+    {"slug": "j-full", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(4)},
+    {"slug": "j-null-push", "analytics": True, "language": "en", "push": None,
+     "created": ago(1)},
+    {"slug": "j-empty-push", "analytics": True, "language": "en", "push": "",
+     "created": ago(1)},
+    # "24:99" 五字符、两个分段都是 \d{2} ⇒ **今天就能 PATCH 进列**，clamp 支不是历史脏值专属
+    {"slug": "j-clamp", "analytics": True, "language": "en", "push": "24:99",
+     "created": ago(3)},
+    # 全角数字同一条 PATCH 路径可达（schemas.py:400 的 \d 是 Unicode 感知，列按字符计宽）
+    {"slug": "j-fullwidth", "analytics": True, "language": "en",
+     "push": "１２:３４", "created": ago(2)},
+    # 单段「7」过不了 PATCH ⇒ 只能当**历史脏值**播（_push_moment 的 except 支）
+    {"slug": "j-legacy-dirty", "analytics": True, "language": "en", "push": "7",
+     "created": ago(2)},
+    # 本地今天 ≠ UTC 今天的一支：created 取 UTC 18:00 ⇒ +08:00 已是次日，
+    # day0 因此比同刻的 UTC 用户晚一天（拿 now 的 UTC 日期当基准日就是这里错）。
+    {"slug": "j-sh", "analytics": True, "language": "zh", "push": "23:59",
+     "created": ago(2, hour=18), "timezone": "Asia/Shanghai"},
+    # 春季拨快：纽约 2026-03-08 的 02:00–02:59 不存在，push="02:30" 的落点是
+    # Python fold=0 的**切换前**偏移——Go 的裸 time.Date 在这条上差整整一小时。
+    {"slug": "j-gap-ny", "analytics": True, "language": "en", "push": "02:30",
+     "created": "2026-03-08T15:00:00+00:00", "timezone": "America/New_York"},
+    # 秋季回拨：2026-11-01 的 01:30 出现两次，Python 取第一次（EDT⇒05:30Z）。
+    # 基准日刻意在未来（ANCHOR 是 10 月）⇒ 六行全不 Past，skip 支一步都不许走。
+    {"slug": "j-repeat-ny", "analytics": True, "language": "en", "push": "01:30",
+     "created": "2026-11-01T15:00:00+00:00", "timezone": "America/New_York"},
+    # 切换点就在本地午夜附近的区（智利 2026-09-06 跳过 00:00–00:59）：
+    # push="00:30" 严格落在缺位里，而这一支与批 2 修掉的「本地零点折算」同族。
+    {"slug": "j-gap-cl", "analytics": True, "language": "en", "push": "00:30",
+     "created": "2026-09-06T05:00:00+00:00", "timezone": "America/Santiago"},
+    # (kind, day_no) 对不上：六行全走 INSERT 支（id＝uuid4，两侧各掩同一条正则）
+    {"slug": "j-dedup-key", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(2)},
+    {"slug": "j-no-rows", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(2)},
+    {"slug": "j-deleted", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(2), "status": "deleted"},
+    # 51 行 + 预写插入的 6 行 = 57 行，钉 LIMIT 50 与 ORDER BY (day_no, scheduled_at)
+    {"slug": "j-limit", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(2)},
+    # 文本列坏值：预写命中的行只能验 memory_refs（payload 必被覆盖），
+    # payload 的坏形另挂六行 kind 不匹配的行走「不被碰」那条路。
+    {"slug": "j-badcols", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(2)},
+    {"slug": "j-lang-empty", "analytics": True, "language": "", "push": "09:00",
+     "created": ago(2)},
+    {"slug": "j-lang-nonascii", "analytics": True, "language": "ｚｈ-CN", "push": "09:00",
+     "created": ago(2)},
+    # profile 的 created_at 胜出 user 的：基准日 9 天前 ⇒ 六行全 Past
+    {"slug": "j-profile", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(2), "profile": ago(9)},
+    # profile 在但 created_at 为 NULL ⇒ 退回 user.created_at（`profile and profile.created_at`）
+    {"slug": "j-profile-null", "analytics": True, "language": "en", "push": "09:00",
+     "created": ago(2), "profile": "null"},
+    # 基准日在未来（列允许，且 schedule_trial_d5 那种「绝对历史时刻」同形）⇒ 全不 Past
+    {"slug": "j-future", "analytics": True, "language": "en", "push": "09:00",
+     "created": "2027-01-05T12:00:00+00:00"},
 ]
 
 COLUMNS = ("id, timezone, streak_count, relationship_level, chat_count, "
-           "daily_quota_used, tier, language, analytics_consent, ai_consent, status")
-INSERT_USER = f"INSERT INTO users ({COLUMNS}) VALUES (%s, %s, 0, 'L1', 0, 0, 'free', %s, %s, %s, %s)"
+           "daily_quota_used, tier, language, analytics_consent, ai_consent, status, "
+           "push_time, created_at")
+INSERT_USER = (f"INSERT INTO users ({COLUMNS}) VALUES (%s, %s, 0, 'L1', 0, 0, 'free', "
+               f"%s, %s, %s, %s, %s, %s)")
 INSERT_MOOD = (
     "INSERT INTO mood_checkins (id, user_id, mood_emoji, created_at) "
     "VALUES (%s, %s, %s, now() - (%s || ' days')::interval)"
 )
+# status/sent_at/acknowledged 三个列批 1/批 2 靠 server_default（'pending'/NULL/false），
+# 批 3 必须显式写：skip 的判据是「**落库前** status 仍为 pending」，count_unseen 只数
+# status='sent' 且 acknowledged 为假——这三列不播种就永远只有一条路径可证。
+# 默认值原样传进去（curriculum 行的字节因此不变）。
 INSERT_EVENT = (
     "INSERT INTO journey_events (id, user_id, event_kind, day_no, scheduled_at, "
-    "payload, memory_refs) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+    "payload, memory_refs, status, sent_at, acknowledged) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+)
+INSERT_PROFILE = (
+    "INSERT INTO onboarding_profiles (id, user_id, persona_type, answers, first_read, "
+    "language, created_at) VALUES (%s, %s, 'D01', '[]', '{}', 'en', %s)"
 )
 
 
@@ -164,6 +262,14 @@ def CARD(title: object, assertion: object = None, question: object = None,
     return card
 
 
+def column_text(value: object) -> str | None:
+    """dict/list 按 json.dumps 成 TEXT 列原文；str **原样入库**（坏 JSON、空串只能这么造）；
+    None ⇒ 该列为 SQL NULL（parse_json 的空值分支）。"""
+    if value is None or isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
 def I(i: int, day_no: int, payload: object, refs: object = None,
       hour: int = 0, kind: str = "curriculum") -> dict:
     """一条 journey_events 播种计划：i＝本地周内第几天（0＝周一）。
@@ -172,7 +278,9 @@ def I(i: int, day_no: int, payload: object, refs: object = None,
     空串这些形状只能这么造）；给 None 时该列为 NULL（parse_json 的空值分支）。
     """
     return {"i": i, "day_no": day_no, "payload": payload, "refs": refs,
-            "hour": hour, "kind": kind}
+            "hour": hour, "kind": kind,
+            # 批 2 的三条默认值＝当时的 server_default，curriculum 的字节因此不变。
+            "status": "pending", "sent_at": None, "acknowledged": False}
 
 
 # 每张卡的计划（slug → 卡列表）。窗口的绝对端点由 mk() 按各自时区算出来。
@@ -245,14 +353,14 @@ EVENT_PLAN: dict[str, list[dict]] = {
 
 
 def mk(slug: str, items: list[dict]) -> list[dict]:
-    """把某个用户的卡计划换算成绝对行（scheduled_at 用**该用户的时区**算本地零点）。"""
+    """把某个用户的行计划换算成**绝对** scheduled_at（按该用户的时区算本地零点）。
+
+    批 2 用它铺一周的主题卡（i＝本地周内第几天）；批 3 的 journey 行只把 i 固定为 0、
+    用 hour 逐行错开——预写**必改** scheduled_at，所以播种值只要与预写算出来的落点不同
+    就够（响应里出现播种值＝预写没走到，这正是 j-deleted 那条用例的判据）。
+    """
     tz = timezone_of(next(u for u in USERS if u["slug"] == slug))
     monday = local_today_at(tz) - dt_timedelta(days=local_today_at(tz).weekday())
-
-    def column_text(value: object) -> str | None:
-        if value is None or isinstance(value, str):
-            return value
-        return json.dumps(value, ensure_ascii=False)
 
     return [
         {
@@ -264,29 +372,117 @@ def mk(slug: str, items: list[dict]) -> list[dict]:
                              + dt_timedelta(hours=item["hour"])).isoformat(),
             "payload": column_text(item["payload"]),
             "memory_refs": column_text(item["refs"]),
+            "status": item["status"],
+            "sent_at": item["sent_at"],
+            "acknowledged": item["acknowledged"],
         }
         for n, item in enumerate(items)
     ]
 
 
 def seeded_events() -> list[dict]:
-    """全部 curriculum 播种行（Go 侧按同一份夹具插，两侧读同一批行）。"""
+    """全部 journey_events 播种行（Go 侧按同一份夹具插，两侧读同一批行）。"""
     out: list[dict] = []
     for slug, items in EVENT_PLAN.items():
+        out += mk(slug, items)
+    for slug, items in JOURNEY_PLAN.items():
         out += mk(slug, items)
     return out
 
 
-def freeze_clock() -> None:
-    """把 curriculum 服务读到的「当下」钉在 ANCHOR（见上面 ANCHOR 的注释）。
+# ── 批 3（journey）的预播种口径 ───────────────────────────────────────────────
+# GET /journey/events 是**惰性写入者**：ensure_prefilled 先按 (user_id, event_kind,
+# day_no) 查重，命中就改 scheduled_at/payload（**不改 status、不写 memory_refs**），
+# 没命中就插一行 uuid4 主键。于是夹具分两条路：
+#   - 六行全预播种 ⇒ 恒走 UPDATE 支 ⇒ 主键稳定（n8b1-…-eN），响应可逐字比；
+#   - 只在「要证 INSERT 支」的两个用户（j-dedup-key / j-no-rows）上留空，
+#     那两例的 uuid 主键由两侧同一条正则掩成 <event_id>，并核对**掩到的次数**。
+# 哨兵值是让 UPDATE 支可证的关键：payload 必须消失、memory_refs 必须留下。
+from backend.services.journey_service import SCRIPT_EVENTS  # noqa: E402
 
-    只钉这两个名字：get_week 用 local_today 取今天、mark_read 用 utc_now 写 read_at，
-    窗口端点走 local_day_start_utc(tz, day)——它收的是**显式日期**，不碰时钟。
+
+def J(day_no: int, kind: str, payload: object, refs: object, status: str = "pending",
+      sent_at: str | None = None, acknowledged: bool = False, hour: int = 0) -> dict:
+    return {"i": 0, "day_no": day_no, "payload": payload, "refs": refs, "hour": hour,
+            "kind": kind, "status": status, "sent_at": sent_at,
+            "acknowledged": acknowledged}
+
+
+def j_matching(overrides: dict[int, dict] | None = None) -> list[dict]:
+    """六行与 SCRIPT_EVENTS 逐字对齐（kind 与 day_no 同源，不手抄）⇒ 全走 UPDATE 支。
+
+    overrides 按 day_no 换某行的 status/sent_at/acknowledged/payload/refs——
+    scheduled_at 不给，因为预写必改它，播种值只是占位。
+    """
+    out: list[dict] = []
+    for n, (kind, offset) in enumerate(SCRIPT_EVENTS):
+        spec = {"payload": {"sentinel": offset}, "refs": [{"keep": True}], "hour": n}
+        spec.update((overrides or {}).get(offset, {}))
+        out.append(J(offset, kind, **spec))
+    return out
+
+
+JOURNEY_PLAN: dict[str, list[dict]] = {
+    # 六行各占一条 status 支：pending(将 Past⇒skipped)、pending、sent(已 Past 也不动)、
+    # seen+ack、sent(未来，unseen 计数)、skipped(未来，不被 skip 改) ⇒ 一次用例钉住
+    # 「skip 只改 status=='pending'」与 count_unseen 的两个谓词。
+    "j-full": j_matching({
+        2: {"status": "sent", "sent_at": "2026-10-01T03:04:05.123456+00:00"},
+        3: {"status": "seen", "acknowledged": True,
+            "sent_at": "2026-10-02T03:04:05+00:00"},
+        5: {"status": "sent", "sent_at": "2026-10-03T03:04:05.100000+00:00"},
+        7: {"status": "skipped"},
+    }),
+    "j-null-push": j_matching(),
+    "j-empty-push": j_matching(),
+    "j-clamp": j_matching(),
+    "j-fullwidth": j_matching(),
+    "j-legacy-dirty": j_matching(),
+    "j-sh": j_matching(),
+    "j-gap-ny": j_matching(),
+    "j-repeat-ny": j_matching(),
+    "j-gap-cl": j_matching(),
+    "j-lang-empty": j_matching(),
+    "j-lang-nonascii": j_matching(),
+    "j-profile": j_matching(),
+    "j-profile-null": j_matching(),
+    "j-future": j_matching(),
+    # kind 对但 day_no 全是 9x ⇒ get_by_kind 不命中 ⇒ 六行走 INSERT 支
+    "j-dedup-key": [J(90 + o, k, None, None, hour=n)
+                    for n, (k, o) in enumerate(SCRIPT_EVENTS)],
+    "j-no-rows": [],
+    # 注销用户：预写在 get_user 那一格静默返回 ⇒ 这两行的哨兵 scheduled_at 必须**原样**出现
+    "j-deleted": [J(0, "day0_read", {"sentinel": 0}, [{"keep": True}]),
+                  J(7, "day7_report", {"sentinel": 7}, [{"keep": True}])],
+    # 51 行 level_reward（kind 永不匹配）＋预写插入的 6 行 = 57 行 ⇒ LIMIT 50 截掉
+    # day_no 44..50 那七行；同 day_no 上的先后由 scheduled_at 单键决定，无并列。
+    "j-limit": [J(n, "level_reward", {"n": n}, None, hour=n) for n in range(51)],
+    # 预写命中的六行只能验 memory_refs（payload 必被覆盖）；payload 的坏形挂在
+    # kind 不匹配的行上走「不被碰」那条路。parse_json **没有** isinstance 守卫。
+    "j-badcols": (j_matching({o: {"refs": r} for o, r in zip(
+        (0, 1, 2, 3, 5, 7),
+        (None, "", "{oops", '[{"memory_id":"m"}]', '"字符串"', "null"))})
+        + [J(20 + n, "level_reward", p, None, hour=100 + n) for n, p in enumerate(
+            (None, "", "{oops", "[1,2]", '"s"', "5", "null"))]),
+}
+
+
+def freeze_clock() -> None:
+    """把 curriculum/journey 服务读到的「当下」钉在 ANCHOR（见上面 ANCHOR 的注释）。
+
+    curriculum：get_week 用 local_today 取今天、mark_read 用 utc_now 写 read_at。
+    journey：prefill 的 `today = local_today(user.timezone)` 决定哪一行的 Past；
+    它的 base_day 由**绝对**播种的 created_at 推出，所以不钉 local_today 的话，
+    回放一旦跨过用户本地午夜，六行的 status 就会整批错位（pending vs skipped）。
+    窗口端点走的 local_day_start_utc(tz, day) 收的是**显式日期**，不碰时钟。
     """
     from backend.services import curriculum_service as curriculum_module
+    from backend.services import journey_service as journey_module
 
     curriculum_module.local_today = local_today_at
     curriculum_module.utc_now = lambda: ANCHOR
+    journey_module.local_today = local_today_at
+    journey_module.utc_now = lambda: ANCHOR
 
 
 def seed() -> None:
@@ -294,20 +490,32 @@ def seed() -> None:
     dsn = psycopg.connect(libpq_url(RAW_TEST_URL), autocommit=True)
     with dsn.cursor() as cur:
         # journey_events.user_id 没有外键，但同一批 id 的旧行会撞主键，先删。
-        cur.execute("DELETE FROM mood_checkins WHERE id LIKE %s", (f"{SEED_PREFIX}%",))
-        cur.execute("DELETE FROM journey_events WHERE id LIKE %s", (f"{SEED_PREFIX}%",))
+        # **按 user_id 一起删**：批 3 的预写支会插出带随机 uuid 主键的行，
+        # 只按 id LIKE 清会把它们留在库里，下一轮两侧读到的行数就不同了。
+        cur.execute("DELETE FROM mood_checkins WHERE id LIKE %s OR user_id LIKE %s",
+                    (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
+        cur.execute("DELETE FROM journey_events WHERE id LIKE %s OR user_id LIKE %s",
+                    (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
+        cur.execute("DELETE FROM onboarding_profiles WHERE id LIKE %s OR user_id LIKE %s",
+                    (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
         cur.execute("DELETE FROM users WHERE id LIKE %s", (f"{SEED_PREFIX}%",))
         for user in USERS:
             uid = f"{SEED_PREFIX}{user['slug']}"
             cur.execute(INSERT_USER, (uid, timezone_of(user), user["language"],
                                       user["analytics"], user.get("ai", False),
-                                      user.get("status", "active")))
+                                      user.get("status", "active"), user.get("push"),
+                                      user.get("created", ANCHOR.isoformat())))
             for i, (days_ago, emoji) in enumerate(user.get("rows", [])):
                 cur.execute(INSERT_MOOD, (f"{uid}-m{i}", uid, emoji, str(days_ago)))
+            if "profile" in user:
+                created = None if user["profile"] == "null" else user["profile"]
+                cur.execute(INSERT_PROFILE, (f"{uid}-p", uid, created))
         for event in seeded_events():
             cur.execute(INSERT_EVENT, (event["id"], event["user_id"], event["event_kind"],
                                        event["day_no"], event["scheduled_at"],
-                                       event["payload"], event["memory_refs"]))
+                                       event["payload"], event["memory_refs"],
+                                       event["status"], event["sent_at"],
+                                       event["acknowledged"]))
     dsn.close()
 
 
@@ -317,7 +525,10 @@ def seed_spec() -> dict:
         "users": [
             {"id": f"{SEED_PREFIX}{u['slug']}", "timezone": timezone_of(u),
              "language": u["language"], "analytics_consent": u["analytics"],
-             "ai_consent": u.get("ai", False), "status": u.get("status", "active")}
+             "ai_consent": u.get("ai", False), "status": u.get("status", "active"),
+             # push_time 为 None ⇒ SQL NULL（与 "" 同一条 `or "09:00"` 分支，但列上不同）
+             "push_time": u.get("push"),
+             "created_at": u.get("created", ANCHOR.isoformat())}
             for u in USERS
         ],
         "mood_checkins": [
@@ -327,6 +538,11 @@ def seed_spec() -> dict:
             for i, (days_ago, emoji) in enumerate(u.get("rows", []))
         ],
         "journey_events": seeded_events(),
+        "onboarding_profiles": [
+            {"id": f"{SEED_PREFIX}{u['slug']}-p", "user_id": f"{SEED_PREFIX}{u['slug']}",
+             "created_at": None if u["profile"] == "null" else u["profile"]}
+            for u in USERS if "profile" in u
+        ],
     }
 
 
@@ -336,6 +552,7 @@ def seed_spec() -> dict:
 EV = {"event": "screen_view", "properties": {"screen": "home"},
       "occurred_at": "2026-10-01T00:00:00+00:00"}
 CURR = "/api/v1/curriculum"
+JOURNEY = "/api/v1/journey"
 
 
 def cases() -> list[tuple]:
@@ -687,7 +904,110 @@ def cases() -> list[tuple]:
         ("read-shanghai-card", "curriculum", "POST", f"{CURR}/{SEED_PREFIX}curr-sh-e1/read",
          "curr-sh", {}, None),
         ("week-shanghai-after-read", "curriculum", "GET", f"{CURR}/week", "curr-sh", {}, None),
+        # ── 批 3：journey 域 ──────────────────────────────────────────────────
+        # GET /journey/events 先补写再读，所以**每一条 GET 都是一次写请求**：
+        # 用例顺序就是回放顺序，两侧都从同一份 seed 起跑（见 Go 侧 TestN8JourneyContractBytes）。
+        ("events-ghost-user", "journey", "GET", f"{JOURNEY}/events", "ghost-user", {}, None),
+        ("events-anonymous", "journey", "GET", f"{JOURNEY}/events", "", {}, None),
+        # 六行全预播种 ⇒ UPDATE 支：payload 换成就负载、memory_refs 留哨兵、
+        # status 只有原来是 pending 且已 Past 才变 skipped。
+        ("events-full", "journey", "GET", f"{JOURNEY}/events", "j-full", {}, None),
+        # push_time 的 NULL 与 ""：同一条 `or "09:00"`，但列上是两种值
+        ("events-null-push", "journey", "GET", f"{JOURNEY}/events", "j-null-push", {}, None),
+        ("events-empty-push", "journey", "GET", f"{JOURNEY}/events", "j-empty-push", {}, None),
+        # "24:99" 过得了 PATCH（\d{2}:\d{2} 不看范围）⇒ min(max(int,0),23) 双侧各夹
+        ("events-push-clamp", "journey", "GET", f"{JOURNEY}/events", "j-clamp", {}, None),
+        # 全角数字也过得了 PATCH ⇒ int() 的 Nd 支不是历史脏值专属（Go 只认 ASCII 就红）
+        ("events-push-fullwidth", "journey", "GET", f"{JOURNEY}/events", "j-fullwidth", {}, None),
+        # 单段"7"（PATCH 到不了，属历史脏值）⇒ 解包 ValueError ⇒ 9:00
+        ("events-push-legacy-dirty", "journey", "GET", f"{JOURNEY}/events",
+         "j-legacy-dirty", {}, None),
+        # 本地今天 ≠ UTC 今天：Asia/Shanghai 且 UTC 18:00 的基准日 ⇒ day0 比 UTC 晚一天
+        ("events-shanghai-base", "journey", "GET", f"{JOURNEY}/events", "j-sh", {}, None),
+        # 春季拨快：纽约 02:30 不存在，落点必须是切换**前**偏移（Python fold=0）
+        ("events-gap-newyork", "journey", "GET", f"{JOURNEY}/events", "j-gap-ny", {}, None),
+        # 秋季回拨：01:30 出现两次，取第一次（EDT）；基准日在未来 ⇒ 六行全不 Past
+        ("events-repeat-newyork", "journey", "GET", f"{JOURNEY}/events", "j-repeat-ny", {}, None),
+        # 切换点就在本地午夜的区（智利 00:00–00:59 缺位），push="00:30" 严格落在缺位里
+        ("events-gap-santiago", "journey", "GET", f"{JOURNEY}/events", "j-gap-cl", {}, None),
+        # (kind,day_no) 对不上 ⇒ 六行走 INSERT 支（uuid 主键按形状掩，见 id_masks）
+        ("events-insert-branch", "journey", "GET", f"{JOURNEY}/events", "j-dedup-key", {}, None),
+        # 紧接着重放：幂等 ⇒ 仍是 7 行且不新增（少这一步，「重放不产生第二条」不可证）
+        ("events-insert-branch-again", "journey", "GET", f"{JOURNEY}/events",
+         "j-dedup-key", {}, None),
+        ("events-no-rows", "journey", "GET", f"{JOURNEY}/events", "j-no-rows", {}, None),
+        ("events-no-rows-again", "journey", "GET", f"{JOURNEY}/events", "j-no-rows", {}, None),
+        # 注销用户：ensure_prefilled 在 get_user 那格**静默返回**（不升 40401），
+        # 六行照列，且 scheduled_at/payload 仍是播种哨兵＝预写一步都没走。
+        ("events-deleted-user", "journey", "GET", f"{JOURNEY}/events", "j-deleted", {}, None),
+        # 51 行 + 预写 6 行 = 57 行 ⇒ LIMIT 50 与 ORDER BY (day_no, scheduled_at) 的合成
+        ("events-limit-50", "journey", "GET", f"{JOURNEY}/events", "j-limit", {}, None),
+        # 文本列坏值：命中的行验 memory_refs 的六形，payload 的七形挂在 kind 不匹配的行上
+        ("events-bad-columns", "journey", "GET", f"{JOURNEY}/events", "j-badcols", {}, None),
+        # users.language="" ⇒ payload 的 language 是 "en"（`or "en"`）
+        ("events-language-empty", "journey", "GET", f"{JOURNEY}/events", "j-lang-empty", {}, None),
+        # language="ｚｈ-CN" 原样进负载：这一条**不做**查表归一（与批 1 的语言解析不同）
+        ("events-language-nonascii", "journey", "GET", f"{JOURNEY}/events",
+         "j-lang-nonascii", {}, None),
+        # 基准日取 onboarding_profiles.created_at（9 天前）而不是 users.created_at
+        ("events-profile-base", "journey", "GET", f"{JOURNEY}/events", "j-profile", {}, None),
+        # profile 在但 created_at 为 NULL ⇒ 退回 user.created_at（`profile and .created_at`）
+        ("events-profile-null", "journey", "GET", f"{JOURNEY}/events",
+         "j-profile-null", {}, None),
+        ("events-future-base", "journey", "GET", f"{JOURNEY}/events", "j-future", {}, None),
+        # 未声明的查询参数不是校验面：FastAPI 直接忽略，体与不带时逐字相同
+        ("events-unknown-query-param", "journey", "GET", f"{JOURNEY}/events?limit=3",
+         "j-clamp", {}, None),
+        # ── acknowledge：200 / 40402 的归属面 ──
+        ("ack-sent-event", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full", {},
+         {"event_id": f"{SEED_PREFIX}j-full-e2"}),
+        # 写完立刻读：status 变 seen、acknowledged 变 true、unseen_count 少一
+        # （CommitBeforeResponseRoute 的「提交在响应之前」就在这条上可证）
+        ("events-full-after-ack", "journey", "GET", f"{JOURNEY}/events", "j-full", {}, None),
+        ("ack-sent-event-again", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {"event_id": f"{SEED_PREFIX}j-full-e2"}),
+        # 别人的事件与不存在的事件合成同一条 40402（不泄露他人 ID 有效性）
+        ("ack-cross-user", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-clamp", {},
+         {"event_id": f"{SEED_PREFIX}j-full-e0"}),
+        ("ack-missing-event", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full", {},
+         {"event_id": f"{SEED_PREFIX}no-such-event"}),
+        ("ack-anonymous", "journey", "POST", f"{JOURNEY}/events/acknowledge", "", {},
+         {"event_id": f"{SEED_PREFIX}j-full-e1"}),
+        # 注销用户名下的事件：acknowledge 这条链**不过滤 status**（get_user 压根没被调用）
+        # ⇒ 200，与 GET 侧「不预写但照样列行」是两个不同分支，别顺手统一成 404。
+        ("ack-deleted-owner", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-deleted",
+         {}, {"event_id": f"{SEED_PREFIX}j-deleted-e0"}),
+        ("events-deleted-after-ack", "journey", "GET", f"{JOURNEY}/events", "j-deleted", {}, None),
+        # ── JourneyAckRequest 的校验面（pydantic 的 loc/msg/input 逐字）──
+        ("ack-no-body", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full", {}, None),
+        ("ack-empty-object", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {}),
+        ("ack-event-id-null", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {"event_id": None}),
+        ("ack-event-id-number", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {"event_id": 42}),
+        ("ack-event-id-list", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {"event_id": ["x"]}),
+        # max_length=36 数的是**字符**不是字节：37 个 ASCII 与 37 个全角字符都该被拒，
+        # 但 Go 若按 len(string) 判，后者（111 字节）会在完全不同的位置上红。
+        ("ack-event-id-37-ascii", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {"event_id": "x" * 37}),
+        ("ack-event-id-37-nonascii", "journey", "POST", f"{JOURNEY}/events/acknowledge",
+         "j-full", {}, {"event_id": "字" * 37}),
+        ("ack-event-id-36-ok", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {"event_id": "x" * 36}),
+        ("ack-extra-key", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, {"event_id": "e", "unexpected": 1}),
+        ("ack-json-array-body", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, "raw:[]"),
+        ("ack-json-bad", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, "raw:{oops"),
+        ("ack-json-empty", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {}, "raw:"),
+        ("ack-content-type-text", "journey", "POST", f"{JOURNEY}/events/acknowledge", "j-full",
+         {"Content-Type": "text/plain"}, "raw:not json"),
     ]
+
     return out
 
 
@@ -702,7 +1022,7 @@ def _group(name: str, path: str, declared: str, status: int, text: str) -> str:
         return "seeded"
     if declared == "validation" and status == 200:
         raise SystemExit(f"{path} 返回 200 却标为 validation：无库回放组会被污染")
-    if declared == "curriculum" and status == 404 and not text.startswith('{"code"'):
+    if declared in DB_GROUPS and status == 404 and not text.startswith('{"code"'):
         # 业务码 40401 也推导成 HTTP 404，所以 404 本身不是错——**体不是信封**才是：
         # 那是 FastAPI 的路由没匹配（{"detail": "Not Found"}），录进夹具就是把
         # 「我们两边都没实现的那条路径」当成契约。
@@ -736,14 +1056,22 @@ async def record() -> list[dict]:
             if sample:
                 generated_at_samples.append(sample.group(0)[len('"generated_at":"'):-1])
                 text = GENERATED_AT_RE.sub(f'"generated_at":"{MASKED}"', text)
+            group = _group(name, path, group, res.status_code, text)
+            # 预写的 INSERT 支现生成 uuid4 主键：两侧各自掩成同一条占位串，
+            # 并把**掩到的次数**记进夹具——Go 侧必须掩到同样多次，否则「行数变了」
+            # 这种最要紧的发散会被掩码本身吃掉（幂等重放那条用例就靠这个数）。
+            id_masks = 0
+            if group == "journey":
+                text, id_masks = EVENT_ID_RE.subn(MASKED_EVENT_ID, text)
             recorded.append({
                 "name": name,
-                "group": _group(name, path, group, res.status_code, text),
+                "group": group,
                 "method": method,
                 "path": path,
                 "headers": headers,
                 "request_raw": content.decode() if content is not None else None,
                 "status": res.status_code,
+                "id_masks": id_masks,
                 "response_text": text,
             })
     return recorded, generated_at_samples
@@ -967,8 +1295,115 @@ def week_window_corpus() -> list[dict]:
     return out
 
 
+def push_moment_corpus() -> list[dict]:
+    """`_push_moment` 的跨语言语料：给定 (push_time 列原文, 时区名, 剧本日)，
+    Python **现行实现**折出的 UTC 瞬间是哪一串字节。
+
+    为什么不能只靠 journey 那几十条 HTTP 用例：录制与回放只隔几分钟，用例里的剧本日
+    永远落在 ANCHOR 前后那一周——「春季拨快缺位的 02:30」「回拨后重复的 01:30」
+    「切换点恰好压在本地午夜的区（智利/伊朗/查塔姆）」「整天不存在（阿皮亚 2011-12-30）」
+    一次都走不到。这些形状 Go 的裸 `time.Date(loc)` 与 Python 的 fold=0 **必然分家**
+    （实测：纽约 2026-03-08 02:30，Go 给 06:30Z、Python 给 07:30Z），而 scheduled_at
+    是直接进响应字节的列。批 3① 在 journey_test.go 里写下的「届时把口径宣称换成可指回的
+    出处」就是这条：下面每条 want 都由 `journey_service._push_moment` 现算。
+
+    want 用 `isoformat()` 原样存（µs=0 时是 "+00:00"，不是 "Z"）——与
+    list_events 那条无 response_model 的序列化路径同形（pyISOOffset）。
+    """
+    from types import SimpleNamespace
+
+    from backend.services.journey_service import journey_service
+
+    # push_time 的取值面：NULL 与 "" 走同一条 `or`，脏段数走 ValueError，
+    # clamp 两侧各一次，Nd 全类与下划线/空白是 int() 的字符集面。
+    pushes: list[object] = [
+        None, "", "09:00", "07:15", "00:00", "00:30", "01:30", "02:00", "02:30", "02:59",
+        "23:59", "24:99", "25:70", "-3:-9", "7", "9:", ":30", "abc:def", " 7 : 30 ",
+        "+9:00", "\u00a09:30", "١٢:٣٠", "１２:３４", "𝟙𝟚:𝟘𝟛", "1_0:00", "1__0:00",
+        "\x1c9:30", "9:30:00", "99999999999999999999:00", "9:30:15",
+    ]
+    zones = [
+        "UTC", "Asia/Shanghai", "Asia/Kolkata", "America/New_York", "Europe/London",
+        "Australia/Sydney", "America/Santiago", "Pacific/Chatham", "Australia/Lord_Howe",
+        "Pacific/Apia", "Pacific/Kiritimati", "Pacific/Niue", "Asia/Tehran",
+        "America/Asuncion", "Etc/GMT+5", "Not/AZone", "",
+    ]
+    # 异常日：每个区**向前跳**（缺位）与**向后拨**（重复）各取一天，再补几个
+    # 切换点不在 02:00 的异形区（阿皮亚整天不存在、德黑兰/智利跳在午夜、查塔姆 45 分偏移）。
+    hand_picked = {
+        "Pacific/Apia": [dt_date(2011, 12, 30), dt_date(2011, 12, 31)],
+        "Asia/Tehran": [dt_date(2016, 3, 21)],
+        "Pacific/Chatham": [dt_date(2026, 9, 27), dt_date(2026, 4, 5)],
+        "Australia/Lord_Howe": [dt_date(2026, 10, 4), dt_date(2026, 4, 5)],
+        "America/Santiago": [dt_date(2026, 9, 6), dt_date(2026, 4, 5)],
+    }
+
+    def offset_at(tz: str, day: dt_date) -> int:
+        return int(dt_datetime(day.year, day.month, day.day, 12, 0,
+                               tzinfo=safe_zoneinfo(tz)).utcoffset().total_seconds())
+
+    def anomaly_days(tz: str) -> list[dt_date]:
+        days = hand_picked.get(tz, [])
+        forward: dt_date | None = None
+        backward: dt_date | None = None
+        day = dt_date(2024, 1, 2)
+        while day < dt_date(2031, 1, 1):
+            if offset_at(tz, day) != offset_at(tz, day - dt_timedelta(days=1)):
+                delta = offset_at(tz, day) - offset_at(tz, day - dt_timedelta(days=1))
+                if delta > 0 and forward is None:
+                    forward = day
+                elif delta < 0 and backward is None:
+                    backward = day
+            if forward and backward:
+                break
+            day += dt_timedelta(days=1)
+        return [d for d in ([forward, backward] + days) if d is not None]
+
+    out: list[dict] = []
+    normal_days = [dt_date(2026, 3, 9), dt_date(2026, 10, 14), dt_date(2027, 1, 5)]
+    seen: set[tuple] = set()
+
+    def add(push: object, tz: str, day: dt_date, transition: bool) -> None:
+        key = (repr(push), tz, day, transition)
+        if key in seen:
+            return
+        seen.add(key)
+        # day 是**日历日**，与 Python 一样不带时区；折出来的瞬间按 utc 记。
+        moment = journey_service._push_moment(
+            SimpleNamespace(push_time=push, timezone=tz), day)
+        out.append({
+            "tz": tz,
+            "push_time": push,
+            "day": day.isoformat(),
+            "want": moment.astimezone(dt_timezone.utc).isoformat(),
+            # transition=true ⇒ 这一天在该区有 DST 跳变（缺位或重复），
+            # Go 侧断言它不为零：这一族样本是本轮实现里最贵的一支。
+            "transition": transition,
+        })
+
+    # ① 全覆盖：所有 push 值 × 6 个代表区 × 3 个正常日（int()/clamp/字符集面）
+    for push in pushes:
+        for tz in ["UTC", "Asia/Shanghai", "America/New_York", "Europe/London",
+                   "Not/AZone", ""]:
+            for day in normal_days:
+                add(push, tz, day, False)
+    # ② 异常日：每个区各取缺位/重复日，push 只留能压到跳变窗口的那些
+    key_pushes = ["", "00:00", "00:30", "01:30", "02:00", "02:30", "23:59"]
+    for tz in zones:
+        for day in anomaly_days(tz):
+            for push in key_pushes:
+                add(push, tz, day, True)
+    # ③ 字符集面 × 异常日的交叉（Nd 数字与下划线在缺位日上的落点）
+    for tz in ["America/New_York", "Pacific/Chatham", "Asia/Tehran"]:
+        for day in anomaly_days(tz):
+            for push in ["١٢:٣٠", "1_0:00", "+9:00", " 7 : 30 ", None]:
+                add(push, tz, day, True)
+    return out
+
+
 def main() -> None:
     seed()
+
     freeze_clock()
     recorded, samples = asyncio.run(record())
     corpus = datetime_corpus()
@@ -977,23 +1412,26 @@ def main() -> None:
         "trace_id": TRACE,
         # curriculum 组的回放必须把 Server.now 钉在这一刻（见 ANCHOR 的注释）。
         "recorded_at": ANCHOR.isoformat(),
-        "masked_fields": ["generated_at"],
+        "masked_fields": ["generated_at", "journey_event_id"],
         "generated_at_samples": samples[:4],
         "seed": seed_spec(),
         "occurred_at_corpus": corpus,
         "week_window_corpus": week_window_corpus(),
+        "push_moment_corpus": push_moment_corpus(),
         "cases": recorded,
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
                    encoding="utf-8")
     counts = {g: sum(1 for c in recorded if c["group"] == g)
-              for g in ("validation", "seeded", "curriculum")}
+              for g in ("validation", "seeded", "curriculum", "journey")}
     accepted = sum(1 for c in corpus if c["ok"])
     print(f"wrote {OUT}: {len(recorded)} cases "
           f"(validation {counts['validation']} / seeded {counts['seeded']} / "
-          f"curriculum {counts['curriculum']})")
+          f"curriculum {counts['curriculum']} / journey {counts['journey']})")
     print(f"recorded_at={ANCHOR.isoformat()} journey_events={len(seed_spec()['journey_events'])} "
-          f"week_window_corpus={len(payload['week_window_corpus'])}")
+          f"week_window_corpus={len(payload['week_window_corpus'])} "
+          f"push_moment_corpus={len(payload['push_moment_corpus'])} "
+          f"id_masks={sum(c['id_masks'] for c in recorded)}")
     print(f"occurred_at corpus: {len(corpus)} entries ({accepted} accepted / "
           f"{len(corpus) - accepted} rejected)")
     print(f"generated_at samples: {samples[:3]}")
