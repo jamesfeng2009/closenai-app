@@ -1,8 +1,20 @@
-# 入口路由。**灰度 0% 的可验证形态 = 所有 path 的 backend 都还是 py-api**，
-# go-api 的 Service 已存在但不接流量（架构方案 §11.3「Ingress 按 path 灰度，初始 0%」）。
-# 切一个域 = 把该 path 的 service.name 改成 go-api；回滚 = 改回来，不发版、不动数据（§11.4）。
+# 入口路由。**N8 的切流一刀按「域」落在 path 上**：一个域一条 Prefix，backend 指向谁
+# 就由谁答这个域；未切流的域整段留在 /api/v1 → py-api 这条兜底 Prefix 里。
+#
+# 灰度 0% 的可验证形态**不再**是「没有任何 path 指 go-api」，而是两条同时成立：
+#   1. 指 go-api 的每条 path，ConfigMap 里都有对应的 CLOSEN_CUTOVER_<域>＝"0"；
+#   2. CLOSEN_PY_API_URL 非空——百分比没到 100 时 go-api 把请求**逐字转交** py-api
+#      （internal/cutover），所以 0% 是真的 0%：Go 侧一行业务逻辑都不跑，只多一跳代理。
+# 于是「1%→10%→50%→100%」只改 ConfigMap 里的数字，不发版、不动 Ingress；
+# 回滚＝把数改回 0（或整条 path 的 backend 改回 py-api），两条都不碰数据。
+# go-api 侧对越界的百分比是**拒绝启动**而不是夹紧（internal/config），
+# 缺 CLOSEN_PY_API_URL 而百分比 <100 同样是拒绝启动，所以上面第 2 条不会悄悄失效。
+#
 # 刻意不写 ingressClassName 与 controller 专有注解：目标集群是 k3s（默认 Traefik），
 # 本机 OrbStack 无 IngressClass，写死注解会让任一侧失效。
+# 依赖的是 Ingress 规范里两条 path 同现时的**最长前缀优先**（Traefik/nginx 均如此），
+# 更具体的域 path 必须写在兜底 path 之前——顺序不决定优先级，长度才决定，
+# 但把具体域写在前面便于人读，见 backend/tests/test_k8s_manifests.py 的结构断言。
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -15,6 +27,22 @@ spec:
     # 无 host 规则：生产 API 域尚未注入（tasks.md K3），先按任意 host 收流。
     - http:
         paths:
+          # ── N8 批 1：analytics + discovery（最低耦合的两个域）──
+          - path: /api/v1/analytics
+            pathType: Prefix
+            backend:
+              service:
+                name: go-api
+                port:
+                  name: http
+          - path: /api/v1/discovery
+            pathType: Prefix
+            backend:
+              service:
+                name: go-api
+                port:
+                  name: http
+          # ── 其余 96 个端点仍由 py-api 回答（后续批次逐域上移）──
           - path: /api/v1
             pathType: Prefix
             backend:

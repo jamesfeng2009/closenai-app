@@ -127,28 +127,80 @@ def test_resources_are_ordered_and_pyapi_follows_arch_doc():
 
 
 def test_ingress_is_at_zero_percent_rollout():
-    """灰度 0% 的证据 = Ingress 里不存在任何指向 go-api 的 backend。"""
+    """N8 灰度 0% 的可证形态（口径在 2026-10-14 从「没有 path 指 go-api」改成下面四条）。
+
+    go-api 接管一条域 path 但百分比为 0 时，它是**逐字转交** py-api
+    （go-core/internal/cutover），所以「0%」不再是「Go 不接流量」，而是
+    「Go 接了流量但一条业务逻辑都不跑」。四条判据：
+      1. 指 go-api 的每条 path 必须是一个 `/api/v1/<域>` 前缀，且能在 Go 的登记表里找到；
+      2. ConfigMap 里有该域的 `CLOSEN_CUTOVER_<域>`，取值 0..100，且本轮**必须为 0**；
+      3. `CLOSEN_PY_API_URL` 非空——有域在 0..99 之间时 go-api 要靠它转交，
+         这正是 Go 侧「缺值即拒绝启动」的那条约束，清单与代码必须同口径；
+      4. py-api 的 Service 仍在（转交目标），/api/v1 与 /health 的兜底 backend 未动。
+    """
     ing = _one("Ingress", "closenai")
-    backends = []
+    cm = _one("ConfigMap", "closenai-config")
+    go_routes = (ROOT / "go-core" / "internal" / "httpapi" / "server.go").read_text(
+        encoding="utf-8"
+    )
+
+    go_bound: list[str] = []
+    fallbacks: dict[str, str] = {}
     for rule in ing["spec"]["rules"]:
         for path in rule["http"]["paths"]:
             assert path["pathType"] in ("Prefix", "Exact")
-            backends.append(path["backend"]["service"]["name"])
-    assert backends, "Ingress 没有任何 path 规则"
-    assert set(backends) == {"py-api"}, f"初始状态必须全指 py-api，实际 {sorted(set(backends))}"
-    # 切流的前置：go-api 的 Service 必须已经存在，否则改 backend 名会当场 503。
-    _one("Service", "go-api")
+            name = path["backend"]["service"]["name"]
+            if name == "go-api":
+                go_bound.append(path["path"])
+            else:
+                fallbacks[path["path"]] = name
+    assert go_bound, "批 1 起 Ingress 必须已有指向 go-api 的域 path，否则切流机制无从验证"
+
+    for path in go_bound:
+        match = re.fullmatch(r"/api/v1/([a-z][a-z0-9-]*)", path)
+        assert match, f"{path} 不是 /api/v1/<域> 形态：域级一刀只能用整段前缀"
+        domain = match.group(1)
+        # 清单声称这个域归 Go，Go 侧就得真有这个域的路由，不然上线即 404。
+        assert f"/api/v1/{domain}" in go_routes, (
+            f"Ingress 把 {path} 指向 go-api，但 server.go 里没有该域的注册路由"
+        )
+        key = f"CLOSEN_CUTOVER_{domain.upper().replace('-', '_')}"
+        assert key in cm["data"], f"{path} 指向 go-api 却没有 {key}：灰度无法回滚到 0"
+        value = cm["data"][key]
+        assert re.fullmatch(r"-?\d+", str(value)), f"{key} 必须是整数百分比，实际 {value!r}"
+        assert 0 <= int(value) <= 100, f"{key}={value} 越界（Go 侧会拒绝启动）"
+        assert int(value) == 0, (
+            f"{key}={value}：批 1 落地时每个已接管域都必须是 0%。"
+            "真要放量是一次有意的上线动作，改这条断言就是那次动作的登记点。"
+        )
+
+    assert fallbacks.get("/api/v1") == "py-api", f"/api/v1 兜底 backend = {fallbacks}"
+    assert fallbacks.get("/health") == "py-api", f"/health backend = {fallbacks}"
+    assert set(fallbacks.values()) == {"py-api"}, fallbacks
+
+    url = cm["data"].get("CLOSEN_PY_API_URL", "")
+    assert url.startswith("http"), f"有域处于 0..99 时 CLOSEN_PY_API_URL 必须可拨通：{url!r}"
+    _one("Service", "go-api")  # 改 backend 名的前置：Service 不存在会当场 503
+    _one("Service", "py-api")  # 转交目标
 
 
 def test_contract_paths_are_routed():
-    """契约面只有两类入口：/api/v1/* 与 app 级 /health（N0 计数的 98 = 97 + 1）。"""
+    """契约面只有两类入口：/api/v1/* 与 app 级 /health（N0 计数的 98 = 97 + 1）。
+
+    N8 之后 /api/v1 之下允许**整段域前缀**（切流一刀），但不得出现别的入口形态。
+    """
     ing = _one("Ingress", "closenai")
     paths = {
         p["path"]
         for rule in ing["spec"]["rules"]
         for p in rule["http"]["paths"]
     }
-    assert paths == {"/api/v1", "/health"}, paths
+    assert "/api/v1" in paths and "/health" in paths, paths
+    for path in paths - {"/health"}:
+        assert path == "/api/v1" or path.startswith("/api/v1/"), (
+            f"{path} 不在契约的两类入口里"
+        )
+    assert "/healthz" not in paths, "Go 的进程就绪探针不对外占 path"
 
 
 def test_env_var_names_do_not_drift_across_languages():
@@ -179,7 +231,8 @@ def test_manifests_contain_no_plaintext_secrets():
     for path in sorted(MANIFEST_DIR.glob("*.yaml")):
         text = path.read_text(encoding="utf-8")
         assert "stringData" not in text, path.name
-        for key in ("DATABASE_URL", "JWT_SECRET", "CRON_SECRET", "RESEND_API_KEY"):
+        for key in ("DATABASE_URL", "JWT_SECRET", "CRON_SECRET", "RESEND_API_KEY",
+                    "POSTHOG_API_KEY"):
             assert not re.search(rf"{key}\s*[:=]\s*\S", text), f"{path.name} 内含 {key} 明文"
 
 

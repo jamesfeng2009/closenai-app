@@ -17,3 +17,15 @@ data:
   SHUTDOWN_TIMEOUT_SECONDS: "15"
   PYTHONDONTWRITEBYTECODE: "1"
   PYTHONUNBUFFERED: "1"
+  # ── N8 灰度面（Go-only，变量名带 CLOSEN_ 前缀，Python 侧没有对应字段）──
+  # 集群内 py-api 的 Service 地址。百分比未到 100 的域，go-api 把请求逐字转交到这里；
+  # 缺这个值而百分比 <100 时 go-api **拒绝启动**，所以它不能留空或靠默认值。
+  CLOSEN_PY_API_URL: "http://py-api.closenai.svc.cluster.local:8000"
+  # 每域一个数：0＝该域一条都不自己答（真的 0%，只多一跳代理），100＝全量由 Go 答。
+  # 越界（<0 或 >100）是拒绝启动而不是夹紧——「运维以为切了其实没切」比没有开关更糟。
+  CLOSEN_CUTOVER_ANALYTICS: "0"
+  CLOSEN_CUTOVER_DISCOVERY: "0"
+  # PostHog 收件箱地址。默认值两侧都是这个字面量（backend/config.py:160），
+  # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
+  # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。
+  POSTHOG_HOST: "https://eu.i.posthog.com"
