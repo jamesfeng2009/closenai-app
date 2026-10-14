@@ -15,6 +15,7 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/auth"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/config"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/dsn"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/httpapi"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
@@ -31,7 +32,7 @@ func main() {
 		log.Printf("go-api: warning: JWT_SECRET empty, every bearer token will be rejected")
 	}
 
-	poolCfg, err := pgxpool.ParseConfig(postgresURL(cfg.DatabaseURL))
+	poolCfg, err := pgxpool.ParseConfig(dsn.Postgres(cfg.DatabaseURL))
 	if err != nil {
 		log.Fatalf("go-api: DATABASE_URL: %v", err)
 	}
@@ -79,15 +80,4 @@ func main() {
 			log.Printf("go-api: shutdown: %v", err)
 		}
 	}
-}
-
-// postgresURL accepts the SQLAlchemy-style DATABASE_URL the Python stack already
-// exports (postgresql+asyncpg://...) so one variable serves both runtimes.
-func postgresURL(raw string) string {
-	for _, prefix := range []string{"postgresql+asyncpg://", "postgresql+psycopg2://", "postgresql+psycopg://"} {
-		if len(raw) >= len(prefix) && raw[:len(prefix)] == prefix {
-			return "postgresql://" + raw[len(prefix):]
-		}
-	}
-	return raw
 }

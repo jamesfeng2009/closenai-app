@@ -17,12 +17,12 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/auth"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/dsn"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
 
@@ -54,7 +54,7 @@ func main() {
 	password := flag.String("password", "passw0rd", "plaintext password to hash")
 	identifier := flag.String("login-identifier", "", "identifier to log in with (mode=auth)")
 	databaseURL := flag.String("database-url", os.Getenv("DATABASE_URL"),
-		"postgresql DSN for -mode=auth; postgresql+asyncpg:// is accepted")
+		"postgresql DSN for -mode=auth; SQLAlchemy schemes (postgresql+psycopg://…) are accepted")
 	accessTTL := flag.Duration("access-ttl", 30*time.Minute, "access token TTL")
 	refreshTTL := flag.Duration("refresh-ttl", 30*24*time.Hour, "refresh token TTL")
 	flag.Parse()
@@ -111,9 +111,8 @@ func (out *output) runAuth(databaseURL, identifier, password, secret string,
 	if databaseURL == "" {
 		fail(fmt.Errorf("-mode=auth needs -database-url or DATABASE_URL"))
 	}
-	dsn := strings.Replace(databaseURL, "postgresql+asyncpg://", "postgresql://", 1)
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
+	pool, err := pgxpool.New(ctx, dsn.Postgres(databaseURL))
 	if err != nil {
 		fail(err)
 	}

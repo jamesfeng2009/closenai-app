@@ -8,8 +8,9 @@
     .venv/bin/python scripts/export_pg_schema.py --docker closenai-pg-dev --check
     .venv/bin/python scripts/export_pg_schema.py            # 本机装有 pg_dump 时
 
-连接串默认取 settings.database_url（SQLAlchemy 的 postgresql+asyncpg:// 会译成
-libpq 的 postgresql://）。pg_dump 16.9+ 会在开头插入一次性 `\restrict <随机 token>`，
+连接串默认取 settings.database_url；SQLAlchemy 的带驱动 scheme 一律译成 libpq 的
+postgresql://（规则本体在 backend/core/pg_scheme.py，Go 侧对应 internal/dsn）。
+pg_dump 16.9+ 会在开头插入一次性 `\restrict <随机 token>`，
 它每次导出都不同，因此脚本会剔除这类行，保证快照可复现。
 """
 from __future__ import annotations
@@ -114,12 +115,18 @@ def main() -> None:
     print(f"{args.out}: {len(new_body.splitlines())} 行, tables={','.join(tables)}")
 
 
+def _libpq_url(raw: str) -> str:
+    """SQLAlchemy 的带驱动 scheme（postgresql+psycopg://…）译成 pg_dump 认的裸串。"""
+    from backend.core.pg_scheme import libpq_url
+
+    return libpq_url(raw)
+
+
 def _settings_url() -> str:
     sys.path.insert(0, str(ROOT))
     from backend.config import settings
 
-    url = settings.database_url
-    return url.replace("postgresql+asyncpg://", "postgresql://")
+    return _libpq_url(settings.database_url)
 
 
 if __name__ == "__main__":

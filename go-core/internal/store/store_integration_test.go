@@ -22,6 +22,7 @@ import (
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/apierr"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/auth"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/dsn"
 )
 
 func poolForTest(t *testing.T) *pgxpool.Pool {
@@ -31,7 +32,7 @@ func poolForTest(t *testing.T) *pgxpool.Pool {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
 	// Same translation cmd/go-api applies, so one DATABASE_URL serves both stacks.
-	url := strings.Replace(raw, "postgresql+asyncpg://", "postgresql://", 1)
+	url := dsn.Postgres(raw)
 	pool, err := pgxpool.New(context.Background(), url)
 	if err != nil {
 		t.Fatalf("pool: %v", err)

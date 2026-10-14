@@ -18,6 +18,8 @@
    - 22 张表的列名/可空性/唯一索引与 `backend/models/canonical.py` 的声明逐条一致。
      这条不是形式主义：指纹唯一索引最初在迁移里被建成普通索引，同一指纹的第二条
      pattern 直接写进去了，是 Go 侧幂等测试抓出来的；对账闸把它变成跑一次就红。
+   - scheme 随便给（裸 `postgresql://` 也吃），由 `_pg_env.pg_test_url()` 归一到 psycopg3；
+     缺 env 默认 skip，声明「同基线」时用 `CLOSEN_REQUIRE_PG=1` 把 skip 变成 fail。
 3. 迁移往返（`N2_MIGRATE_DATABASE_URL`，指向一次性建的空库）
    - upgrade head → downgrade -1 → upgrade head 全绿，且回退后本批的表真的消失。
 
@@ -34,6 +36,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from _pg_env import pg_test_url
 
 ROOT = Path(__file__).resolve().parents[2]
 N2_MIGRATION_PATH = (
@@ -316,13 +320,6 @@ def test_sqlc_generated_code_matches_queries():
 # ── 2. 实库对账（需 alembic upgrade head 后的库）──
 
 
-def _pg_url() -> str:
-    url = os.environ.get("TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("TEST_DATABASE_URL 未设置（需 alembic upgrade head 后的库）")
-    return url
-
-
 def test_live_schema_matches_orm_declaration():
     """逐表比列名/可空性与索引（含唯一性与列序）。ORM 声明与 alembic DDL 是两个
     事实源，不拍平就会漂移——指纹唯一索引那次就是靠这条变成跑一次就红。
@@ -335,7 +332,7 @@ def test_live_schema_matches_orm_declaration():
     from backend.database import Base
     import backend.models  # noqa: F401  注册全部表
 
-    engine = create_engine(_pg_url().replace("+asyncpg", "+psycopg"))
+    engine = create_engine(pg_test_url())
     insp = inspect(engine)
     diffs: list[str] = []
     try:
@@ -389,7 +386,7 @@ def test_live_db_has_every_index_the_migration_declares():
     from sqlalchemy import create_engine, inspect
 
     expected = {stmt.split()[0] for stmt in _all_index_stmts()}
-    engine = create_engine(_pg_url().replace("+asyncpg", "+psycopg"))
+    engine = create_engine(pg_test_url())
     insp = inspect(engine)
     try:
         live_names: set[str] = set()
@@ -407,7 +404,7 @@ def test_live_db_has_no_enum_or_jsonb_or_new_fk():
     """把「覆写 V3 的四条口径」拍成库级事实，而不是文件里的注释。"""
     from sqlalchemy import create_engine, text
 
-    engine = create_engine(_pg_url().replace("+asyncpg", "+psycopg"))
+    engine = create_engine(pg_test_url())
     try:
         with engine.connect() as conn:
             enums = conn.execute(text(
@@ -442,15 +439,11 @@ def test_alembic_roundtrip_on_empty_database():
     指向一个**空的**库（库里连 alembic_version 都没有），用独立 env 变量避免误打
     共享库：
         docker exec closenai-pg-dev psql -U postgres -c 'CREATE DATABASE n2_roundtrip'
-        N2_MIGRATE_DATABASE_URL='postgresql+asyncpg://postgres:***@127.0.0.1:55432/n2_roundtrip'
+        N2_MIGRATE_DATABASE_URL='postgresql://postgres:***@127.0.0.1:55432/n2_roundtrip'
     """
-    url = os.environ.get("N2_MIGRATE_DATABASE_URL")
-    if not url:
-        pytest.skip("N2_MIGRATE_DATABASE_URL 未设置（需一次性空库）")
-
     from sqlalchemy import create_engine, text
 
-    sync_url = url.replace("+asyncpg", "+psycopg")
+    sync_url = pg_test_url("N2_MIGRATE_DATABASE_URL", purpose="迁移往返，需一次性空库")
     engine = create_engine(sync_url)
     with engine.connect() as conn:
         existing = conn.execute(text(
@@ -469,7 +462,7 @@ def test_alembic_roundtrip_on_empty_database():
             [sys.executable, "-m", "alembic", "-c",
              str(ROOT / "backend" / "alembic.ini"), *args],
             cwd=ROOT, capture_output=True, text=True, timeout=600,
-            env={**os.environ, "DATABASE_URL": url},
+            env={**os.environ, "DATABASE_URL": sync_url},
         )
         assert proc.returncode == 0, f"alembic {args} 失败：\n{proc.stdout}\n{proc.stderr}"
 

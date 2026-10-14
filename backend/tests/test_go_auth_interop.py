@@ -17,9 +17,10 @@ N1-4 跨语言认证互认验收（Python ⇄ Go）。
 Go 能登录、Go 写的行 Python 能验密，这是灰度切流期间唯一的真实风险面；未设置时 skip。
 Go 工具链缺失时前 8 条 skip（宿主 CI 不因本机环境失败）。
 
-跑法（本机 go 的 PATH 是混合安装，须点名 GOROOT）：
+跑法（本机 go 的 PATH 是混合安装，须点名 GOROOT；scheme 给裸 `postgresql://` 即可，
+Python 侧由 `_pg_env` 补 psycopg3 驱动、Go 侧由 `internal/dsn` 剥驱动段，同一个变量喂两侧）：
     GO_BIN=/path/to/go1.27.1/bin/go \\
-    TEST_DATABASE_URL='postgresql+asyncpg://postgres:***@127.0.0.1:55432/closenai' \\
+    TEST_DATABASE_URL='postgresql://postgres:***@127.0.0.1:55432/closenai' \\
     .venv/bin/python -m pytest backend/tests/test_go_auth_interop.py
 """
 import json
@@ -33,6 +34,7 @@ from uuid import uuid4
 
 import pytest
 
+from _pg_env import pg_test_url
 from backend.config import settings
 from backend.core import auth as auth_module
 from backend.core.errors import AppException, ErrorCode
@@ -221,13 +223,6 @@ def test_http_goldens_not_drifted():
 # ── 同一张表的跨语言读写（灰度期真实风险，需 TEST_DATABASE_URL）──
 
 
-def _asyncpg_url() -> str:
-    url = os.environ.get("TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("TEST_DATABASE_URL 未设置（需 alembic upgrade head 后的隔离库）")
-    return url
-
-
 def _with_loop(fn):
     import asyncio
 
@@ -303,7 +298,7 @@ def _crosscheck_auth(go_bin: str, url: str, identifier: str, password: str) -> d
 
 def test_go_reads_row_written_by_python(go_bin: str, shared_secret):
     """灰度切换前注册的用户，切换后必须能在 Go Core 登录。"""
-    url = _asyncpg_url()
+    url = pg_test_url(purpose="跨语言互认，需 alembic upgrade head 后的隔离库")
     stamp = time.time_ns()
     email, username, password = f"py2go-{stamp}@example.test", f"py2go_{stamp}", "passw0rd"
     created = _with_loop(lambda: _create_python_user(url, email, username, password))
@@ -324,7 +319,7 @@ def test_go_reads_row_written_by_python(go_bin: str, shared_secret):
 
 def test_python_reads_row_written_by_go(go_bin: str, shared_secret):
     """Go Core 注册的用户，Python 侧必须能校验其密码并解出其 token。"""
-    url = _asyncpg_url()
+    url = pg_test_url(purpose="跨语言互认，需 alembic upgrade head 后的隔离库")
     password = "go2py-passw0rd"
     payload = _crosscheck_auth(go_bin, url, "", password)
     go_user_id = payload["go_registered_user_id"]

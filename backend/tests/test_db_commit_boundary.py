@@ -15,13 +15,14 @@
 `send()` 收到 `http.response.start` 的那一刻用**另一条连接**读那一行：PG 的 MVCC
 保证未提交的行对外不可见，所以那一刻能读到 = 提交确实发生在首字节之前。
 
-前两条闸门无需 PG、常驻 CI；后两条缺 `TEST_DATABASE_URL` 时 skip，宿主无库也不会红。
+前两条闸门无需 PG、常驻 CI；后两条缺 `TEST_DATABASE_URL` 时 skip，宿主无库也不会红
+（声明「同基线」时用 `CLOSEN_REQUIRE_PG=1` 把 skip 变成 fail）。scheme 不限，
+`_pg_env.pg_test_url()` 统一归一到 psycopg3。
 
-    TEST_DATABASE_URL='postgresql+asyncpg://postgres:***@127.0.0.1:55432/closenai' \
+    TEST_DATABASE_URL='postgresql://postgres:***@127.0.0.1:55432/closenai' \
         .venv/bin/pytest backend/tests/test_db_commit_boundary.py -q
 """
 import inspect
-import os
 from importlib import import_module
 from pathlib import Path
 from uuid import uuid4
@@ -31,6 +32,7 @@ from fastapi import APIRouter, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from _pg_env import pg_test_url
 from backend.core.db_route import CommitBeforeResponseRoute
 
 ROUTER_STEMS = sorted(
@@ -73,13 +75,6 @@ def test_get_db_hands_session_to_route_layer():
     # teardown 的提交要留给 SSE（响应体流式期间才写库），但必须条件提交，
     # 否则每个请求在路由层提交之后再多一次空 BEGIN/COMMIT 往返
     assert "in_transaction()" in src, "get_db 收尾提交未做条件判断"
-
-
-def _pg_url() -> str:
-    url = os.environ.get("TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("TEST_DATABASE_URL 未设置（需 alembic upgrade head 后的隔离库）")
-    return url
 
 
 def _build_app() -> FastAPI:
@@ -165,7 +160,7 @@ async def test_register_row_is_committed_before_response_first_byte(monkeypatch)
     """核心断言：注册响应首字节交出时那一行已提交——不是靠重试读到。"""
     from backend import database
 
-    url = _pg_url()
+    url = pg_test_url(purpose="事务边界实测，需 alembic upgrade head 后的隔离库")
     # 被测写路径的 session 工厂指向隔离库（get_db 在调用处取 SessionLocal，替换即生效）
     app_engine = create_async_engine(url)
     monkeypatch.setattr(
@@ -215,7 +210,7 @@ async def test_real_app_commits_before_bytes_leave_the_middleware_stack(monkeypa
     from backend import database
     from backend.main import app as real_app
 
-    url = _pg_url()
+    url = pg_test_url(purpose="事务边界实测，需 alembic upgrade head 后的隔离库")
     app_engine = create_async_engine(url)
     monkeypatch.setattr(
         database,
