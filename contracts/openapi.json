@@ -1994,6 +1994,7 @@
     },
     "/api/v1/curriculum/week": {
       "get": {
+        "deprecated": true,
         "description": "当周主题旅程：7 张卡（未生成的天为空位）、揭晓状态、未读数。",
         "operationId": "curriculum_week_api_v1_curriculum_week_get",
         "responses": {
@@ -2014,6 +2015,7 @@
     },
     "/api/v1/curriculum/{event_id}/read": {
       "post": {
+        "deprecated": true,
         "description": "点击主题卡 → 已读标记（越权 40403；幂等）。",
         "operationId": "curriculum_read_api_v1_curriculum__event_id__read_post",
         "parameters": [

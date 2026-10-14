@@ -132,8 +132,8 @@
 | 31 | GET | `/api/v1/cron/trial-reminder` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:190` `trial_reminder` |
 | 32 | GET | `/api/v1/cron/weekly-drift` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:246` `weekly_drift` |
 | 33 | GET | `/api/v1/cron/weekly-insight` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:234` `weekly_insight` |
-| 34 | GET | `/api/v1/curriculum/week` | JSON 信封 | auth | frontend/src/services/api.ts:692 | 200 | - | - | `backend/routers/curriculum.py:28` `curriculum_week` |
-| 35 | POST | `/api/v1/curriculum/{event_id}/read` | JSON 信封 | auth | frontend/src/services/api.ts:697 | 200+422 | - | event_id(path) | `backend/routers/curriculum.py:40` `curriculum_read` |
+| 34 | GET | `/api/v1/curriculum/week` | JSON 信封 | auth | frontend/src/services/api.ts:692 | 200 | - | - | `backend/routers/curriculum.py:31` `curriculum_week` |
+| 35 | POST | `/api/v1/curriculum/{event_id}/read` | JSON 信封 | auth | frontend/src/services/api.ts:697 | 200+422 | - | event_id(path) | `backend/routers/curriculum.py:43` `curriculum_read` |
 | 36 | GET | `/api/v1/discovery/daily` | JSON 信封 | auth | frontend/src/services/api.ts:592（封装未接线） | 200 | - | - | `backend/routers/discovery.py:26` `daily` |
 | 37 | GET | `/api/v1/growth/badges` | JSON 信封 | auth | frontend/src/services/api.ts:433 | 200 | - | - | `backend/routers/growth.py:109` `badges` |
 | 38 | GET | `/api/v1/growth/dashboard` | JSON 信封 | auth | frontend/src/services/api.ts:413 | 200 | - | - | `backend/routers/growth.py:36` `dashboard` |
