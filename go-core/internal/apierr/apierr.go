@@ -26,6 +26,7 @@ const (
 	CodeMissingToken        = 40103
 	CodeInvalidCredentials  = 40104
 	CodeRefreshTokenInvalid = 40105
+	CodeAIConsentRequired   = 40303
 	CodeUserNotFound        = 40401
 	CodeResourceNotFound    = 40402
 	CodeEmailAlreadyUsed    = 40903

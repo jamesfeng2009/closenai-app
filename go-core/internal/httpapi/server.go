@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/apierr"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/auth"
@@ -27,17 +28,27 @@ type Server struct {
 	// **不注册**，于是它们与「Go 侧从来没有这个域」同形（落到 handleNotFound），
 	// 灰度期把百分比压回 0 也不必改代码。
 	batch1 *Batch1
-	mux    *http.ServeMux
+	// batch2 是 N8 批 2（curriculum 域）的依赖面；nil 时那两条路由不注册，与批 1 同策。
+	batch2 *Batch2
+	// now 是**时钟注入点**，默认 time.Now。契约回放必须把它冻在录制那一刻：
+	// curriculum 的 week_start/每张卡的 date 都是「今天所在本地周」的函数，
+	// 夹具跨天重放会得到另一周（同 discovery 的 7/14 天窗口，但周视图是整周平移，
+	// 连 1.5 天的余量都救不了）。业务代码一行都不该感知测试——所以是字段而不是参数。
+	now func() time.Time
+
+	mux *http.ServeMux
 }
 
 func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
-	explainer *domain.InsightExplainer, batch1 *Batch1) *Server {
+	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
 		auth:       service,
 		evidence:   explainer,
 		batch1:     batch1,
+		batch2:     batch2,
+		now:        time.Now,
 		mux:        http.NewServeMux(),
 	}
 	s.routes()
@@ -62,6 +73,11 @@ func (s *Server) routes() {
 	if s.batch1 != nil {
 		s.mux.HandleFunc("POST /api/v1/analytics/batch", s.handleAnalyticsBatch)
 		s.mux.HandleFunc("GET /api/v1/discovery/daily", s.handleDiscoveryDaily)
+	}
+	// N8 批 2 的 curriculum 域（两条端点都是 journey_events 的读写，零 LLM）。
+	if s.batch2 != nil {
+		s.mux.HandleFunc("GET /api/v1/curriculum/week", s.handleCurriculumWeek)
+		s.mux.HandleFunc("POST /api/v1/curriculum/{event_id}/read", s.handleCurriculumRead)
 	}
 	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
 	s.mux.HandleFunc("/", s.handleNotFound)

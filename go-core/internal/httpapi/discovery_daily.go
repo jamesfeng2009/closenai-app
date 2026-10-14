@@ -46,7 +46,7 @@ func (s *Server) handleDiscoveryDaily(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// utc_now() 两侧都是 tz-aware UTC；timedelta(days=n) 是精确的 n*86400 秒。
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	cutoff := now.Add(-discoveryWeek)
 	thisWeek, err := s.batch1.Moods.MoodCheckins(r.Context(), userID, cutoff)
 	if err != nil {

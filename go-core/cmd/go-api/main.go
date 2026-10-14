@@ -8,7 +8,11 @@ import (
 	"net/http"
 	"os/signal"
 	"syscall"
+	// 运行镜像是 alpine + ca-certificates，**没有** tzdata 包，也没有
+	// /usr/share/zoneinfo；不嵌这份数据库的话 time.LoadLocation 一律失败，
+	// curriculum 的本地周窗口会对每个非 UTC 用户静默退回 UTC（见 domain.loadUserZone）。
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -61,8 +65,9 @@ func main() {
 	// N8 批 1（analytics + discovery）的依赖面。灰度百分比未到的请求逐字转交 py-api，
 	// 所以 CLOSEN_PY_API_URL 缺失而百分比 <100 时是**拒绝启动**而不是静默 404。
 	gate, err := cutover.New(cfg.CutoverPyAPIURL, map[string]int{
-		"analytics": cfg.CutoverAnalytics,
-		"discovery": cfg.CutoverDiscovery,
+		"analytics":  cfg.CutoverAnalytics,
+		"discovery":  cfg.CutoverDiscovery,
+		"curriculum": cfg.CutoverCurriculum,
 	})
 	if err != nil {
 		log.Fatalf("go-api: cutover: %v", err)
@@ -74,9 +79,12 @@ func main() {
 		Gate:  gate,
 	}
 
+	// N8 批 2（curriculum 域）：两条端点都只碰 users + journey_events，零 LLM。
+	batch2 := &httpapi.Batch2{Store: pg, Gate: gate}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(cfg, signer, service, explainer, batch1).Handler(),
+		Handler:           httpapi.NewServer(cfg, signer, service, explainer, batch1, batch2).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

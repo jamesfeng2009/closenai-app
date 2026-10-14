@@ -55,6 +55,8 @@ var errNonFiniteJSON = errors.New("响应含 NaN/Infinity，CPython 侧同样是
 
 func pyStringValue(s string) *pyValue { return &pyValue{kind: pyString, str: s} }
 
+func pyBoolValue(b bool) *pyValue { return &pyValue{kind: pyBool, truthy: b} }
+
 func pyIntValue(n int) *pyValue {
 	return &pyValue{kind: pyInt, intLit: strconv.Itoa(n)}
 }
