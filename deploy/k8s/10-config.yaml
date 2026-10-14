@@ -25,6 +25,10 @@ data:
   # 越界（<0 或 >100）是拒绝启动而不是夹紧——「运维以为切了其实没切」比没有开关更糟。
   CLOSEN_CUTOVER_ANALYTICS: "0"
   CLOSEN_CUTOVER_DISCOVERY: "0"
+  # 批 2（curriculum 域）：这一域的响应里有 week_start / 每张卡的 date / revealed，
+  # 全是「用户本地今天」的函数，所以它是第一个带**日历**的域。0% 时 go-api 逐字转交，
+  # 放量前唯一的判据是 go-core/testdata/n8_contract.json 的 curriculum 组与 week_window 语料。
+  CLOSEN_CUTOVER_CURRICULUM: "0"
   # PostHog 收件箱地址。默认值两侧都是这个字面量（backend/config.py:160），
   # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
   # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。

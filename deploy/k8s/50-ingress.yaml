@@ -42,7 +42,15 @@ spec:
                 name: go-api
                 port:
                   name: http
-          # ── 其余 96 个端点仍由 py-api 回答（后续批次逐域上移）──
+          # ── N8 批 2：curriculum（第一个带日历的域，判据见 10-config.yaml 的同名开关）──
+          - path: /api/v1/curriculum
+            pathType: Prefix
+            backend:
+              service:
+                name: go-api
+                port:
+                  name: http
+          # ── 其余 94 个端点仍由 py-api 回答（后续批次逐域上移）──
           - path: /api/v1
             pathType: Prefix
             backend:
