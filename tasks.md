@@ -2,7 +2,12 @@
 
 > 拆分依据：PRD v2.1（closenai-v2.1-clean.html，至 2026-09-28 第六批）· 《架构与技术方案-2026-09-06.md》· 《P0-P1行动方案-2026-09-06.md》· UI 原型 closenai-p0-prototype.html（至 2026-09-28 修订）· 《沟通证据与措辞规范-2026-09-28.md》· 《V3方案裁决与分层-2026-10-12.md》v2.0（N/O/P 节立项依据）
 > 状态核验日期：2026-09-28（代码实测，非文档推断）
-> 图例：`[ ]` 未开始 · `[~]` 进行中 · `[x]` 完成 · 🔴 提审阻塞 · ⚠️ 冲突/风险
+> 图例：`[ ]` 未开始 · `[~]` 进行中 · `[x]` 完成 · ☐ 快照里的「未做」叙述（等价 `[ ]`，不作为任务行状态） · 🔴 提审阻塞 · ⚠️ 冲突/风险 · ⛔ 本行不再单独执行（被别的任务承接，编号保留不重排）
+> **单状态硬规则（2026-10-14 用户点名：「一个 task 不能同时 ⚠️✅，不然你根本不知道到底有没有做完」）**：
+> ① 一行只允许一个状态——`[x]`/✅ 的行**不许**再挂 ⚠️、「待…」或「仅剩 …」；`[ ]` 的行**不许**写 ✅ 已完成。
+> ② 一条工作做了一半 ⇒ **拆成两行**：已完成那行 `[x]` 带日期与实测，未完成那行 `[ ]` 独立编号（用 a/b 后缀，**不重排既有编号**）、各自给验收。
+> ③ 风险/冲突（⚠️）只挂在**未完成**的行上；已关闭的冲突改写为「已结案」并去掉 ⚠️。
+> ④ 已被别的任务取代的行 ⇒ 标「⛔ 本行不再单独执行，交付物由 X 承担」，不写 `[x]`（它没做完，是不做了）。
 
 ---
 
@@ -12,7 +17,7 @@
 - 后端 M1–M7 / P1-3 管线：**全部零实现**（grep 无 journey_events / onboarding_profiles / bedtime / curriculum）
   - ↳ 2026-09-29 更新：M7（占星移除）、M1（初读卡）、M2（第一周剧本）、M3（情感回报进 LEVEL_UNLOCKS）、M4（分享卡深链与归因）、M5（演示档案，纯前端）、M6（Life Archive IAP）已落地，见 A/B 节勾选；↳ 2026-09-30 更新：bedtime / curriculum 已随 `4b87018`（P1-C1/C2 + vercel cron 注册）落地——**M1–M7 / P1 管线至此全部零欠账**
 - 工作区在途（未提交）：~~九型人格 service、§5.18 承诺回访、discovery 融合、前端 Reflect/Insights/i18n~~ → 已在 `0ced5ac`/`48d37ed` 提交；2026-09-29 快照：B2 全套已提交，`closenai-prd` submodule 仍有未提交内容（归 D4）
-- ⚠️ **方向冲突**：近三次 commit（13313c3/efbd7ec/e89f19c）在**新增**本命星盘 + pyswisseph，而 M7 计划是整体移除占星——✅ 2026-09-28 已按 PRD v2.1「占星已移除」执行 A1，冲突关闭
+- **方向冲突（已结案，2026-09-28）**：近三次 commit（13313c3/efbd7ec/e89f19c）曾**新增**本命星盘 + pyswisseph，而 M7 计划是整体移除占星 ⇒ 已按 PRD v2.1「占星已移除」执行 A1，冲突关闭；残留登记见 A1b
   - ↳ 2026-09-29 复核：A1 只删了运行时，推导链/响应字段/画像页展示/个人页「主要框架=占星」/15 语言星座文案仍在 → 见 G 节，已全面清理并加回归守卫
 - 🆕 **2026-10-12 外部架构方案评审 + 分层改判**：工作区新增 `ClosenAI_Personal_Intelligence_Runtime_V3/`（22 篇，主张 Go Core + PostgreSQL + RabbitMQ + Protobuf + Outbox/Inbox）。我先裁「只采语义层、不采运行时拆分」，用户当日改判「**Go 对外提供 HTTP 接口与后端服务，Python 主要负责 agent 与 AI**」→ **运行时分层采纳**，立项 **N 节（Go Core N0–N9）/ O 节（Python AI Runtime O1–O7）/ P 节（并行与风险）**；依据见 `closenai-prd/V3方案裁决与分层-2026-10-12.md`（v2.0，含改判登记、实测迁移面与不照抄清单）
   - ↳ E1 原口径就地作废并回写改判；架构方案 §五-5「承诺=memories 增列不建新表」在 Go 权威侧反转（见 N2）
@@ -21,20 +26,44 @@
   - ✅ **2026-10-13 D-1…D-8 全部拍板**（用户「按照默认值来处理」＝按 §七 建议默认值整体生效，范围＝该表条目），逐条结论见 N0 节 ↳ 登记；代码侧已开工的第一条是 **O4 生成留痕**（已落地并过测试）
   - ✅ **2026-10-13 N0 契约冻结完成**：`contracts/{openapi.json,endpoints.md,frontend-compat.md}` + 生成脚本 `scripts/export_contract.py` + 验收测试 `backend/tests/test_contract_freeze.py`（10 条，变异自证可失败）；计数对账 **98 = 97 router 端点 + 1 app 级 `GET /health`**（`backend/main.py:170`），差额根因结案、不是漏登记；架构方案增补 §十一（目标态分层 / 按域 strangler / 回滚口径）
   - ✅ **2026-10-13 N2 canonical schema 完成并过测试**：`c8a2e4b6d0f2` 建 **21 张权威表**（alembic 迁移数 24 → **26**，head `b7d9e1f3a5c8` → `c8a2e4b6d0f2`，单头线性）、`backend/models/canonical.py` 21 个 ORM 声明、`PURGE_TARGETS` +20 条（D-5 的连带义务）、Go 侧 sqlc **55 条查询**（§37 九问逐问可查）。验收＝`test_canonical_schema.py` **23 passed**（含空库 upgrade/downgrade 往返、实库逐列对账、10 条变异全部打红）+ `canonical_integration_test.go` 5 个真 PG Test + `go test ./...` 全绿；全量 `pytest backend/tests` **617 passed / 1 既有失败**。抓到并修掉 1 个真缺陷（指纹唯一索引被建成普通索引），详见 N2 节
-  - 🆕 **2026-10-13 N1 Go Core 第一纵切已落代码并过测试**（回应用户「我怎么没有看到任何 go 的代码？」）：新增 `go-core/`——**22 个 `.go` 文件、2,738 行 Go**（含测试）、`go mod tidy` 后 **3 直接依赖**（stdlib mux 裁定与 D-7 结案见 N1 节）；`go test ./...` **25 Test + 22 HTTP golden 逐字节**全绿，`backend/tests/test_go_auth_interop.py` **10 passed**（含同库互读：Python 写的行 Go 能登录、Go 写的行 Python 能验密）；未做且不得擅自 apply：k3s `go-api`/`py-api` + Ingress 0%
+  - ✅ **2026-10-13 N1a Go Core 第一纵切已落代码并过测试**（回应用户「我怎么没有看到任何 go 的代码？」）：新增 `go-core/`——**22 个 `.go` 文件、2,738 行 Go**（含测试）、`go mod tidy` 后 **3 直接依赖**（stdlib mux 裁定与 D-7 结案见 N1a 节）；`go test ./...` **25 Test + 22 HTTP golden 逐字节**全绿，`backend/tests/test_go_auth_interop.py` **10 passed**（含同库互读：Python 写的行 Go 能登录、Go 写的行 Python 能验密）
+- ☐ **N1b k3s 真实 apply 未做**：`go-api`/`py-api` 打到共享集群 + Ingress 灰度 0%，两道外部前置（显式授权 + 镜像凭据）未齐，不得擅自 apply
+
+---
+
+## 未做项索引（2026-10-14 拆解，每行只有一个状态）
+
+> 四条桶把「还没做的功能」摊开了，但散在 §A–§R 里不好跟进 ⇒ 这里做一次**只含未完成项**的索引，右侧是跟踪器标题。
+> ⚠️ 编号口径：本文件历史文本里出现的 `#NN` 是**旧跟踪器会话的编号**，与当前跟踪器 id **不一一对应**（当前 id 见跟踪器标题）；跟进一律以「本节编号 + 跟踪器标题」为准，别按 `#NN` 猜。
+
+| 桶 | 未做项（tasks.md 编号） | 跟踪器条目标题 |
+| --- | --- | --- |
+| ① 用户可见但不成立 | R6（三道门无生产者 + 现网回填，**这是①的正解**）、N8（前端改调新端点） | `R6 · 三道门接生产者 + 现网数据回填`、`N8 97 端点按域切流` |
+| ② AI 独立化 | O0、O3、O5、O6、R0–R5、R7、O7 | `O0 · AI 独立目录归堆`、`O3 · Python 停止直写权威态`、`O5 · 派生渲染（PDF）`、`O6 · FastAPI HTTP 层退役`、`R0…R7`、`O7 · 双运行时运维面` |
+| ③ 上线/运维件 | N1b、K1–K6、E3、P2、Go 防爆破、vercel cron | `N1b · 共享 k3s 真实 apply`、`K1…K6`、`E3 · QStash → arq + Redis`、`P2 · IAP 的 Go JWS 验签 PoC`、`Go 登录接 Redis 防爆破`、`vercel.json 的 /api/v1/cron/journey` |
+| ④ 质量/内容欠账 | L 节遗留、A1b、D4、D5、E4，加四条**只存在于跟踪器**的登记项（锚点漂移 / 测试隔离 flake / 名片 AIGC / 门限现网标定） | `L 节遗留 · 13 语言 reflect 两键的母语审校欠账`、`A1b · .trellis 文档面占星残留清理`、`mutate_n2_gates.py 两条锚点漂移修复`、`pytest 跨文件共享 "u1" 库态的隔离缺口`、`名片/分享卡 PDF 的 AIGC 隐式标识`、`N4 门限的现网分布标定`、`D4 · PRD docx 同步`、`D5 · ASC 提审元数据`、`E4 · Expo SDK 51 → 53+`、`修 test_commitment 周配额那条既有失败` |
+
+- 已按单状态规则拆开的混态行（同日）：`A1`→`A1`[x]+`A1b`[ ]、`A2` 的实机部分移出 ✅ 行指向 `K6`、`E1` 去 ⚠️、`N1`→`N1a`[x]+`N1b`[ ]、快照「方向冲突」改「已结案」、`L2` 的复数缺口去 ⚠️（已由 L4 结案）、`O1`/`O2`→⛔（交付物由 `R1`/`R4`+`R5` 承担）、`O7` 去掉与 `R4`/`R7` 重复的子项。
+- 外部阻塞（不是代码）：`K1–K6` 需账号/域名/真机，`N1b` 需 apply 授权与镜像凭据，`P2` 需 sandbox 实机——这三类我没权限，只能备齐命令与判据。
+- 🆕 2026-10-14 收口 `year_in_review`（#64/#65）时**发现但不顺手修**的两条，各带出处：
+  - [ ] **`export_report` 的缓存键同样不含语种**｜`share_service.py:736 period_key = self._period_key(period, user.timezone)`，而 `_period_key`（`:1119`）只按本地日历给出 `2026-W41` / `2026-08` / `2026`｜载荷是语种相关的（`:744 _build_weekly_report(db, user, language)`、`:746 growth_service.generate_report(..., language)`）⇒ 同一用户同一周期换 UI 语言拿到的是首次生成语种，与年报 ② 修前同型。归属：与年报一批（share 域），改法＝键加 `copy.locale_for(language)` 后缀 + 复用 `mutate_share_lang_key_gate.py` 的四条变异口径
+  - [ ] **登录成功那一刻不 drain 游客期队列**｜`frontend/src/context/AuthContext.tsx` 全文不含 `flushAnalytics`（已被 `analyticsGuestQueue.test.ts` 钉成可见事实，接上时那条会红提醒同步改口径）｜后果：游客期攒的事件要等**下次冷启动或回前台**才上送，同日登录的会话内拿不到｜归属：埋点/H3 批次，改法＝login 成功路径 fire-and-forget 一次 flush（不在 `registerForPushNotifications` 那类阻塞位）
 
 ---
 
 ## A. Sprint 1｜提审阻塞 🔴
 
-- [x] ⚠️ **A1 · M7 占星模块移除**（0.5d）｜架构方案 §二 M7 ｜✅ 2026-09-28 完成
+- [x] **A1 · M7 占星模块移除**（0.5d）｜架构方案 §二 M7｜✅ 2026-09-28 完成（实测范围＝运行时代码 + 前端 + 15 语言文案；文档面的残留不属本行，另立 A1b）
   - [x] 删 `backend/routers/natal.py`、`services/natal_service.py`、`models/natal.py`、`repositories/natal_repository.py`、main.py 注册（含 test_natal_service.py）
   - [x] 删前端 `NatalChartScreen.tsx` + ExploreScreen tile + App.tsx 导航注册 + api.ts/types + i18n 15 语言 natal 键
   - [x] 移除 `pyswisseph` 依赖（requirements.txt + pyproject.toml）
   - [x] DB 表保留（alembic 迁移文件不删）；enneagram 不动
   - 验收实测：运行时代码 grep 无 natal 引用（残留"占星"字样均为提示词内**禁用措辞约束**，属预期）；`from backend.main import app` OK；pytest 217 过（2 个失败为工作区在途的 follow_up 签名/personality 配额改动，与 M7 无关）
   - ✅ 补验：A2 期间已重装 node_modules 并跑 `tsc --noEmit`（exit 0）+ jest 11 套件 88 例全过，M7 删除的前端引用无类型残留
-- [x] **A2 · M6 Life Archive IAP**（后端 3d + 前端 2d）｜架构方案 §二 M6 / 行动方案 P0-2 ｜SKU 形态已拍板：维持一次性买断（架构方案 §九-4，2026-09-28）✅ 2026-09-29 完成（代码+测试；sandbox 实机三档验收待提审前）
+- [ ] **A1b · `.trellis/` 文档面占星残留清理**（0.3d）｜A1 只覆盖代码面，spec/tasks 的 prd 文档仍是「占星当功能」的旧设计｜实测残留：`.trellis/tasks/P1-F04-social-export/prd.md:5`「性格类型+占星组合卡片」、`.trellis/tasks/P0-F01-ai-daily-message/prd.md:53`「占星行运事件」与 `:59`「占星仅作为增强维度」、`.trellis/spec/architecture.md`、`.trellis/spec/ui-design-system.md`
+  - ⚠️ 判据要分开两类命中：**禁止性表述**（如 `P1-F01-push-notification/prd.md:72`「推送文案不含『运势/预测/幸运数字』」）是合规约束，**保留不动**；**把占星当功能维度**的旧设计才是待改写对象
+  - 验收：`grep -rn "natal\|pyswisseph\|星盘" .trellis/` 归 0；`grep -rn "占星" .trellis/` 剩余每条都逐字列在「禁止/不主动」语境白名单里并给出行号
+- [x] **A2 · M6 Life Archive IAP**（后端 3d + 前端 2d）｜架构方案 §二 M6 / 行动方案 P0-2｜SKU 形态已拍板：维持一次性买断（架构方案 §九-4，2026-09-28）｜✅ 2026-09-29 完成（范围＝代码 + 测试；sandbox 实机购买属未完成，独立行 K6 跟进，不在本行状态内）
   - [x] 清理 `iap_service.py:71` `life_archive → pro_plus` 别名（买断走 user_entitlements，不走 _map_tier）
   - [x] Pro 联动权益：订阅期内导出折扣/每月 1 次免费生成（订阅加分，不取消买断）
   - [x] 新表 `user_entitlements` + alembic 迁移
@@ -61,10 +90,10 @@
     - 生成率 100%（PRD §5.19.2 硬指标）：0 答案 / 未知题目 / 闸拦截条目一律用 `fillers` 补至 2 条，上限 3 条
   - [x] `POST/GET /onboarding/first-read`、`/share/first-read-card`
     - 出口过闸：新增 `safety_service.filter_template()`（架构方案 §六-1）——**只跑确定性黑名单 + 越界句式，不调 LLM**；静态模板由我方撰写，正则对它有 100% 把握，语义分类器留给不可控产出
-    - ⚠️ 偏离：`POST /share/first-read-card` v1 用既有 reportlab 文本管线出 PDF；QR + 水印 + 深链归因（M4/B4）落地时替换内部渲染，**端点签名不变**（已在 `share_service.export_first_read_card_pdf` docstring 记录）
+    - ✅ 偏离已兑现（2026-10-14 复核）：`POST /share/first-read-card` 的 PDF 早期只有 reportlab 文本管线，现内部渲染已接品牌区（水印 + 下载文案 + 带本人推荐码的深链二维码），**端点签名一字未变**。实测出处：`backend/services/share_service.py:253 brand = await self._brand_for(...)` → `:255-257 self._render_pdf(..., brand=brand)`，docstring `:242-243` 写明「B1 登记的偏离已在此兑现」
   - [x] OnboardingScreen 快问 3 题 + `FirstReadCardScreen`（UI 原型 Screen 29 已就绪）
     - 引导变 3 步（Step 3 快问），选项 id 与后端模板对齐、文案走 15 语言 i18n；Step 2「跳过」不再直接结束，改为进入 Step 3
-    - ⚠️ 游客态约束：引导阶段无 token，`POST /onboarding/first-read` 必失败，因此答案先落 AsyncStorage（`@closenai/pending_first_read`），**登录/注册成功后由 AuthContext 补调**并缓存卡片（沿用 `@closenai/pending_mbti` 既有模式）；POST 失败时暂存不删，下次登录重试
+    - ✅ 游客态约束（实装 + 2026-10-14 加闸）：引导阶段无 token，`POST /onboarding/first-read` 必失败，因此答案先落 AsyncStorage（`@closenai/pending_first_read`），**登录/注册成功后由 AuthContext 补调**并缓存卡片（沿用 `@closenai/pending_mbti` 既有模式）；POST 失败时暂存不删，下次登录重试。出处：`AuthContext.tsx:57-76 flushPendingOnboarding`（取暂存 → `postFirstRead` → `saveFirstReadCard` → `clearPendingFirstRead`，整段 fire-and-forget），`:91` 登录、`:96` 冷启动已有会话各挂一次。验收：`__tests__/firstRead.test.ts` 新增 4 条源码闸（顺序、clear 必在 POST 之后、无暂存早退、`void` 前缀逐调用点定位）；变异 **F25/F26/F27** 各打红一次（把 clear 提到 POST 前 / 删早退 / 去 void），其中 F27 第一次跑**没红**，暴露断言写成整文件 `toContain` 会被冷启动那处顶包，已改为按 `login` 函数体切片后才验证成功——口径按此记录
     - 入口：`HomeScreen` 顶部 D0 卡片入口（有缓存卡且未读时展示）→ `FirstReadCardScreen`；CTA「开始书写你自己的」→ Reflect Tab（PRD §5.19.2 漏斗第一环）
   - 验收实测：`backend/tests/test_first_read.py` 22 例（复述自述 / 零 LLM / 空答案兜底 / 上限 3 条 / 未知项跳过 / 按文案反查 / fr 回退 en / personas 无类型不出 summary / zh-en 同构 / 模板逐条过闸 / 违规槽位被丢弃 / upsert 幂等单行 / 语言不漂移 / 40402 / PDF `%PDF` 头）；`frontend/__tests__/firstRead.test.ts` 36 例（暂存 peek-clear 语义 / 脏缓存按 null / 已读标记 / 15 语言 × 26 键齐备）
   - 全量：pytest 315 passed；前端 tsc exit 0、jest 12 套件 124 passed
@@ -111,15 +140,16 @@
   - ⚠️ 偏离 5：P1-1 第 4 条「本地打包（`assets/demo_profile.json`）」→ 改为函数生成，理由见上（数字必须与曲线同源）
   - ⚠️ 偏离 6：P1-1 第 2 条列了「3 条 Pattern、2 条时间线卡片、**1 条 AI 断言示例**」四类 → 断言示例没有另造第五类内容：Pattern 卡自带「依据」行，它就是 §5.x 要求的那张断言卡形态
   - ⏳ 未取证：① 该屏**从未在任何设备/模拟器渲染过**——曲线观感、SafeAreaView 顶部避让、30 根条在窄屏的宽度、15 语言长文案换行，全部只有类型与逻辑证据；② 看完率的触底数学有 4 条用例（含"内容不足一屏也算看完"），但 RN 运行时是否真在 `onScroll.nativeEvent` 给 `contentSize` 未取证。RN 0.74 的 `NativeScrollEvent` 只有 `contentSize`，第一版按 `contentContainerSize` 写被 tsc 当场拦下（更高版本才有后者），现已抽成 `isScrollViewAtEnd` 供 node 断言
-  - ⚠️ 顺带记录（本任务不改）：四个 `track()` 事件只进本地 SQLite 队列，**游客态能否 flush 成功未验证**——后端 analytics 有 consent 校验，若游客被丢弃，则演示漏斗三项指标在登录前全都拿不到；列进 #17 回归清单
+  - ✅ 顺带记录的口径已取证并钉死（2026-10-14，#65）：四个 `track()` 事件只进本地 SQLite 队列。实测三条：① 游客**不发**上送——`App.tsx:169`（冷启动首帧）与 `App.tsx:179`（回前台）两个 flush 点都在 `if (isLoggedIn())` 门内，所以不会出现「游客必 401 → 队列被误判成已发送」；② 事件**不丢**——`analytics.ts` 全程不读登录态（闸用例对该文件断言不含 `isLoggedIn|getAccessToken|SecureStore`），只看本地 consent；③ 真正上送在登录后的下一次冷启动/回前台，按 `occurred_at` 补口径。验收：`__tests__/analyticsGuestQueue.test.ts` 8 passed（游客入队 4 点位、登录后一次 drain、`dropped` 也清队列、401 留队列且下次带全量）；变异 F21/F22 各去掉一处 `isLoggedIn()` 门 → 当场红
 - [x] **B4 · M4 分享卡体系 B03**（2d，依赖 B1）｜架构方案 §二 M4 ✅ 2026-09-29 完成
   - [x] ShareService 模板 first_read / memory_card / year_in_review（year_in_review 由占位转实装，见下）
     - 品牌区 = 水印 + 下载文案 + **带本人推荐码的深链二维码** + 明文短链（PDF 常被截图转发，扫不动时链接还在）；只加在分享类 PDF，**Life Archive 刻意不加**——买断的个人档案不是引流物料
     - 初读卡全文静态直出、零 LLM → 不打 AIGC 元数据；周期报告与 Life Archive 打（`_render_pdf(aigc=True)` 落进 PDF `/Info`，实测字节可见）
     - 记忆卡：某条记忆的原话 + 写下日期 + 品牌深链；原话**不过措辞闸**（闸是给 AI 产出兜底的，M2 同一结论）；不写"一年前的今天"——周年选取规则属 C4
-    - year_in_review 已实装（#35，2026-09-29）：`GET /share/year-in-review` + `/pdf` 取**上一个完整自然年**，首年用户退到当年并如实标 `in_progress`（区间只截到今天）、整年零记录才 40402。零 LLM → 不打 AIGC 标识；数字全部走 COUNT（`mood.list_between` / `chat·memory·growth.count_between`），streak 按用户本地日历日算、`checkin_date` 为 NULL 的回填行回退 created_at；缓存键 `period=year_in_review` + `period_key=year_{yyyy}`（避开 yearly 报告的裸年份键互吃缓存）。⚠️ 两处自定决策、文档无口径：① **不做 Pro 门控**（当引流免费卡，AI 年度长文报告仍走 Pro 40302）；② 缓存键不含 language，同一用户同年换语言拿到的是首次生成的语种
-    - 前端无这张卡的入口（`ShareCardScreen` 只有 personality_card）——本轮只补后端能力，未新增展示面；接线属 #17 之后的产品决策
-    - B1 登记的品牌区欠账（⚠️ 偏离）在此兑现，端点签名不变
+    - year_in_review 已实装（#35，2026-09-29）：`GET /share/year-in-review` + `/pdf` 取**上一个完整自然年**，首年用户退到当年并如实标 `in_progress`（区间只截到今天）、整年零记录才 40402。零 LLM → 不打 AIGC 标识；数字全部走 COUNT（`mood.list_between` / `chat·memory·growth.count_between`），streak 按用户本地日历日算、`checkin_date` 为 NULL 的回填行回退 created_at；缓存键 `period=year_in_review` + `period_key=year_{yyyy}_{locale}`（`year_` 前缀避开 yearly 报告的裸年份键互吃缓存）。
+    - ✅ 原登记的两处自定决策、文档无口径，2026-10-14 收口：① **不做 Pro 门控**（当引流免费卡，AI 年度长文报告仍走 Pro 40302）——由 `frontend/__tests__/yearInReviewEntry.test.ts` 的函数体切片闸钉死（年报路径不许出现 `isPro`/`showProAlert`/`Paywall`/`40302`）；② 缓存键**已含语种**（`share_service.py:490 _year_in_review_key`，语种走 `copy.locale_for` 归一 ⇒ zh 与 zh-CN 命中同一条，未知名回退 en），验收＝`test_year_in_review.py` **24 passed** + `scripts/mutate_share_lang_key_gate.py` **4 条变异全红**（去语种后缀 / 用 raw language 不归一 / 去 `year_` 前缀 / 删缓存早退），备份写回逐字节 `filecmp` 一致。
+    - ✅ 前端入口已接线（#64，2026-10-14；此前登记「`ShareCardScreen` 只有 personality_card、前端零入口」）：`InsightsScreen` 年度热力图卡下方新增分享按钮 → `getYearInReview()`（`api.ts:616`，`language` 按当前 UI 语言透传、`year` 可选不传由后端定默认年）→ `trackFunnelShare('share_tapped'/'share_completed', 'year_review')` → `Share.share({ message: card.share_text })`，仅 `res.action === Share.sharedAction` 记 completed；40402 走 `insights.yearReviewEmpty` 空态、与请求失败文案分开。载荷字段面与后端 `_build_year_in_review` 的 return 键 + 端点补挂键**逐字对表**（两侧各 ≥12 键，防解析器空跑假绿）；15 语言 × 两键齐备且被源码引用。验收＝**jest 35 套件 892 passed / 0 failed**（基线 851 → +4 `firstRead.test.ts` 补调闸 → +1 `funnel.test.ts`（同屏双物料按 source 定位）→ +28 `yearInReviewEntry.test.ts` → +8 `analyticsGuestQueue.test.ts`；中途实测 **856** 是把两份新文件临时移开后复跑得到的，用来证明增量数字）＋ **全量后端 pytest 1 failed / 612 passed / 11 skipped**（唯一红是既有 #62，无新增失败；GO_BIN 不在 PATH 时同一套是 606/17，差额全是 `test_go_auth_interop.py` 的 8 条 go 用例）＋ `tsc --noEmit` exit 0；变异自证 **27 条红闸全打红 ＋ 2 条绿闸保持绿**（`scripts/mutate_frontend_gates.py`：F16–F24 覆盖 #64/#65，F25–F27 覆盖 B1 登录补调；G2 证明函数体增长不变红；备份写回 `filecmp` 逐字节一致）。F27 第一次**没红**，根因是断言写成整文件 `toContain`、被冷启动那处同形调用顶包，改成按 `login` 函数体切片后才验证成功——弱断言的教训按此登记。
+    - B1 登记的品牌区欠账（原 ⚠️ 偏离，现于本节兑现）：初读卡/名片/报告的 PDF 统一加 水印 + 下载文案 + 带码深链二维码 + 明文短链，端点签名不变
   - [x] 深链 closenai.app/r/{code} + AASA + CF Pages landing（决策点 3）
     - 数据：`users.referral_code`（8 位、29 字符集，排除 0/O/1/I/L/8/9 这些手抄必混的形状）+ `referred_by_code`；迁移 `a7c1e9b4d2f8`（单 head）。**两列都不建外键**——referral 是归因标签不是关系引用，指向的人可能已注销，外键会把归因数据锁成删除约束
     - **惰性生成**：注册路径不预生成；`GET /share/link`、分享卡 PDF 导出、初读卡落库三条路径首次取码即写（读接口带一次写，查重走 SELECT + UNIQUE 兜底并发）
@@ -213,7 +243,7 @@
 
 ## E. 技术栈执行项（2026-09-28 定稿）
 
-- [x] ⚠️ **E1 · 后端维持 Python/FastAPI**——无换语言议程（负载 IO-bound；4c8G 预算已验证）｜✅ 2026-10-12 议题关闭（结论反转，见下方 ↳）
+- [x] **E1 · 换语言议题结案**｜✅ 2026-10-12 关闭：原口径「后端维持 Python/FastAPI、无换语言议程」（依据＝负载 IO-bound、4c8G 预算已验证）**已被 D-1 反转**为「Go 对外 HTTP + Python 专职 AI」，反转登记见 ↳ 与 §N 立项
   - ↳ **2026-10-12 改判（本条原口径作废）**：用户拍板「Go 负责对外提供 HTTP 接口以及后端服务，Python 主要负责 agent 以及 AI 相关的内容」→ 采纳 V3 运行时分层，立项 **N 节（Go Core）+ O 节（Python AI Runtime）+ P 节（并行与风险）**。原理由（IO-bound、预算已验证）不作废但不再单独决定选型；迁移面实测与切流策略见 N 节抬头。本节 E3（QStash→arq）的队列结论随 D-7 在 O2 重判
 - [x] **E2 · 前端补 `react-native-svg`**——趋势曲线/热力图还原 ✅ 2026-09-30 完成
   - 依赖已在 package.json（15.2.0）但全仓零使用（M5 偏离 2 遗留）；本批首个消费方落地
@@ -283,7 +313,7 @@
   - 审校抓出的**机器闸结构性盲区**（前一轮的字节同字闸看不到）：为躲「不许与英文同字」而造的生造词——ms `Sembilan Personaliti`、vi/km/id 的 `9 Kiểu Tính Cách`/`បញ្ហាបី`-式拼凑、it `Distinctivi`、fr `Distinctif`。这类词的正确写法本就与英文同字，所以同形词豁免表从 5 语言 7 键扩到 **9 语言 37 键**，逐条写理由，且「不许留死条目」那条断言继续保证它们此刻真的同字
   - 连带改动：`i18nLocales.test.ts` 的「非拉丁文字必含目标文字」闸此前只豁免 `SHARED_BY_DESIGN`，与同形词表互相矛盾（km 的 `Enneagram` 被它判成漏翻）→ 两道闸改为**共用同一张豁免表**；`comboCard.test.ts` 的 ms 译名从生造词改成 `Enneagram`
   - 反向验证 7 条全部 CAUGHT、逐字节复原（脚本 `/tmp/i18n/review_guard_mutation.js`，恢复只走进程内备份写回）：豁免键被改回非英文 / 非豁免键被写成逐字英文 / 豁免表塞死条目 / ja 写成拉丁借词却未豁免 / 文字集闸不再共用豁免 / comboCard 术语表回退 / `{{count}}` 被丢
-  - ⚠️ 本轮**没修**的一类结构缺口（审校 3 个语言同时点名，不是措辞问题）：8 个含 `{{count}}`/`{{days}}` 的键在所有语言都只有单数形态，`de` 因此出现「1 Gespräche」、`it` 出现「1 messaggi」——i18next 的 `key_one`/`key_other` 复数变形一个都没建。修它要动 15 个 locale 的键结构 + 调用点传参口径，属独立批次，登记为 L1 之外的待办，#17 提审前不要把它当已修 → ✅ 已由 **L4** 修复（2026-09-30）
+  - 本轮**当时没修**的一类结构缺口（审校 3 个语言同时点名，不是措辞问题）：8 个含 `{{count}}`/`{{days}}` 的键在所有语言都只有单数形态，`de` 因此出现「1 Gespräche」、`it` 出现「1 messaggi」——i18next 的 `key_one`/`key_other` 复数变形一个都没建。修它要动 15 个 locale 的键结构 + 调用点传参口径，属独立批次，登记为 L1 之外的待办，#17 提审前不要把它当已修 → ✅ 已由 **L4** 修复（2026-09-30）
   - 全量：jest 30 套件 **820 passed**；tsc exit 0；后端零改动
 
 - [x] **L3 · #34 洞察依据回链（后端一行未动）**｜✅ 2026-09-30 完成
@@ -393,7 +423,7 @@
     - ✅ 2026-10-13 `backend/tests/test_contract_freeze.py`（10 条全绿）：条数 == 97+1==98、登记表与 `app.openapi()` **集合相等**（既不漏也不多）、每行 handler `file:line` 反查源码确为装饰器行、openapi 基线**逐字节**一致、SSE 唯一性与 4 事件名、PDF 计数、业务码与 `ErrorCode` 逐值对齐、信封 5 键
     - ✅ 变异自证（备份写回恢复，不用 `git checkout`）：① 新增未登记路由 → 2 条失败；② 删登记表一行 → 2 条失败；恢复后 10 条全绿、全量 569 passed
 
-- [ ] **N1 · Go Core 骨架 + 部署纵切**（2d）｜V3 06 §2 包边界、21 §Phase A–C｜✅ 2026-10-13 代码纵切与互认已过测试，仅剩 k3s 那一步（需共享集群授权）
+- [x] **N1a · Go Core 骨架 + 第一纵切 + 跨语言互认 + 部署件**（2d）｜V3 06 §2 包边界、21 §Phase A–C｜✅ 2026-10-14 收口登记（范围＝`go-core/` 代码与测试、token 双向互认、两个 Dockerfile、`deploy/k8s/` 清单与 dry-run 闸。**集群里的真实 `kubectl apply` 不在本行状态内**，独立行 N1b 跟进）
   - [x] go.mod + 路由库（D-7 选定后登记）+ pgx v5 + sqlc + 迁移工具（golang-migrate / atlas，同属 D-7）
     - ✅ **D-7 结案（2026-10-13，全部为实测计数，非感觉值）**：本仓 Go 侧依赖足迹 `go mod tidy` 后 **3 直接依赖 + 7 间接 = `go list -m all` 24 条**（argon2id v1.0.0 / golang-jwt v5.3.1 / pgx v5.11.0 + pgpassfile、pgservicefile、puddle、x/{crypto,sys,text,sync}）
     - ↳ 路由库裁定：**N1 采 Go 1.22+ 标准库 `http.ServeMux`（0 依赖）**。取证口径＝模块数（`go list -m all | wc -l`，含 main）：stdlib mux **1** / chi **2** / gin **56**；迁移工具 atlas **24** / golang-migrate **209**。N1 的对外面只有 5 条路由 + 一条 SSE 在 N8，gin/atlas 的足迹换不来任何东西
@@ -408,7 +438,7 @@
     - ↳ 缺口 1（**auth 域不可切流，归 N8 该批**）：Go `Login` 未接 Redis 暴力破解计数（`auth_service.py` 的 `LOGIN_MAX_FAILURES=5`/300s 锁定）。切 auth 域前必须补，否则同一账号两侧防爆破强度不一致
     - ↳ 缺口 2（归 N1 剩余 k3s 那一步）：Go `Verify` 只校签名+`exp`，Python `jwt.decode` 还校 `iat`——**未来 `iat` 会被判 ImmatureSignatureError→40102**。⇒ 两容器必须同源 NTP；测试用基线冻结在 2030-01-01 因此 pytest 侧只关 `verify_iat`
     - ↳ 缺口 3（归 N8 契约 diff）：Go 的 404 body 与 `/healthz` 是登记表新增，禁给新路径灰度权重；`json_invalid` 的 `ctx.error` 只覆盖 CPython 的 "Expecting value"/"Extra data" 两类消息
-  - [ ] k3s 起 `go-api` + `py-api` 两个 Deployment，Ingress 按 path 灰度（初始 0%）
+  - [x] k3s **清单与镜像**（Deployment/Service/ConfigMap/Ingress 五件 + 两个 Dockerfile + dry-run 闸）；真实 apply ⇒ 见 N1b
     - ✅ 2026-10-13 清单与镜像全部落地并过测试：`go-core/Dockerfile`（多阶段，20s 出 **20MB** 镜像）、`deploy/Dockerfile.py-api`（3m12s 出 **373MB**）、`deploy/k8s/{00-namespace,10-config,30-go-api,40-py-api,50-ingress}.yaml`
     - ✅ 验收 1：`backend/tests/test_k8s_manifests.py` **13 passed**（其中 `kubectl apply --dry-run=server -f deploy/k8s/` 打真实 API server，7 件资源全绿）。4 处变异逐条自证可失败：Ingress backend 改 go-api→违反 0%、ConfigMap 加未读变量名→跨语言漂移、Service targetPort 改名→选不到容器、探针 `/healthz`→`/health`→探针对错端点
     - ✅ 验收 2（容器级，超出原口径）：`backend/tests/test_go_py_service_interop.py` **2 passed**——两个镜像同 secret 同 PG 跑起来后：Python 注册的用户 Go 用同一 token 取回 profile、Go 注册的用户 Python 同样取回、**`GET /auth/me` 两侧字段集逐字一致**（`email/email_verified/id/name/tier/username`，golden 用例只拍 register 校验、不拍这条）、信封键序一致、篡改签名两侧同判 404/40401。变异（只给 Go 侧换 secret）→ 该条失败
@@ -424,7 +454,7 @@
       - ✅ 部署件同步：py-api 镜像重建后再跑 `test_go_py_service_interop.py`（**2 passed**），其中新增断言「跨进程写后立刻读 `attempts == 1`」——正是本条取证时量到 404 的那条路径，现在一次命中
       - ↳ 环境勘误 3（2026-10-13，归 K 节）：该容器级闸的库口令改为 **env-only**（`PG_PASSWORD` 无默认值，未设置时两条 skip 而非 fail）——口令不该跟着测试文件进公开远端。实测：不带口令 `2 skipped`、带口令 `2 passed`
       - ↳ 远端口径（2026-10-13）：`origin` 由内嵌明文 token 的 HTTPS URL 改为 SSH（`git@github.com:jamesfeng2009/closenai-app.git`）。取证：两枚 token（GitHub 54 字符 / Gitee 39 字符）经 `git log --all -S` 与全树 grep 核验**从未进过任何提交、跟踪文件或工作树未跟踪文件**，只存在于 `.git/config`，因此无需改写历史；`gitee` 远端仍是 HTTPS+token，是否一并改 SSH 未获点名、不动
-    - ⛔ 唯一仍缺的动作：`kubectl apply` 打到共享 k3s（需显式授权）+ 镜像推送凭证（与 K5 同批）。本机 namespace `closenai` 是 dry-run 用，用完已回收
+    - ↳ 本行不含的动作：`kubectl apply` 打到共享 k3s + 镜像推送凭证 ⇒ 独立任务 **N1b**（需显式授权，与 K5 同批）。本机 namespace `closenai` 是 dry-run 用，用完已回收
   - 验收：Python 签发的 access token 被 Go 验证通过的跨语言用例进 CI；`sqlc generate` 成功
     - ✅ 2026-10-13 前半条达成，且**双向**：Python→Go 用 `go-core/testdata/python_auth_baseline.json`（`scripts/gen_go_auth_fixtures.py` 调真实 `create_access_token/create_refresh_token/hash_password` 生成）断言 access/refresh/expired/wrong-secret/tampered 五类 + argon2 三哈希（含中文密码）；Go→Python 由 `backend/tests/test_go_auth_interop.py`（**10 passed**）跑 `tools/crosscheck` 验 `decode_token` claims 逐字同构、refresh 当访问凭证用两侧都判 40102、`check_needs_rehash is False`
     - ✅ 同库同行互认（灰度期真实风险面）：Python 写的行 Go 能登录、Go 写的行 Python 能验密——`_pwd_hasher.check_needs_rehash()` 为 False 证明参数不漂移、登录不会无声重写哈希
@@ -432,6 +462,8 @@
     - ↳ 测试账（2026-10-13 实测）：`go test ./...` **25 个 Test 函数 + 22 golden 子用例**全绿（`internal/auth`、`internal/httpapi`、`internal/store`）；`test_go_auth_interop.py` 10 passed，其中 8 条缺 Go 工具链则 skip、2 条缺 `TEST_DATABASE_URL` 则 skip，**宿主无 Go 也不会红**
 
 
+- [ ] **N1b · 共享 k3s 真实 apply（灰度仍 0%）**（0.5d）｜N1a 只交付到清单与 dry-run｜⚠️ 两道外部前置：用户显式授权 `kubectl apply`（本机无 kubeconfig，集群是共享的、跑着别的项目）+ 镜像推送凭据（与 K5 同批）
+  - 验收：`kubectl -n <ns> get deploy,svc,ing` 出 `go-api`/`py-api` 两件；Ingress 该 path 的 `backend.service.name` 仍为 `py-api`（切流前 0%）；经 Ingress 一次真实 `GET /healthz` 返回 200；回滚＝`kubectl delete -f deploy/k8s/` 且不触碰他项目命名空间
 - [x] **N2 · Canonical Schema（个人模型权威表）**（4d）｜V3 01 §27 V1 Scope、02 §5–§26 ｜✅ 2026-10-13 完成（21 表 + sqlc 55 查询 + 23 条闸 + 5 个 Go 集成测试 + 10 条变异自证，全过测试）｜缺口实测：fact/goal/commitment/pattern/insight/outcome/feedback/model_version **全部无表**，pattern/insight 只是 `models/growth.py:19–20` 的 `record_type` 枚举值、分级塞 `metadata_json.insight_level`(:27)
   - ✅ **2026-10-13 交付并过测试**：`backend/alembic/versions/c8a2e4b6d0f2_add_canonical_runtime_tables.py`（512 行）建 **21 张** canonical 表 + 53 条普通索引 + 2 条唯一索引；alembic head `b7d9e1f3a5c8` → `c8a2e4b6d0f2`，单头线性。`ai_generation_runs` 沿用 O4 已交付 DDL，不重复建。
   - [x] 新表：`personal_facts`、`personal_goals`、`personal_commitments`、`evidence`、`patterns`、`insights`、`proactives`、`outcomes`、`user_feedback`、`personal_model_versions`、`ai_generation_runs`、`inbox_messages`（`source_records` 取舍见 D-2）
@@ -556,7 +588,7 @@
   - [x] `outcomes` 九类（goal_progress/goal_completed/commitment_completed/behavior_change/user_reported_change/proactive_helpful/proactive_not_helpful/pattern_confirmed/pattern_disconfirmed）+ `outcome_links` + `user_feedback` 六态（answered/confirmed/corrected/rejected/ignored/dismissed，**ignored ≠ 负向**）
   - [x] Outcome 权威来源仅三种：用户显式陈述／显式动作完成／结构化产品事件；LLM 推断只作 candidate（不变量 5）
   - [x] Outcome → Pattern 重算 → 生命周期更新；**单个反例不清除历史证据**（04 §16）→ 触发受影响 Insight 重校验
-  - [x] 用户纠正永远产生可审计事件（不变量 6），与 `memory_service._detect_conflict`(:269) 现有冲突链合并
+  - [x] 用户纠正永远产生可审计事件（不变量 6），与 `memory_service._detect_conflict`(:270) 现有冲突链合并
   - [x] `personal_model_versions`：canonical 变更后 ++ 并记 reason；派生 claim 记录所依赖版本（陈旧检测）
   - [x] 删除策略沿用 `user_service.py:346/353` purge 口径（逐表 rowcount=0 天然幂等、结构化 rowcount 审计），**不引入** V3 02 §27 的 12 处 `ON DELETE CASCADE`（D-5）；单条证据撤回只让「仅依赖它」的派生 claim 进 revalidate，不硬删
   - 实现口径（全部裁定在 `closenai-prd/V3方案裁决与分层-2026-10-12.md` 七-5 O-1…O-9 + 七-5.1）：
@@ -604,6 +636,8 @@
   - [ ] 每域四步：Go 实现 → 同一份 openapi 打契约测试 → Ingress 灰度 1%→100% → Python 该路由标 deprecated
   - [ ] `routers/cron.py` 的 16 个 cron 端点与 k3s CronJob 一并切（E3 的 arq/Redis 结论并入 O2/D-7，不两套并行）
   - 验收：每域切流前后响应契约 diff 为空；`jest 851 passed` + `tsc --noEmit` **不改动任何前端代码即通过**（这就是「客户端无感」的可证伪判据）。2026-10-14 注：这条判据当日上午曾因三类前端根因不成立（830/21），下午修毕并复跑 **851 passed / 0 failed ＋ tsc exit 0**，判据重新成立；起算基线以修毕后的 851 为准
+    - ↳ 2026-10-14 晚二次更正基线：#64/#65 追加 `yearInReviewEntry.test.ts`（28）与 `analyticsGuestQueue.test.ts`（8）后，实测 **35 套件 888 passed / 0 failed ＋ `npx tsc --noEmit` exit 0**；N8 的「不改前端即通过」判据起算基线改为 **888**
+    - ↳ 同日全量后端实测：`.venv/bin/pytest backend/tests` = **1 failed / 612 passed / 11 skipped**（GO_BIN 未上 PATH 时是 606/17 skipped，差额全是 `test_go_auth_interop.py` 的 8 条 go 用例，属环境条件不是代码回归）；唯一红仍是既有的 `test_commitment.py::test_weekly_quota_defers_third_follow_up`（归 #62），本批零新增失败
 
 - [x] **N9 · 权威读路径回链**（2d）｜与 L3（#34 洞察依据回链）联动，受 D-3 约束｜✅ 2026-10-14 完成（Go 四件 + 21 个新 Test + 23/23 变异打红，全过测试；Python 与前端零改动）｜缺口实测：`insight_evidence` 表只有 `insight_id/evidence_id/user_id/role`（`0002:84-89`）**没有 memory_id**，用户素材回链只能经 D-2 薄指针 `evidence.source_record_id → source_records(source_table, source_id)`
   - ✅ **改判登记（这条必须先于代码被读到）**：tasks.md L3/#34 当初交付的口径是「读路径聚合」——把 memory id 冗余内嵌进 `journey_events.memory_refs`(`models/journey.py:57`) 与 `growth_records.related_memory_ids`(:23)，读时由前端拿 id 去 `GET /memories` 逐条解析。V3 分层改判后，权威读路径改为 **`insight_evidence` → `evidence` → `source_records(source_table, source_id)` 薄指针**（D-2），理由是：内嵌 id 列表是写时快照，源失效后它不会变少（N6 的传播只落在 `source_records.status`，`canonical.sql:528-565`），而依据展开要的正是「今天还站得住的凭据」。**旧口径一行未删、前端一行未改**，两条路并存；回退开关 `CLOSEN_INSIGHT_EVIDENCE_READ=off` 让新读路径单独关得掉（D-3「留回退开关」的落点），Go 侧灰度今天仍是 0%，所以现网用户看到的仍是旧口径
@@ -628,24 +662,26 @@
 ## O. Python AI Runtime｜agent 与 AI 能力专职（2026-10-12 改判立项）
 
 > 边界（V3 06 §4/§5 + 用户指示）：Python 只做 agent/AI——NLP、抽取、模式检测、洞察草稿、主动消息草稿、embedding、语义检索、LLM 编排、评测；**不得直连 canonical 表**，产出一律 candidate 经契约回投 Go。
-> 复用度实测：这一步是**改造不是重写**——`backend/core/llm.py:99/121/147`（complete/stream/embed）、`message_generator.py`(459)、`growth_service.py`(948)、`personality_service.py`(602)、`memory_service.py`(467)、`mood_service.py`(354)、`discovery_service.py`(141)、`reflection_service.py`(145) 的 LLM/向量部分即 AI Runtime 的既有资产。V3 21 §Phase G 的「建 Python AI Runtime」在本项目工时≈0。
+> 复用度实测：这一步是**改造不是重写**——`backend/core/llm.py:149/202/259`（complete/stream/embed；⚠️ 2026-10-14 校正：旧文本写的 99/121/147 是 O4 插留痕代码前的行号）、`message_generator.py`(459)、`growth_service.py`(959)、`personality_service.py`(605)、`memory_service.py`(472)、`mood_service.py`(354)、`discovery_service.py`(141)、`reflection_service.py`(145) 的 LLM/向量部分即 AI Runtime 的既有资产。V3 21 §Phase G 的「建 Python AI Runtime」在本项目工时≈0。
 
-- [ ] **O1 · 跨语言契约冻结**（2d）｜V3 10/11/15
-  - [ ] `contracts/proto/` 三份：`closenai_common.proto` / `closenai_ai.proto` / `closenai_events.proto`；每条消息带 `schema_version`，演进只 additive（V3 00 §9 原则 12）
-  - [ ] Go pb + Python `_pb2` 双端 codegen 进 CI；跨语言契约测试（同一 fixture 两边 marshal/unmarshal 互解）
-  - [ ] ⚠️ **顺序约束**：V3 README「Package Scope」自己要求「先从实际 domain API 冻结 contract」——**N2/N3 定稿前不锁 .proto**，否则必返工
-- [ ] **O2 · RabbitMQ 拓扑 + Python worker**（4d）｜V3 12/14/17 ｜缺口实测：无任何消息队列，现为 QStash HTTP 回调 + inline 批处理（`cron_service.py:168–188/287/320`），Redis 仅作 KV/限流（`core/redis.py:56–139`）
-  - [ ] exchange/queue/DLQ/publisher confirms/prefetch；handler 只做 decode → AI → encode → publish，**业务分支零内嵌**
-  - [ ] 幂等键走 **message property** 而非 routing key（V3 14 §7）；畸形消息直入 DLQ，禁 requeue 循环
-  - [ ] 与 E3（arq + Redis Pod）的关系在 D-7 一并拍板：Go 成为权威侧后「QStash→arq」的 Python-only 前提已变；建议 RabbitMQ 承载 Go↔Python、arq/Redis 仅保留纯 Python 内部批任务，不留两套长期并存的队列
+- [ ] **O0 · AI 独立目录归堆（用户 2026-10-14 点名：「我希望 AI 可以独立一个目录方便后面维护」）**（1d）｜不依赖 N8/R1，现在就能做
+  - [ ] `backend/ai/`：搬入 `core/llm.py`、`core/generation_run.py` 与 R3 表里那 14 个 AI 文件的**能力层**（抽取/嵌入/草稿/分类/评测），`routers/`、`models/`、`repositories/`、`alembic/` **明确不搬**（DDL 属主与契约源仍在原位，裁决七-6 与 O6 口径不变）
+  - [ ] 边界闸 `backend/tests/test_ai_boundary.py`：`backend/ai/**` 不许 import `backend/routers`、不许直连 canonical 的写面（唯一合法出口是 candidate 回投，R5）；闸本身按变异自证打红一次才算立起来
+  - [ ] ⚠️ 代价登记（这条是我自己的判断，不是取证结论）：动 import 面会牵动 pytest 609 例的路径与 `test_python_reaches_canonical_models_only_through_deletion` 的**按模块名枚举**逻辑 ⇒ 必须同批改闸名与 allow-list，并复跑全量回到同基线；目录归堆**只买可维护性，不买到解耦**——真正的独立是 R3/R5 之后的「换进程」
+  - 验收：`npx tsc` 无关；`pytest backend/tests` 复跑 **≥609 passed / 1 failed（既有缺陷）/ 12 skipped** 同基线；`go test ./...` 不动仍 238 PASS；边界闸变异自证打红
+- ⛔ **O1 · 跨语言契约冻结**（原 2d）｜**本行不再单独执行**：交付物由 **R1** 承担（契约源要同时喂 gRPC 与 MQ 两个面），编号保留不重排｜V3 10/11/15
+  - ↳ 原三条子项（三份 `.proto`、双端 codegen、跨语言契约测）＝**R1 的子项**，跟进与验收只看 R1，本处不重复挂 `[ ]`
+  - ↳ 顺序约束保留登记：V3 README「Package Scope」要求「先从实际 domain API 冻结 contract」；**N2/N3 已于 2026-10-13 定稿，该前置今日已满足**，故 R1 无阻塞
+- ⛔ **O2 · RabbitMQ 拓扑 + Python worker**（原 4d）｜**本行不再单独执行**：交付物拆进 **R4**（broker + Go AMQP Publisher）与 **R5**（Python ⇄ MQ + candidate 回投），跟进只看 R4/R5｜V3 12/14/17｜缺口实测保留：全仓无任何消息队列，现为 QStash HTTP 回调 + inline 批处理（`cron_service.py:168–188/287/320`），Redis 仅作 KV/限流（`core/redis.py:56–139`）
+  - ↳ 原三条子项（exchange/DLQ/confirms/prefetch 与 handler 零业务分支、幂等键走 message property、与 E3 的关系在 D-7 拍板）分别落在 R4、R5 与 D-7 的登记里，本处不重复挂 `[ ]`
 - [ ] **O3 · Python 停止写权威态**（3d）｜与 N3 配对
-  - [ ] 三处直写点改为发 candidate；`memory_service._detect_conflict`(:269) 的 LLM 矛盾判定从「立即生效（新建 + 旧行 supersede）」改为 candidate 回投
+  - [ ] 三处直写点改为发 candidate；`memory_service._detect_conflict`(:270) 的 LLM 矛盾判定从「立即生效（新建 + 旧行 supersede）」改为 candidate 回投
   - [ ] LLM 补 `max_retries` + 失败分类（超时/429/5xx/畸形输出）；畸形输出走 N3 reject 而非重试
-  - [ ] 安全闸归属见 **D-8**：建议「危机判定 + 最终措辞 policy 归 Go（policy 属权威侧），按句缓冲的流式实现留 Python（infra）」；现状 `safety_service.py:356 check_text`/`:420 sentence_gate`/`:388 fail-open` 需要拆分，**fail-open 语义在跨进程后必须重新定义**（超时不得等于放行）
+  - [ ] 安全闸归属见 **D-8**：建议「危机判定 + 最终措辞 policy 归 Go（policy 属权威侧），按句缓冲的流式实现留 Python（infra）」；现状 `safety_service.py:356 check_text`/`:420 sentence_gate`/`:393 fail-open` 需要拆分，**fail-open 语义在跨进程后必须重新定义**（超时不得等于放行）
 - [x] **O4 · 生成留痕 `ai_generation_runs`**（1.5d）｜V3 02 §25、01 §20、§22 不变量 8 ｜缺口实测：`llm.py:99` 无留痕、`config.py:51` 四家 provider 可热切、`llm.py:77` 已明文警告「切换 provider/模型后存量向量需重嵌入」但无列可查
   - [x] 表在 Go 侧（canonical），Python 每次调用带 provider/model/purpose/tokens/latency/status ｜✅ 2026-10-13 落地：schema 先按 canonical 口径建在现有 PG（`models/generation_run.py` + 迁移 `b7d9e1f3a5c8`，单头校验 `alembic heads` 通过），N2 直接沿用同一份 DDL
   - [x] `ShareService` 的 GB 45438-2025 AIGC 标识段落改从 run 元数据取模型名（合规事实源统一）｜✅ 2026-10-13：`_aigc_metadata()` 把 `provider/model` 写进 PDF `/Creator`、run id 写进 `/Keywords`，报告与 Life Archive 两条导出链都从落库行的 `generation_run_id` 反查（`test_pdf_metadata_carries_run_provenance`）
-  - [x] ⚠️ **建议不等 Go 迁移、先在现 Python 后端落这一条**（提审合规在前，1.5d，Go 侧 N2 直接沿用同一 schema）｜✅ 2026-10-13 即按此执行
+  - [x] **建议不等 Go 迁移、先在现 Python 后端落这一条**（提审合规在前，1.5d，Go 侧 N2 直接沿用同一 schema）｜✅ 2026-10-13 即按此执行
   - 实现口径（`core/generation_run.py` 模块注释）：一次调用一行留痕（complete/stream/embed，异常路径也写 `status=error`）；`purpose` 由调用帧推导（`module.func`），20+ 个调用点因此零改动；派生行回链 `generation_run_id` 只在产出可用时写 → **空值即「这行不是 AI 写的」**，`status=fallback`（闸门丢弃、改发模板）由 `safety_service.check_or` 落；安全分类器自检带 `track=False`，不抢占指针
   - 回链覆盖的三张直接落库 AI 正文的表：`memories`（对话抽取）、`personality_profiles`（MBTI 推断）、`growth_records`（日报/周报/月报，周报是「正文段+预测段」两次生成，逗号存多值同 `related_memory_ids` 口径）
   - 验收：新增 `backend/tests/test_generation_run.py` **18 passed**；全量 `pytest` **558 passed**（基线 540 + 18），唯一红项为下面登记的既有日期漂移用例
@@ -659,16 +695,78 @@
 - [ ] **O6 · FastAPI HTTP 层退役**（2d，N8 全切完后）
   - [ ] 删路由与 ASGI 入口，保留 services 的 AI 部分 + worker 入口；`vercel.json` 的 serverless 声明与 `main.py:105` lifespan（常驻 `_purge_sweeper` 在 serverless 下本就不可靠）一并退役
   - [ ] 24 个 alembic 迁移的交接：以 PostgreSQL schema 快照为基线交给 Go 迁移工具（D-7），`backend/alembic/` 归档不删（对齐「无反向迁移、历史表不 drop」既有原则）
-- [ ] **O7 · 双运行时部署与运维**（3d）｜V3 20、21 §Phase J
-  - [ ] k3s：`go-api` / `python-worker` / `rabbitmq` / `redis` + Supabase PG；**4c8G 容量前提需在 N1 实测一次内存**（RabbitMQ 常驻约 150–200MB，加 Redis 与两个运行时；Supabase 在云上不占本机）
-  - [ ] DLQ 运维手册、replay 工具、指标（V3 03 §20 / 04 §22：accept/reject/invalid_evidence/stale_candidate/dismissal/fatigue）、tracing 贯穿 message/correlation/causation id
-  - [ ] 告警、迁移回滚策略、契约兼容测试进 CI
+- [ ] **O7 · 双运行时的运维面**（2d）｜V3 20、21 §Phase J｜范围收窄后**只剩运维**：部署清单与 e2e smoke 归 **R7**，4c8G 内存实测归 **R4**（原第一条子项与它们重复，已去重）
+  - [ ] 指标埋点逐条对上 V3 03 §20 / 04 §22：`accept`/`reject`/`invalid_evidence`/`stale_candidate`/`dismissal`/`fatigue` + DLQ 深度与 `oldest_pending`
+  - [ ] DLQ 运维手册（replay **工具**在 R7，这里写**操作步骤与判据**）、告警阈值、迁移回滚策略（沿架构方案 §11.4：改 Ingress backend 名即回滚）
+  - [ ] tracing 把 `message_id`/`correlation_id`/`causation_id` 跨进程串起来（三列已在 `OutboxRow`，缺的是 Go→MQ→Python→MQ→Go 一跳不丢）
+  - 验收：一条消息从 Go 决策 → MQ → Python 回投 → inbox 落地，三个 id 在日志里可逐跳串联；DLQ 里有非空样本时，手册的 replay 命令能重放成功且**不重复生效**（inbox 拒）
+
+## R. 跨语言通信面｜gRPC 同步 + RabbitMQ 异步（2026-10-14 用户立项并同日复述确认：「go 与 python 服务之间的通信，同步的走 grpc，异步的走 rabbitmq，这个是没有问题的」⇒ **划分即定案**；gRPC 的**方法面**另按实测调用点收窄，见 R0/R3）
+
+> **D-9 拍板（按 V3 允许的范围，不是全盘换成 gRPC）**：**同步低延迟**走 gRPC + Protobuf，**状态转移与批量派生**走 RabbitMQ + Protobuf，两者共用同一份 `.proto` 契约源。
+> 出处逐字：V3 `06_SYSTEM_COMPONENTS_AND_BOUNDARIES.md:164-170`「Use **gRPC + Protobuf** when a synchronous low-latency RPC is actually required」并逐条列出四类＝embedding service / reranking service / model capability check / low-latency inference；本项目第五类是对话 token 流（裁决文档 §八 风险 3「Go 出 `/chat/stream`、token 流由 Python 产生，需一条同步低延迟通道」——本节的 gRPC server streaming 就是那条通道的落点，风险 3 在此结案）。⚠️ **V3「允许」≠ 本仓「存在」**：实测有调用点的只有 `Embed`、`ClassifySafety`（属 low-latency inference）、`StreamChat` 三个；reranking 与 model capability check 全仓 0 命中，按 R0 判据不进首批方法表（2026-10-14 实测，见 R3）。
+> ⚠️ **同时采纳 V3 `06:173` 的反面约束**：「Do not introduce gRPC merely because both runtimes use Protobuf」⇒ 判据落成一句可复审的硬要求：**每个 gRPC 方法必须能回答「为什么不能等 MQ 回投」**，答不出就改 MQ。异步链（洞察草稿、主动消息、回填、失效传播、outcome 记录）刻意**不**改成 gRPC——它们是「Go 决策、Python 提案」的跨事务边界工作，改同步就等于把 N7 的 outbox/inbox 可靠性与幂等面作废。
+>
+> **现状实测（本节的每一条缺口都有锚点，别按想象拆任务）**
+> - Go 侧投递面**只差 broker 实现**：`internal/messaging/outbox/outbox.go:29` Repository（`ClaimOutboxBatch`/`MarkOutboxPublished`）、`:57` `Publisher` 接口、`:76` `Worker.Run/RunOnce`、`:124` fail→退避/死信——**N7-7 刻意不引 AMQP**（裁决七-6 逐字「不引。交付面＝`internal/messaging/` 的编排面 + 一个 Publisher 接口」）
+> - 路由表已在代码里：`internal/domain/delivery.go:37-46` 十条事件类型（`fact_admitted→fact.created`、`pattern_admitted/reactivated/lifecycle→pattern.*`、`insight_admitted/retracted/expired→insight.*`、`outcome_recorded`、`user_feedback_recorded`、`evidence_withdrawn`）；`OutboxRow` 列面＝18 §3 十三列 + N7-1 三列偏离（`user_id`/`correlation_id`/`causation_id`）
+> - Python→Go 的 **candidate 队列今天不存在**；Go 的 inbox 消费面（`inbox_messages` 表 + N7-2 SQL + `ConsumeIdempotent`）**没有生产调用方**（N7 三面欠账②，`tasks.md:600`）
+> - payload 现在仍是事件行 JSON 原文 + `schema_version` 恒 1（三面欠账③）⇒ 切 protobuf 是 **additive**，不动表、不动路由表
+> - Python 的 AI 资产＝`core/llm.py:149/202/259`（complete/stream/embed，⚠️ O 节旧文写的 99/121/147 是 O4 插留痕前的旧行号）+ 14 个调用文件（`personality_service.py` 605 行 4 处、`growth_service.py` 959 行 4 处、`message_generator.py` 459 行 3 处、`memory_service.py` 472 行 3 处含 `:465 embed`、`safety_service.py` 440 行 2 处含 `:356`、`mood/bedtime/enneagram/reflection/push.copy/curriculum/cron/share` 各 1 处）
+> - 依赖面实测：`go-core/go.mod` 只有 argon2id / jwt / pgx（**无 grpc、无 amqp**）；`backend/requirements.txt` 有 fastapi/pgvector/httpx/openai（**无 grpcio、无 aio-pika**）⇒ R1/R2/R4 都要新增依赖，且要过 D-7 那套「选型按实测计数」的口径
+
+- [ ] **R0 · 通信面裁决落表（0.5d，先文档后代码）**｜上面那段就是默认值，等一句「按默认值」生效
+  - [ ] `contracts/rpc/ownership.md`：**三面**一张表列尽——① 同步 gRPC 方法（首批三个：Embed / ClassifySafety / StreamChat）② 异步**事件**路由（`delivery.go:37-46` 现有十条 + `evidence.accepted` 待补）③ 异步**命令**路由（`ai.*.requested`，走 outbox 复用但不进事件表），每行逐条给「为什么是这个面」；rerank / model capability check 作为「V3 允许但本仓零调用点」单列在表外，注明加入门槛
+  - [ ] 判据进 §R 顶部（V3 `06:173`），并把裁决文档 §八 风险 3 标为「已由 D-9/R2 结案」
+  - 验收：文档里每个方法/队列都能指回一个既有调用点或既有领域入口（指不出的从表里删掉）；裁决文档 D 表新增 D-9 行
+- [ ] **R1 · `.proto` 单一契约源 + 双端 codegen**（2d，＝O1 的落地形态）｜V3 10/11/15/16
+  - [ ] `contracts/proto/closenai_common.proto`（`memory_ref` 三键、`SourcePointer`、`Envelope`）、`closenai_ai.proto`（Fact/Pattern Candidate、Insight/Proactive Draft＝10 §5–§8 的字段面）、`closenai_events.proto`（11 §2 事件信封）、`closenai_ai_rpc.proto`（service 定义）。⚠️ **一份 proto、两个承载面**：`*_rpc.proto` 的 service 只含 R3 的三个方法；Candidate/Draft 消息在 `closenai_ai.proto` 里定义但**由 MQ 投递**，gRPC 侧不重复定义、也不返回它们
+  - [ ] 每条消息带 `schema_version`，演进只 additive（10 §10、V3 00 §9 原则 12）
+  - [ ] Go codegen（`protoc-gen-go` + `protoc-gen-go-grpc`）与 Python codegen（`grpcio-tools`）都进 CI；生成物入仓还是现生成——按 D-7 的口径实测一次再拍
+  - [ ] ⚠️ 顺序约束（V3 README「Package Scope」）：这条在 N2/N3 定稿后才不返工，**今天已满足**（candidate 字段面由 N3/N4/N5/N6 定稿、`memory_ref` 三键在 `contracts/frontend-compat.md:91` 已逐字）
+  - 验收：跨语言 fixture 测——同一 payload Go marshal → Python unmarshal 且字段逐字相等（反向同理）；**改 `.proto` 不重生成就红**（生成物字节/哈希闸）；缺 `schema_version` 红。`scripts/mutate_r1_gates.py` 变异自证（备份写回，禁 `git checkout`）
+- [ ] **R2 · Go 侧 gRPC client（AI Orchestrator 出口）**（2d）｜V3 13 §Go AI Orchestrator
+  - [ ] `go-core/internal/aiclient/`：接口 + gRPC 实现 + fake；方法面＝R3 收窄后的**三个**（`Embed`/`ClassifySafety`/`StreamChat`，多一个都不加，判据是 V3 `06:173`）；每条调用带 deadline、重试上限、熔断与**降级模板**（复用 N5 的 fallback 语义与 `status=fallback` 留痕）
+  - [ ] **D-8 的落点在这里**：`safety_service.py:356` 今天超时＝fail-open 放行（`:10/:48/:211` 三处写明），跨进程后必须改成 **fail-closed 或降级模板**——超时不得等于放行。危机判定与最终措辞 policy 归 Go，按句缓冲的流式实现留 Python
+  - [ ] 对话 token 流：Go `/chat/stream` 的 SSE 由 gRPC **server streaming** 透传（结案 §八 风险 3）；首字延迟与背压需一条实测数字，不接受「应该差不多」
+  - [ ] 依赖新增走 D-7 式取证：`go list -m all` 计数 + 二进制体积/内存前后差实测，写进本节
+  - 验收：Go 单测用 fake 覆盖超时/429/5xx/畸形输出四类（畸形输出走 N3 reject 而非重试）；跨语言真 server 的互认测（沿 N1 的 go/py 双容器互认口径）；**变异自证必须打红「超时被当放行」这条路径**
+- [ ] **R3 · Python 侧 gRPC server（AI 面的进程入口）**（2d）｜V3 12 §Python AI Runtime
+  - [ ] `backend/ai/rpc/server.py`：handler 只做 `decode → 调 backend/ai/* → encode → return`，**业务分支零内嵌**（与 O2 同一纪律，违反就进 R6 的闸）
+  - [ ] 首批方法**只有三个**，逐个指回实测调用点：`Embed`(`memory_service.py:465`、`cron_service.py:1024`)、`ClassifySafety`(`safety_service.py:356 check_text`——必须在内容交到用户手上**之前**判完)、`StreamChat`(`routers/chat.py:55` → `:108 generator.generate_chat_stream` → `message_generator.py:122 llm.stream`，用户在线等 token)
+  - [ ] ⚠️ **2026-10-14 自查纠正**（我第一版把 `ExtractFactCandidate`/`DraftInsight`/`DraftProactive` 写进了 gRPC 方法表，与本节顶部「异步链刻意不改成 gRPC」以及 R5/R6 自相矛盾）：这三类的产物**要过 Go 领域门（N3/N4/N5）才能落权威态**，同步返回等于让 Python 决定写入时机 ⇒ 一律走 MQ：Go 下发 `ai.*.requested` → Python 回投 `*.candidate`（R5、R6）。另：V3 `06:165-167` 逐字允许的两类（**reranking service / model capability check**）在本仓实测**零调用点**（全仓 `rerank|capability` 不区分大小写 0 命中）⇒ 按 R0 的「指不回调用点就从表里删」判据，不进首批，等出现真实调用点再加
+  - [ ] 留痕照旧：每次调用一行 `ai_generation_runs`（O4 已交付，`core/generation_run.py`），provider/model/purpose/tokens/latency/status 不因换协议而丢
+  - 验收：pytest 走 grpc test harness；每个方法一条「畸形输入 → `InvalidArgument` 且不抛栈」；`backend/ai` 的边界闸（O0）必须同时覆盖 rpc 目录
+- [ ] **R4 · RabbitMQ 拓扑 + Go 的 AMQP Publisher（补齐 N7 唯一缺的那层）**（3d）｜V3 14、17 ｜缺口实测：`outbox.go:57` 的 `Publisher` 今天只有 fake
+  - [ ] exchange/queue/binding/DLQ 全部按 14 篇落地：topic 路由（`14:62`）、显式 retry 队列而非无限 requeue（`14:126`）、NACK/requeue 与 reject→DLQ 分流（`14:111-115`）、**publisher confirms**（`14:163`：确认后才 `MarkOutboxPublished`，未确认则 outbox 仍是重试权威——这条正是 N7-10 的既有口径）
+  - [ ] `internal/messaging/amqp/` 实现 `Publisher`；`Worker.Run` 在 `cmd/go-api/main.go` 起，带独立 kill switch（沿 N9 的 `CLOSEN_*` 开关风格，灰度可控）
+  - [ ] **命令面与事件面同一条 outbox、不同 exchange**（R3 把三类草稿挪去 MQ 之后必须补上这条，否则「Go 下发任务」没有可靠投递通道）：`ai.*.requested` 是命令不是事件，**不进 `domain/delivery.go:37-46` 的十条路由**——那张表的进门判据逐字是「权威模型内容变了」（`delivery.go:31-36` 注释），命令不满足；默认形态＝在决策事务内 `EnqueueOutbox` 一条 `ai_*_requested` 行、路由到独立 task exchange，从而**复用** outbox 的租约/退避/死信与 confirm-后置 published（丢一条命令＝用户永远等不到那条洞察，不可接受）。追加的是新事件类型，不改十条既有语义 ⇒ additive
+  - [ ] prefetch 与并发消费分区（`14:150`）；指标（accepted/rejected/dlq/oldest_pending）与 tracing（message/correlation/causation，列已在 `OutboxRow`）
+  - [ ] **4c8G 内存实测**（§八 风险 2）：`go-api`+`python-worker`+`rabbitmq`+`redis` 四件事常驻实测，没做完不进 N8
+  - 验收：真 broker 集成测——发布途中 kill broker ⇒ outbox 仍 pending ⇒ 重启后重投且**不重复生效**（消费侧靠 inbox）；confirm 丢失不许置 published；DLQ 直入且禁 requeue。`scripts/mutate_r4_gates.py` 打红「无 confirm 也置 published」
+- [ ] **R5 · Python ⇄ RabbitMQ（消费 Go 下发、回投 candidate）**（3d）｜V3 14、17、18 ｜缺口实测：这条队列今天**单向都不存在**
+  - [ ] Python 消费 `ai.*.requested`（Go 下发任务），handler 只 decode → AI → encode → publish `*.candidate`；幂等键走 **message property 而非 routing key**（V3 14 §7）
+  - [ ] Python **只发 candidate，不写权威表**（这是 O3 的物理落点；三处直写点改造，含 `memory_service.py:270 _detect_conflict` 从「立即新建+旧行 supersede」改为 candidate 回投）
+  - [ ] Go 消费 inbound `*.candidate` → 路由进已有领域入口（`AdmitCandidate`/`AdmitEvidence`/`AdmitProactive`…），经 `ConsumeIdempotent` + `inbox_messages`（表和 SQL 都在，缺的是 consumer）
+  - [ ] 畸形消息直入 DLQ、禁 requeue 循环
+  - 验收：跨用户/重复投递/乱序三条集成测；重复消息第二次必须被 inbox 拒且**领域入口不被调用**（用带调用计数的 fake 断言，沿 N9 domain 测手法）；变异自证 `AND`⇒`OR` 级真实破坏
+- [ ] **R6 · 把三道门接上生产者（§一 那三个缺口的正解）**（4d，依赖 R4+R5）｜缺口逐字：`tasks.md:553`、`:581`、`:600`①、`:600`②
+  - [ ] `AdmitEvidence` 接线：Python 抽取产物经 candidate 回投后写 evidence，并**补 `evidence.accepted` 事件类型与路由**（N7 三面欠账①：`14:68` 列了这个 routing key 但 Go 没有对应事件；加事件＝改 N4 语义，所以必须在这一批一起判）
+  - [ ] `AdmitProactive`/`RecheckProactive` 触发面：cron 从「Python 直发」改为「Go 门判定 + 下发 `ai.proactive_draft.requested`」，Python 只出草稿（现役 `cron_service.py:168-188/287/320` 的 inline + QStash 形态在此退役，与 E3 一并判，不留两套队列——D-7）
+  - [ ] `RecordOutcome`/`RecordUserFeedback`/`PropagateEvidenceInvalidation` 调用方：反馈走 Go 的 HTTP 面（前端改调归 N8），源失效传播由 Go 自发事件，Python 不参与判定
+  - [ ] **现网回填**：Python 把 legacy `memories/journey_events/growth_records` 的素材写进 `source_records`/`evidence`（一次性 backfill worker，幂等、可重跑、可按 user 限流）——这是 O2 里那条「现网数据面回填」的落点
+  - 验收（这条是**用户可见效果的 DoD**，不是「代码写完」）：N9 端点 `GET /api/v1/personal-model/insights/{id}/evidence` 在真库上返回**非空依据**并给出实测样本；`withdrawn_count` 在源失效传播后正确递增；主动消息经 Go 门后频次/疲劳指标可观测。仍受 kill switch 与灰度 0% 保护，切流前不改现网
+- [ ] **R7 · 双协议部署与运维面**（2d）｜V3 20、21 §Phase J，与 O7 合并执行不重复拆
+  - [ ] k3s 清单加 `python-rpc` Service（ClusterIP，**不出 Ingress**：gRPC 只在集群内，对外仍只有 Go 的 HTTP/SSE）+ `rabbitmq` StatefulSet；mTLS/NetworkPolicy 与 `CLOSEN_*` 开关面
+  - [ ] DLQ replay 工具 + 契约兼容测进 CI（V3 03 §20 / 04 §22 指标逐条对上）
+  - 验收：`kubectl apply` 前只出 manifests（本机无 kubeconfig、共享集群需显式授权——既有口径）；两运行时 + broker 起来后一条端到端 smoke：请求 → outbox → MQ → Python → candidate → inbox → Go 门 → 读端点非空
 
 ## P. 迁移期并行与风险（只登记事实，不改本节范围）
 
 **P1 · 提审窗口不受影响（结论：可并行）**：App Store 包只认 REST/SSE 契约与域名，N8 切流对客户端透明 ⇒ A/B 节提审主线与 Go 迁移**并行，无需延后提审**。前提＝N0 契约冻结先完成。
 - [ ] ⚠️ **P2 · IAP/Apple 验签是唯一硬未知**：`iap_service.py`(716 行) 承载 App Store Server API v2 的 JWS 验签、订阅状态、退款与通知（`SUBSCRIBED/DID_RENEW/REFUND/CONSUMPTION_REQUEST`）。Go 有苹果官方 app-store-server-library 支持，但**本项目能否覆盖既有全部分支、sandbox 实机验证是否通过，我尚未验证**——N8 的 subscription 批次开工前必须先跑 PoC，验证前不要把 subscription 域排进切流日程。
 - [ ] ⚠️ **P3 · 测试资产不可迁移**：后端 pytest 541 例是 Python 单测，Go 侧等价覆盖需重建（V3 21 §12 的测试矩阵可直接当 Go 测试清单用）。jest 851 例不用动——它测前端，正好充当契约回归哨兵（N8 的验收判据就靠它）。
+  - ↳ 2026-10-14 实测计数更正（只更数字、不改本节结论）：前端 **888 passed / 35 套件**，后端 **612 passed + 1 既有红（#62）+ 11 skipped**（GO_BIN 上 PATH 口径）
 - [ ] ⚠️ **P4 · 单人双语言的长期代价（登记为已知，不重新论证）**：两套 codegen（Protobuf + OpenAPI）、两套 CI、两套部署、两套依赖审计、两套安全评审。按你的分层执行，此项只作成本留痕。
 - [ ] **P5 · 最大的排期陷阱：领域内核不要在 Python 补一遍**：N2–N6（evidence/pattern/insight/proactive/outcome/candidate gate）**直接在 Go 建**。若先给 Python 实现一版再迁，同一套业务状态机会写两遍，N8 切流时还要对齐两份实现——成本翻倍。上一轮 N 节（原「领域内核，Python 内实现」）的全部缺口清单已并入本节 N2–N6，不重复立项。
 
@@ -681,7 +779,10 @@ A3 ←依赖─ B2 表(journey_events 先建, Sprint1 D9) ─┘
 B1 → B4;  B2 → F2;  C3 在途收尾可并行;  D1/D2/D4/D5 随时可插队;  E3 在部署前
 N0(契约冻结+改判登记) ─→ N1(Go 骨架·auth 跨语言互认) ─→ N2(canonical schema) ─→ N3(Domain Gate/candidate) ─→ N8(97 端点按域切流) ─→ O6(FastAPI HTTP 退役)
 N4(evidence 算分+insight 九关) / N5(proactive 资格门) / N6(outcome+版本化+删除传播) / N7(outbox-inbox) 依赖 N2-N3；N9(读路径回链)＝改判 L3
-O1(proto 契约，须在 N2/N3 定稿后锁) ─→ O2(RabbitMQ+worker) ─→ O3(Python 停写权威) ｜ O4(生成留痕·可提前做) O5(PDF 留 Python) O7(双运行时部署·4c8G 实测)
+O0(AI 独立目录+边界闸·不依赖任何批，随时可做) ｜ O4(生成留痕 ✅) O5(PDF 留 Python) ｜ O1/O2 已由 D-9 改判拆进 §R
+R0(通信面裁决) ─→ R1(.proto 源+双端 codegen；旧 O1，N2/N3 已定稿故今日解锁) ─→ { R2(Go gRPC client·D-8 fail-closed) ／ R3(Python gRPC server) ／ R4(AMQP Publisher+拓扑·4c8G 实测) }
+                                          R4+R1 ─→ R5(candidate 回投+Go inbound consumer；旧 O2 的异步面、O3 的物理落点) ─→ R6(三道门接生产者+现网回填) ─→ R7(双协议部署·e2e smoke)
+gRPC 只承担**同步**面，首批按实测调用点收窄为三个方法（`Embed`/`ClassifySafety`/`StreamChat`）；V3 06 §6 允许的 rerank 与 capability check 本仓 0 调用点故不入表；状态转移、批量派生与 Go→Python 的**任务下发命令**刻意留 MQ（否则作废 N7 的 outbox/inbox）
 P2(IAP 的 Go 验签 PoC) 是 subscription 域切流前置；P5＝领域内核只在 Go 建一遍
 N/O 不阻塞提审主线（P1）；D-1…D-8 拍板前不动代码
 ```
