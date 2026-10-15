@@ -93,37 +93,62 @@ async def test_generate_report_weekly_free_allowed(db, make_user):
     assert report["content"]
 
 
+async def _seed_daily(db, uid: str, content: str, mids, at: datetime):
+    """种一条 daily_insight，并把 `created_at` **显式钉死**。
+
+    为什么凡断言顺序的种子都必须自己给时间戳（2026-10-15 取证，替换掉原先的巧合）：
+    `created_at` 走 `server_default=func.now()`（models/growth.py:34-36），而 sqlite 的
+    CURRENT_TIMESTAMP **只到秒** ⇒ 同一测里连写的两条同瞬；`list_recent` 只按
+    `created_at DESC` 排、**没有次级排序键**（repositories/growth_repository.py:75）⇒
+    同秒时 sqlite 退回插入序（旧在前），一旦两插跨过秒边界就翻成新在前。
+    实测：两插之间 sleep(1.1) 后，并集从 [m1,m2,m3] 变成 [m2,m3,m1]。
+    时间戳交给钟，测的结果就随钟摆；这里把它交回给测。
+    """
+    record = await growth_repository.create(
+        db, uid, "daily_insight", content, related_memory_ids=mids
+    )
+    record.created_at = at
+    await db.flush()
+    return record
+
+
 async def test_weekly_insight_carries_memory_ref_union(db, make_user, time_travel):
-    """周报写入聚合本周各记录已引用的记忆 ID（去重），GET 出参带回（前端回链证据）。"""
+    """周报聚合本周各记录已引用的记忆 ID（去重），GET 出参带回（前端回链证据）。
+
+    期望序＝`list_recent` 的口径（created_at 降序，新在前），不是插入序。
+    本周两条：周二 b=[m2,m3] 新、周一 a=[m1,m2] 旧 ⇒ 并集 [m2,m3,m1]，m2 只出现一次。
+    """
     time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
     await make_user("u1", timezone="UTC")
-    await growth_repository.create(
-        db, "u1", "daily_insight", "a", related_memory_ids=["m1", "m2"]
-    )
-    await growth_repository.create(
-        db, "u1", "daily_insight", "b", related_memory_ids=["m2", "m3"]
-    )
+    await _seed_daily(db, "u1", "a", ["m1", "m2"],
+                      datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc))
+    await _seed_daily(db, "u1", "b", ["m2", "m3"],
+                      datetime(2026, 8, 4, 9, 0, tzinfo=timezone.utc))
 
     await growth_service.generate_weekly_insight(db, "u1", "en")
 
     weekly = await growth_repository.get_latest(db, "u1", "weekly_summary")
-    assert weekly.related_memory_ids.split(",") == ["m1", "m2", "m3"]
+    assert weekly.related_memory_ids.split(",") == ["m2", "m3", "m1"]
     resp = await growth_service.get_weekly_insight(db, "u1")
-    assert resp.related_memory_ids == ["m1", "m2", "m3"]
+    assert resp.related_memory_ids == ["m2", "m3", "m1"]
     assert resp.content
 
 
 async def test_weekly_insight_refs_capped_and_none_when_empty(db, make_user, time_travel):
-    """引用并集超 5 条截断（与 reflection 同口径）；无引用记录时落 None。"""
+    """引用并集超 5 条截断（与 reflection 同口径）；无引用记录时落 None。
+
+    五条种子按时间递增（r0 最早、r4 最晚），降序读回 r4⇒r0，并集取前 5 =
+    [a7, a6, a4, a5, a3]；被截掉的是最旧两条的 a1/a2。截断语义（留 5 条、丢最旧的）
+    才是这条测要钉的，插入序不是。
+    """
     time_travel.set(datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc))
     await make_user("u1", timezone="UTC")
     for i, mids in enumerate((["a1", "a2"], ["a3"], ["a4", "a5"], ["a6"], ["a7"])):
-        await growth_repository.create(
-            db, "u1", "daily_insight", f"r{i}", related_memory_ids=mids
-        )
+        await _seed_daily(db, "u1", f"r{i}", mids,
+                          datetime(2026, 8, 1, 9 + i, 0, tzinfo=timezone.utc))
     await growth_service.generate_weekly_insight(db, "u1", "en")
     weekly = await growth_repository.get_latest(db, "u1", "weekly_summary")
-    assert weekly.related_memory_ids.split(",") == ["a1", "a2", "a3", "a4", "a5"]
+    assert weekly.related_memory_ids.split(",") == ["a7", "a6", "a4", "a5", "a3"]
 
     await make_user("u2", timezone="UTC")
     await growth_service.generate_weekly_insight(db, "u2", "en")
