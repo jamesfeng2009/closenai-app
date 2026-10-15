@@ -155,11 +155,18 @@ class MoodRepository:
     async def get_recent(
         self, db: AsyncSession, user_id: str, limit: int = 7
     ) -> List[MoodCheckin]:
-        """查询最近 N 条签到（按时间倒序）。"""
+        """查询最近 N 条签到（按时间倒序）。
+
+        `id` 次级键不是装饰：`created_at` 只有 `server_default=func.now()`，PG 的 `now()`
+        是**事务级**时间戳，同事务写的多行逐位相同；`LIMIT N` 遇上同刻并列时，
+        谁进结果集、以什么顺序进都由查询计划决定。Python/Go 两侧读同一批行做逐字节
+        契约比较（`GET /mood/history`），这里不确定＝切流前后出现只有重录才能发现的漂移。
+        次级键是 uuid4 ⇒ 给的是**字典序不是写入序**，它保证可复现，不恢复历史同刻行的真实先后。
+        """
         result = await db.execute(
             select(MoodCheckin)
             .where(MoodCheckin.user_id == user_id)
-            .order_by(MoodCheckin.created_at.desc())
+            .order_by(MoodCheckin.created_at.desc(), MoodCheckin.id.desc())
             .limit(limit)
         )
         return list(result.scalars().all())
@@ -195,7 +202,10 @@ class MoodRepository:
         rows = await db.execute(
             select(MoodCheckin.created_at, MoodCheckin.mood_emoji)
             .where(MoodCheckin.user_id == user_id, MoodCheckin.created_at >= start)
-            .order_by(MoodCheckin.created_at.asc())
+            # 升序 + id 升序：调用方（growth_service / mood_service）按「升序首行」取当日
+            # 首个 emoji，同刻并列时取谁完全取决于数据库返回序。次级键方向必须与
+            # Go 侧 selectMoodTrendRows 一致，否则 /mood/trend 的当日标签两侧不同。
+            .order_by(MoodCheckin.created_at.asc(), MoodCheckin.id.asc())
         )
         zone = safe_zoneinfo(tz)
         result: List[tuple[datetime, str]] = []

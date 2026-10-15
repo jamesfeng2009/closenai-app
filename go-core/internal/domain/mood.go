@@ -104,9 +104,10 @@ type ReflectionRow struct {
 	CreatedAt time.Time
 }
 
-// MoodTrend 是 count_by_day（mood_repository.py:187-205）＋ get_trend 里
+// MoodTrend 是 count_by_day（mood_repository.py:194-215）＋ get_trend 里
 // day_map 那一段（mood_service.py:326-336）的合成：
-// 行必须按 created_at 升序进来，同一本地日历日只取首行，键序即 labels 序。
+// 行必须按 created_at 升序、同刻按 id 升序进来（M-G 给 Python 侧补了 id 次级键，
+// SQL 常量在 store/legacy_batch5.go），同一本地日历日只取首行，键序即 labels 序。
 //
 // 日历日取的是 `%m-%d`（只有月-日，没有年），所以跨年窗口会撞键——
 // 已取证：le=90 的窗口最长 90 天，跨年撞键要求同一个标签在两行里出现两次，
