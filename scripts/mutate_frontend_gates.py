@@ -22,7 +22,7 @@ F28–F30（2026-10-14 再追加）固化 2026-10-13 i18n 审校里只剩口头�
 
 用法：
     python3 scripts/mutate_frontend_gates.py --check   # 只验锚点，各命中一次
-    python3 scripts/mutate_frontend_gates.py           # 30 条红 + 2 条绿
+    python3 scripts/mutate_frontend_gates.py           # 46 条红 + 4 条绿
     python3 scripts/mutate_frontend_gates.py --only F1,F9
 """
 from __future__ import annotations
@@ -56,6 +56,13 @@ APP_TSX = FRONT / "App.tsx"
 AUTH = FRONT / "src" / "context" / "AuthContext.tsx"
 FR = "__tests__/firstRead.test.ts"
 COMBO = "__tests__/comboCard.test.ts"
+GROWTH_TEST = "__tests__/growthRecordsWiring.test.ts"
+GROWTH_SRC = FRONT / "src" / "screens" / "GrowthRecordsScreen.tsx"
+EXPLORE_SRC = FRONT / "src" / "screens" / "ExploreScreen.tsx"
+PDF_TEST = "__tests__/pdfExportWiring.test.ts"
+PDF_CFG = FRONT / "src" / "config" / "pdfFiles.ts"
+PDF_SVC = FRONT / "src" / "services" / "pdfExport.ts"
+BASE64 = FRONT / "src" / "utils" / "base64.ts"
 
 # ---------------------------------------------------------------- 红闸清单
 # (id, 破坏说明, 文件, 原文, 坏文, 受害测试, 失败用例名片段)
@@ -362,6 +369,168 @@ MUTATIONS += [
     ),
 ]
 
+# ---------------------------------------------------------------- U1 成长记录页接线闸（2026-10-15，P0-F07 §6）
+# 这批的失效方式全静默：路径少一个字母只是「还没有记录」，tag 映射漂移只在非中文界面显中文，
+# 造句替代 topics[].topic 让 15 语言白做，created_at 切串让跨时区差一天。F39 反过来证明
+# 本批新加进 HOMOGRAPHS.fr 的那条豁免此刻真的在消费（改译了就该红），不是空转条目。
+MUTATIONS += [
+    (
+        "F31",
+        "把 /growth/records 写成 /growth/record（后端不返这个路径，列表永远显空态）",
+        API,
+        "return request<{ records: GrowthRecordItem[]; total: number }>('/growth/records');",
+        "return request<{ records: GrowthRecordItem[]; total: number }>('/growth/record');",
+        GROWTH_TEST,
+        "api.ts 打的是 /growth/records 与 /growth/topics",
+    ),
+    (
+        "F32",
+        "删掉 App.tsx 里 GrowthRecords 的 Stack.Screen 注册（导航名对不上，入口点了没反应）",
+        APP_TSX,
+        "              <Stack.Screen\n"
+        '                name="GrowthRecords"\n'
+        "                component={GrowthRecordsScreen}\n"
+        "                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}\n"
+        "              />\n",
+        "",
+        GROWTH_TEST,
+        "App.tsx 三处齐",
+    ),
+    (
+        "F33",
+        "前端 TAG_KEYS 删掉「沟通」一行（那一档筛选点不出来，且该标签的记录只能显中文规范名）",
+        GROWTH_SRC,
+        "  沟通: 'communication',\n",
+        "",
+        GROWTH_TEST,
+        "两侧键集逐字相等",
+    ),
+    (
+        "F34",
+        "探索页入口导航名单复数写错（navigate 到没注册的名字）",
+        EXPLORE_SRC,
+        "navigation.navigate('GrowthRecords')",
+        "navigation.navigate('GrowthRecord')",
+        GROWTH_TEST,
+        "探索页入口格在",
+    ),
+    (
+        "F35",
+        "话题行改成显 tp.tag（后端 15 语言的整句文案白生成，界面变成「情绪」两字）",
+        GROWTH_SRC,
+        "<Text style={styles.topicText}>{tp.topic}</Text>",
+        "<Text style={styles.topicText}>{tp.tag}</Text>",
+        GROWTH_TEST,
+        "话题正文取 tp.topic",
+    ),
+    (
+        "F36",
+        "分桶改用 created_at.slice(0, 10)（那是 UTC 日，东八区用户差一天）",
+        GROWTH_SRC,
+        "r.created_at ? toLocalDate(r.created_at) : '—'",
+        "r.created_at ? r.created_at.slice(0, 10) : '—'",
+        GROWTH_TEST,
+        "分桶走 toLocalDate",
+    ),
+    (
+        "F37",
+        "记录信封字段写成 items（读不到即整屏空态，正是最难查的那种假象）",
+        GROWTH_SRC,
+        "setRecords(recordsRes.records);",
+        "setRecords((recordsRes as any).items);",
+        GROWTH_TEST,
+        "消费面逐字",
+    ),
+    (
+        "F38",
+        "zh 的 tag.mood 填英文原文 Mood（新键 × 15 语言那道闸的靶子）",
+        LOCALES / "zh.ts",
+        '      "mood": "情绪",',
+        '      "mood": "Mood",',
+        I18N,
+        "没有任何一个值逐字等于英文",
+    ),
+    (
+        "F39",
+        "把 fr 的 tag.communication 译成 Échanges：本批为它加的 HOMOGRAPHS.fr 豁免条目"
+        "当场变死条目（证明那条豁免此刻真在逐字消费，不是懒人兜底）",
+        LOCALES / "fr.ts",
+        '      "communication": "Communication",',
+        '      "communication": "Échanges",',
+        I18N,
+        "同形词豁免表不许留死条目",
+    ),
+]
+
+# F40–F46（2026-10-15 追加）＝ U2「PDF 导出接线」那批闸的反向验证。这批的风险全在
+# 「前端自己造的第二真源」上——落盘文件名、错误码、鉴权形态，所以逐条真改一处打红。
+# G4 证同一批的锚点不是固定行窗：往新handler里插注释不该让任何一条变红。
+MUTATIONS += [
+    (
+        "F40",
+        "回忆卡的落盘文件名漂一个字母（§七 登记的 Content-Disposition 就不是这个名字了）",
+        PDF_CFG,
+        "export const MEMORY_CARD_PDF_FILE = 'closenai_memory_card.pdf';",
+        "export const MEMORY_CARD_PDF_FILE = 'closenai_memory_cards.pdf';",
+        PDF_TEST,
+        "回忆卡、年报两个固定名逐字相等",
+    ),
+    (
+        "F41",
+        "POST /share/memory-card 的 body 丢掉（后端 Pydantic 立刻 422，卡永远导不出）",
+        API,
+        "    body: JSON.stringify({ memory_id: memoryId }),\n",
+        "",
+        PDF_TEST,
+        "回忆卡带 memory_id（POST body 不能丢）",
+    ),
+    (
+        "F42",
+        "周期报告的 binary 出口摘掉（拿 res.json() 解一份 PDF，成功态必炸）",
+        API,
+        "  return request<ArrayBuffer>(`/share/report/${period}/pdf?language=${langParam()}`, { binary: true });",
+        "  return request<ArrayBuffer>(`/share/report/${period}/pdf?language=${langParam()}`);",
+        PDF_TEST,
+        "位子上（契约扫描器只认这个形态）",
+    ),
+    (
+        "F43",
+        "退回 Linking.openURL 去打开本地 PDF（这条路带不上 Bearer，也是 U2 的防退化项）",
+        PDF_SVC,
+        "  await Sharing.shareAsync(uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });",
+        "  Linking.openURL(uri);",
+        PDF_TEST,
+        "没有 Linking.openURL 调用",
+    ),
+    (
+        "F44",
+        "40402 写成 40401（USER_NOT_FOUND 那个码，前端已登录态会被当成注销清会话）",
+        PDF_CFG,
+        "export const CODE_RESOURCE_NOT_FOUND = 40402;",
+        "export const CODE_RESOURCE_NOT_FOUND = 40401;",
+        PDF_TEST,
+        "两个常量与 Python 侧逐值相等",
+    ),
+    (
+        "F45",
+        "base64 尾部 padding 少一个字符（写进文件的 PDF 直接损坏，且只有非 3 倍数长度会坏）",
+        BASE64,
+        "      (i + 1 < len ? ALPHABET[(n >> 6) & 63] : '=') +",
+        "      (i + 1 < len ? ALPHABET[(n >> 6) & 63] : '') +",
+        PDF_TEST,
+        "字节每个长度都与 Buffer 一致",
+    ),
+    (
+        "F46",
+        "km 的 pdf.exporting 删掉一行（15 语言缺一个，忙态在高棉语界面显空串）",
+        LOCALES / "km.ts",
+        '    "exporting": "កំពុងនាំចេញ…",\n',
+        "",
+        PDF_TEST,
+        "pdf.exporting：15 语言都非空",
+    ),
+]
+
 # ---------------------------------------------------------------- 绿闸清单
 # 破坏「不该打红」的东西＝证明这条守卫不是假红制造机。
 GREEN: list[tuple[str, str, Path, str, str, str]] = [
@@ -383,6 +552,26 @@ GREEN: list[tuple[str, str, Path, str, str, str]] = [
         "    setYearReviewLoading(true);\n"
         + "".join(f"      // 增长占位 {i}\n" for i in range(15)),
         YR,
+    ),
+    (
+        "G3",
+        "往 GrowthRecordsScreen 的 load 函数体插 15 行注释（同类增长）："
+        "U1 接线闸钉的是逐字锚点而不是固定行窗，函数体变长不该把它变红",
+        GROWTH_SRC,
+        "      setLoading(true);\n",
+        "      setLoading(true);\n"
+        + "".join(f"      // 增长占位 {i}\n" for i in range(15)),
+        GROWTH_TEST,
+    ),
+    (
+        "G4",
+        "往 InsightsScreen 的 onExportReportPdf 函数体插 15 行注释（同类增长）："
+        "U2 的 PDF 闸钉的是逐字锚点与计数，函数体变长不该把它变红",
+        SCREEN,
+        "    setPdfBusy('report');\n",
+        "    setPdfBusy('report');\n"
+        + "".join(f"      // 增长占位 {i}\n" for i in range(15)),
+        PDF_TEST,
     ),
 ]
 

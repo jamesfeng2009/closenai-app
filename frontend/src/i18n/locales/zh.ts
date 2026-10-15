@@ -142,6 +142,8 @@ const resource = {
     "archiveTitle_other": "{{years}}年前的今天"
   },
   "explore": {
+    "growthRecords": "成长记录",
+    "growthRecordsDesc": "回看最近的记录和话题",
     "title": "探索",
     "personalityLabel": "你的性格画像",
     "logician": "逻辑学家",
@@ -159,6 +161,31 @@ const resource = {
     "personCard": "性格名片",
     "personCardDesc": "生成分享卡片",
     "comingSoon": "敬请期待"
+  },
+  "growthRecords": {
+    "title": "成长记录",
+    "empty": "这里还是空的。开始对话和复盘后，记录会慢慢积累。",
+    "filterAll": "全部",
+    "topicsTitle": "值得再聊聊的话题",
+    "guestEmpty": "登录后查看你的成长记录。",
+    "tag": {
+      "mood": "情绪",
+      "relationship": "关系",
+      "work": "工作",
+      "goal": "目标",
+      "communication": "沟通",
+      "growth": "成长"
+    }
+  },
+  "pdf": {
+    "export": "导出 PDF",
+    "exporting": "正在导出…",
+    "unavailable": "这台设备打不开分享面板，PDF 发不出去。",
+    "failed": {
+      "noData": "现在还没有可导出的内容——这段时间没有记录。",
+      "memoryGone": "这条记忆已经不在了，卡片无法导出。",
+      "generic": "导出失败，请稍后再试。"
+    }
   },
   "personality": {
     "observations": "AI 观察",

@@ -15,6 +15,7 @@ import type {
   ChatStreamRequest, ChatHistoryItem, SSEEvent,
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
   GrowthDashboard, WeeklyInsight, GrowthTimeline,
+  GrowthRecordItem, GrowthTopic,
   LevelDetail, BadgeItem, RelationshipTimeline, TimelineDaySummary,
   PersonalityProfile, PersonalityRefreshResult,
   AssessmentState, AssessmentAnswerResult, ComboReport,
@@ -199,11 +200,15 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshing;
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+/** RequestInit + binary：为 true 时成功态按字节返回，不走 JSON 信封解包。 */
+type RequestOptions = RequestInit & { binary?: boolean };
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { binary: wantsBinary, ...fetchOptions } = options;
   const doRequest = (): Promise<Response> =>
     fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: { ...getHeaders(), ...(options.headers as Record<string, string> | undefined) },
+      ...fetchOptions,
+      headers: { ...getHeaders(), ...(fetchOptions.headers as Record<string, string> | undefined) },
     });
 
   let res: Response;
@@ -230,10 +235,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   let body: unknown = null;
-  try {
-    body = await res.json();
-  } catch {
-    // 非 JSON 响应
+  let pdfBytes: ArrayBuffer | null = null;
+  if (wantsBinary && res.ok) {
+    // PDF 成功态没有信封，只有字节流；失败态后端仍回 JSON 信封，落到下面统一的码/文案出口
+    pdfBytes = await res.arrayBuffer();
+  } else {
+    try {
+      body = await res.json();
+    } catch {
+      // 非 JSON 响应
+    }
   }
 
   // USER_NOT_FOUND(40401) 在已登录态下意味着账号已注销（软删除）→ 清登录态回登录页。
@@ -252,6 +263,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         : i18n.t('errors.httpFailed', { status: res.status });
     const code = isEnvelope(body) ? body.code : res.status;
     throw new ApiError(code, msg);
+  }
+
+  if (pdfBytes) {
+    return pdfBytes as unknown as T;
   }
 
   if (isEnvelope(body)) {
@@ -419,6 +434,28 @@ export async function getWeeklyInsight(): Promise<WeeklyInsight> {
 
 export async function getTimeline(days: number = 365): Promise<GrowthTimeline> {
   return request<GrowthTimeline>(`/growth/timeline?days=${days}`);
+}
+
+/**
+ * 成长记录列表（P0-F07 §6 成长记录页）。
+ *
+ * 不传 tag/days/limit，三个参数都吃后端缺省（最近 30 天 / 上限 20），筛选在屏内本地做。
+ * 原因是后端 tag 筛选的真实语义是「先取最近 100 条、逐条筛、凑满 limit 就停」——
+ * 换个 tag 就重发一次请求，等于让每个筛选态各自截一次前 20 条，用户看到的
+ * 「某标签下的记录」会随点击顺序而不同。一次拉全、本地筛，才是同一份数据。
+ */
+export async function getGrowthRecords(): Promise<{ records: GrowthRecordItem[]; total: number }> {
+  return request<{ records: GrowthRecordItem[]; total: number }>('/growth/records');
+}
+
+/**
+ * 推荐话题（P0-F07 §4）：近期记录的高频标签 → 话题方向。
+ *
+ * 文案取 topics[].topic（后端 growth.topic.* 已按 X-Language 本地化），前端不自造句；
+ * count 只当数量徽章，不做复数文案，免得为此新增 15 语言复数键。
+ */
+export async function getRecommendedTopics(): Promise<{ topics: GrowthTopic[] }> {
+  return request<{ topics: GrowthTopic[] }>('/growth/topics');
 }
 
 // ═══ Relationship (P0-F04：关系等级 / 徽章 / 时间线) ═══
@@ -619,6 +656,32 @@ export async function getShareReport(period: SharePeriod): Promise<ShareReport> 
 export async function getYearInReview(year?: number): Promise<YearInReviewCard> {
   const suffix = year ? `&year=${year}` : '';
   return request<YearInReviewCard>(`/share/year-in-review?language=${langParam()}${suffix}`);
+}
+
+// ── PDF 导出（U2 · P0-F07 §6）──────────────────────────────────────────
+// 三条都是 PDF 二进制出口：排版全在后端（share_service.py + reportlab 中文 CID 字体），
+// 前端只拿字节。鉴权靠 request 里那条统一的 Authorization，所以不走 Linking.openURL
+// ——浏览器/系统打开 URL 带不上 Bearer，必然 401。
+// 失败码（40402 / 40403 / 其它）由 pdfFailureKey 映射文案，文件名见 config/pdfFiles.ts。
+
+/** 周期报告 PDF（Pro 周期仍由后端 40302 把关）。 */
+export async function getReportPdf(period: SharePeriod): Promise<ArrayBuffer> {
+  return request<ArrayBuffer>(`/share/report/${period}/pdf?language=${langParam()}`, { binary: true });
+}
+
+/** 年度报告 PDF：年份缺省交给后端（与 JSON 版同一口径，两端不各算一次年）。 */
+export async function getYearInReviewPdf(year?: number): Promise<ArrayBuffer> {
+  const suffix = year ? `&year=${year}` : '';
+  return request<ArrayBuffer>(`/share/year-in-review/pdf?language=${langParam()}${suffix}`, { binary: true });
+}
+
+/** 回忆卡 PDF（memory_id 不属主回 40403）。 */
+export async function postMemoryCardPdf(memoryId: string): Promise<ArrayBuffer> {
+  return request<ArrayBuffer>('/share/memory-card', {
+    method: 'POST',
+    body: JSON.stringify({ memory_id: memoryId }),
+    binary: true,
+  });
 }
 
 /**

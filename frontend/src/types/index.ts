@@ -228,6 +228,28 @@ export interface TimelineDaySummary {
   milestones: Array<{ date: string; milestone_type: string; name: string }>;
 }
 
+// ═══ 成长记录列表 / 推荐话题 (P0-F07 §6) ═══
+
+/**
+ * GET /growth/records 的单条。
+ * tags 是后端落库/即时打标的中文规范名（情绪/关系/工作/目标/沟通/成长），
+ * 不是本地化串——展示名要过前端那张 tag → i18n key 映射。
+ */
+export interface GrowthRecordItem {
+  id: string;
+  record_type: string;
+  content: string;
+  tags: string[];
+  created_at: string | null; // list_records 走 datetime.isoformat() ⇒ 带 +00:00 偏移
+}
+
+/** GET /growth/topics 的单条：topic 是后端按 X-Language 选好的整句文案。 */
+export interface GrowthTopic {
+  tag: string;
+  count: number;
+  topic: string;
+}
+
 // ═══ Reflection (P0-F04) ═══
 
 export interface ReflectionDraft {

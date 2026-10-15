@@ -222,6 +222,14 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
             <Text style={styles.tileName}>{t('explore.personCard')}</Text>
             <Text style={styles.tileDesc}>{t('explore.personCardDesc')}</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.exploreTile}
+            onPress={() => navigation.navigate('GrowthRecords')}
+          >
+            <Text style={styles.tileIcon}>📖</Text>
+            <Text style={styles.tileName}>{t('explore.growthRecords')}</Text>
+            <Text style={styles.tileDesc}>{t('explore.growthRecordsDesc')}</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </ScrollView>

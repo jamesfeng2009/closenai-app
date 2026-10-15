@@ -146,6 +146,8 @@ const resource = {
     "archiveTitle_other": "Aujourd'hui, il y a {{years}} ans"
   },
   "explore": {
+    "growthRecords": "Mes notes",
+    "growthRecordsDesc": "Revoir vos notes et vos sujets récents",
     "title": "Explorer",
     "personalityLabel": "Votre profil de personnalité",
     "logician": "Logicien",
@@ -163,6 +165,31 @@ const resource = {
     "personCard": "Carte de personnalité",
     "personCardDesc": "Générer une carte à partager",
     "comingSoon": "Bientôt disponible"
+  },
+  "growthRecords": {
+    "title": "Mes notes d'évolution",
+    "empty": "Rien ici pour l'instant. Les notes s'ajoutent au fil de vos échanges et de vos réflexions.",
+    "filterAll": "Toutes",
+    "topicsTitle": "Des sujets à regarder de plus près",
+    "guestEmpty": "Connectez-vous pour voir vos notes d'évolution.",
+    "tag": {
+      "mood": "Humeur",
+      "relationship": "Relations",
+      "work": "Travail",
+      "goal": "Objectifs",
+      "communication": "Communication",
+      "growth": "Évolution"
+    }
+  },
+  "pdf": {
+    "export": "Exporter en PDF",
+    "exporting": "Exportation…",
+    "unavailable": "Cet appareil ne peut pas ouvrir le panneau de partage : le PDF ne peut pas être envoyé.",
+    "failed": {
+      "noData": "Rien à exporter pour l’instant : cette période ne contient aucun enregistrement.",
+      "memoryGone": "Ce souvenir n’est plus disponible, la carte ne peut pas être exportée.",
+      "generic": "Échec de l’exportation. Réessayez plus tard."
+    }
   },
   "personality": {
     "observations": "Observations de l'IA",

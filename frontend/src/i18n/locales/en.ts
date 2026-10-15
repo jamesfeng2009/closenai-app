@@ -146,6 +146,8 @@ const resource = {
     "archiveTitle_other": "{{years}} years ago today"
   },
   "explore": {
+    "growthRecords": "Growth records",
+    "growthRecordsDesc": "Revisit recent records and topics",
     "title": "Explore",
     "personalityLabel": "Your personality profile",
     "logician": "Logician",
@@ -163,6 +165,31 @@ const resource = {
     "personCard": "Personality Card",
     "personCardDesc": "Generate a shareable card",
     "comingSoon": "Coming soon"
+  },
+  "growthRecords": {
+    "title": "Growth Records",
+    "empty": "Nothing here yet. Records show up as you chat and reflect.",
+    "filterAll": "All",
+    "topicsTitle": "Topics worth a closer look",
+    "guestEmpty": "Sign in to see your growth records.",
+    "tag": {
+      "mood": "Mood",
+      "relationship": "Relationships",
+      "work": "Work",
+      "goal": "Goals",
+      "communication": "Communication",
+      "growth": "Growth"
+    }
+  },
+  "pdf": {
+    "export": "Export PDF",
+    "exporting": "Exporting…",
+    "unavailable": "This device can't open a share sheet, so the PDF can't be sent.",
+    "failed": {
+      "noData": "Nothing to export yet — this period has no records.",
+      "memoryGone": "This memory is no longer available, so the card can't be exported.",
+      "generic": "Export failed. Please try again later."
+    }
   },
   "personality": {
     "observations": "AI Observations",

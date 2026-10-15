@@ -15,7 +15,9 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
-import { getPersonalityCard, getOnThisDay, getShareLink, ApiError } from '../services/api';
+import { getPersonalityCard, getOnThisDay, getShareLink, postMemoryCardPdf, ApiError } from '../services/api';
+import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
+import { MEMORY_CARD_PDF_FILE, pdfFailureKey } from '../config/pdfFiles';
 import { trackFunnelShare } from '../services/funnel';
 import ShareManifest from '../components/ShareManifest';
 import MoodRing from '../components/charts/MoodRing';
@@ -48,6 +50,8 @@ export default function ShareCardScreen({
   const [memoryToday, setMemoryToday] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState(false);
+  // PDF 出口（U2）：回忆卡的整页排版交给后端 reportlab，与上面的纯文本分享是两种物料
+  const [pdfBusy, setPdfBusy] = useState(false);
   // 失败态必须与「还在加载」「没有数据」分开呈现：旧写法 loading||!card 让请求
   // 失败后永远停在转圈，用户既不知道出错也没有重试入口。
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +138,29 @@ export default function ShareCardScreen({
     }
   };
 
+  /**
+   * 回忆卡 PDF（POST /share/memory-card，memory_id 取自本张卡）。
+   * 失败走屏内 error 出口，本页的 Alert 站点数仍是 proGate 那一处；
+   * 40403＝这条记忆不是你的（候选来自别人分享/本地旧数据），按单独一句说，
+   * 不混进「加载失败」。
+   */
+  const onExportMemoryPdf = async () => {
+    if (!memory || pdfBusy || sharing) return;
+    try {
+      setPdfBusy(true);
+      const bytes = await postMemoryCardPdf(memory.memory_id);
+      await exportPdf(bytes, MEMORY_CARD_PDF_FILE);
+    } catch (e) {
+      setError(
+        e instanceof PdfUnavailableError
+          ? t('pdf.unavailable')
+          : t(pdfFailureKey(e instanceof ApiError ? e.code : undefined)),
+      );
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* 变体选择（PRD §6：可生成多张名片挑选分享） */}
@@ -213,6 +240,17 @@ export default function ShareCardScreen({
             >
               <Text style={styles.shareBtnText}>
                 📤 {sharing ? t('common.saving') : t('share.shareBtn')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.pdfBtn, (pdfBusy || sharing) && styles.pdfBtnDisabled]}
+              disabled={pdfBusy || sharing}
+              onPress={onExportMemoryPdf}
+              accessibilityRole="button"
+            >
+              <Text style={styles.pdfBtnText}>
+                📄 {pdfBusy ? t('pdf.exporting') : t('pdf.export')}
               </Text>
             </TouchableOpacity>
           </>
@@ -378,4 +416,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14, alignItems: 'center',
   },
   shareBtnText: { fontSize: FontSize.title, fontWeight: '700', color: Colors.bgPrimary },
+  // PDF 出口压在文本分享下面：同尺寸实心金会让两个按钮看不出主次
+  pdfBtn: {
+    marginTop: Spacing.md, alignItems: 'center', paddingVertical: 12,
+    borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.gold400,
+  },
+  pdfBtnText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.gold400 },
+  pdfBtnDisabled: { opacity: 0.45 },
 });

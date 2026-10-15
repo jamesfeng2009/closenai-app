@@ -142,6 +142,8 @@ const resource = {
     "archiveTitle_other": "Hari ini, {{years}} tahun lalu"
   },
   "explore": {
+    "growthRecords": "Catatan pertumbuhan",
+    "growthRecordsDesc": "Lihat catatan dan topik terbaru",
     "title": "Jelajahi",
     "personalityLabel": "Profil kepribadian Anda",
     "logician": "Ahli Logika",
@@ -159,6 +161,31 @@ const resource = {
     "personCard": "Kartu Kepribadian",
     "personCardDesc": "Buat kartu untuk dibagikan",
     "comingSoon": "Segera hadir"
+  },
+  "growthRecords": {
+    "title": "Catatan pertumbuhanku",
+    "empty": "Belum ada apa pun di sini. Catatan muncul saat kamu mengobrol dan refleksi.",
+    "filterAll": "Semua",
+    "topicsTitle": "Topik yang layak dilihat lagi",
+    "guestEmpty": "Masuk untuk melihat catatan pertumbuhanmu.",
+    "tag": {
+      "mood": "Suasana hati",
+      "relationship": "Hubungan",
+      "work": "Pekerjaan",
+      "goal": "Tujuan",
+      "communication": "Komunikasi",
+      "growth": "Pertumbuhan"
+    }
+  },
+  "pdf": {
+    "export": "Ekspor PDF",
+    "exporting": "Mengekspor…",
+    "unavailable": "Perangkat ini tidak bisa membuka lembar berbagi, jadi PDF tidak bisa dikirim.",
+    "failed": {
+      "noData": "Belum ada yang bisa diekspor — periode ini tidak punya catatan.",
+      "memoryGone": "Memoeri ini sudah tidak tersedia, kartu tidak bisa diekspor.",
+      "generic": "Ekspor gagal. Coba lagi nanti."
+    }
   },
   "personality": {
     "observations": "Pengamatan AI",

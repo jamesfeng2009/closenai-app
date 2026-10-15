@@ -92,6 +92,8 @@ const HOMOGRAPHS: Record<string, string[]> = {
     'personality.enneagramResult',
     'insights.chatCount_one',
     'insights.chatCount_other',
+    // 成长记录的标签名：法语界面就说 Communication，译成 Échanges 反而换掉了「沟通」这格
+    'growthRecords.tag.communication',
   ], // Badges / Type / conversations 均为法语 app 常规写法
   de: ['home.details', 'home.stress', 'share.combo', 'help.sectionFaq'],
   it: ['home.stress', 'relationship.dayInsight', 'auth.password'], // Password / Insight 意大利语直接借用

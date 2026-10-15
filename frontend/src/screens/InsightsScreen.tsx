@@ -15,8 +15,10 @@ import {
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getWeeklyInsight, getPatternDiscovery, getShareReport, getYearInReview, getTimeline,
-  getUserProfile, ApiError,
+  getUserProfile, getReportPdf, getYearInReviewPdf, ApiError,
 } from '../services/api';
+import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
+import { reportPdfFile, YEAR_IN_REVIEW_PDF_FILE, pdfFailureKey } from '../config/pdfFiles';
 import type {
   GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
@@ -67,6 +69,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [heatFull, setHeatFull] = useState(false);
   // 年度报告卡（M4 year_in_review）的分享入口：免费引流卡，不走 Pro 门控
   const [yearReviewLoading, setYearReviewLoading] = useState(false);
+  // PDF 导出（U2）：两个入口共用一个忙位，防「点了周报又点年报」并发写同名文件
+  const [pdfBusy, setPdfBusy] = useState<'report' | 'year' | null>(null);
 
   // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
   // 游客态跳过请求（接口均需登录，游客必 401），展示空态
@@ -210,6 +214,44 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
       Alert.alert(t('common.error'), msg);
     } finally {
       setYearReviewLoading(false);
+    }
+  };
+
+  /** PDF 失败的正文：可用性单独一句，其余按后端码分档，不弹裸 error.message。 */
+  const pdfFailureText = (e: unknown): string =>
+    e instanceof PdfUnavailableError
+      ? t('pdf.unavailable')
+      : t(pdfFailureKey(e instanceof ApiError ? e.code : undefined));
+
+  /**
+   * 周期报告 PDF（U2）。排版全在后端（reportlab + 中文 CID 字体在册），
+   * 这里只取字节、落盘、交给系统分享面板。
+   * 按钮只在报告已生成时出现，所以 Pro 周期（40302）在选周期那一步已被拦下。
+   */
+  const onExportReportPdf = async () => {
+    if (!reportPeriod || pdfBusy) return;
+    setPdfBusy('report');
+    try {
+      const bytes = await getReportPdf(reportPeriod);
+      await exportPdf(bytes, reportPdfFile(reportPeriod));
+    } catch (e) {
+      Alert.alert(t('common.error'), pdfFailureText(e));
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
+  /** 年度报告 PDF：年份照旧不自己算，缺省交后端定。 */
+  const onExportYearReviewPdf = async () => {
+    if (pdfBusy) return;
+    setPdfBusy('year');
+    try {
+      const bytes = await getYearInReviewPdf();
+      await exportPdf(bytes, YEAR_IN_REVIEW_PDF_FILE);
+    } catch (e) {
+      Alert.alert(t('common.error'), pdfFailureText(e));
+    } finally {
+      setPdfBusy(null);
     }
   };
 
@@ -358,6 +400,17 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
             <TouchableOpacity style={styles.shareReportBtn} onPress={onShareReport}>
               <Text style={styles.shareReportText}>📤 {t('insights.shareReport')}</Text>
             </TouchableOpacity>
+            {/* PDF 出口：分享的是后端排好版的整份报告，不是屏内截屏 */}
+            <TouchableOpacity
+              style={[styles.shareReportBtn, pdfBusy !== null && styles.pdfBtnDisabled]}
+              onPress={onExportReportPdf}
+              disabled={pdfBusy !== null}
+              accessibilityRole="button"
+            >
+              <Text style={styles.shareReportText}>
+                📄 {pdfBusy === 'report' ? t('pdf.exporting') : t('pdf.export')}
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -387,6 +440,16 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
             disabled={yearReviewLoading}
           >
             <Text style={styles.shareReportText}>🧾 {t('insights.shareYearReview')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.shareReportBtn, pdfBusy !== null && styles.pdfBtnDisabled]}
+            onPress={onExportYearReviewPdf}
+            disabled={pdfBusy !== null}
+            accessibilityRole="button"
+          >
+            <Text style={styles.shareReportText}>
+              📄 {pdfBusy === 'year' ? t('pdf.exporting') : t('pdf.export')}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
@@ -451,5 +514,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.gold400,
   },
   shareReportText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.gold400 },
+  // TouchableOpacity 的 disabled 自己不改观感，忙态得压暗，否则看不出两个入口互斥
+  pdfBtnDisabled: { opacity: 0.45 },
   heatToggle: { fontSize: FontSize.sm, color: Colors.gold400, opacity: 0.85 },
 });

@@ -146,6 +146,8 @@ const resource = {
     "archiveTitle_other": "Heute vor {{years}} Jahren"
   },
   "explore": {
+    "growthRecords": "Meine Entwicklung",
+    "growthRecordsDesc": "Letzte Einträge und Themen ansehen",
     "title": "Entdecken",
     "personalityLabel": "Dein Persönlichkeitsprofil",
     "logician": "Logiker",
@@ -163,6 +165,31 @@ const resource = {
     "personCard": "Persönlichkeitskarte",
     "personCardDesc": "Karte zum Teilen erstellen",
     "comingSoon": "Demnächst"
+  },
+  "growthRecords": {
+    "title": "Meine Entwicklung",
+    "empty": "Noch nichts hier. Einträge entstehen, wenn du chattest und reflektierst.",
+    "filterAll": "Alle",
+    "topicsTitle": "Themen, die genaueres Hinschauen lohnen",
+    "guestEmpty": "Melde dich an, um deine Entwicklungseinträge zu sehen.",
+    "tag": {
+      "mood": "Stimmung",
+      "relationship": "Beziehungen",
+      "work": "Arbeit",
+      "goal": "Ziele",
+      "communication": "Kommunikation",
+      "growth": "Entwicklung"
+    }
+  },
+  "pdf": {
+    "export": "PDF exportieren",
+    "exporting": "Export läuft…",
+    "unavailable": "Dieses Gerät kann keinen Freigabedialog öffnen – das PDF lässt sich nicht senden.",
+    "failed": {
+      "noData": "Noch nichts zum Exportieren – dieser Zeitraum hat keine Einträge.",
+      "memoryGone": "Diese Erinnerung ist nicht mehr verfügbar – die Karte lässt sich nicht exportieren.",
+      "generic": "Export fehlgeschlagen. Bitte später erneut versuchen."
+    }
   },
   "personality": {
     "observations": "KI-Beobachtungen",

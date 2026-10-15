@@ -146,6 +146,8 @@ const resource = {
     "archiveTitle_other": "Oggi {{years}} anni fa"
   },
   "explore": {
+    "growthRecords": "Il mio percorso",
+    "growthRecordsDesc": "Rivedi le note e i temi recenti",
     "title": "Esplora",
     "personalityLabel": "Il tuo profilo di personalità",
     "logician": "Logico",
@@ -163,6 +165,31 @@ const resource = {
     "personCard": "Carta di personalità",
     "personCardDesc": "Genera una carta da condividere",
     "comingSoon": "Prossimamente"
+  },
+  "growthRecords": {
+    "title": "Il mio percorso",
+    "empty": "Ancora niente qui. Le note compaiono mentre chatti e rifletti.",
+    "filterAll": "Tutti",
+    "topicsTitle": "Temi che meritano uno sguardo",
+    "guestEmpty": "Accedi per vedere le note del tuo percorso.",
+    "tag": {
+      "mood": "Umore",
+      "relationship": "Relazioni",
+      "work": "Lavoro",
+      "goal": "Obiettivi",
+      "communication": "Comunicazione",
+      "growth": "Crescita"
+    }
+  },
+  "pdf": {
+    "export": "Esporta PDF",
+    "exporting": "Esportazione…",
+    "unavailable": "Questo dispositivo non può aprire il pannello di condivisione, quindi il PDF non può essere inviato.",
+    "failed": {
+      "noData": "Ancora nulla da esportare: questo periodo non ha record.",
+      "memoryGone": "Questo ricordo non è più disponibile, la carta non può essere esportata.",
+      "generic": "Esportazione non riuscita. Riprova più tardi."
+    }
   },
   "personality": {
     "observations": "Osservazioni dell'IA",

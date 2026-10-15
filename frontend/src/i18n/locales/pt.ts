@@ -146,6 +146,8 @@ const resource = {
     "archiveTitle_other": "Hoje, {{years}} anos atrás"
   },
   "explore": {
+    "growthRecords": "Meus registros",
+    "growthRecordsDesc": "Reveja seus registros e temas recentes",
     "title": "Explorar",
     "personalityLabel": "Seu perfil de personalidade",
     "logician": "Lógico",
@@ -163,6 +165,31 @@ const resource = {
     "personCard": "Cartão de personalidade",
     "personCardDesc": "Gerar um cartão para compartilhar",
     "comingSoon": "Em breve"
+  },
+  "growthRecords": {
+    "title": "Meus registros de crescimento",
+    "empty": "Nada por aqui ainda. Os registros aparecem conforme você conversa e reflete.",
+    "filterAll": "Todos",
+    "topicsTitle": "Temas que valem uma olhada",
+    "guestEmpty": "Entre na sua conta para ver seus registros de crescimento.",
+    "tag": {
+      "mood": "Humor",
+      "relationship": "Relacionamentos",
+      "work": "Trabalho",
+      "goal": "Objetivos",
+      "communication": "Comunicação",
+      "growth": "Crescimento"
+    }
+  },
+  "pdf": {
+    "export": "Exportar PDF",
+    "exporting": "Exportando…",
+    "unavailable": "Este dispositivo não abre o painel de compartilhamento, então o PDF não pode ser enviado.",
+    "failed": {
+      "noData": "Ainda não há nada para exportar — este período não tem registros.",
+      "memoryGone": "Esta memória não está mais disponível, o cartão não pode ser exportado.",
+      "generic": "Falha ao exportar. Tente de novo mais tarde."
+    }
   },
   "personality": {
     "observations": "Observações da IA",

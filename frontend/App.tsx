@@ -27,6 +27,7 @@ import PersonalityScreen from './src/screens/PersonalityScreen';
 import PaywallScreen from './src/screens/PaywallScreen';
 import MemoriesScreen from './src/screens/MemoriesScreen';
 import RelationshipTimelineScreen from './src/screens/RelationshipTimelineScreen';
+import GrowthRecordsScreen from './src/screens/GrowthRecordsScreen';
 import ShareCardScreen from './src/screens/ShareCardScreen';
 import FirstReadCardScreen from './src/screens/FirstReadCardScreen';
 import Week1ReportScreen from './src/screens/Week1ReportScreen';
@@ -71,6 +72,7 @@ export type RootStackParamList = {
   Paywall: undefined;
   Memories: undefined;
   RelationshipTimeline: undefined;
+  GrowthRecords: undefined;
   // 回忆卡走第四模板时带 memory_id；不传即三张性格名片
   ShareCard: { variant?: ShareCardVariant; memory_id?: string } | undefined;
   FirstReadCard: undefined;
@@ -265,6 +267,11 @@ function AppRoot() {
               <Stack.Screen
                 name="RelationshipTimeline"
                 component={RelationshipTimelineScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="GrowthRecords"
+                component={GrowthRecordsScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen

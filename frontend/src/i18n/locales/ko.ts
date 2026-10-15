@@ -142,6 +142,8 @@ const resource = {
     "archiveTitle_other": "오늘, {{years}}년 전"
   },
   "explore": {
+    "growthRecords": "성장 기록",
+    "growthRecordsDesc": "최근 기록과 주제를 다시 살펴봐요",
     "title": "탐색",
     "personalityLabel": "당신의 성격 분석",
     "logician": "논리학자",
@@ -159,6 +161,31 @@ const resource = {
     "personCard": "성격 명함",
     "personCardDesc": "공유용 카드 생성",
     "comingSoon": "곧 제공 예정"
+  },
+  "growthRecords": {
+    "title": "성장 기록",
+    "empty": "아직 아무것도 없어요. 대화와 회고를 시작하면 여기에 쌓여요.",
+    "filterAll": "전체",
+    "topicsTitle": "다시 살펴볼 주제",
+    "guestEmpty": "로그인하면 성장 기록을 볼 수 있어요.",
+    "tag": {
+      "mood": "기분",
+      "relationship": "관계",
+      "work": "일",
+      "goal": "목표",
+      "communication": "소통",
+      "growth": "성장"
+    }
+  },
+  "pdf": {
+    "export": "PDF로 내보내기",
+    "exporting": "내보내는 중…",
+    "unavailable": "이 기기에서는 공유 시트를 열 수 없어 PDF를 보낼 수 없습니다.",
+    "failed": {
+      "noData": "아직 내보낼 내용이 없습니다 — 이 기간의 기록이 없습니다.",
+      "memoryGone": "이 기억은 더 이상 없어 카드를 내보낼 수 없습니다.",
+      "generic": "내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요."
+    }
   },
   "personality": {
     "observations": "AI 관찰",

@@ -265,9 +265,9 @@ describe('分享出口：正文两段、清单两项、深链一条路', () => {
     expect(src).toContain('if (res.action === Share.sharedAction)');
   });
 
-  it('PDF 出口本批仍不接（负向闸，与首页同口径；接上要同时改这条）', () => {
-    expect(read(SHARE)).not.toContain('/share/memory-card');
-    expect(read(SHARE)).not.toContain('exportMemoryCard');
+  it('PDF 出口已接上（2026-10-15 U2；这条原本是「本批不接」的负向闸）', () => {
+    expect(read(SHARE)).toContain('await postMemoryCardPdf(memory.memory_id)');
+    expect(read('src/services/api.ts')).toContain("'/share/memory-card'");
   });
 
   it('防连点：sharing 闸门 + 按钮 disabled + finally 复位', () => {

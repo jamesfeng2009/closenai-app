@@ -142,6 +142,8 @@ const resource = {
     "archiveTitle_other": "今日、{{years}}年前"
   },
   "explore": {
+    "growthRecords": "成長の記録",
+    "growthRecordsDesc": "最近の記録とテーマを見返す",
     "title": "探索",
     "personalityLabel": "あなたの性格分析",
     "logician": "論理学者",
@@ -159,6 +161,31 @@ const resource = {
     "personCard": "性格カード",
     "personCardDesc": "共有用カードを生成",
     "comingSoon": "近日公開"
+  },
+  "growthRecords": {
+    "title": "成長の記録",
+    "empty": "まだ何もありません。会話や振り返りをすると、ここにたまります。",
+    "filterAll": "すべて",
+    "topicsTitle": "あらためて考えてみたいテーマ",
+    "guestEmpty": "ログインすると、あなたの成長の記録が見られます。",
+    "tag": {
+      "mood": "気分",
+      "relationship": "人間関係",
+      "work": "仕事",
+      "goal": "目標",
+      "communication": "コミュニケーション",
+      "growth": "成長"
+    }
+  },
+  "pdf": {
+    "export": "PDF を書き出す",
+    "exporting": "書き出し中…",
+    "unavailable": "この端末では共有パネルを開けないため、PDF を送信できません。",
+    "failed": {
+      "noData": "まだ書き出すものがありません — この期間の記録はありません。",
+      "memoryGone": "このメモリーはもう存在しないため、カードを書き出せません。",
+      "generic": "書き出せませんでした。あとでもう一度お試しください。"
+    }
   },
   "personality": {
     "observations": "AIの観察",

@@ -142,6 +142,8 @@ const resource = {
     "archiveTitle_other": "Hari ini, {{years}} tahun lalu"
   },
   "explore": {
+    "growthRecords": "Rekod pertumbuhan",
+    "growthRecordsDesc": "Lihat semula rekod dan topik terbaharu",
     "title": "Teroka",
     "personalityLabel": "Profil personaliti anda",
     "logician": "Ahli Logik",
@@ -159,6 +161,31 @@ const resource = {
     "personCard": "Kad Personaliti",
     "personCardDesc": "Hasilkan kad untuk dikongsi",
     "comingSoon": "Akan datang"
+  },
+  "growthRecords": {
+    "title": "Rekod pertumbuhan saya",
+    "empty": "Tiada apa-apa di sini lagi. Rekod muncul apabila anda berborak dan merenung.",
+    "filterAll": "Semua",
+    "topicsTitle": "Topik yang wajar diteliti semula",
+    "guestEmpty": "Log masuk untuk melihat rekod pertumbuhan anda.",
+    "tag": {
+      "mood": "Suasana hati",
+      "relationship": "Hubungan",
+      "work": "Kerja",
+      "goal": "Matlamat",
+      "communication": "Komunikasi",
+      "growth": "Pertumbuhan"
+    }
+  },
+  "pdf": {
+    "export": "Eksport PDF",
+    "exporting": "Mengeksport…",
+    "unavailable": "Peranti ini tidak boleh membuka panel kongsi, jadi PDF tidak dapat dihantar.",
+    "failed": {
+      "noData": "Tiada apa untuk dieksport lagi — tempoh ini tiada rekod.",
+      "memoryGone": "Kenangan ini sudah tiada, kad tidak dapat dieksport.",
+      "generic": "Eksport gagal. Cuba lagi kemudian."
+    }
   },
   "personality": {
     "observations": "Pemerhatian AI",

@@ -12,9 +12,10 @@
 
 | 约定 | 值 | 出处 |
 | --- | --- | --- |
-| Base | `EXPO_PUBLIC_API_BASE`，缺省回落 `http://localhost:8000/api/v1`（Android `10.0.2.2`） | `frontend/src/services/api.ts:38-43` |
-| 发请求的地方 | 全前端只有 3 处：`api.ts:180`（refresh，无 Authorization）、`api.ts:201`（统一 `request`）、`api.ts:296`（SSE 走 XHR）。其余 service 全部转调 api.ts | 实测 grep `fetch(`/`XMLHttpRequest` |
-| 请求头 | `Content-Type: application/json` + `X-Language: <en\|zh… 取前 2 位>` + `Authorization: Bearer <access_token>` | `api.ts:145-154` |
+| Base | `EXPO_PUBLIC_API_BASE`，缺省回落 `http://localhost:8000/api/v1`（Android `10.0.2.2`） | `frontend/src/services/api.ts:42-47` |
+| 发请求的地方 | 全前端只有 3 处：`api.ts:184`（refresh，无 Authorization）、`api.ts:209`（统一 `request`）、`api.ts:312`（SSE 走 XHR）。其余 service 全部转调 api.ts；**2026-10-15 起的三条 PDF 也走同一个 `request`，没新开出口** | 实测 grep `fetch(`/`XMLHttpRequest`；计数由 `frontend/__tests__/pdfExportWiring.test.ts` ③ 守 |
+| 二进制出口 | `request(path, { binary: true })`：仅 `res.ok` 时改取 `res.arrayBuffer()` 并**不碰信封**；非 200 仍按 JSON 信封读 `code`/`message` 抛 `ApiError` ⇒ Go 侧 PDF 失败**必须继续回信封**，只回裸 HTTP 码会让界面文案键全落 generic | `api.ts:204-207`、`api.ts:238-241`、`api.ts:268-270` |
+| 请求头 | `Content-Type: application/json` + `X-Language: <en\|zh… 取前 2 位>` + `Authorization: Bearer <access_token>` | `api.ts:149-159` |
 | 响应头 | 只消费 `X-Trace-Id` 之外的 body；trace 由后端中间件写回（`backend/core/middleware.py:38`） | — |
 
 ## 二、信封与错误分支（Go 必须逐值复现）
@@ -64,6 +65,13 @@
 文件名清单见 `endpoints.md` 第七节（含两个按参数拼接的 `closenai_{period}_report.pdf` /
 `closenai_life_archive_{scope}.pdf`）。前端按字节流落盘/分享，**文件名与媒体类型属逐字兼容项**。
 
+↳ 2026-10-15 U2 已接线三条（不是口头声明，是 App 里真有点）：
+`GET /share/report/{period}/pdf`、`GET /share/year-in-review/pdf`、`POST /share/memory-card`。
+落盘名写死在 `frontend/src/config/pdfFiles.ts`，由 `__tests__/pdfExportWiring.test.ts` ① 与
+`endpoints.md` §七 **逐字**比对（拼接名按四个周期逐个代入再比）。界面按后端码分档只认
+40402 / 40403（值取自 `backend/core/errors.py`，同闸 ④ 逐值比对），其余走 generic 文案；
+40304（Life Archive）与 `first-read-card`、`life-archive/pdf` 本批仍未接线。
+
 ## 五、本地 SQLite 同步面（字段改名 = 静默丢数据，最危险的一类）
 
 拉取式全量覆写，**没有 cursor/增量口径**，只有 `limit` 参数。以下映射一旦服务端改名，
@@ -100,6 +108,8 @@
 | `GET /iap/entitlements` | `owned_scopes`、`entitlements[]` | `PaywallScreen.tsx:135-162` |
 | `POST /analytics/batch` | `relayed`（`dropped` 只出现在返回类型声明里，实测无人读） | `services/analytics.ts:106`、`services/api.ts:677` |
 | `GET /memories`、`DELETE /memories/{id}` | `id`、`content`、`category`（枚举 `values\|preference\|relationship\|goal\|factual`）、`created_at` | `screens/MemoriesScreen.tsx:111,115`、`types/index.ts:78`；`services/evidence.ts:21-27` 用 `id/content/created_at` 现构 `memory_ref{memory_id,created_at,excerpt}` |
+| `GET /growth/records` | `records[].{id, content, tags, created_at}`、`records`（信封里 `total` 实测无人读）；`tags` 的值是**中文规范名**，前端按 `TAG_KEYS` 映射后才显本地化名 ⇒ 改名等于筛空 | `screens/GrowthRecordsScreen.tsx:70,91,101`、`types/index.ts:238` |
+| `GET /growth/topics` | `topics[].{tag, count, topic}`（`tag` 只作列表 key；整句文案读 `topic`，前端不自造句式） | `screens/GrowthRecordsScreen.tsx:191-194`、`types/index.ts:247` |
 
 ## 七、逐字兼容最小集（一句话版）
 
@@ -114,6 +124,17 @@
 
 ## 八、登记缺口（带日期，按「发现缺陷不顺手修」只记不补）
 
+- ↳ 2026-10-15 **§七 的「48 条」是旧快照的数**：`endpoints.md` 第九节由脚本重导后实测为
+  「98 里 64 个有前端调用点，其中 60 个的封装确实被屏/hook 接线，4 个封装未接线」。
+  U1 接线 `/growth/records`、`/growth/topics` 两条，同日 U2 再接线三条 PDF
+  （`/share/report/{period}/pdf`、`/share/year-in-review/pdf`、`POST /share/memory-card`），
+  其余差值来自 2026-10-13 之后别的批次。§七 那句话按范围只登记未改数，
+  归 N0 台账维护；真正逐字兼容面以本文件 §六 + `endpoints.md` 第九节为准。
+- ↳ 2026-10-15 **本文件 §一/§二 的出处用的是 api.ts 行号，天生会随任何一次插入漂移**：
+  这次核到 `42-47 / 149-159 / 184 / 209 / 312`，而 U1+U2 一批就往 `getYearInReview` 后面插了
+  26 行。行号能证明「此刻确实在这」，证不了「下次还在」⇒ 真正有闸的是
+  `pdfExportWiring.test.ts` ③ 的**计数**（`fetch(` = 2、`new XMLHttpRequest(` = 1），
+  不是这三行行号。归 N0 台账维护（改成「按符号定位」需要重写整份出处口径，不属接线批）。
 - ↳ 2026-10-13 **本地 LWW 冲突解决未接线**：`frontend/src/services/db/syncService.ts:8`
   导出 `resolveConflict()`（按 `updated_at ?? created_at` 取新），但全 `frontend/src` 无任何 import
   （实测 grep 只命中定义行本身）⇒ 所谓「远端为真相源」实际靠第五节各屏的**全量覆写**，

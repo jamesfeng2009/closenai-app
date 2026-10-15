@@ -142,6 +142,8 @@ const resource = {
     "archiveTitle_other": "Hôm nay, {{years}} năm trước"
   },
   "explore": {
+    "growthRecords": "Nhật ký trưởng thành",
+    "growthRecordsDesc": "Xem lại ghi chép và chủ đề gần đây",
     "title": "Khám phá",
     "personalityLabel": "Hồ sơ tính cách của bạn",
     "logician": "Nhà logic học",
@@ -159,6 +161,31 @@ const resource = {
     "personCard": "Thẻ Tính cách",
     "personCardDesc": "Tạo thẻ có thể chia sẻ",
     "comingSoon": "Sắp ra mắt"
+  },
+  "growthRecords": {
+    "title": "Nhật ký trưởng thành",
+    "empty": "Chưa có gì ở đây. Ghi chép sẽ dần xuất hiện khi bạn trò chuyện và suy ngẫm.",
+    "filterAll": "Tất cả",
+    "topicsTitle": "Chủ đề đáng nhìn kỹ hơn",
+    "guestEmpty": "Đăng nhập để xem nhật ký trưởng thành của bạn.",
+    "tag": {
+      "mood": "Tâm trạng",
+      "relationship": "Mối quan hệ",
+      "work": "Công việc",
+      "goal": "Mục tiêu",
+      "communication": "Giao tiếp",
+      "growth": "Sự trưởng thành"
+    }
+  },
+  "pdf": {
+    "export": "Xuất PDF",
+    "exporting": "Đang xuất…",
+    "unavailable": "Thiết bị này không mở được bảng chia sẻ nên không gửi PDF đi được.",
+    "failed": {
+      "noData": "Chưa có gì để xuất — khoảng thời gian này chưa có bản ghi.",
+      "memoryGone": "Ký ức này không còn nữa nên không xuất thẻ được.",
+      "generic": "Xuất thất bại. Hãy thử lại sau."
+    }
   },
   "personality": {
     "observations": "Quan sát của AI",
