@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, String, Text, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from backend.core.time_utils import utc_now
 from backend.database import Base
 
 
@@ -31,8 +32,12 @@ class GrowthRecord(Base):
     # 与 related_memory_ids 同口径）；回退模板直出时为空。分享 PDF 的 AIGC 标识从这里取 provider/model。
     generation_run_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
+    # default 必须给在 Python 侧：PG 的 now() 是**事务级**时间戳，一个事务写 N 行
+    # （cron_service 的漂移检测按用户一次 commit）会让整批行 created_at 逐位相同，
+    # 于是「最新一条」「留 5 条丢最旧」都退化成未定义顺序。server_default 留着，
+    # 只作裸 SQL 插入的兜底。
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), default=utc_now, server_default=func.now()
     )
 
 

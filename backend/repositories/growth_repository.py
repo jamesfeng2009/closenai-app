@@ -4,6 +4,11 @@
 职责：只与 growth_records 表交互，不含业务逻辑。
 - 每日洞察 / 周报 / 模式发现 的写入与查询
 - 事件后跟进（follow_up_sent 标记）的扫描与更新
+
+每条 ORDER BY 都带 `id` 次级键，而且必须是同方向的：同一事务写入的多行 created_at
+逐位相同（写侧已改为 Python 取值，历史行仍同刻），没有次级键时返回顺序由查询计划
+决定，两侧不可能逐字一致。注意 `id` 是 uuid4，次级键给的是**字典序不是写入序**——
+它只买「确定性」；「最新一条」的真实语义由 created_at 的微秒值负责。
 """
 from datetime import datetime, timedelta
 from typing import List, Optional, Sequence
@@ -52,7 +57,7 @@ class GrowthRepository:
         result = await db.execute(
             select(GrowthRecord)
             .where(GrowthRecord.user_id == user_id, GrowthRecord.record_type == record_type)
-            .order_by(GrowthRecord.created_at.desc())
+            .order_by(GrowthRecord.created_at.desc(), GrowthRecord.id.desc())
             .limit(1)
         )
         return result.scalar_one_or_none()
@@ -72,7 +77,9 @@ class GrowthRepository:
         )
         if record_type:
             stmt = stmt.where(GrowthRecord.record_type == record_type)
-        stmt = stmt.order_by(GrowthRecord.created_at.desc()).limit(limit)
+        stmt = stmt.order_by(
+            GrowthRecord.created_at.desc(), GrowthRecord.id.desc()
+        ).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -83,7 +90,7 @@ class GrowthRepository:
         result = await db.execute(
             select(GrowthRecord)
             .where(GrowthRecord.user_id == user_id, GrowthRecord.record_type == record_type)
-            .order_by(GrowthRecord.created_at.desc())
+            .order_by(GrowthRecord.created_at.desc(), GrowthRecord.id.desc())
             .limit(limit)
         )
         return list(result.scalars().all())
@@ -104,7 +111,7 @@ class GrowthRepository:
                 GrowthRecord.created_at >= start,
                 GrowthRecord.created_at < end,
             )
-            .order_by(GrowthRecord.created_at.desc())
+            .order_by(GrowthRecord.created_at.desc(), GrowthRecord.id.desc())
             .limit(limit)
         )
         return list(result.scalars().all())
@@ -150,7 +157,7 @@ class GrowthRepository:
                 GrowthRecord.created_at >= start,
                 GrowthRecord.created_at < end,
             )
-            .order_by(GrowthRecord.created_at.desc())
+            .order_by(GrowthRecord.created_at.desc(), GrowthRecord.id.desc())
             .limit(limit)
         )
         return list(result.scalars().all())
@@ -172,7 +179,7 @@ class GrowthRepository:
                 GrowthRecord.created_at >= start,
                 GrowthRecord.created_at < end,
             )
-            .order_by(GrowthRecord.created_at.asc())
+            .order_by(GrowthRecord.created_at.asc(), GrowthRecord.id.asc())
             .limit(limit)
         )
         return list(result.scalars().all())
