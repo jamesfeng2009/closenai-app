@@ -9,7 +9,7 @@
 // 「条件不同源」是本批最容易抄歪的地方：first_read_service.submit 里 upsert 那一行
 // 不在 `if user is not None` 块内（:189-191），而推荐码与 prefill 在（:183-188、:194-195）。
 // 于是同一个「已注销/不存在」账号：Python 回 200 并留下一行 profile、share_url 用
-// app_store_url 原文；Go 若把三处写成同一个条件，就要么少一行 profile、
+// app_store_url 原文（U3-b 起＝ShareLandingURL：未配商店链时为站点根）；Go 若把三处写成同一个条件，就要么少一行 profile、
 // 要么干脆 40401。灰度期表现为「同一个用户切流前后 profile 行数不同」。
 //
 // 接口声明在使用方（httpapi）而不是实现方（store），沿用批 1/2/3。

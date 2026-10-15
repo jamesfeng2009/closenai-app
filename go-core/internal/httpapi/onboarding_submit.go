@@ -71,7 +71,7 @@ func (s *Server) handleFirstReadSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shareURL := s.cfg.AppStoreURL
+	shareURL := s.cfg.ShareLandingURL()
 	if resolved.User.Found {
 		shareURL = referralLink(s.cfg.SiteURL, resolved.Code)
 	}
@@ -96,7 +96,7 @@ func (s *Server) handleFirstReadSubmit(w http.ResponseWriter, r *http.Request) {
 // 「切流前后同一个账号的同一次恢复」上表现为不同文本。
 func (s *Server) buildFirstWrite(in domain.OnboardingSubmitInput, card domain.FirstReadCard,
 	body *firstReadBody, now time.Time) (domain.OnboardingWrite, error) {
-	shareURL := s.cfg.AppStoreURL
+	shareURL := s.cfg.ShareLandingURL()
 	if in.User.Found {
 		shareURL = referralLink(s.cfg.SiteURL, in.Code)
 	}

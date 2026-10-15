@@ -115,7 +115,7 @@ type OnboardingProfile struct {
 type OnboardingSubmitInput struct {
 	User JourneyUser
 	// Code 是 share_url 要用的码。User.Found 为 false 时恒为空串，对应 Python 的
-	// 「不覆盖 share_url，保留 build_first_read 写的 app_store_url」。
+	// 「不覆盖 share_url，保留 build_first_read 写的落地链接（Python 的 share_landing_url）」。
 	Code string
 }
 

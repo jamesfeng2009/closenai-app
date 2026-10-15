@@ -159,7 +159,9 @@ class FirstReadService:
             "summary": summary,
             "closer": closer,
             "answer_count": len(assertions),
-            "share_url": settings.app_store_url,
+            # 这个值会**落进 first_read 的列**（restore 按列复现、不再回查设置），
+            # 所以它进了 N8 夹具的字节面：换口径必须重录，两侧同形由 Go 的 ShareLandingURL 守。
+            "share_url": settings.share_landing_url,
             "generated_at": utc_now().isoformat(),
         }
         return {

@@ -414,7 +414,9 @@ class ShareService:
         return {
             "referral_code": code,
             "link": referral_link(settings.site_url, code),
-            "app_store_url": settings.app_store_url,
+            # U3-b：这个字段回的是「点了会去哪」，不是「这是 App Store」——
+            # 上架前后同一份响应里它分别指向站点与商店，客户端不必知道有没有上架。
+            "app_store_url": settings.share_landing_url,
         }
 
     async def _referral_link(self, db: AsyncSession, user: User) -> str:
@@ -436,7 +438,7 @@ class ShareService:
             valid = referrer is not None
         return {
             "valid": valid,
-            "app_store_url": settings.app_store_url,
+            "app_store_url": settings.share_landing_url,
             # 已安装时由 Universal Links 直接打开 App（AASA 的 /r/* 规则），
             # 未安装才需要落地页，因此两个 url 一起给，由调用方决定顺序。
             # 非法码回站点根而不是 `…/r/`——落地页拿到尾巴为空的链接会渲染出一个坏链。
@@ -966,7 +968,7 @@ class ShareService:
             "aigc_notice": copy.t("share", "aigc.notice", language),
             # 与分享卡不同：Life Archive 是买断的个人档案，不做引流，因此这里保持
             # App Store 直链，不替换成带推荐码的深链（它的 PDF 同样不加品牌区）。
-            "share_url": settings.app_store_url,
+            "share_url": settings.share_landing_url,
         }
 
     def _chapter(self, language: str, key: str, items: List[str]) -> dict:
@@ -1209,7 +1211,7 @@ class ShareService:
         tagline = card.get("tagline") or ""
         # 取卡片自己的 share_url（带推荐码深链），而不是再读一次 app_store_url：
         # 两个链接并存会让分享文案与卡片指向不同去处，归因也就断了
-        url = card.get("share_url") or settings.app_store_url
+        url = card.get("share_url") or settings.share_landing_url
         return copy.t("share", "personality.share_text", language).format(
             name=card.get("user_name") or "?",
             mbti=card.get("mbti_type") or "?",

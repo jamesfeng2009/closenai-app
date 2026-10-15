@@ -28,9 +28,12 @@ type Config struct {
 	// app.posthog.com——两侧要打到同一个收件箱，只能以 settings 为准。
 	PosthogAPIKey string
 	PosthogHost   string
-	// SiteURL / AppStoreURL 与 backend/config.py:118、:123 同名同默认值：
+	// SiteURL / AppStoreURL 与 backend/config.py 的 `site_url` / `app_store_url` 同名同默认值：
 	// onboarding 的 share_url 由它们拼出，且**落进 first_read 列**（restore 之后按列复现、
 	// 不再回查设置），所以默认值抄歪会让两侧给同一个账号写出不同的深链。
+	// AppStoreURL 默认空是 U3-b 的收口：原先两侧都抄着 `id6740000000` 这个占位，
+	// 而它会拼进用户发出去的分享文案与 PDF——点进去 404，归因断在这。
+	// 上架后由 APP_STORE_URL 注入真链；未注入时一律走 ShareLandingURL 的站点回落。
 	// Python 的 BaseSettings 没有 env_prefix ⇒ 变量名就是大写字段名，无前缀。
 	SiteURL     string
 	AppStoreURL string
@@ -61,6 +64,16 @@ type Config struct {
 
 const defaultDatabaseURL = "sqlite+aiosqlite:///./closenai.db"
 
+// ShareLandingURL 是分享落地的唯一取法，与 Python 侧 `settings.share_landing_url` 同口径：
+// 上架前给站点、上架后给 App Store。消费方不许直接读 AppStoreURL——未配置时那会发出
+// 一个空字符串，卡片照样生成成功，只有用户点不动（这种坏法没有报错）。
+func (c Config) ShareLandingURL() string {
+	if c.AppStoreURL != "" {
+		return c.AppStoreURL
+	}
+	return c.SiteURL
+}
+
 func Load() (Config, error) {
 	cfg := Config{
 		AppName:                envString("APP_NAME", "ClosenAI"),
@@ -76,7 +89,7 @@ func Load() (Config, error) {
 		PosthogAPIKey:          envString("POSTHOG_API_KEY", ""),
 		PosthogHost:            envString("POSTHOG_HOST", "https://eu.i.posthog.com"),
 		SiteURL:                envString("SITE_URL", "https://closenai.app"),
-		AppStoreURL:            envString("APP_STORE_URL", "https://apps.apple.com/app/closenai/id6740000000"),
+		AppStoreURL:            envString("APP_STORE_URL", ""),
 		CutoverPyAPIURL:        envString("CLOSEN_PY_API_URL", ""),
 		CutoverAnalytics:       envInt("CLOSEN_CUTOVER_ANALYTICS", 0),
 		CutoverDiscovery:       envInt("CLOSEN_CUTOVER_DISCOVERY", 0),

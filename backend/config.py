@@ -114,13 +114,26 @@ class Settings(BaseSettings):
     # 试用到期前提醒提前量（小时，PRD P1-F02 §4：7 天免费试用，到期前 24 小时提醒）
     trial_remind_hours: int = 24
 
-    # 分享（P1-F04 §5：分享落地 → App Store 下载页）
-    app_store_url: str = "https://apps.apple.com/app/closenai/id6740000000"
+    # 分享（P1-F04 §5：分享落地 → App Store 下载页）。
+    # 默认一律留空：这里原先写死的是 `id6740000000` 占位（U3-b 之前的状态），
+    # 而它会被拼进用户发出去的分享文案与 PDF，点进去是 404——归因和口碑都断在这里。
+    # 上架后由 APP_STORE_URL 注入真链；没注入时走 `share_landing_url` 的站点回落。
+    app_store_url: str = ""
     # 分享卡深链站点（M4 / 决策点 3）：https://closenai.app/r/{referral_code}
     # Universal Links 生效需两件事同时成立：站点在 `site/` 部署后于
     # /.well-known/apple-app-site-association 直出 JSON（见 site/_headers），
     # 且 App 侧带 applinks 权限（frontend/app.json 的 ios.associatedDomains）。
     site_url: str = "https://closenai.app"
+
+    @property
+    def share_landing_url(self) -> str:
+        """分享落地的唯一取法（U3-b）：上架前给站点，上架后给 App Store。
+
+        消费方一律读这里、不读 `app_store_url`：直接读原字段会在未配置时发出空链，
+        分享文案尾部少一个 URL 而 PDF/卡片照样生成成功——那种坏法没有报错，只有用户点不动。
+        Go 侧同一条口径在 `go-core/internal/config/config.go` 的 `ShareLandingURL()`。
+        """
+        return self.app_store_url or self.site_url
 
     # 公开端点 GET /share/resolve/{code} 的防批量探测（#38）。
     # 该端点无鉴权、无副作用，且每次带一次 DB 查询：不限流等于免费提供一个
