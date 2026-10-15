@@ -70,6 +70,11 @@ func main() {
 		"curriculum": cfg.CutoverCurriculum,
 		"journey":    cfg.CutoverJourney,
 		"onboarding": cfg.CutoverOnboarding,
+		// 批 5：mood 键盖 /mood/history 与 /mood/trend 两条已上 path 的 GET；
+		// reflections 键**先声明不上 path**（D-10：Ingress 的 path 匹配不看方法，
+		// /api/v1/reflections 的 GET 与 POST 共用一个 path，而两个 POST 仍归 py-api）。
+		"mood":        cfg.CutoverMood,
+		"reflections": cfg.CutoverReflections,
 	})
 	if err != nil {
 		log.Fatalf("go-api: cutover: %v", err)
@@ -92,10 +97,13 @@ func main() {
 	// onboarding_profiles、journey_events 六行），三处包在同一个 pgx 事务里。
 	batch4 := &httpapi.Batch4{Store: pg, Gate: gate}
 
+	// N8 批 5（mood + reflections 三条纯读）：零写入、零 LLM、零外发。
+	batch5 := &httpapi.Batch5{Moods: pg, Reflections: pg, Users: pg, Gate: gate}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewServer(cfg, signer, service, explainer,
-			batch1, batch2, batch3, batch4).Handler(),
+			batch1, batch2, batch3, batch4, batch5).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

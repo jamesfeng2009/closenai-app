@@ -45,6 +45,14 @@ type Config struct {
 	CutoverJourney int
 	// CutoverOnboarding 是 N8 批 4（onboarding 域）的放量键，口径同上。
 	CutoverOnboarding int
+	// CutoverMood / CutoverReflections 是 N8 批 5 的两条放量键：键是**域级**、
+	// Ingress 的一刀是**端点级**（决策点 D-5）。CLOSEN_CUTOVER_MOOD 一条盖
+	// /mood/history 与 /mood/trend，同域的 POST /mood/checkin 根本不在这个键的面上。
+	// CLOSEN_CUTOVER_REFLECTIONS 本批**只有键、没有 path**（决策点 D-10：Ingress 的
+	// path 匹配不看方法，而 /api/v1/reflections 的 GET 与 POST 共用一个 path）⇒
+	// 在它没有入口规则之前，这个键调到多少都不放量，方向是安全的「没切」。
+	CutoverMood        int
+	CutoverReflections int
 	// InsightEvidenceRead 是 N9 依据展开端点的回退开关（D-3「旧口径留回退开关」）。
 	// 这是本结构里唯一的 Go-only 变量：CLOSEN_ 前缀与 domain 的数值闸同源，
 	// Python 侧没有对应字段，所以它不进上面的跨语言名单口径。
@@ -75,6 +83,8 @@ func Load() (Config, error) {
 		CutoverCurriculum:      envInt("CLOSEN_CUTOVER_CURRICULUM", 0),
 		CutoverJourney:         envInt("CLOSEN_CUTOVER_JOURNEY", 0),
 		CutoverOnboarding:      envInt("CLOSEN_CUTOVER_ONBOARDING", 0),
+		CutoverMood:            envInt("CLOSEN_CUTOVER_MOOD", 0),
+		CutoverReflections:     envInt("CLOSEN_CUTOVER_REFLECTIONS", 0),
 	}
 	if cfg.JWTAlgorithm != "HS256" {
 		return cfg, errors.New("unsupported JWT_ALGORITHM: cross-language baseline is HS256")
@@ -85,11 +95,13 @@ func Load() (Config, error) {
 	// 灰度百分比越界一律拒绝启动而不是夹紧：把 150 当 100、把 -5 当 0 都是
 	// 「运维以为切了/以为关了，其实另一回事」，与上面的回退开关同一条口径。
 	for name, pct := range map[string]int{
-		"CLOSEN_CUTOVER_ANALYTICS":  cfg.CutoverAnalytics,
-		"CLOSEN_CUTOVER_DISCOVERY":  cfg.CutoverDiscovery,
-		"CLOSEN_CUTOVER_CURRICULUM": cfg.CutoverCurriculum,
-		"CLOSEN_CUTOVER_JOURNEY":    cfg.CutoverJourney,
-		"CLOSEN_CUTOVER_ONBOARDING": cfg.CutoverOnboarding,
+		"CLOSEN_CUTOVER_ANALYTICS":   cfg.CutoverAnalytics,
+		"CLOSEN_CUTOVER_DISCOVERY":   cfg.CutoverDiscovery,
+		"CLOSEN_CUTOVER_CURRICULUM":  cfg.CutoverCurriculum,
+		"CLOSEN_CUTOVER_JOURNEY":     cfg.CutoverJourney,
+		"CLOSEN_CUTOVER_ONBOARDING":  cfg.CutoverOnboarding,
+		"CLOSEN_CUTOVER_MOOD":        cfg.CutoverMood,
+		"CLOSEN_CUTOVER_REFLECTIONS": cfg.CutoverReflections,
 	} {
 		if pct < 0 || pct > 100 {
 			return cfg, fmt.Errorf("%s must be 0..100, got %d", name, pct)

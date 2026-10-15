@@ -41,6 +41,23 @@ data:
   # 0% 时 go-api 逐字转交，三处写与闸都仍归 Python；放量判据＝夹具 onboarding 组 28 条
   # 逐字节回放＋template_corpus 106 条（闭包 92＋对抗探针 14）。
   CLOSEN_CUTOVER_ONBOARDING: "0"
+  # 批 5（mood 两条**纯读**：GET /mood/history、GET /mood/trend）：这一批是四个已切流域里
+  # 第一家全不写库，但也是第一家**同域混切**的：POST /mood/checkin 要调 LLM、动配额、写库，
+  # 本批不切，而 Ingress 的 Prefix 一刀会把它一起搬到 go-api（Go 侧没注册就是当场 404，
+  # 与百分比无关——转交发生在 handler 内部，路径没匹配上根本进不到 handler）。
+  # 于是这一批的 path 降到**端点级 Exact**（见 50-ingress.yaml），灰度键仍是域级：
+  # MOOD 一条盖住 history 与 trend 两条 path。
+  # ↳ REFLECTIONS 这一键本批**只声明不上 path**：Ingress 的 path 匹配**不看 HTTP 方法**，
+  # 而 /api/v1/reflections 在契约里 GET 与 POST 共用同一个 path（openapi 实测两法），
+  # Exact 也会把那条写操作的 POST 一起搬走 ⇒ Go 未注册 ⇒ 405。Go 侧三条读面与夹具都齐了
+  # （reflection 组 11 条逐字节回放），整刀与 POST /reflections、/reflections/generate
+  # 一起归最后一批。键先落在清单里、值为 0，是为了让「放量只改数字」这一条不需要再发版。
+  # 判据＝夹具 mood 组 40 条＋reflection 组 11 条逐字节回放（两组掩码次数均为 0）
+  # ＋mood_copy_corpus 60 格（15 locale × 4 键）＋language_resolve_corpus 23 格；
+  # 「域级键 × 端点级 path」的错位由 backend/tests/test_k8s_manifests.py 里
+  # 按 (方法, 路径) 模拟最长前缀路由的那条判据守住。
+  CLOSEN_CUTOVER_MOOD: "0"
+  CLOSEN_CUTOVER_REFLECTIONS: "0"
   # PostHog 收件箱地址。默认值两侧都是这个字面量（backend/config.py:160），
   # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
   # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。

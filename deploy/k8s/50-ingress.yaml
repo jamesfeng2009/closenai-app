@@ -1,5 +1,6 @@
-# 入口路由。**N8 的切流一刀按「域」落在 path 上**：一个域一条 Prefix，backend 指向谁
-# 就由谁答这个域；未切流的域整段留在 /api/v1 → py-api 这条兜底 Prefix 里。
+# 入口路由。**N8 的切流一刀落在 path 上**：批 1–4 按**域**一刀（一个域一条 Prefix，
+# backend 指向谁就由谁答这个域）；批 5 起遇到「同域里有不切的端点」，那一刀降到**端点级 Exact**
+# （理由与判据见批 5 那一段）；未切流的端点整段留在 /api/v1 → py-api 这条兜底 Prefix 里。
 #
 # 灰度 0% 的可验证形态**不再**是「没有任何 path 指 go-api」，而是两条同时成立：
 #   1. 指 go-api 的每条 path，ConfigMap 里都有对应的 CLOSEN_CUTOVER_<域>＝"0"；
@@ -66,7 +67,36 @@ spec:
                 name: go-api
                 port:
                   name: http
-          # ── 其余 90 个端点仍由 py-api 回答（后续批次逐域上移）──
+          # ── N8 批 5：mood 两条纯读（GET /mood/history、GET /mood/trend）。
+          # **这一批的 path 不是域级前缀**：同域的 POST /mood/checkin 要调 LLM、动配额、写库，
+          # 本批不切；而 `Prefix /api/v1/mood` 会把它一起搬进 go-api，Go 侧没注册那条就是
+          # 当场 404——**与灰度百分比无关**，0% 也救不回来（转交发生在 handler 内部，
+          # 路径没匹配上根本进不到 handler）。所以这一批按端点列，pathType 用 Exact：
+          # 只有这一条路径本身归 Go，域里将来新增的端点自动留在 py-api 一侧
+          # （失败的方向是「没切」而不是「404」）。灰度键仍是域级（CLOSEN_CUTOVER_MOOD
+          # 一条盖住下面两条），这个「域级键 × 端点级 path」的错位由
+          # backend/tests/test_k8s_manifests.py 里「按 (方法, 路径) 模拟最长前缀路由后，
+          # 落到 go-api 的每个契约操作都必须在 server.go 带方法注册」这条判据守住。
+          # ↳ 2026-10-15 同一条判据顺带否掉了 GET /api/v1/reflections 的这一刀：
+          # **Ingress 的 path 匹配不看 HTTP 方法**，而 `/api/v1/reflections` 在契约里
+          # GET 与 POST 共用同一个 path（POST 是写＋配价的另一家），Exact 也会把 POST 搬走
+          # ⇒ Go 未注册 ⇒ 405。该域整刀与 POST 一起归最后一批（auth/IAP/share/chat 那批），
+          # CLOSEN_CUTOVER_REFLECTIONS 先在 ConfigMap 里声明为 0、本文件不上 path。
+          - path: /api/v1/mood/history
+            pathType: Exact
+            backend:
+              service:
+                name: go-api
+                port:
+                  name: http
+          - path: /api/v1/mood/trend
+            pathType: Exact
+            backend:
+              service:
+                name: go-api
+                port:
+                  name: http
+          # ── 其余 88 个端点（含 app 级 /health）仍由 py-api 回答（后续批次逐域上移）──
           - path: /api/v1
             pathType: Prefix
             backend:
