@@ -3041,6 +3041,7 @@
     },
     "/api/v1/onboarding/first-read": {
       "get": {
+        "deprecated": true,
         "description": "恢复已生成的初读卡；未生成 → 40402（前端据此回到引导快问步）。",
         "operationId": "get_first_read_api_v1_onboarding_first_read_get",
         "responses": {
@@ -3059,6 +3060,7 @@
         ]
       },
       "post": {
+        "deprecated": true,
         "description": "生成初读卡并落库（每用户一行，重复提交以最后一次为准）。",
         "operationId": "create_first_read_api_v1_onboarding_first_read_post",
         "requestBody": {
