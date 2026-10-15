@@ -137,6 +137,16 @@ D-A（2026-10-15，`created_at` 同瞬根治）实测：**9/9 打红**（#174–
 写侧那条（#174）证人选在 sqlite：`CURRENT_TIMESTAMP` 只到秒 ⇒ 撤掉 `default=utc_now`
 必然当场同瞬，不需要真 PG 也能把这条口径钉住（PG 侧由 #179 的夹具字节兜住）。
 
+M-G（2026-10-15，mood 的 get_recent/count_by_day 两处补 `id` 次级键）实测：**16/16 打红**
+（#154/#155 两条既有锚点因 SQL 形状变了同步升级，加 #183–#196；`--check` 全表 196 条、
+坏锚点 0 个）。这一批有一次**必须留名的空转**：第一版 mood-h-tie 只种了两行同刻，
+#188（Go 撤 `id DESC` 打逐字回放）当时是 **GREEN-FAIL**——PG 没有次级键时给的那一支
+恰好与 `id DESC` 重合，撤键字节不动，「新字节观测点」是假的。真测（同刻三行、
+id 最小那行插在中间）后 #188 与对偶的 #196 才都红。教训按 D-A 的判据写死：
+**同刻组必须让主键序既不等于插入序、也不等于插入序的逆序**，两行做不到；
+这条判据现在由 `test_batch5_groups_are_mask_free_and_purely_read` 直接对夹具的播种序算，
+不再靠撞运气（#193/#194/#195 打的是它被「顺手整理」回两行/序号的三种退路）。
+
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
     .venv/bin/python scripts/mutate_n8_gates.py --check    # 只验锚点命中数，不跑测试
@@ -251,6 +261,25 @@ FX_TIE_ROW = ('        "content": "同刻先插（id 小，次序应落后）",\
               '        "related_memory_ids": null,\n'
               '        "created_at": "2026-10-14T09:00:00+00:00"')
 FX_TIE_ROW_LATER = FX_TIE_ROW.replace("09:00:00", "09:00:01")
+
+# ── M-G（2026-10-15，mood 两处 ORDER BY 补 id 次级键）的文件面与锚点 ──────────
+# 射程＝用户点名的 get_recent / count_by_day 两处；get_history、list_between 的
+# 同型缺陷按「发现的缺陷不顺手修」登记在 tasks.md，本脚本不为它们造变异。
+MR = PY / "repositories/mood_repository.py"
+MOOD_PYTEST = "backend/tests/test_mood_ordering.py"
+MR_HIST_TIE = ".order_by(MoodCheckin.created_at.desc(), MoodCheckin.id.desc())"
+MR_HIST_NO_TIE = ".order_by(MoodCheckin.created_at.desc())"
+MR_HIST_FLIP = ".order_by(MoodCheckin.created_at.desc(), MoodCheckin.id.asc())"
+MR_TREND_TIE = ".order_by(MoodCheckin.created_at.asc(), MoodCheckin.id.asc())"
+MR_TREND_NO_TIE = ".order_by(MoodCheckin.created_at.asc())"
+MR_TREND_FLIP = ".order_by(MoodCheckin.created_at.asc(), MoodCheckin.id.desc())"
+# Go 侧两条的 LIMIT 参数位不同（history $2、reflections $3），靠它把同形字符串分开
+LB5_MOOD_HIST_TIE = "\tORDER BY created_at DESC, id DESC\n\tLIMIT $2"
+LB5_MOOD_HIST_NO_TIE = "\tORDER BY created_at DESC\n\tLIMIT $2"
+LB5_MOOD_HIST_FLIP = "\tORDER BY created_at DESC, id ASC\n\tLIMIT $2"
+LB5_MOOD_TREND_TIE = "\tORDER BY created_at ASC, id ASC"
+LB5_MOOD_TREND_NO_TIE = "\tORDER BY created_at ASC"
+LB5_MOOD_TREND_FLIP = "\tORDER BY created_at ASC, id DESC"
 
 API_TESTS = GO / "internal/httpapi"
 DOMAIN_TESTS = GO / "internal/domain"
@@ -493,6 +522,28 @@ assert _fx_anchor, "夹具 recorded_at 不再是 +00:00 形状，#73 的锚点�
 FX_ANCHOR = f'"recorded_at": "{_fx_anchor.group(1)}+00:00"'
 FX_ANCHOR_Z = f'"recorded_at": "{_fx_anchor.group(1)}Z"'
 FX_SCHED = f'"scheduled_at": "{json.loads(_fx_text)["seed"]["journey_events"][0]["scheduled_at"]}"'
+# M-G 的夹具锚点：同刻行的**日期**随每次重录平移，所以整块原文从夹具现读，
+# 只把夹具设计里钉死的 `hour=9` 那一段换成 09:00:01（与 FX_TIE_ROW 同一手法，
+# 但那条写死了日期——那是它每批都可能坏的原因，这里不再复制这个毛病）。
+# 取的是 h 组里 id 居中、**最后插**的那行：把它挪出一秒，同刻组就退化成两行——
+# 而两行正是本批第一轮实测判为「空转」的形状（`id DESC` 与逆插入序重合，撤键不翻字节）。
+_mood_tie_row = re.search(
+    r'\n        "id": "n8b1-mood-h-tie-tie-m",\n(?:        "[^\n]*\n)*?'
+    r'        "created_at": "[^\n]+"\n', _fx_text)
+assert _mood_tie_row, (
+    '夹具里读不到 mood-h-tie 的同刻行 tie-m（播种形状变了？M-G 的观测格锚点要跟着改）')
+FX_MOOD_TIE_ROW = _mood_tie_row.group(0)
+FX_MOOD_TIE_ROW_LATER = FX_MOOD_TIE_ROW.replace("T09:00:00+00:00", "T09:00:01+00:00")
+assert FX_MOOD_TIE_ROW_LATER != FX_MOOD_TIE_ROW, "同刻行的时刻锚没命中，变异等于空转"
+# 两组同刻行都靠主键后缀 tie-a/tie-m/tie-z 把「主键序」与「插入序（及其逆序）」两支同时拧反；
+# 改回播种序号＝其中一支必然重合 ⇒ 观测点空转，所以两侧各要一条独立证人。
+FX_MOOD_TREND_ID = '        "id": "n8b1-mood-t-tie-tie-a",'
+FX_MOOD_TREND_ID_REVERTED = '        "id": "n8b1-mood-t-tie-m1",'
+FX_MOOD_HIST_IDS = [
+    ('        "id": "n8b1-mood-h-tie-tie-a",', '        "id": "n8b1-mood-h-tie-m0",'),
+    ('        "id": "n8b1-mood-h-tie-tie-z",', '        "id": "n8b1-mood-h-tie-m1",'),
+    ('        "id": "n8b1-mood-h-tie-tie-m",', '        "id": "n8b1-mood-h-tie-m2",'),
+]
 DEP_WEEK = '@router.get("/curriculum/week", deprecated=True)\n'
 READ_ROUTE = '@router.post("/curriculum/{event_id}/read", deprecated=True)\n'
 
@@ -692,8 +743,13 @@ B5_LABEL_FMT = '\t\tlabel := local.Format("01-02")\n'
 B5_DAYS_MAX = '\tMoodTrendMaxDays     = 90\n'
 B5_COPY_LOCALE = '\tif v := moodCopy[locale][key]; v != "" {'
 B5_FALSY = '\tif raw == "" {\n\t\treturn nil\n\t}'
-B5_TREND_ASC = '\tORDER BY created_at ASC`'
-B5_HIST_DESC = '\tORDER BY created_at DESC\n\tLIMIT $2'
+# M-G 之后 mood 两条都带 id 次级键：下面这两条「整条翻面」的锚点必须连次级键一起翻，
+# 否则它与 #189（只把次级键写反）打的是同一支，两条里必有一条是空转。
+# 这两条坏的是**主键方向**，与 #188/#191（撤次级键）、#189（次级键反向）各打一支。
+B5_TREND_ASC = '\tORDER BY created_at ASC, id ASC`'
+B5_TREND_FLIP = '\tORDER BY created_at DESC, id DESC`'
+B5_HIST_DESC = '\tORDER BY created_at DESC, id DESC\n\tLIMIT $2'
+B5_HIST_FLIP = '\tORDER BY created_at ASC, id ASC\n\tLIMIT $2'
 B5_ACTIVE_WHERE = "\tWHERE id = $1 AND status = 'active'`"
 B5_TYPE_WHERE = '\tWHERE user_id = $1 AND record_type = $2\n'
 B5_HIST_PYISO = '\t\t\tCreatedAt:        pyISO(row.CreatedAt),\n'
@@ -1625,12 +1681,12 @@ MUTATIONS = [
     m(154, "trend 的窗口查询从升序改成倒序：SQL 的 ORDER BY 就是「当日取首个」取哪一行的"
            "判据，逐字节回放只看行序变化后的那一格",
       "go", API_TESTS, "TestN8MoodContractBytes",
-      backup(LB5), patch(LB5, B5_TREND_ASC, '\tORDER BY created_at DESC`')),
+      backup(LB5), patch(LB5, B5_TREND_ASC, B5_TREND_FLIP)),
 
     m(155, "history 的 ORDER BY 从倒序改成正序：checkins 数组的字节序跟着翻"
            "（get_recent 的 .desc() 是本端点唯一的排序面）",
       "go", API_TESTS, "TestN8MoodContractBytes",
-      backup(LB5), patch(LB5, B5_HIST_DESC, '\tORDER BY created_at ASC\n\tLIMIT $2')),
+      backup(LB5), patch(LB5, B5_HIST_DESC, B5_HIST_FLIP)),
 
     m(156, "时区那一读撤掉 `status='active'`：Python 的 get_user 对 deleted 账号给 None"
            "⇒ 趋势按 UTC 折算（不是 40401），撤掉过滤就改成读那个账号自己的时区"
@@ -1802,6 +1858,94 @@ MUTATIONS = [
            "没有字节的状态，覆盖面闸按这个唯一证人计数",
       "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
       backup(FX), patch(FX, FX_TIE_ROW, FX_TIE_ROW_LATER)),
+
+    # ── M-G（2026-10-15，mood 两处 ORDER BY 补 id 次级键；范围＝点名的 get_recent/
+    #    count_by_day，两侧同形＋夹具同刻格）─────────────────────────────────────
+    m(183, "Python `get_recent` 撤掉 id 次级键（倒序那一支）：同刻三行的期望序是 "
+           "[tie-z, tie-m, tie-a]，它与插入序 [a, z, m] 和逆插入序 [m, z, a] **两支都不重合**"
+           "⇒ 数据库退回哪一种都红（两行时做不到这一点，见 #188 的勘误）。"
+           "全库 9 处按 `get_recent(limit=1)` 取「最近一条」，同刻时它们读的是不确定值",
+      "pytest", MOOD_PYTEST + "::test_get_recent_breaks_same_instant_ties_by_id_desc", "",
+      backup(MR), patch(MR, MR_HIST_TIE, MR_HIST_NO_TIE)),
+
+    m(184, "同一处的坏法之二：次级键方向写反（created_at DESC 配 id ASC）。"
+           "同刻两行仍有确定序，但确定的是「id 小的算最新」——#183 撤键与这条各打一支，"
+           "合起来才排掉「方向与主键不一致」这一类",
+      "pytest", MOOD_PYTEST + "::test_get_recent_breaks_same_instant_ties_by_id_desc", "",
+      backup(MR), patch(MR, MR_HIST_TIE, MR_HIST_FLIP)),
+
+    m(185, "Python `count_by_day` 撤掉 id 次级键（升序那一支）：同刻三行的首行由数据库"
+           "返回序决定，而 `get_trend` 用 `if key not in day_map` 取升序**首行**当"
+           "当日代表 emoji ⇒ 期望首行是插在中间的 tie-a(😢)，插入序给 tie-z(😊)、"
+           "逆序给 tie-m(😌)，两支都不等于它；换 emoji 就换 MOOD_MAP 的值与四档阈值",
+      "pytest", MOOD_PYTEST + "::test_count_by_day_breaks_same_instant_ties_by_id_asc", "",
+      backup(MR), patch(MR, MR_TREND_TIE, MR_TREND_NO_TIE)),
+
+    m(186, "同一处的坏法之二：`count_by_day` 的次级键写成 id DESC（与主键反向）："
+           "当日首行变成 id 大的那条，夹具 mood-t-tie 那格的期望值随之翻面",
+      "pytest", MOOD_PYTEST + "::test_count_by_day_breaks_same_instant_ties_by_id_asc", "",
+      backup(MR), patch(MR, MR_TREND_TIE, MR_TREND_FLIP)),
+
+    m(187, "两处同时撤键打形状闸：本条不新增判据，它证的是「点名的两处**齐全**」这件事"
+           "真的有闸——只补一处、另一处照旧由查询计划决定时，"
+           "test_the_two_named_mood_queries_... 必须红（D-A 的 #178 同一分工）",
+      "pytest", MOOD_PYTEST + "::test_the_two_named_mood_queries_carry_a_secondary_key_same_direction",
+      "", backup(MR), patch(MR, MR_HIST_TIE, MR_HIST_NO_TIE),
+      patch(MR, MR_TREND_TIE, MR_TREND_NO_TIE)),
+
+    m(188, "Go 侧 `selectMoodHistory` 撤掉 `id DESC`（字节面）：夹具 mood-h-tie 的**三行同刻**"
+           "金标是 [tie-z, tie-m, tie-a]，而数据库没有次级键时只可能给插入序 [a, z, m] "
+           "或其逆序 [m, z, a] ⇒ 两支都不等于金标，逐字回放必红。这条就是 M-G 买到的"
+           "**新观测点**：补同刻格之前 mood 两条在 PG 上没有任何字节证据。"
+           "↳ 勘误（本批第一版）：那时只有两行同刻，实测撤掉次级键**不**翻字节——计划给的"
+           "恰好是与 `id DESC` 重合的那一支，那格是空转；三行才同时堵死两支",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(LB5), patch(LB5, LB5_MOOD_HIST_TIE, LB5_MOOD_HIST_NO_TIE)),
+
+    m(189, "Go 侧 `selectMoodTrendRows` 的方向写成 id DESC（与 Python 反向）："
+           "mood-t-tie 那格的当日首行从 tie-a(😢=1) 换成 tie-z(😊=5)，"
+           "labels/values/summary 三段字节一起变；这一格证的正是「两侧同方向」",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(LB5), patch(LB5, LB5_MOOD_TREND_TIE, LB5_MOOD_TREND_FLIP)),
+
+    m(190, "坏 Go 源、红 Python 闸（history 那一支）：#188 红的是回放字节，这条红的是"
+           "跨语言形状闸里「两侧次级键必须同方向」那句——本机不跑真库回放的那台 CI 上，"
+           "只剩这条拦得住",
+      "pytest", B5_PYTEST + "::test_batch5_sql_shapes_are_one_to_one", "",
+      backup(LB5), patch(LB5, LB5_MOOD_HIST_TIE, LB5_MOOD_HIST_NO_TIE)),
+
+    m(191, "坏 Go 源、红 Python 闸（trend 那一支，升序）：与 #190 同一分工的另一侧，"
+           "撤掉升序的 `id ASC` 后 Python 侧的形状比对先红，不等回放",
+      "pytest", B5_PYTEST + "::test_batch5_sql_shapes_are_one_to_one", "",
+      backup(LB5), patch(LB5, LB5_MOOD_TREND_TIE, LB5_MOOD_TREND_NO_TIE)),
+
+    m(192, "Python 单侧撤键而 Go 保持同形（各打一层的另一侧）：跨语言形状闸比的是两侧"
+           "源码字符串，一侧改一侧不改就在这里现形——不必等同库回放",
+      "pytest", B5_PYTEST + "::test_batch5_sql_shapes_are_one_to_one", "",
+      backup(MR), patch(MR, MR_HIST_TIE, MR_HIST_NO_TIE)),
+
+    m(193, "把夹具 mood-h-tie 同刻组的 tie-m 错开一秒（观测格被「顺手整理」回两行）："
+           "覆盖面闸按「每组必须三行」先红——两行正是本批第一版被判空转的形状："
+           "数据库没有次级键时只给插入序或其逆序，两行必有一支与 `id DESC` 重合",
+      "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
+      backup(FX), patch(FX, FX_MOOD_TIE_ROW, FX_MOOD_TIE_ROW_LATER)),
+
+    m(194, "把夹具 mood-t-tie 的主键后缀 `tie-a` 改回播种序号：覆盖面闸按三支后缀点名计数 ⇒ 红。"
+           "证人一旦退回序号，`id ASC` 与插入序（或其逆序）重合的风险就不再有任何东西可核——"
+           "这条与 #195 一侧管升序、一侧管倒序，是 M-G 与 D-A 唯一的形状差别",
+      "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
+      backup(FX), patch(FX, FX_MOOD_TREND_ID, FX_MOOD_TREND_ID_REVERTED)),
+
+    m(195, "把夹具 mood-h-tie 同刻组**三支**后缀全部改回播种序号（-m0/-m1/-m2，即序号＝插入序）："
+           "倒序那格的主键序就此与逆插入序重合 ⇒ 撤掉次级键也照样绿，观测格闸按后缀计数先红",
+      "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
+      backup(FX), *[patch(FX, old, new) for old, new in FX_MOOD_HIST_IDS]),
+
+    m(196, "Go 侧 `selectMoodTrendRows` 撤掉 `id ASC`（字节面，与 #188 对偶）："
+           "mood-t-tie 那格的当日首行落回计划序——插入序给 tie-z(😊=5)、逆序给 tie-m(😌=4)，"
+           "金标是插在中间的 tie-a(😢=1) ⇒ 两支都翻档，labels/values/summary 一起红",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(LB5), patch(LB5, LB5_MOOD_TREND_TIE, LB5_MOOD_TREND_NO_TIE)),
 ]
 
 
@@ -1860,7 +2004,7 @@ def main() -> int:
             return 1
     proc = subprocess.run(
         [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, B3_PYTEST,
-         B4_PYTEST, B5_PYTEST, DA_PYTEST, K8S_PYTEST, "-q", "--no-header"],
+         B4_PYTEST, B5_PYTEST, DA_PYTEST, MOOD_PYTEST, K8S_PYTEST, "-q", "--no-header"],
         cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
     print(f"[{'GREEN' if proc.returncode == 0 else 'BROKEN'}] 复跑 Python 侧闸门："

@@ -5,8 +5,9 @@
 reflections_list,batch5}.go`（对外形状）、`internal/store/legacy_batch5.go`（四条 SQL）、
 `internal/config/config.go` 与 `cmd/go-api/main.go`（两条灰度键）、
 `deploy/k8s/{10-config,50-ingress}.yaml`（放量面）、`contracts/openapi.json` 里这两条 GET
-的 deprecated，以及夹具的 mood 组（40）／reflection 组（13，含 D-A 的「同刻两行」两格）＋
-mood_copy_corpus（60）／language_resolve_corpus（23）两块语料。
+的 deprecated，以及夹具的 mood 组（42，含 M-G 的两格「同刻三行」证人）／reflection 组
+（13，含 D-A 的「同刻两行」两格）＋ mood_copy_corpus（60）／language_resolve_corpus（23）
+两块语料。
 
 口径与批 1–4 相同（三段式，缺一段就有空转的格子）：
 1. Python 侧现算——本文件；
@@ -29,8 +30,8 @@ mood_copy_corpus（60）／language_resolve_corpus（23）两块语料。
 - avg>=4 / avg>=3            ← mood_service.py:344-348     ↔ domain/mood.go:162-169
 - 15 语言文案四键            ← core/copy.py:26-28,33-41,64-75 ↔ domain/mood.go:175-225 + templates/copy_mood.json
 - 两支语言归一不合并         ← core/language.py:20-34 ↔ httpapi/batch1.go:53-73；core/copy.py:35 ↔ domain/mood.go:184-195
-- 四条 SQL 的 WHERE/ORDER    ← mood_repository.py:155-165,187-205 / user_repository.py:83 / growth_repository.py:86-96
-                              ↔ store/legacy_batch5.go:27-32,57-61,85-88,105-110
+- 四条 SQL 的 WHERE/ORDER    ← mood_repository.py:155-172,194-215 / user_repository.py:83 / growth_repository.py:86-96
+                              ↔ store/legacy_batch5.go:39-44,71-75,99-102,123-128
 - falsy 的 related_memory_ids ← reflection_service.py:137  ↔ domain/mood.go:231-236
 - limit=Query(20,ge=1,le=100) ← routers/reflection.py:64   ↔ domain/mood.go:76-81
 - 两条灰度键                 ← config/config.go:83-84,100-101 ↔ 10-config.yaml ↔ main.go:100 ↔ 50-ingress.yaml
@@ -346,7 +347,7 @@ def test_two_language_branches_stay_two_functions():
 def test_batch5_sql_shapes_are_one_to_one():
     """四条 SQL 只收缩列，不动 WHERE 与 ORDER BY——灰度期两侧读同一批行才有可比之处。
 
-    逐条对应：get_recent（倒序＋LIMIT）、count_by_day（窗口下界＋**升序**，
+    逐条对应：get_recent（倒序＋`id DESC`＋LIMIT）、count_by_day（窗口下界＋**升序**＋`id ASC`，
     「当日取首个」靠这个顺序）、get_user（`status='active'`，deleted 查不到⇒时区 None⇒UTC，
     **不是** 40401）、list_by_type（record_type **精确**等值）。
     两个 COALESCE 对应 service 层的 `or ""` 与 reflection 侧的 falsy 判据。
@@ -355,10 +356,17 @@ def test_batch5_sql_shapes_are_one_to_one():
     get_recent = re.search(r"async def get_recent.*?return list", repo, re.S)
     assert get_recent, "get_recent 写法变了"
     assert ".where(MoodCheckin.user_id == user_id)" in get_recent.group(0)
-    assert ".order_by(MoodCheckin.created_at.desc())" in get_recent.group(0)
+    # M-G：两条都必须带 id 次级键、方向与 created_at 一致。同刻行没有它时
+    # 「谁进 LIMIT 30」「当日首个 emoji 是谁」由查询计划决定，两侧同形才是可复现的
+    # （夹具 mood-h-tie／mood-t-tie 各三行同刻是证人，覆盖面闸按播种序判它不空转）。
+    assert (".order_by(MoodCheckin.created_at.desc(), MoodCheckin.id.desc())"
+            in get_recent.group(0)), "get_recent 的 id 次级键没了或方向反了"
     assert ".limit(limit)" in get_recent.group(0)
     history_sql = _go_sql("selectMoodHistory").upper()
-    assert "WHERE USER_ID = $1" in history_sql and "ORDER BY CREATED_AT DESC" in history_sql
+    assert "WHERE USER_ID = $1" in history_sql
+    assert "ORDER BY CREATED_AT DESC, ID DESC" in history_sql, (
+        "Go 侧的次级键缺失或方向与 Python 不一致"
+    )
     assert "LIMIT $2" in history_sql
     assert "COALESCE(MOOD_LABEL, '')" in history_sql and "COALESCE(AI_INTERPRETATION, '')" in history_sql
 
@@ -366,10 +374,12 @@ def test_batch5_sql_shapes_are_one_to_one():
     assert count_by_day, "count_by_day 写法变了"
     assert "start = utc_now() - timedelta(days=days)" in count_by_day.group(0)
     assert "MoodCheckin.created_at >= start" in count_by_day.group(0)
-    assert ".order_by(MoodCheckin.created_at.asc())" in count_by_day.group(0)
+    assert (".order_by(MoodCheckin.created_at.asc(), MoodCheckin.id.asc())"
+            in count_by_day.group(0)), "count_by_day 的 id 次级键没了或方向反了"
     trend_sql = _go_sql("selectMoodTrendRows").upper()
-    assert "AND CREATED_AT >= $2" in trend_sql and "ORDER BY CREATED_AT ASC" in trend_sql, (
-        "窗口下界或升序没了：当日取首个的行就会变成最后一行"
+    assert "AND CREATED_AT >= $2" in trend_sql
+    assert "ORDER BY CREATED_AT ASC, ID ASC" in trend_sql, (
+        "窗口下界或升序＋id 升序没了：当日取首个的行就会变成另一行"
     )
     assert "DATE_TRUNC" not in trend_sql, (
         "Go 侧不许在 SQL 里按日历日聚合——时区折算必须留在应用层，与 Python 同一条回退链"
@@ -477,6 +487,47 @@ def test_batch5_groups_are_mask_free_and_purely_read():
         "夹具里没有任何同一用户、同一时刻的两行 growth_records："
         "refl-tie 那一格被删了，两侧 ORDER BY 的同形就此失去唯一的证人"
     )
+    # M-G 把同一条判据扩到 mood_checkins：补次级键之前夹具刻意「每行不同瞬」来绕开这条缺陷，
+    # 补了之后必须**留着**同刻行，否则 mood 那两条的 id 键又回到只有注释、没有字节。
+    # 更关键的是**同刻组要有三行**：两行时数据库没有次级键给出的序要么是插入序要么是它的
+    # 逆序，而 `id DESC` 恰好会命中其中一支（2026-10-15 实测就是命中了 ⇒ 那条变异打不红）。
+    # 三行且把 id 最小的那行放在中间插，两支才都不等于主键序 ⇒ 「撤掉次级键」必翻字节。
+    # 这一条判据在这里**直接由夹具的播种序算出来**，不靠变异撞运气。
+    mood_rows = _fixture()["seed"]["mood_checkins"]
+    by_user: dict[str, dict[str, list[str]]] = {}
+    for r in mood_rows:
+        if r["user_id"].endswith(("mood-h-tie", "mood-t-tie")):
+            by_user.setdefault(r["user_id"], {}).setdefault(r["created_at"], []).append(r["id"])
+    assert sorted(by_user) == ["n8b1-mood-h-tie", "n8b1-mood-t-tie"], (
+        f"同刻组用户不全（实得 {sorted(by_user)}）：证人被改名就没人在守这两条 ORDER BY"
+    )
+    for user, instants in sorted(by_user.items()):
+        tie_instants = {k: v for k, v in instants.items() if len(v) > 1}
+        assert len(tie_instants) == 1, (
+            f"{user} 的同刻组数量是 {len(tie_instants)}（全部时刻 {dict(instants)}）："
+            "mood-h-tie／mood-t-tie 各只有**一组**同瞬行，这组是这两条 ORDER BY 唯一的字节证人"
+        )
+        tie_at, ids = next(iter(tie_instants.items()))
+        assert len(ids) == 3, (
+            f"{user} 的同刻组有 {len(ids)} 行，不是 3 行：两行时数据库给的序（插入序或逆插入序）"
+            "必有一支与 id 序重合，撤掉次级键就不翻字节 ⇒ 空转"
+        )
+        # mood-h-tie 的第四行是「次级键不越权」证人：时刻必须**更早**，
+        # 否则它挤进同刻组或跑到组后面，证的就是 LIMIT 而不是 tiebreak。
+        for at, others in instants.items():
+            if at != tie_at:
+                assert at < tie_at, f"{user} 的额外行 {at} 不比同刻组 {tie_at} 早"
+        suffixes = ["-".join(i.rsplit("-", 2)[1:]) for i in ids]
+        assert sorted(suffixes) == ["tie-a", "tie-m", "tie-z"], (
+            f"{user} 的同刻组主键后缀是 {suffixes}，不是 tie-a/tie-m/tie-z："
+            "改回播种序号＝三支同序，撤掉次级键也全绿，那格就此空转"
+        )
+        insertion = list(ids)                       # 夹具数组序＝真插入序（录侧与 Go 回放同序播种）
+        for name, order in (("升", sorted(ids)), ("降", sorted(ids, reverse=True))):
+            assert order not in (insertion, insertion[::-1]), (
+                f"{user} 的同刻组按 id {name}序（{order}）与插入序或其逆序重合："
+                "数据库没有次级键时给的正是这一支，撤键不翻字节 ⇒ 观测点空转"
+            )
 
 
 def test_created_at_bytes_are_z_shaped_because_these_routes_have_models():
