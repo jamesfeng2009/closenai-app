@@ -448,6 +448,21 @@ USERS: list[dict] = [
     # 已注销用户：`reflection_service.list` 同样不查 users ⇒ 200 带回行
     {"slug": "refl-deleted", "analytics": True, "language": "en", "status": "deleted",
      "growth": [G(ago(1, hour=9), "reflection", "注销前的反思")]},
+    # ── D-A 的观测点：同刻两行 ────────────────────────────────────────────────
+    # 写侧改动之前 created_at 由 PG 的 now() 落值，而 now() 是**事务级**的
+    # （cron_service.py:962 按用户一次 commit、:1011 在 memories 循环里写 N 行）
+    # ⇒ 同批行的 created_at 逐位相同。这种行没有次级排序键时顺序由查询计划决定，
+    # 两侧不可能逐字节一致；这一格就是把「同形」从口头约束变成字节的唯一证据。
+    # 三行时刻＝新、新（同一瞬）、旧；行主键由播种编号给（-g0/-g1/-g2），
+    # `created_at DESC, id DESC` 把**后插的 g1 提到 g0 前面** ⇒ 响应序不是插入序，
+    # 任何一侧撤掉次级键就退回计划决定的顺序而打红（变异见 mutate_n8_gates.py）。
+    # limit=1 那一格钉的是「同刻里谁活下来」——「留 N 条丢最旧」真正的语义所在。
+    {"slug": "refl-tie", "analytics": True, "language": "en",
+     "growth": [
+         G(ago(1, hour=9), "reflection", "同刻先插（id 小，次序应落后）"),
+         G(ago(1, hour=9), "reflection", "同刻后插（id 大，次序应领先）"),
+         G(ago(2, hour=9), "reflection", "更早一行（证明次级键不越权）"),
+     ]},
 ]
 
 COLUMNS = ("id, timezone, streak_count, relationship_level, chat_count, "
@@ -1667,6 +1682,11 @@ def onboarding_cases() -> list[tuple]:
          "refl-types", {}, None),
         ("reflections-deleted-user", "reflection", "GET", "/api/v1/reflections",
          "refl-deleted", {}, None),
+        # D-A 观测点：同刻两行的确定性序（默认 limit 全带回）＋ limit=1 时谁活下来
+        ("reflections-same-instant", "reflection", "GET", "/api/v1/reflections",
+         "refl-tie", {}, None),
+        ("reflections-same-instant-limit-1", "reflection",
+         "GET", "/api/v1/reflections?limit=1", "refl-tie", {}, None),
         ("reflections-ghost-user", "reflection", "GET", "/api/v1/reflections",
          "ghost-user", {}, None),
         ("reflections-limit-1", "reflection", "GET", "/api/v1/reflections?limit=1",

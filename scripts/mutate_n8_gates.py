@@ -1,4 +1,4 @@
-"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey；批 4：onboarding；批 5：mood + reflections）。
+"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey；批 4：onboarding；批 5：mood + reflections；D-A：created_at 同瞬根治）。
 
 要证的不是「Go 抄得像」，而是**每一条口径都真的有人守着**：把实现按最可能的抄错方式
 破坏一次，对应闸门必须红。打不红的口径＝那条口径其实没闸，写进代码也只是口头声明。
@@ -124,6 +124,19 @@ test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人�
   `"days_ago": 2.5`（5 处）；#158 的 claim 字符串里嵌套引号导致整份脚本 `SyntaxError`，
   一并改正。`--check` 与全表跑之前都过了一遍锚点自检：**173 条，坏锚点 0 个**。
 
+D-A（2026-10-15，`created_at` 同瞬根治）实测：**9/9 打红**（#174–#182；`--check` 182 条，
+坏锚点 0 个）。这一批买的不是新端点，是**一条此前没有字节观测点的口径**：PG 的 `now()` 是
+事务级时间戳 ⇒ 一个事务写 N 行必然同瞬，而没有次级键的 `ORDER BY created_at` 在这种行上
+顺序由查询计划决定——批 5 的回放全靠「夹具每行不同瞬」规避，规避不是证明。三处值得留名：
+- #179 是这批唯一**新增的字节观测点**：夹具 `refl-tie` 两行同瞬，Go 撤掉 `id DESC` 后
+  回放真的红（不是靠源码字符串比对）。这条存在之前，「两侧 ORDER BY 同形」在 PG 上无证人。
+- #179/#180/#181 是**同一处坏法分三层打**（回放字节 / Go 源形状闸 / Python 源形状闸）：
+  前批先例是 #137 与 #123。CI 里不跑真库的那台机器只剩形状闸，所以两层都得能红。
+- #178 打的是**行为测的射程之外**那一处（`list_between`）：三条行为测各覆盖 list_by_type、
+  get_latest、list_pending_follow_ups，剩下三处只有「六处齐全」那条形状闸看得见。
+写侧那条（#174）证人选在 sqlite：`CURRENT_TIMESTAMP` 只到秒 ⇒ 撤掉 `default=utc_now`
+必然当场同瞬，不需要真 PG 也能把这条口径钉住（PG 侧由 #179 的夹具字节兜住）。
+
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
     .venv/bin/python scripts/mutate_n8_gates.py --check    # 只验锚点命中数，不跑测试
@@ -204,6 +217,40 @@ REFL = GO / "internal/httpapi/reflections_list.go"
 CMOOD = GO / "internal/domain/templates/copy_mood.json"
 PYZH = PY / "data/copy/zh.json"
 B5_PYTEST = "backend/tests/test_n8_batch5_contract.py"
+
+# ── D-A（created_at 同瞬根治）的文件面与锚点 ──────────────────────────────────
+GM = PY / "models/growth.py"
+GR = PY / "repositories/growth_repository.py"
+DA_PYTEST = "backend/tests/test_growth_ordering.py"
+
+DA_CREATED_AT_DEFAULT = "DateTime(timezone=True), default=utc_now, server_default=func.now()"
+DA_CREATED_AT_CLOCK = "DateTime(timezone=True), server_default=func.now()"
+_TIE_DESC = ".order_by(GrowthRecord.created_at.desc(), GrowthRecord.id.desc())"
+_TIE_FLIP = ".order_by(GrowthRecord.created_at.desc(), GrowthRecord.id.asc())"
+_NO_TIE = ".order_by(GrowthRecord.created_at.desc())"
+GR_ASC_TIE = ".order_by(GrowthRecord.created_at.asc(), GrowthRecord.id.asc())"
+GR_ASC_NO_TIE = ".order_by(GrowthRecord.created_at.asc())"
+# list_by_type 与 list_between 的 order_by 文本一模一样，锚点必须带上下文才命中唯一
+GR_BYTYPE_TIE = ("GrowthRecord.record_type == record_type)\n            "
+                 + _TIE_DESC + "\n            .limit(limit)")
+GR_BYTYPE_NO_TIE = ("GrowthRecord.record_type == record_type)\n            "
+                    + _NO_TIE + "\n            .limit(limit)")
+GR_BYTYPE_FLIP = ("GrowthRecord.record_type == record_type)\n            "
+                  + _TIE_FLIP + "\n            .limit(limit)")
+GR_BETWEEN_TIE = ('GrowthRecord.user_id == user_id,\n'
+                  '                GrowthRecord.created_at >= start,\n'
+                  '                GrowthRecord.created_at < end,\n'
+                  '            )\n            ' + _TIE_DESC)
+GR_BETWEEN_NO_TIE = ('GrowthRecord.user_id == user_id,\n'
+                     '                GrowthRecord.created_at >= start,\n'
+                     '                GrowthRecord.created_at < end,\n'
+                     '            )\n            ' + _NO_TIE)
+LB5_TIE = "\tORDER BY created_at DESC, id DESC\n\tLIMIT $3"
+LB5_NO_TIE = "\tORDER BY created_at DESC\n\tLIMIT $3"
+FX_TIE_ROW = ('        "content": "同刻先插（id 小，次序应落后）",\n'
+              '        "related_memory_ids": null,\n'
+              '        "created_at": "2026-10-14T09:00:00+00:00"')
+FX_TIE_ROW_LATER = FX_TIE_ROW.replace("09:00:00", "09:00:01")
 
 API_TESTS = GO / "internal/httpapi"
 DOMAIN_TESTS = GO / "internal/domain"
@@ -1669,7 +1716,7 @@ MUTATIONS = [
       backup(RM), patch(RM, RO_HISTORY_DEPRECATED, '@router.get("/mood/history")\n')),
 
     m(169, "夹具 mood 组的组名漂一个字母（40 处一起改）：批 5 的覆盖面闸按组取用例，"
-           "组名一漂就看见空组——这条证的是「mood 组 40 条／reflection 组 11 条」"
+           "组名一漂就看见空组——这条证的是「mood 组 40 条／reflection 组 13 条」"
            "那个下界不是只在数自己写的数",
       "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
       backup(FX), patch_all(FX, B5_MOOD_GROUP, '"group": "moodp"')),
@@ -1700,6 +1747,61 @@ MUTATIONS = [
            "下一次遮蔽换形状时录制会安静地产出一份错基准的夹具",
       "pytest", B5_PYTEST + "::test_recorder_pins_the_mood_clock_to_the_real_module", "",
       backup(GS), patch(GS, GS_MOOD_SELFCHECK, 'if mod.utc_now() != ANCHOR and False:')),
+
+    # ── D-A（2026-10-15，created_at 同瞬根治：写侧取值＋读侧次级键＋夹具观测格）──────
+    m(174, "写侧把 `default=utc_now` 撤掉、退回纯 `server_default=func.now()`："
+           "sqlite 的 CURRENT_TIMESTAMP 只到秒、PG 的 now() 是事务级 ⇒ 同一事务连写的"
+           "两条逐位相同，「最新一条」与「留 5 条丢最旧」重新变成由查询计划决定",
+      "pytest", DA_PYTEST + "::test_two_rows_in_one_transaction_get_distinct_instants", "",
+      backup(GM), patch(GM, DA_CREATED_AT_DEFAULT, DA_CREATED_AT_CLOCK)),
+
+    m(175, "读侧 `list_by_type` 的 id 次级键撤掉（倒序那一支）：夹具 refl-tie 的两行"
+           "同瞬，撤键后 sqlite 退回插入序 ⇒ [tie-a, tie-z] 而不是 [tie-z, tie-a]，"
+           "而 `get_latest` 的 DESC LIMIT 1 会给出 id 小那一条",
+      "pytest", DA_PYTEST + "::test_same_instant_rows_order_by_id_desc", "",
+      backup(GR), patch(GR, GR_BYTYPE_TIE, GR_BYTYPE_NO_TIE)),
+
+    m(176, "`list_by_type` 的次级键方向写反（id ASC 配 created_at DESC）：同刻两行"
+           "仍给确定序，但确定的是「id 小的当最新」——这条与 #177 各打一支方向，"
+           "合起来才排掉「两侧同形但都反」以外的第二种错法",
+      "pytest", DA_PYTEST + "::test_same_instant_rows_order_by_id_desc", "",
+      backup(GR), patch(GR, GR_BYTYPE_TIE, GR_BYTYPE_FLIP)),
+
+    m(177, "升序那处（`list_pending_follow_ups`，跟进扫描跨用户按时间正序）撤次级键："
+           "同一用户同瞬两行时先处理谁由计划决定，而跟进消息有每周配额 ⇒ 顺延谁是真的"
+           "会少发一条",
+      "pytest", DA_PYTEST + "::test_same_instant_rows_order_by_id_asc", "",
+      backup(GR), patch(GR, GR_ASC_TIE, GR_ASC_NO_TIE)),
+
+    m(178, "`list_between`（回忆卡片那条）撤次级键：它不在三条行为测的射程里"
+           "（那三条只打 list_by_type/get_latest/list_pending_follow_ups），"
+           "所以这一格的证人只能是「六处齐全」那条形状闸本身",
+      "pytest", DA_PYTEST + "::test_every_growth_ordering_carries_a_secondary_key_same_direction",
+      "", backup(GR), patch(GR, GR_BETWEEN_TIE, GR_BETWEEN_NO_TIE)),
+
+    m(179, "Go 侧 `selectReflections` 撤掉 `id DESC`（字节面）：夹具 reflections 组的"
+           "`reflections-same-instant` 两行同瞬，Go 退回计划序而金标准是 [g1, g0] ⇒ "
+           "逐字节回放当场红。这条就是 D-A③ 买到的**新观测点**：批 5 之前两侧同不同形"
+           "在 PG 上没有任何字节证据",
+      "go", API_TESTS, "TestN8ReflectionContractBytes",
+      backup(LB5), patch(LB5, LB5_TIE, LB5_NO_TIE)),
+
+    m(180, "同一处坏法打第二层（Go 源形状）：#179 红的是回放字节，这条红的是跨语言闸里"
+           "「两侧次级键必须同方向」那句判据——Go 测试不在 CI 里跑真库的那台机器上时，"
+           "只剩这条拦得住",
+      "pytest", B5_PYTEST + "::test_batch5_sql_shapes_are_one_to_one", "",
+      backup(LB5), patch(LB5, LB5_TIE, LB5_NO_TIE)),
+
+    m(181, "Python 侧撤次级键而 Go 保持同形（各打一层的另一侧）：跨语言形状闸比的是"
+           "两侧源码里的字符串，一侧改一侧不改就先在这里现形，不用等回放",
+      "pytest", B5_PYTEST + "::test_batch5_sql_shapes_are_one_to_one", "",
+      backup(GR), patch(GR, GR_BYTYPE_TIE, GR_BYTYPE_NO_TIE)),
+
+    m(182, "把夹具 refl-tie 的两行错开一秒（观测格被「顺手整理」掉）：夹具里再也没有"
+           "同一用户同一时刻的两行 growth_records ⇒ D-A 的同形判据退回只有注释、"
+           "没有字节的状态，覆盖面闸按这个唯一证人计数",
+      "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
+      backup(FX), patch(FX, FX_TIE_ROW, FX_TIE_ROW_LATER)),
 ]
 
 
@@ -1758,7 +1860,7 @@ def main() -> int:
             return 1
     proc = subprocess.run(
         [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, B3_PYTEST,
-         B4_PYTEST, B5_PYTEST, K8S_PYTEST, "-q", "--no-header"],
+         B4_PYTEST, B5_PYTEST, DA_PYTEST, K8S_PYTEST, "-q", "--no-header"],
         cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
     print(f"[{'GREEN' if proc.returncode == 0 else 'BROKEN'}] 复跑 Python 侧闸门："
