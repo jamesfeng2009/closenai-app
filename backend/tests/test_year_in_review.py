@@ -421,7 +421,10 @@ async def test_share_text_carries_counts_not_content_and_links_to_own_code(
     code = normalize_referral_code(data["share_url"].rsplit("/", 1)[-1])
     assert code is not None
     assert data["share_url"] in data["share_text"]
-    assert settings.app_store_url not in data["share_text"]
+    # U3-b 之前这里比的是 `settings.app_store_url`（占位商店链）。那个字段现在默认空串，
+    # `"" in text` 恒为真会把这条测成永久红——判据本来就不是「某个配置值没出现」，
+    # 而是「文案里不该有一条 App Store 直链」，所以按域名字面量钉。
+    assert "apps.apple.com" not in data["share_text"]
 
 
 async def test_pdf_renders_with_brand_and_without_aigc_marker(db, make_user, time_travel):

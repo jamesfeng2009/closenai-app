@@ -86,14 +86,28 @@ func TestN8CutoverDefaults(t *testing.T) {
 	if cfg.PosthogAPIKey != "" {
 		t.Errorf("POSTHOG_API_KEY 不该有默认值：%q", cfg.PosthogAPIKey)
 	}
-	// 两条深链站点默认值抄的是 backend/config.py:118、:123 的字面量。
+	// 两条深链站点默认值抄的是 backend/config.py 的 `site_url` / `app_store_url`。
 	// 它们会**落进 first_read 列**（restore 之后按列复现、不再回查设置），
 	// 所以抄歪不是「显示不一样」而是同一个账号在两侧拿到不同的分享链接。
 	if cfg.SiteURL != "https://closenai.app" {
 		t.Errorf("SITE_URL 默认 = %q，期望 https://closenai.app", cfg.SiteURL)
 	}
-	if cfg.AppStoreURL != "https://apps.apple.com/app/closenai/id6740000000" {
-		t.Errorf("APP_STORE_URL 默认 = %q，与 backend/config.py:118 不同", cfg.AppStoreURL)
+	// U3-b：AppStoreURL 必须**没有**默认值。两侧曾经都抄着 id6740000000 占位，
+	// 它会被拼进用户发出去的分享文案与 PDF，点进去是 404；默认值非空意味着
+	// 「没配 env 的部署照样对外发坏链」，这条就是不让它回来。
+	if cfg.AppStoreURL != "" {
+		t.Errorf("APP_STORE_URL 默认 = %q，期望空串（env-only，见 backend/config.py 的 app_store_url）",
+			cfg.AppStoreURL)
+	}
+	// 空串不等于「发空链」：落地取 ShareLandingURL，未配置时回落站点。
+	if cfg.ShareLandingURL() != cfg.SiteURL {
+		t.Errorf("未配置 APP_STORE_URL 时落地 = %q，期望回落 SiteURL %q",
+			cfg.ShareLandingURL(), cfg.SiteURL)
+	}
+	cfgWithURL := cfg
+	cfgWithURL.AppStoreURL = "https://apps.apple.com/app/closenai/id0000000000"
+	if cfgWithURL.ShareLandingURL() != cfgWithURL.AppStoreURL {
+		t.Errorf("配了 APP_STORE_URL 却仍回落到站点：%q", cfgWithURL.ShareLandingURL())
 	}
 }
 

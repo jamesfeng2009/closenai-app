@@ -200,7 +200,7 @@ func TestFirstReadSubmitWritesShareURLIntoColumn(t *testing.T) {
 
 // TestFirstReadSubmitWithoutUser 是本批最容易被「顺手统一条件」改掉的一格：
 // 账号读不到（不存在/已注销）时 **profile 照样写**、剧本照样不写、
-// share_url 用 app_store_url 原文。三处写各有各的条件。
+// share_url 用落地链接（U3-b 后＝ShareLandingURL，配了商店就是商店）。三处写各有各的条件。
 func TestFirstReadSubmitWithoutUser(t *testing.T) {
 	fake := &onboardingFakeStore{t: t, calls: &[]string{},
 		user: domain.JourneyUser{Found: false}}
@@ -218,6 +218,35 @@ func TestFirstReadSubmitWithoutUser(t *testing.T) {
 	}
 	if !strings.Contains(fake.submit.FirstReadText, testAppStoreURL) {
 		t.Errorf("列文本里的 share_url 与响应不同源：%s", fake.submit.FirstReadText)
+	}
+}
+
+// TestFirstReadSubmitWithoutUserAndStoreURL 是 U3-b 的 Go 侧行为闸：上架前
+// APP_STORE_URL **刻意不配**（默认空串），此时 share_url 必须回落站点根，
+// 而不是发出一条空链。判据同时打在响应字节与 first_read 列文本上——列会进
+// restore 的复现面，只对齐响应等于把另一半留给下一次切流去发现。
+func TestFirstReadSubmitWithoutUserAndStoreURL(t *testing.T) {
+	fake := &onboardingFakeStore{t: t, calls: &[]string{},
+		user: domain.JourneyUser{Found: false}}
+	srv := newOnboardingServer(t, fake)
+	srv.cfg.AppStoreURL = ""
+	rec := firstReadRequest(t, srv.Handler(), http.MethodPost, "u-gone", `{}`, "application/json")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("没配商店链不该让 POST 失败：%d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"share_url":"`+testSiteURL+`"`) {
+		t.Errorf("share_url 没回落站点根：%s", body)
+	}
+	if strings.Contains(body, `"share_url":""`) {
+		t.Errorf("发出了一条空链：%s", body)
+	}
+	if strings.Contains(body, "apps.apple.com") {
+		t.Errorf("未配置商店链却仍指向 App Store：%s", body)
+	}
+	if !strings.Contains(fake.submit.FirstReadText, `"share_url": "`+testSiteURL+`"`) {
+		t.Errorf("列文本的 share_url 没跟着回落（列会进 restore 复现面）：%s",
+			fake.submit.FirstReadText)
 	}
 }
 

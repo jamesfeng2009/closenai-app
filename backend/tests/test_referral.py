@@ -404,7 +404,12 @@ async def test_personality_card_deep_links_to_owner_code(db, make_user):
     assert code is not None
     assert card["share_url"] == referral_link(settings.site_url, code)
     assert card["share_url"] in card["share_text"]
-    assert settings.app_store_url not in card["share_text"]
+    # U3-b 之后 `app_store_url` 的合法默认值是**空串**，而 `"" in s` 恒真 ⇒ 原先这条
+    # 「商店链不在文案里」会在正确形态下永久打红。判据改按域名字面量：这张卡的归因
+    # 只许一个落点（站点深链），文案里不许混进 App Store 域名。
+    assert "apps.apple.com" not in card["share_text"]
+    if settings.app_store_url:
+        assert settings.app_store_url not in card["share_text"]
 
 
 async def test_report_share_url_carries_code(db, make_user):
