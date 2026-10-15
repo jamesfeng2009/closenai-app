@@ -43,8 +43,9 @@ MANIFESTS = ROOT / "deploy" / "k8s"
 
 BATCH2_DOMAIN = "curriculum"
 BATCH2_PATHS = {"/api/v1/curriculum/week", "/api/v1/curriculum/{event_id}/read"}
-# 批 1 的两条 + 批 2 的两条 + 批 3 的两条 + 批 4 的两条：已切流域的全量登记表，放量一批就在此处加一批。
-CUT_DOMAINS = ("analytics", "discovery", "curriculum", "journey", "onboarding")
+# 批 1 的两条 + 批 2 的两条 + 批 3 的两条 + 批 4 的两条 + 批 5 的两条：
+# 已切流域的全量登记表，放量一批就在此处加一批。
+CUT_DOMAINS = ("analytics", "discovery", "curriculum", "journey", "onboarding", "mood")
 CUT_PATHS = {
     "/api/v1/analytics/batch",
     "/api/v1/discovery/daily",
@@ -53,7 +54,12 @@ CUT_PATHS = {
     "/api/v1/journey/events",
     "/api/v1/journey/events/acknowledge",
     "/api/v1/onboarding/first-read",
+    "/api/v1/mood/history",
+    "/api/v1/mood/trend",
 }
+# 灰度键已在 ConfigMap 声明、但本批**没有** Ingress path 的域（决策点 D-10）。
+# 与 CUT_DOMAINS 分开的理由写在 test_three_registers_agree_on_the_cut_domains 的文档串里。
+PATHLESS_KEYS = frozenset({"reflections"})
 
 
 def _go(rel: str) -> str:
@@ -212,12 +218,22 @@ def test_three_registers_agree_on_the_cut_domains():
     py-api 时**功能上看不出差别**——0% 下 Go 本来就只逐字转交——但「这一域已交给 Go」这件事
     在三个登记处只剩两个还说，放量那一次就会以为自己正在切一条其实没接管的域。
     集合等式让任何一侧单独改都当场红。
+
+    ↳ 批 5 起两侧不再天然同形，按**域**归一而不是按 path：
+    ① Ingress 的一刀从批 5 起可以只到端点级（`/api/v1/mood/history`），域仍取第一段
+       ——与 backend/tests/test_k8s_manifests.py 的口径一致，两边各自取段会互相说谎；
+    ② PATHLESS_KEYS 是「键已声明、但本批**没有**入口 path」的登记面（决策点 D-10：
+       Ingress 的 path 匹配不看 HTTP 方法，而 /api/v1/reflections 的 GET 与 POST 共用
+       一个 path，把 GET 搬走就会让 POST 打在一台没注册它的 mux 上 ⇒ 405）。
+       这类键在本批调高也不放量（入口没有指向它的 path），失败方向是「没切」而不是 405；
+       它也**不进** deprecated 集合——
+       标废弃＝告诉客户端这条路要没了，而 Python 还在整条答它。
     """
     ing = next(d for d in yaml.safe_load_all(
         (MANIFESTS / "50-ingress.yaml").read_text(encoding="utf-8"))
         if d and d["kind"] == "Ingress")
     ingress_domains = {
-        p["path"].removeprefix("/api/v1/")
+        p["path"].removeprefix("/api/v1/").split("/")[0]
         for rule in ing["spec"]["rules"]
         for p in rule["http"]["paths"]
         if p["backend"]["service"]["name"] == "go-api"
@@ -240,8 +256,20 @@ def test_three_registers_agree_on_the_cut_domains():
 
     want = set(CUT_DOMAINS)
     assert ingress_domains == want, f"Ingress 指 go-api 的域 = {sorted(ingress_domains)}"
-    assert configmap_domains == want, f"ConfigMap 里的灰度键 = {sorted(configmap_domains)}"
+    assert configmap_domains == want | set(PATHLESS_KEYS), (
+        f"ConfigMap 里的灰度键 = {sorted(configmap_domains)}，期望已切流域 {sorted(want)} "
+        f"再加只声明不上 path 的 {sorted(PATHLESS_KEYS)}"
+    )
     assert openapi_domains == want, f"openapi 标 deprecated 的域 = {sorted(openapi_domains)}"
+    # PATHLESS_KEYS 不许偷偷长出另外两侧：它一旦拿到 Ingress path 或废弃标记，
+    # 上面两条等式各自会红，但红得像「登记面漂移」而不是「这一域转正了」——
+    # 所以这里点名它，转正那一批要做的动作是**把这个键移进 CUT_DOMAINS**，而不是删断言。
+    assert not (PATHLESS_KEYS & ingress_domains), (
+        f"只声明不上 path 的域拿到了 path：{sorted(PATHLESS_KEYS & ingress_domains)}"
+    )
+    assert not (PATHLESS_KEYS & openapi_domains), (
+        f"入口还没接管的域被标了废弃：{sorted(PATHLESS_KEYS & openapi_domains)}"
+    )
 
 
 def test_go_registers_both_curriculum_routes():
@@ -344,12 +372,22 @@ def test_anchor_is_recorded_for_the_frozen_clock():
 
 def test_recorder_freezes_python_clock_for_curriculum():
     """冻时钟得真的冻：录制脚本把 curriculum_service 的 local_today/utc_now 换成锚点，
-    否则录出来的 week_start 属于录制那一刻，而 Go 侧锚点却钉在别处。"""
+    否则录出来的 week_start 属于录制那一刻，而 Go 侧锚点却钉在别处。
+
+    2026-10-15 改窄：录制脚本现在钉**四个**模块（curriculum/journey/first_read/mood），
+    原来那两条 `\\.local_today\\s*=` 这种「脚本里出现过就算」的正则会被别家模块的那行
+    喂饱——单独撤掉 curriculum 那一行反而打不红。口径与批 3 的 journey 闸统一：
+    **行首 + 模块名**，注释掉的一行不算冻钟。
+    """
     script = (ROOT / "scripts" / "gen_n8_contract_goldens.py").read_text(encoding="utf-8")
     # 打在 curriculum_service 的**模块全局**上：get_week 里的 local_today(...) 是晚绑定，
     # 所以覆盖这一个名字就够了（time_utils 里那份不动，别的调用方仍读真实时钟）。
-    assert re.search(r"\.local_today\s*=", script), "录制侧没冻 local_today"
-    assert re.search(r"\.utc_now\s*=", script), "录制侧没冻 utc_now"
+    assert re.search(r"^\s*curriculum_module\.local_today\s*=", script, re.M), (
+        "录制侧没冻 curriculum 的 local_today"
+    )
+    assert re.search(r"^\s*curriculum_module\.utc_now\s*=", script, re.M), (
+        "录制侧没冻 curriculum 的 utc_now"
+    )
     assert "recorded_at" in script
 
 

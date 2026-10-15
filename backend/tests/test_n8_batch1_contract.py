@@ -194,6 +194,11 @@ def test_fixture_seed_users_cover_the_decisions_they_prove():
     moods = fixture["seed"]["mood_checkins"]
     per_user: dict[str, list[float]] = {}
     for row in moods:
+        # 只看**相对**播种的行。批 5 起夹具还有按绝对时刻钉住的行（`created_at`、无
+        # `days_ago`），那批行的价值恰恰是**贴着**窗口边界（trend 的 `since` 下界），
+        # 下面这条「离边界 1.5 天」的余量规则对它们是反的；两侧各自判自己的行。
+        if "days_ago" not in row:
+            continue
         per_user.setdefault(row["user_id"], []).append(row["days_ago"])
     # 上周窗口（7<days_ago<=14）必须有行，否则 last_week 分支全空。
     assert any(any(7 < d <= 14 for d in days) for days in per_user.values()), \

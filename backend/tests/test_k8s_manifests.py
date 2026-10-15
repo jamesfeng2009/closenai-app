@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -132,7 +133,8 @@ def test_ingress_is_at_zero_percent_rollout():
     go-api 接管一条域 path 但百分比为 0 时，它是**逐字转交** py-api
     （go-core/internal/cutover），所以「0%」不再是「Go 不接流量」，而是
     「Go 接了流量但一条业务逻辑都不跑」。四条判据：
-      1. 指 go-api 的每条 path 必须是一个 `/api/v1/<域>` 前缀，且能在 Go 的登记表里找到；
+      1. 指 go-api 的每条 path 必须是一个 `/api/v1/<域>` 前缀或 `/api/v1/<域>/<端点>`
+         子路径（批 5 起有「同域里只切一部分端点」的形状），且能在 Go 的登记表里找到；
       2. ConfigMap 里有该域的 `CLOSEN_CUTOVER_<域>`，取值 0..100，且本轮**必须为 0**；
       3. `CLOSEN_PY_API_URL` 非空——有域在 0..99 之间时 go-api 要靠它转交，
          这正是 Go 侧「缺值即拒绝启动」的那条约束，清单与代码必须同口径；
@@ -144,22 +146,26 @@ def test_ingress_is_at_zero_percent_rollout():
         encoding="utf-8"
     )
 
-    go_bound: list[str] = []
+    go_bound: list[tuple[str, str]] = []
     fallbacks: dict[str, str] = {}
     for rule in ing["spec"]["rules"]:
         for path in rule["http"]["paths"]:
             assert path["pathType"] in ("Prefix", "Exact")
             name = path["backend"]["service"]["name"]
             if name == "go-api":
-                go_bound.append(path["path"])
+                go_bound.append((path["path"], path["pathType"]))
             else:
                 fallbacks[path["path"]] = name
     assert go_bound, "批 1 起 Ingress 必须已有指向 go-api 的域 path，否则切流机制无从验证"
 
-    for path in go_bound:
-        match = re.fullmatch(r"/api/v1/([a-z][a-z0-9-]*)", path)
-        assert match, f"{path} 不是 /api/v1/<域> 形态：域级一刀只能用整段前缀"
-        domain = match.group(1)
+    for path, path_type in go_bound:
+        match = re.fullmatch(r"/api/v1(/[a-z][a-z0-9-]*)+", path)
+        assert match, f"{path} 不是 /api/v1/<域>[/<端点>] 形态：切流一刀只能落在这两种形状上"
+        assert path_type in ("Prefix", "Exact"), f"{path} 的 pathType 不可识别"
+        # 灰度键取**第一个域段**：批 5 的两条 mood 端点共用 CLOSEN_CUTOVER_MOOD。
+        # 域级键与端点级 path 是**刻意错位**的（决策点 D-5，见 50-ingress.yaml 批 5 段），
+        # 这个错位由 test_go_bound_contract_paths_are_registered_in_go 兜住。
+        domain = path[len("/api/v1/") :].split("/")[0]
         # 清单声称这个域归 Go，Go 侧就得真有这个域的路由，不然上线即 404。
         assert f"/api/v1/{domain}" in go_routes, (
             f"Ingress 把 {path} 指向 go-api，但 server.go 里没有该域的注册路由"
@@ -170,7 +176,7 @@ def test_ingress_is_at_zero_percent_rollout():
         assert re.fullmatch(r"-?\d+", str(value)), f"{key} 必须是整数百分比，实际 {value!r}"
         assert 0 <= int(value) <= 100, f"{key}={value} 越界（Go 侧会拒绝启动）"
         assert int(value) == 0, (
-            f"{key}={value}：批 1/批 2 落地时每个已接管域都必须是 0%。"
+            f"{key}={value}：批 1–5 落地时每个已接管域都必须是 0%。"
             "真要放量是一次有意的上线动作，改这条断言就是那次动作的登记点。"
         )
 
@@ -182,6 +188,114 @@ def test_ingress_is_at_zero_percent_rollout():
     assert url.startswith("http"), f"有域处于 0..99 时 CLOSEN_PY_API_URL 必须可拨通：{url!r}"
     _one("Service", "go-api")  # 改 backend 名的前置：Service 不存在会当场 503
     _one("Service", "py-api")  # 转交目标
+
+
+def _ingress_entries() -> list[dict]:
+    """把 Ingress 的 path 摊平成 [{path, pathType, backend}]（规则里只有一条 host 无关规则）。"""
+    ing = _one("Ingress", "closenai")
+    return [
+        {"path": p["path"], "pathType": p["pathType"],
+         "backend": p["backend"]["service"]["name"]}
+        for rule in ing["spec"]["rules"]
+        for p in rule["http"]["paths"]
+    ]
+
+
+def _matches(entry: dict, contract_path: str) -> bool:
+    """Ingress 规范里两种 pathType 的匹配语义（Traefik/nginx 同口径）。
+
+    Prefix 是**按路径段**的前缀：`/api/v1` 命中 `/api/v1` 与 `/api/v1/x`，
+    但不命中 `/api/v1x`。这一条正是批 5 那一刀要从 Prefix 降到 Exact 的原因——
+    `/api/v1/reflections` 会把 `/api/v1/reflections/generate` 也搬进 go-api。
+    """
+    if entry["pathType"] == "Exact":
+        return contract_path == entry["path"]
+    return contract_path == entry["path"] or contract_path.startswith(
+        entry["path"] + "/")
+
+
+def _operations() -> list[tuple[str, str]]:
+    """契约面的每一个 (方法, 路径) 对——**不是**只看路径。
+
+    Ingress 的 path 匹配**不看 HTTP 方法**（规范里只有 path/pathType），
+    所以一条 path 一旦被指给 go-api，它身上的**所有方法**一起搬走。
+    `/api/v1/reflections` 就是实测到的那一格：GET 与 POST 共用一个 path，
+    而本批只复刻了 GET——按路径模拟会判它「没问题」，按操作模拟才判得出 405。
+    """
+    paths = json.loads(
+        (ROOT / "contracts" / "openapi.json").read_text(encoding="utf-8"))["paths"]
+    return sorted(
+        (method.upper(), path)
+        for path, ops in paths.items()
+        for method in ops
+    )
+
+
+def _route(op_path: str, entries: list[dict]) -> dict | None:
+    """最长前缀优先：返回真正接管这条契约路径的那一条 Ingress 规则。"""
+    winners = [e for e in entries if _matches(e, op_path)]
+    if not winners:
+        return None
+    longest = max(len(e["path"]) for e in winners)
+    tied = [e for e in winners if len(e["path"]) == longest]
+    assert len(tied) == 1, f"{op_path} 有 {len(tied)} 条同长度规则，路由结果不确定"
+    return tied[0]
+
+
+def test_go_bound_contract_operations_are_registered_in_go():
+    """切过去的那部分流量，Go 必须**每一个操作都答得了**——按契约面逐条验，不是按域名抽查。
+
+    为什么不是「Ingress 的 path 在 server.go 里出现就行」（那是上一版）：
+    批 5 第一次出现**同域混切**（mood 的两条 GET 切、POST /mood/checkin 不切），
+    一刀的粒度与灰度键的粒度不再是同一个东西。这时唯一可证的判据是把 Ingress 的
+    匹配语义**真的模拟一遍**：拿 contracts/openapi.json 的每一个 (方法, 路径) 求
+    「哪条规则接管」，凡结果是 go-api 的，server.go 里就必须有那条**带方法**的注册。
+    少一条就是上线即 404/405，而且**与灰度百分比无关**——转交发生在 handler 内部，
+    路径没匹配上进不到 handler，0% 也救不回来。
+    """
+    entries = _ingress_entries()
+    operations = _operations()
+    go_routes = (ROOT / "go-core" / "internal" / "httpapi" / "server.go").read_text(
+        encoding="utf-8")
+
+    go_answered: list[tuple[str, str]] = []
+    for method, path in operations:
+        winner = _route(path, entries)
+        assert winner, f"{path} 不被任何一条 Ingress 规则覆盖＝生产里根本进不来"
+        if winner["backend"] == "go-api":
+            # server.go 的注册形状是 `"GET /api/v1/mood/history"`：
+            # 方法与路径**一起**比，少一个方法就是 405。
+            assert f'"{method} {path}"' in go_routes, (
+                f"{method} {path} 被 {winner['path']}（{winner['pathType']}）判给 go-api，"
+                f"但 server.go 没注册这个操作"
+            )
+            go_answered.append((method, path))
+    assert go_answered, "没有任何一个契约操作归 go-api：切流机制在清单上不成立"
+
+    # 每条指 go-api 的规则至少要命中一个契约操作——拼错的子路径（少一个字母）
+    # 不会命中任何 openapi 条目，也就不会被上面那段查到，只能在这里显形。
+    for entry in entries:
+        if entry["backend"] != "go-api":
+            continue
+        hit = [op for op in operations if _matches(entry, op[1])]
+        assert hit, f"{entry['path']} 指向 go-api 却不命中任何契约操作＝清单里的一条幽灵规则"
+
+    # 批 5 那一刀的两面，各自钉一次（上面两条全绿也可能整批 mood 消失）：
+    # 切过来的两条必须在 go-api 侧，同域**没切**的 POST 必须还在 py-api 侧。
+    answered = set(go_answered)
+    assert {("GET", "/api/v1/mood/history"), ("GET", "/api/v1/mood/trend")} <= answered
+    for still_python in ("POST /api/v1/mood/checkin", "POST /api/v1/reflections",
+                         "POST /api/v1/reflections/generate"):
+        method, path = still_python.split(" ", 1)
+        winner = _route(path, entries)
+        assert winner["backend"] == "py-api", (
+            f"{still_python} 落到了 {winner['backend']}（规则 {winner['path']}）："
+            "它依赖 LLM 或写库，批 5 不切，被同 path 顺手搬走就是上线即 405"
+        )
+    # 逐条数一遍，作为「这一批改了什么」的留痕：批 1–5 共 10 个操作归 Go。
+    # 这条也是 reflections 那一格的对账：GET /api/v1/reflections 与它的 POST 共用
+    # 一个 path，Ingress 分不开，所以本批**没有**给它上 path（tasks.md 批 5 段 D-10）。
+    assert len(go_answered) == 10, f"归 go-api 的契约操作 {len(go_answered)} 个：{go_answered}"
 
 
 def test_contract_paths_are_routed():
