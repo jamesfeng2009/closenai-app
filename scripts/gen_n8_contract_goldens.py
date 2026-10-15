@@ -65,7 +65,10 @@ MASKED_REFERRAL_LINK = "/r/<code>"
 CREATED_AT_RE = re.compile(r'"created_at":"[^"]*"')
 MASKED_CREATED_AT = '"created_at":"<created_at>"'
 # 需要真库才能回放的组（这些组里 404 必须是信封体，见 _group）
-DB_GROUPS = frozenset({"curriculum", "journey", "onboarding"})
+# 批 5 的 mood / reflection 两组：**组名不等于域**，指的是「回放时要不要冻时钟」——
+# 两组的响应里都有 created_at / %m-%d 日历字段，都按绝对时刻播种，所以都必须钉在
+# recorded_at（Go 侧 srv.now、Python 侧 mood_repository.utc_now）。
+DB_GROUPS = frozenset({"curriculum", "journey", "onboarding", "mood", "reflection"})
 # 会现生成 uuid 主键、因而需要按形状掩两组 id 的组（批 3 的预写 INSERT、批 4 的 profile INSERT）。
 ID_MASK_GROUPS = frozenset({"journey", "onboarding"})
 
@@ -106,17 +109,58 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 # 窗口，两侧各用**自己那一侧的真实当下**读同一批行即可。
 ANCHOR = dt_datetime.now(dt_timezone.utc).replace(microsecond=0)
 
-def ago(days: int, hour: int | None = None) -> str:
-    """ANCHOR 往前 days 天的**绝对** UTC 时刻（hour 给了就把时分秒钉死）。
+def ago(days: int, hour: int | None = None, minute: int | None = None,
+        second: int | None = None) -> str:
+    """ANCHOR 往前 days 天的**绝对** UTC 时刻（给了 hour/minute/second 就把该位钉死）。
 
     为什么绝对而不是像 mood_checkins 那样按 days_ago 相对回放当下：journey 的响应里有
     scheduled_at，而它由「基准日的**本地日历日**」推出。相对口径下回放只要跨过用户本地
     午夜，day0 就换了一天，六行的字节全体平移——那不再是契约 diff，是两次不同的预写。
+
+    批 5 把这条口径**也**用到了 mood_checkins 上（见 `M()`）：`GET /mood/trend` 的
+    labels 是 `%m-%d` 日历字段，沿用相对播种会让标签随重放日期整批漂移。
     """
     at = ANCHOR - dt_timedelta(days=days)
-    if hour is not None:
-        at = at.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if hour is not None or minute is not None or second is not None:
+        at = at.replace(hour=hour or 0, minute=minute or 0, second=second or 0,
+                        microsecond=0)
     return at.isoformat()
+
+
+def at_offset(days: int, seconds: int = 0) -> str:
+    """ANCHOR − days*86400s − seconds：**逐秒**可指的绝对时刻。
+
+    只为一格存在：`count_by_day` 的窗口是 `created_at >= utc_now() − days*86400`
+    （`mood_repository.py:194`，闭区间）。要钉住这个 `>=`，必须有一行**正好落在**
+    边界瞬间上（`ago(14)`＝ANCHOR−14d，与冻钟后的 utc_now−14d 同一瞬）＋
+    一行差一秒落在窗外（本函数 days=14、seconds=1）。
+    """
+    return (ANCHOR - dt_timedelta(days=days, seconds=seconds)).isoformat()
+
+
+def M(created_at: str, emoji: str, label: object = None,
+      ai: object = None) -> dict:
+    """一行**绝对时刻**的签到（批 5）。
+
+    与 `rows: [(days_ago, emoji)]` 的批 1 口径并存、互不影响：那批行的响应里只有
+    7/14 天窗的**计数与均值**，换了播种口径就会改动批 1 已结案用例的字节。
+    `label`/`ai` 给的是**列原文**：None⇒SQL NULL、`""`⇒空串——`get_history` 的
+    `r.mood_label or ""`(:315) 对这两者的响应相同，但列里不同，夹具要两种都种。
+    """
+    return {"created_at": created_at, "mood_emoji": emoji,
+            "mood_label": label, "ai_interpretation": ai}
+
+
+def G(created_at: str, record_type: str, content: str,
+      refs: object = None) -> dict:
+    """一行成长记录（批 5 的 `GET /reflections` 读 growth_records）。
+
+    `refs` 给**列原文**（None⇒SQL NULL、""⇒空串、","⇒两个空 ID、"a,,b"⇒三段），
+    因为 `reflection_service.py:136-138` 是 `列.split(",") if 列 else None`——
+    假值那一支把 NULL 与空串并成 None，而真值那一支的段数完全由逗号位置决定。
+    """
+    return {"created_at": created_at, "record_type": record_type,
+            "content": content, "related_memory_ids": refs}
 
 
 def first_read_column(assertions: list[str], summary: str, closer: str, *,
@@ -317,6 +361,93 @@ USERS: list[dict] = [
      "created": ago(1)},
     {"slug": "o-persona-ligature", "analytics": True, "language": "en", "push": "09:00",
      "created": ago(1)},
+    # ── 批 5（mood / reflections 三条纯读）─────────────────────────────────────
+    # 这批全部用 `abs_rows`/`growth`（绝对时刻）而不是 `rows`（相对当下）：
+    # `GET /mood/trend` 的 labels 是 `%m-%d` 日历字段，`GET /mood/history` 与
+    # `GET /reflections` 的 created_at 直接进响应——相对播种 + 回放跨天＝整批行漂移，
+    # 逐字比就变成比两次不同的数据集。代价是这两组用例必须冻时钟（见 freeze_clock）。
+    # 零行用户：history 的 `checkins: []`、trend 的 `labels/values: []` 与
+    # summary 走 `mood.trend.empty`——**空数组不是 null** 这一格只能由它取证书。
+    {"slug": "mood-empty", "analytics": True, "language": "en"},
+    # 列原文的三种假值与一条含引号/反斜杠/换行的正文：钉 `or ""` 与 JSON 转义
+    {"slug": "mood-nulls", "analytics": True, "language": "en", "abs_rows": [
+        M(ago(1, hour=3), "😊"),
+        M(ago(2, hour=3), "😌", "", ""),
+        M(ago(3, hour=3), "😰", "焦虑", '含"引号"与\\反斜杠\n换行'),
+        M(ago(4, hour=3), "😢", "难过", None),
+    ]},
+    # 35 行：钉 `get_recent(limit=30)` 的截断**与** DESC 序（第 1、2 行必须被切掉）
+    {"slug": "mood-many", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(k, hour=5), ["😊", "😌", "😰", "😢", "😡", "😴"][k % 6])
+                  for k in range(1, 36)]},
+    # 已注销用户：`get_history` 不查 users 表 ⇒ 仍回 200 带行（与 discovery 的 40401 分叉）
+    {"slug": "mood-deleted", "analytics": True, "language": "en", "status": "deleted",
+     "abs_rows": [M(ago(1, hour=6), "😊"), M(ago(2, hour=6), "😌")]},
+    # 趋势四档阈值：avg>=4 ⇒ high、>=3 ⇒ mid、else low、空 ⇒ empty。
+    # [5,4]⇒4.5 high；[3,3,4]⇒3.333 mid（浮点除法，整数均值会算成 3 也落 mid，
+    # 所以另给 [4,2]⇒3.0 那一格钉「>=3 取 mid」而不是「>3」）；[2,1]⇒1.5 low。
+    {"slug": "mood-t-high", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=8), "😊"), M(ago(2, hour=8), "😌")]},
+    {"slug": "mood-t-mid", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=8), "😴"), M(ago(2, hour=8), "😴"),
+                  M(ago(3, hour=8), "😊")]},
+    # 恰好 3.0：钉 `avg >= 3` 的等号侧
+    {"slug": "mood-t-exactly3", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=8), "😊"), M(ago(2, hour=8), "😰")]},
+    {"slug": "mood-t-low", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=8), "😰"), M(ago(2, hour=8), "😢")]},
+    # 未知 emoji 😎 ⇒ `MOOD_MAP.get(emoji,(None,3))[1]`＝3；与已知值混排看均值
+    {"slug": "mood-t-unknown", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=8), "😎"), M(ago(2, hour=8), "😎")]},
+    # 窗口边界：一行正好落在 `utc_now() − 14d`（闭区间 ⇒ 进窗），一行差一秒（出窗）。
+    # 冻钟后两侧的比较瞬间都是 ANCHOR，这一格才是「`>=` 而不是 `>`」的证据。
+    {"slug": "mood-t-edge", "analytics": True, "language": "en",
+     "abs_rows": [M(at_offset(14), "😊"), M(at_offset(14, 1), "😢"),
+                  M(at_offset(13, 1), "😌")]},
+    # Asia/Shanghai(UTC+8)：UTC 23:00 那一行落在**次一个**本地日 ⇒ labels 与 UTC 口径不同
+    {"slug": "mood-t-sh", "analytics": True, "language": "zh",
+     "timezone": "Asia/Shanghai",
+     "abs_rows": [M(ago(1, hour=23), "😊"), M(ago(2, hour=23), "😰"),
+                  M(ago(3, hour=1), "😌")]},
+    # 非法时区名 ⇒ safe_zoneinfo 回退 UTC（与 Go 的 LoadLocation 失败支同口径）
+    {"slug": "mood-t-badtz", "analytics": True, "language": "en",
+     "timezone": "Not/AZone",
+     "abs_rows": [M(ago(1, hour=23), "😊"), M(ago(2, hour=23), "😰"),
+                  M(ago(3, hour=1), "😌")]},
+    # 同一本地日两行（01:00 与 05:00 UTC，都在 10-13）⇒ `if key not in day_map`
+    # 取升序**首行**的 emoji（😊=5 而不是 😢=1）。这是那条判据唯一的可达格。
+    {"slug": "mood-t-sameday", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=1), "😊"), M(ago(1, hour=5), "😢")]},
+    # 已注销用户也走一遍 trend：`get_user`⇒None ⇒ tz=None ⇒ UTC，**不是** 40401
+    {"slug": "mood-t-deleted", "analytics": True, "language": "en", "status": "deleted",
+     "timezone": "Asia/Shanghai",
+     "abs_rows": [M(ago(1, hour=23), "😊"), M(ago(2, hour=23), "😊")]},
+    # reflections：零行 ⇒ `data: []`
+    {"slug": "refl-empty", "analytics": True, "language": "en"},
+    # 25 行 ⇒ 钉 `limit` 默认 20 与 DESC 序（前 5 行必须被切掉）
+    {"slug": "refl-many", "analytics": True, "language": "en",
+     "growth": [G(ago(k, hour=9), "reflection", f"第 {k} 篇反思") for k in range(1, 26)]},
+    # related_memory_ids 的四种列原文 + 正文里的转义素材
+    {"slug": "refl-nulls", "analytics": True, "language": "en",
+     "growth": [
+         G(ago(1, hour=9), "reflection", "无关联", None),
+         G(ago(2, hour=9), "reflection", "空串关联", ""),
+         G(ago(3, hour=9), "reflection", '逗号"与\\斜杠', ","),
+         G(ago(4, hour=9), "reflection", "三段", "a,,b"),
+         G(ago(5, hour=9), "reflection", "单个", "only"),
+     ]},
+    # 三种 record_type 混排 ⇒ 只有 reflection 进响应
+    {"slug": "refl-types", "analytics": True, "language": "en",
+     "growth": [
+         G(ago(1, hour=9), "reflection", "反思一"),
+         G(ago(2, hour=9), "daily_insight", "洞察不该出现"),
+         G(ago(3, hour=9), "weekly_summary", "周报不该出现"),
+         G(ago(4, hour=9), "reflection", "反思二"),
+         G(ago(5, hour=9), "Reflection", "大小写不同也算另一类"),
+     ]},
+    # 已注销用户：`reflection_service.list` 同样不查 users ⇒ 200 带回行
+    {"slug": "refl-deleted", "analytics": True, "language": "en", "status": "deleted",
+     "growth": [G(ago(1, hour=9), "reflection", "注销前的反思")]},
 ]
 
 COLUMNS = ("id, timezone, streak_count, relationship_level, chat_count, "
@@ -346,6 +477,20 @@ INSERT_PROFILE = (
 )
 # 批 3 旧口径（profile 给 str 或 "null"）落的四列字面量
 LEGACY_PROFILE_COLUMNS = ("D01", "[]", "{}", "en")
+# 批 5：同一张表的**绝对时刻**通道（见上面 `M()` 的注释）。
+# 带 mood_label / ai_interpretation 两列——`get_history` 把两列原样读进响应
+# （`mood_service.py:315-316` 的 `or ""`），所以 NULL 与空串必须都能种。
+INSERT_MOOD_ABS = (
+    "INSERT INTO mood_checkins (id, user_id, mood_emoji, mood_label, "
+    "ai_interpretation, created_at) VALUES (%s, %s, %s, %s, %s, %s)"
+)
+# 批 5：`GET /reflections` 读的是 growth_records（record_type='reflection'）。
+# tags/metadata_json/follow_up_sent/generation_run_id 四列留给 server_default，
+# 本域的响应面不读它们（读了就是另一批契约）。
+INSERT_GROWTH = (
+    "INSERT INTO growth_records (id, user_id, record_type, content, "
+    "related_memory_ids, created_at) VALUES (%s, %s, %s, %s, %s, %s)"
+)
 
 
 def profile_row(user: dict) -> dict | None:
@@ -600,8 +745,29 @@ JOURNEY_PLAN: dict[str, list[dict]] = {
 }
 
 
+def _module(name: str):
+    """按**模块名**取模块对象，而不是按包属性。
+
+    2026-10-15 实测到的坑：`backend/repositories/__init__.py:26` 有
+    `from backend.repositories.mood_repository import ... mood_repository`，
+    这把包属性 `backend.repositories.mood_repository` 从**子模块**换成了
+    **MoodRepository 单例实例**。于是 `from backend.repositories import mood_repository`
+    拿到的是实例，`实例.utc_now = lambda: ANCHOR` 只是给对象加了个函数全局永远读不到的
+    属性——时钟钉了个空，录制用的还是真实当下（第一批就靠这个 bug 把 trend-edge-14
+    的边界行录成了「窗口外」）。`importlib.import_module` 读的是 sys.modules，拿到的是
+    真模块对象；`import a.b.c as m` 与 `from a.b import c` 都会走属性查找，都躲不开。
+    """
+    import importlib
+    import types
+
+    mod = importlib.import_module(name)
+    if not isinstance(mod, types.ModuleType):
+        raise SystemExit(f"{name} 取到的不是模块而是 {type(mod)}——包再导出把模块名遮蔽了")
+    return mod
+
+
 def freeze_clock() -> None:
-    """把 curriculum/journey/first_read 服务读到的「当下」钉在 ANCHOR（见上面 ANCHOR 的注释）。
+    """把 curriculum/journey/first_read 服务与 mood 仓库读到的「当下」钉在 ANCHOR（见上面 ANCHOR 的注释）。
 
     curriculum：get_week 用 local_today 取今天、mark_read 用 utc_now 写 read_at。
     journey：prefill 的 `today = local_today(user.timezone)` 决定哪一行的 Past；
@@ -612,17 +778,53 @@ def freeze_clock() -> None:
     **直接进响应字节**，不钉就会差录制与回放之间那几秒；`submit` 的
     `prefill(..., base_day=local_today(user.timezone))`(:195) 决定六行的 day_no，
     回放跨过本地午夜就会让 POST 预写的那批行整体挪一天（Go 侧对应 Server.now）。
-    """
-    from backend.services import curriculum_service as curriculum_module
-    from backend.services import first_read_service as first_module
-    from backend.services import journey_service as journey_module
+    mood（批 5）：`count_by_day` 的窗口起点是 `utc_now() − days*86400`(:194)，而
+    `mood-t-edge` 那三行是**按 ANCHOR** 种的绝对时刻（其中一行正好压在边界上）；
+    不钉这一支，回放晚于录制一秒就会把边界行读进/读出窗口。
+    `local_today`/`safe_zoneinfo` 在 mood 侧不需要钉：trend 的分组只做
+    `astimezone(zone).date()`，没有「今天」这个概念；bedtime 才用
+    local_today（那批另立）。
 
-    curriculum_module.local_today = local_today_at
+    下面**逐行点名**写，不用 `for mod in modules.values()`：批 2/批 3 的冻钟闸
+    （test_recorder_freezes_python_clock_for_curriculum / …_the_journey_clock）
+    按「行首 + `<x>_module.<名字> =`」匹配，循环体里那句 `mod.utc_now` 会让这两条
+    判据同时失去锚点，而变异 #72（撤掉冻 utc_now 那一行）与 #112（钉到 time_utils）
+    证的恰恰是「这一行能被单独写坏」。
+    """
+    curriculum_module = _module("backend.services.curriculum_service")
+    journey_module = _module("backend.services.journey_service")
+    first_read_module = _module("backend.services.first_read_service")
+    mood_module = _module("backend.repositories.mood_repository")
+
+    modules = {
+        "curriculum": curriculum_module,
+        "journey": journey_module,
+        "first_read": first_read_module,
+        "mood": mood_module,
+    }
+
     curriculum_module.utc_now = lambda: ANCHOR
-    journey_module.local_today = local_today_at
     journey_module.utc_now = lambda: ANCHOR
-    first_module.local_today = local_today_at
-    first_module.utc_now = lambda: ANCHOR
+    first_read_module.utc_now = lambda: ANCHOR
+    mood_module.utc_now = lambda: ANCHOR
+    curriculum_module.local_today = local_today_at
+    journey_module.local_today = local_today_at
+    first_read_module.local_today = local_today_at
+
+    # 钉完**自证**一次：上面那四个模块的 utc_now 必须真的返回 ANCHOR。
+    # 这条不是装饰——批次 2–4 至今全绿，正是因为它们的判据离边界够远；
+    # 只有批 5 那行压边界的种子把「钉了个空」变成了可证的字节差。
+    # 如果哪天再导出换了形状，这里会在录制**之前**就停下，而不是录出一份错基准。
+    for name, mod in modules.items():
+        if mod.utc_now() != ANCHOR:
+            raise SystemExit(
+                f"{name} 的 utc_now 没能钉住 ANCHOR（实得 {mod.utc_now()}）——"
+                f"补丁落在了读不到的名字上，这份夹具不作数")
+    for name in ("curriculum", "journey", "first_read"):
+        if modules[name].local_today("UTC") != ANCHOR.date():
+            raise SystemExit(
+                f"{name} 的 local_today 没能钉住 ANCHOR（实得 {modules[name].local_today('UTC')}）")
+
 
 
 def seed() -> None:
@@ -638,6 +840,10 @@ def seed() -> None:
                     (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
         cur.execute("DELETE FROM onboarding_profiles WHERE id LIKE %s OR user_id LIKE %s",
                     (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
+        # 批 5 的 reflections 读这张表；GET /mood/* 与 /reflections 都是纯读，
+        # 但**必须先清**——上一轮遗留的行会让 limit 截断落在不同行上。
+        cur.execute("DELETE FROM growth_records WHERE id LIKE %s OR user_id LIKE %s",
+                    (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
         cur.execute("DELETE FROM users WHERE id LIKE %s", (f"{SEED_PREFIX}%",))
         for user in USERS:
             uid = f"{SEED_PREFIX}{user['slug']}"
@@ -649,6 +855,16 @@ def seed() -> None:
                                       user.get("referral")))
             for i, (days_ago, emoji) in enumerate(user.get("rows", [])):
                 cur.execute(INSERT_MOOD, (f"{uid}-m{i}", uid, emoji, str(days_ago)))
+            # 批 5 的绝对时刻通道：与上面那条 INSERT 只差在 created_at 是列原文，
+            # 行主键沿用同一个 `-m{i}` 编号规则（两个键不会同时出现在一个用户上）。
+            for i, row in enumerate(user.get("abs_rows", [])):
+                cur.execute(INSERT_MOOD_ABS, (f"{uid}-m{i}", uid, row["mood_emoji"],
+                                              row["mood_label"], row["ai_interpretation"],
+                                              row["created_at"]))
+            for i, row in enumerate(user.get("growth", [])):
+                cur.execute(INSERT_GROWTH, (f"{uid}-g{i}", uid, row["record_type"],
+                                            row["content"], row["related_memory_ids"],
+                                            row["created_at"]))
             row = profile_row(user)
             if row:
                 cur.execute(INSERT_PROFILE, (row["id"], row["user_id"],
@@ -687,6 +903,23 @@ def seed_spec() -> dict:
              "mood_emoji": emoji, "days_ago": days_ago}
             for u in USERS
             for i, (days_ago, emoji) in enumerate(u.get("rows", []))
+        ] + [
+            # 批 5：带 `created_at`（绝对）⇒ Go 回放测走另一条 INSERT 分支，
+            # 且 `days_ago` 必须**缺席**而不是 0（0＝今天，会让相对分支插出错行）。
+            {"id": f"{SEED_PREFIX}{u['slug']}-m{i}", "user_id": f"{SEED_PREFIX}{u['slug']}",
+             "mood_emoji": row["mood_emoji"], "mood_label": row["mood_label"],
+             "ai_interpretation": row["ai_interpretation"],
+             "created_at": row["created_at"]}
+            for u in USERS
+            for i, row in enumerate(u.get("abs_rows", []))
+        ],
+        "growth_records": [
+            {"id": f"{SEED_PREFIX}{u['slug']}-g{i}", "user_id": f"{SEED_PREFIX}{u['slug']}",
+             "record_type": row["record_type"], "content": row["content"],
+             "related_memory_ids": row["related_memory_ids"],
+             "created_at": row["created_at"]}
+            for u in USERS
+            for i, row in enumerate(u.get("growth", []))
         ],
         "journey_events": seeded_events(),
         "onboarding_profiles": seeded_profiles(),
@@ -1315,6 +1548,148 @@ def onboarding_cases() -> list[tuple]:
         ("onb-submit-lang-upper-zh", "onboarding", "POST", ONB, "o-lang-upper-zh", {},
          {"answers": ANS_ZH[:2], "persona_type": "  INFP  ", "language": "ZH"}),
         ("onb-restore-lang-upper-zh", "onboarding", "GET", ONB, "o-lang-upper-zh", {}, None),
+        # ── 批 5：mood 域两条纯读 + reflections 一条纯读 ────────────────────────
+        # 组名 "mood"/"reflection" 的含义是「回放要冻时钟＋按绝对时刻播种」，
+        # 不是「域」——域那一面在 Ingress/ConfigMap 那边登记（见 tasks.md 批 5 的 D-5）。
+        # validation 组那批全部带 `X-Language: en`：`get_request_language`(language.py:44-46)
+        # 在 header 有效时**提前 return、一次库都不读**，这样它们才能落进「无库回放」组，
+        # 由 n8ForbiddenStore 当场钉住「FastAPI 的参数校验先于服务层」这条依赖顺序。
+        # 反过来说，若哪天 Python 改成「先查库再校验参数」，这些用例会变成读库派生的字节、
+        # 而 _group 的 200-却标-validation 那道 tripwire 会先炸。
+        ("history-anonymous", "mood", "GET", "/api/v1/mood/history", "", {}, None),
+        ("history-empty", "mood", "GET", "/api/v1/mood/history", "mood-empty", {}, None),
+        ("history-nulls", "mood", "GET", "/api/v1/mood/history", "mood-nulls", {}, None),
+        # 35 行 ⇒ 只回 30 条：钉 `get_recent(limit=30)` 的截断与 DESC 序
+        ("history-many", "mood", "GET", "/api/v1/mood/history", "mood-many", {}, None),
+        # 已注销用户仍回 200 带行（get_history 不查 users）；ghost id 同理回空数组
+        ("history-deleted-user", "mood", "GET", "/api/v1/mood/history",
+         "mood-deleted", {}, None),
+        ("history-ghost-user", "mood", "GET", "/api/v1/mood/history", "ghost-user", {}, None),
+        # history 面**不接受** query 与 X-Language（多给一律忽略）：这两格钉的是
+        # 「同一路径带参数不改字节」，而不是「参数被读进逻辑」
+        ("history-ignores-query", "mood", "GET", "/api/v1/mood/history?days=3",
+         "mood-nulls", {}, None),
+        ("history-ignores-language", "mood", "GET", "/api/v1/mood/history",
+         "mood-nulls", {"X-Language": "th"}, None),
+        ("trend-default", "mood", "GET", "/api/v1/mood/trend", "mood-t-high", {}, None),
+        ("trend-explicit-14", "mood", "GET", "/api/v1/mood/trend?days=14",
+         "mood-t-high", {}, None),
+        ("trend-empty", "mood", "GET", "/api/v1/mood/trend", "mood-empty", {}, None),
+        ("trend-mid", "mood", "GET", "/api/v1/mood/trend", "mood-t-mid", {}, None),
+        # 恰好 3.0 ⇒ mid：钉 `avg >= 3` 的等号侧（写成 >3 就翻成 low）
+        ("trend-exactly3", "mood", "GET", "/api/v1/mood/trend", "mood-t-exactly3", {}, None),
+        ("trend-low", "mood", "GET", "/api/v1/mood/trend", "mood-t-low", {}, None),
+        ("trend-unknown-emoji", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-unknown", {}, None),
+        # 窗口边界：days=14 时「正好落在 start 那一瞬」的行进窗、差一秒的出窗（`>=`）
+        ("trend-edge-14", "mood", "GET", "/api/v1/mood/trend?days=14", "mood-t-edge", {}, None),
+        ("trend-edge-13", "mood", "GET", "/api/v1/mood/trend?days=13", "mood-t-edge", {}, None),
+        ("trend-days-1", "mood", "GET", "/api/v1/mood/trend?days=1", "mood-t-high", {}, None),
+        ("trend-days-90", "mood", "GET", "/api/v1/mood/trend?days=90", "mood-t-edge", {}, None),
+        # 同一本地日两行 ⇒ 取升序首行的 emoji（😊=5 而不是 😢=1）
+        ("trend-sameday", "mood", "GET", "/api/v1/mood/trend", "mood-t-sameday", {}, None),
+        # Asia/Shanghai：UTC 23:00 那行属**次一个**本地日 ⇒ labels 与 UTC 口径不同
+        ("trend-sh-14", "mood", "GET", "/api/v1/mood/trend?days=14", "mood-t-sh", {}, None),
+        ("trend-sh-3", "mood", "GET", "/api/v1/mood/trend?days=3", "mood-t-sh", {}, None),
+        # 非法时区名 ⇒ UTC 回退，同样三行、labels 与上面不同（钉 safe_zoneinfo）
+        ("trend-badtz-3", "mood", "GET", "/api/v1/mood/trend?days=3",
+         "mood-t-badtz", {}, None),
+        # 已注销用户 + Shanghai 种子：get_user⇒None ⇒ tz=None ⇒ 走 UTC，不是 40401
+        ("trend-deleted-3", "mood", "GET", "/api/v1/mood/trend?days=3",
+         "mood-t-deleted", {}, None),
+        ("trend-anonymous", "mood", "GET", "/api/v1/mood/trend", "", {}, None),
+        # 四档判据 × 若干语言：summary 文案（其余 60 条闭包走 mood_copy_corpus）
+        ("trend-high-zh-header", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-high", {"X-Language": "zh"}, None),
+        ("trend-mid-th-header", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-mid", {"X-Language": "th"}, None),
+        ("trend-low-km-header", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-low", {"X-Language": "km"}, None),
+        ("trend-empty-de-header", "mood", "GET", "/api/v1/mood/trend",
+         "mood-empty", {"X-Language": "de"}, None),
+        ("trend-exactly3-ja-header", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-exactly3", {"X-Language": "ja"}, None),
+        ("trend-low-ru-header", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-low", {"X-Language": "ru"}, None),
+        # users.language=zh（无 header）⇒ 走第②级读库；非法码 xx 同样落第②级
+        ("trend-zh-db-preference", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-sh", {}, None),
+        ("trend-header-uppercase-zh", "mood", "GET", "/api/v1/mood/trend",
+         "mood-empty", {"X-Language": "ZH"}, None),
+        ("trend-header-region-zh", "mood", "GET", "/api/v1/mood/trend",
+         "mood-empty", {"X-Language": "zh-CN"}, None),
+        ("trend-header-unsupported-falls-back-db", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-sh", {"X-Language": "xx"}, None),
+        ("trend-header-blank-db-zh", "mood", "GET", "/api/v1/mood/trend",
+         "mood-t-sh", {"X-Language": " "}, None),
+        # ?days=+14：int 侧能不能吃加号由录制说了算（标 mood 组＝不假设它一定 400）
+        ("trend-days-plus-14", "mood", "GET", "/api/v1/mood/trend?days=%2B14",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-duplicate", "mood", "GET", "/api/v1/mood/trend?days=1&days=14",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-empty-then-valid", "mood", "GET", "/api/v1/mood/trend?days=&days=3",
+         "mood-t-edge", {"X-Language": "en"}, None),
+        ("trend-days-abc", "validation", "GET", "/api/v1/mood/trend?days=abc",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-float", "validation", "GET", "/api/v1/mood/trend?days=1.5",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-blank", "validation", "GET", "/api/v1/mood/trend?days=",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-zero", "validation", "GET", "/api/v1/mood/trend?days=0",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-91", "validation", "GET", "/api/v1/mood/trend?days=91",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-negative", "validation", "GET", "/api/v1/mood/trend?days=-1",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-space", "validation", "GET", "/api/v1/mood/trend?days=%20",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("trend-days-fullwidth", "validation",
+         "GET", "/api/v1/mood/trend?days=\uff11\uff14", "mood-t-high",
+         {"X-Language": "en"}, None),
+        ("trend-days-two-errors-order", "validation",
+         "GET", "/api/v1/mood/trend?days=abc&days=\u00b1", "mood-t-high",
+         {"X-Language": "en"}, None),
+        # /mood/trend 不认 limit：多余键被忽略 ⇒ 200，所以它**不能**标 validation
+        # （_group 里那道「200 却标 validation」的 tripwire 会先炸）
+        ("trend-limit-ignored", "mood", "GET", "/api/v1/mood/trend?limit=0",
+         "mood-t-high", {"X-Language": "en"}, None),
+        ("reflections-anonymous", "reflection", "GET", "/api/v1/reflections", "", {}, None),
+        ("reflections-empty", "reflection", "GET", "/api/v1/reflections",
+         "refl-empty", {}, None),
+        # 25 行 ⇒ 默认 limit 20 的截断与 DESC 序
+        ("reflections-many", "reflection", "GET", "/api/v1/reflections",
+         "refl-many", {}, None),
+        # related_memory_ids 的 NULL / 空串 / "," / "a,,b" / "only" 五种列原文
+        ("reflections-nulls", "reflection", "GET", "/api/v1/reflections",
+         "refl-nulls", {}, None),
+        # 三种 record_type 混排 ⇒ 只有 'reflection' 进响应（大小写不同也算另一类）
+        ("reflections-by-type", "reflection", "GET", "/api/v1/reflections",
+         "refl-types", {}, None),
+        ("reflections-deleted-user", "reflection", "GET", "/api/v1/reflections",
+         "refl-deleted", {}, None),
+        ("reflections-ghost-user", "reflection", "GET", "/api/v1/reflections",
+         "ghost-user", {}, None),
+        ("reflections-limit-1", "reflection", "GET", "/api/v1/reflections?limit=1",
+         "refl-many", {}, None),
+        ("reflections-limit-100", "reflection", "GET", "/api/v1/reflections?limit=100",
+         "refl-many", {}, None),
+        ("reflections-limit-duplicate", "reflection",
+         "GET", "/api/v1/reflections?limit=2&limit=1", "refl-many", {"X-Language": "en"}, None),
+        ("reflections-limit-abc", "validation", "GET", "/api/v1/reflections?limit=abc",
+         "refl-many", {"X-Language": "en"}, None),
+        ("reflections-limit-zero", "validation", "GET", "/api/v1/reflections?limit=0",
+         "refl-many", {"X-Language": "en"}, None),
+        ("reflections-limit-101", "validation", "GET", "/api/v1/reflections?limit=101",
+         "refl-many", {"X-Language": "en"}, None),
+        ("reflections-limit-float", "validation", "GET", "/api/v1/reflections?limit=2.5",
+         "refl-many", {"X-Language": "en"}, None),
+        ("reflections-limit-blank", "validation", "GET", "/api/v1/reflections?limit=",
+         "refl-many", {"X-Language": "en"}, None),
+        ("reflections-limit-negative", "validation", "GET", "/api/v1/reflections?limit=-1",
+         "refl-many", {"X-Language": "en"}, None),
+        # days 参数不该影响 reflections（多余的键被 Starlette 忽略、不进校验）⇒ 200
+        ("reflections-ignores-days", "reflection", "GET", "/api/v1/reflections?days=abc",
+         "refl-many", {"X-Language": "en"}, None),
     ]
 
 
@@ -1922,6 +2297,47 @@ def share_url_inputs() -> dict:
     return {"site_url": settings.site_url, "app_store_url": settings.app_store_url}
 
 
+def mood_copy_corpus() -> list[dict]:
+    """15 语言 × 4 判据 = 60 条 trend summary 的**闭包**（不是采样）。
+
+    为什么必须闭包：`GET /mood/trend` 的 HTTP 用例只能各命中一格判据，
+    而 Go 侧那 60 条是**逐字节副本**——副本与 `backend/data/copy/*.json` 一旦分叉，
+    只有被命中的那一格会红，其余 59 格静默错。整张表列出来才是闭包。
+    取的是 `copy.t()` 的**返回值**（含它自己的两级回退），不是 JSON 里的原始字面量：
+    这样「目标语言缺键回退 en」那条链也一并进证据面（本域实测零缺键，所以两者相同，
+    但将来谁删了一格，这里会立刻显出回退值而不是消失）。
+    """
+    from backend.core import copy as copy_module
+
+    return [{"locale": loc, "key": f"trend.{k}",
+             "out": copy_module.t("mood", f"trend.{k}", loc)}
+            for loc in copy_module.SUPPORTED_LOCALES
+            for k in ("empty", "high", "mid", "low")]
+
+
+def language_resolve_corpus() -> list[dict]:
+    """`resolve_request_language` 的归一闭包：原始 header 值 → 归一码（或 None）。
+
+    直接调**真函数**（它只读 `request.headers.get("X-Language","")`，所以一个
+    带 headers dict 的简单对象就够），Go 侧由 `domain.ResolveRequestLanguage` 就地重算。
+    这一格存在的理由是摸底发现的两支分叉：`language.py:30` 用 `split("-")[0].lower()`
+    ＋精确成员判定，`copy.py:35` 用 `lower().strip()`＋前缀匹配——同一个原始值
+    两边可以给出不同结论，而 `/mood/trend` 的 summary 恰好**两级都走**。
+    """
+    from types import SimpleNamespace
+
+    from backend.core.language import resolve_request_language
+
+    raws = ["en", "zh", "ZH", "zh-CN", "zh-Hans", "zh_CN", "en-GB", "pt-BR",
+            " ", "  es  ", "", "xx", "portuguese", "ﬁnt", "１４", "de-AT",
+            "km", "km-KH", "tw", "cn", "zh-TW", "es-419", "--"]
+    out = []
+    for raw in raws:
+        resolved = resolve_request_language(SimpleNamespace(headers={"X-Language": raw}))
+        out.append({"raw": raw, "want": resolved})
+    return out
+
+
 def main() -> None:
     seed()
     freeze_clock()
@@ -1955,17 +2371,24 @@ def main() -> None:
         "template_corpus": templates,
         "persona_upper_corpus": personae,
         "referral_corpus": referral_link_corpus(),
+        # 批 5 的两块核：60 条文案闭包＋语言归一闭包。
+        # 都不是 HTTP 用例能覆盖的——前者只有被命中的那一格会红，
+        # 后者两支归一函数的分叉在 200 响应里根本显不出来。
+        "mood_copy_corpus": mood_copy_corpus(),
+        "language_resolve_corpus": language_resolve_corpus(),
         "cases": recorded,
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
                    encoding="utf-8")
     counts = {g: sum(1 for c in recorded if c["group"] == g)
-              for g in ("validation", "seeded", "curriculum", "journey", "onboarding")}
+              for g in ("validation", "seeded", "curriculum", "journey", "onboarding",
+                        "mood", "reflection")}
     accepted = sum(1 for c in corpus if c["ok"])
     print(f"wrote {OUT}: {len(recorded)} cases "
           f"(validation {counts['validation']} / seeded {counts['seeded']} / "
           f"curriculum {counts['curriculum']} / journey {counts['journey']} / "
-          f"onboarding {counts['onboarding']})")
+          f"onboarding {counts['onboarding']} / mood {counts['mood']} / "
+          f"reflection {counts['reflection']})")
     print(f"recorded_at={ANCHOR.isoformat()} journey_events={len(seed_spec()['journey_events'])} "
           f"week_window_corpus={len(payload['week_window_corpus'])} "
           f"push_moment_corpus={len(payload['push_moment_corpus'])} "
@@ -1982,6 +2405,10 @@ def main() -> None:
           f"persona_upper_corpus={len(personae)} "
           f"legal_after_upper={sum(1 for p in personae if p['ascii4'])} "
           f"referral_corpus={len(payload['referral_corpus'])}")
+    print(f"mood_copy_corpus={len(payload['mood_copy_corpus'])} "
+          f"distinct={len({row['out'] for row in payload['mood_copy_corpus']})} "
+          f"language_resolve_corpus={len(payload['language_resolve_corpus'])} "
+          f"resolved={sum(1 for row in payload['language_resolve_corpus'] if row['want'])}")
     print(f"share_url_inputs={payload['share_url_inputs']}")
     print(f"generated_at samples: {samples[:3]}")
 

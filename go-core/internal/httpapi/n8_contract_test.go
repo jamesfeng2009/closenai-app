@@ -10,6 +10,12 @@
 //   - validation 组 —— 400 体的每一字节（无需库：校验失败根本进不到 store）
 //   - seeded / curriculum / journey 组 —— 200/404 体（必须真读同一批行、同一次播种；
 //     后两组的时钟钉在 recorded_at）
+//   - mood / reflection 组（批 5）—— 也是 200 体、也钉在 recorded_at：组名说的是
+//     「回放要不要真库＋冻时钟」，不是域。两组的响应里有 created_at 与 `%m-%d` 标签，
+//     所以按**绝对时刻**播种（见生成脚本的 M()/G()）
+//   - mood_copy_corpus / language_resolve_corpus（批 5）—— 两枚**核闭包**（无需 HTTP）：
+//     前者是 60 格文案副本，后者是 23 格语言归一；HTTP 用例每格只能命中一角，
+//     静默分叉只有整张表列出来才拦得住
 package httpapi
 
 import (
@@ -18,6 +24,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 )
 
 type n8CorpusEntry struct {
@@ -66,6 +74,18 @@ type n8Fixture struct {
 	// ReferralCorpus 钉的是 `site_url.rstrip('/')`：剥一串斜杠而不是一个。
 	// 深链会**落进 first_read 列**并被 restore 复现，配置读歪一支就是切流前后不同链接。
 	ReferralCorpus []n8LinkEntry `json:"referral_corpus"`
+	// MoodCopyCorpus 钉的是批 5 的文案面：15 locale × 4 档判据 = **60 格闭包**，
+	// want 由 Python 的 `copy.t("mood", …)` 现算（含它自己的两级回退）。
+	// 为什么不能只靠 HTTP 用例：`/mood/trend` 每条用例只命中一格，
+	// Go 侧那 60 条是 backend/data/copy/*.json 的逐字节副本——副本与源文件分叉时
+	// 只有被命中的那一格会红，其余 59 格静默错。整张表列出来才叫闭包。
+	MoodCopyCorpus []n8MoodCopyEntry `json:"mood_copy_corpus"`
+	// LanguageResolveCorpus 钉的是批 5 摸到的那**两支语言归一**的第一支
+	// （`language.py:30`：strip → split("-")[0] → lower → 精确成员判定）。
+	// 它和 `copy.py:35 locale_for`（lower → strip → 前缀匹配）在同一个原始 header 上
+	// 可以给出不同结论（实测 `zh_CN`：前者判「没给语言」、后者判 zh），
+	// 而 `/mood/trend` 的 summary 恰好两级都走，所以两支分开钉。
+	LanguageResolveCorpus []n8LanguageEntry `json:"language_resolve_corpus"`
 	// ShareURLInputs 是录制侧 settings 的两个原文；Go 回放必须拿它们构造 cfg，
 	// 而不是用 Go 侧的默认值（见生成脚本 share_url_inputs 的注释）。
 	ShareURLInputs struct {
@@ -96,6 +116,22 @@ type n8UpperEntry struct {
 type n8LinkEntry struct {
 	SiteURL string `json:"site_url"`
 	Link    string `json:"link"`
+}
+
+// n8MoodCopyEntry 一行＝一个 (locale, 判据键) 的 trend summary 文案，want 由 Python 现算。
+// Key 形如 "trend.high"——Go 侧要把它喂给四档判据的哪一个是由 Key 唯一确定的，
+// 所以这一格测的不只是文案，还有「avg>=4 走 high」这条映射。
+type n8MoodCopyEntry struct {
+	Locale string `json:"locale"`
+	Key    string `json:"key"`
+	Want   string `json:"out"`
+}
+
+// n8LanguageEntry 一行＝一个原始 X-Language 值的归一结果；Want=nil 在 Python 侧是
+// 「这个头等于没给」（回落读库），Go 侧对应 normalizeLanguageCode 的 ok=false。
+type n8LanguageEntry struct {
+	Raw  string  `json:"raw"`
+	Want *string `json:"want"`
 }
 
 // n8PushEntry 一行＝一个 (push_time, 时区, 日历日) 的推送时刻观测，want 由 Python 现算。
@@ -152,7 +188,29 @@ type n8Seed struct {
 		// 字段，只有 7/14 天窗口，两侧各用真实当下读同一批行即可；换成绝对时间戳反而
 		// 会让跨过窗口边界的回放不再是「同一批行」。
 		DaysAgo float64 `json:"days_ago"`
+		// CreatedAt 非 nil ⇒ 这一行走**绝对**通道（批 5），此时 DaysAgo 必须缺席
+		// （夹具不给 0，所以这里也不许在绝对分支里读它）。
+		// 为什么批 5 要另开一条：`GET /mood/trend` 的 labels 是 `%m-%d` 日历字段，
+		// 沿用相对口径会让整批标签随重放日期漂移（见生成脚本 `M()` 的注释）。
+		CreatedAt *string `json:"created_at"`
+		// 两列给的是**列原文**：nil⇒SQL NULL、""⇒空串。`get_history` 的
+		// `r.mood_label or ""`(:315) 对这两者响应相同但列上不同，夹具两种都种，
+		// 于是这里必须用指针而不是 string——把 NULL 折成 "" 会让 history-nulls
+		// 那条用例失去「两侧都种了 NULL 行」这个前提。
+		MoodLabel        *string `json:"mood_label"`
+		AIInterpretation *string `json:"ai_interpretation"`
 	} `json:"mood_checkins"`
+	// GrowthRecords 是批 5 的 `GET /reflections` 读的那张表。
+	// RelatedMemoryIDs 给**列原文**（nil⇒NULL、""⇒空串、","⇒两个空 ID、"a,,b"⇒三段）：
+	// reflection_service.py:137 判的是 falsy，而真值那一支的段数完全由逗号位置决定。
+	GrowthRecords []struct {
+		ID               string  `json:"id"`
+		UserID           string  `json:"user_id"`
+		RecordType       string  `json:"record_type"`
+		Content          string  `json:"content"`
+		RelatedMemoryIDs *string `json:"related_memory_ids"`
+		CreatedAt        string  `json:"created_at"`
+	} `json:"growth_records"`
 	// JourneyEvents 是批 2（curriculum）的播种面：payload / memory_refs 给的是
 	// **要插进 TEXT 列的原文**（null 就是 SQL NULL——parse_json 的空值分支只能这么造），
 	// 两侧插同一串字节，解析结果才同源。
@@ -225,6 +283,8 @@ func loadN8Fixture(t *testing.T) n8Fixture {
 		"occurred_at_corpus":       len(file.OccurredAtCorpus) == 0,
 		"cases":                    len(file.Cases) == 0,
 		"seed.users":               len(file.Seed.Users) == 0,
+		"seed.mood_checkins":       len(file.Seed.MoodCheckins) == 0,
+		"seed.growth_records":      len(file.Seed.GrowthRecords) == 0,
 		"seed.onboarding_profiles": len(file.Seed.OnboardingProfiles) == 0,
 		"masked_fields":            len(file.MaskedFields) == 0,
 		"week_window_corpus":       len(file.WeekWindowCorpus) == 0,
@@ -232,6 +292,8 @@ func loadN8Fixture(t *testing.T) n8Fixture {
 		"template_corpus":          len(file.TemplateCorpus) == 0,
 		"persona_upper_corpus":     len(file.PersonaUpperCorpus) == 0,
 		"referral_corpus":          len(file.ReferralCorpus) == 0,
+		"mood_copy_corpus":         len(file.MoodCopyCorpus) == 0,
+		"language_resolve_corpus":  len(file.LanguageResolveCorpus) == 0,
 		"share_url_inputs.site_url": file.ShareURLInputs.SiteURL == "" ||
 			file.ShareURLInputs.AppStoreURL == "",
 	} {
@@ -430,6 +492,89 @@ func TestN8PyISOFormMatchesPydanticSerializer(t *testing.T) {
 			t.Errorf("pyISO = %q，Python 侧 %q", got, tc.want)
 		}
 	}
+}
+
+// TestN8MoodCopyCorpusClosure 是批 5 的文案闭包闸：15 locale × 4 档判据 = 60 格，
+// 每一格都拿 Go 侧的副本现算一遍与 Python 侧录制值逐字比。
+//
+// 走的是**公开判据**（domain.MoodTrendSummary）而不是内部的取键函数：每格先由 Key
+// 决定喂哪一组分值，所以这一张表同时钉住了两件事——文案副本，以及
+// 「avg>=4⇒high / avg>=3⇒mid / 其余⇒low / 空⇒empty」那条映射。
+// 四个分值都取单元素，让 avg 恰好等于阈值本身（4.0 归 high、3.0 归 mid），
+// low 用 1、empty 用空切片。
+func TestN8MoodCopyCorpusClosure(t *testing.T) {
+	file := loadN8Fixture(t)
+	byKey := map[string][]int{
+		"trend.empty": {},
+		"trend.high":  {5},
+		"trend.mid":   {3},
+		"trend.low":   {1},
+	}
+	// 闸别：键名漂了（比如 Python 侧改成 "mood.trend.high"）会让下面查不到分值，
+	// 全部落进未登记分支——所以那条 Fatalf 就是「表没在空跑」的判据。
+	seenLocale := map[string]int{}
+	seenKey := map[string]int{}
+	for _, entry := range file.MoodCopyCorpus {
+		values, ok := byKey[entry.Key]
+		if !ok {
+			t.Fatalf("夹具出现了未登记的判据键 %q（locale=%s）——生成脚本换了口径要同步这里",
+				entry.Key, entry.Locale)
+		}
+		seenLocale[entry.Locale]++
+		seenKey[entry.Key]++
+		if entry.Want == "" {
+			t.Errorf("%s / %s 的 Python 侧文案是空串——copy.t 的回退链坏了",
+				entry.Locale, entry.Key)
+			continue
+		}
+		if got := domain.MoodTrendSummary(values, entry.Locale); got != entry.Want {
+			t.Errorf("文案不符 locale=%s key=%s\n go: %q\n py: %q",
+				entry.Locale, entry.Key, got, entry.Want)
+		}
+	}
+	if len(seenLocale) != 15 || len(seenKey) != 4 {
+		t.Fatalf("闭包形状不对：期望 15 locale × 4 判据＝60 格，实为 locale %d 种、key %d 种（共 %d 行）",
+			len(seenLocale), len(seenKey), len(file.MoodCopyCorpus))
+	}
+	t.Logf("mood 文案闭包 %d 格逐字比对（%d locale × %d 判据）",
+		len(file.MoodCopyCorpus), len(seenLocale), len(seenKey))
+}
+
+// TestN8LanguageResolveCorpusClosure 钉的是批 5 第一支语言归一（`language.py:30`）的
+// 23 格闭包。want 是 Python 现算的：null 表示「这个头等于没给」，Go 侧必须落在
+// normalizeLanguageCode 的 ok=false 那一支，而不是返回 ""（后者会继续往下读库）。
+//
+// 这一张表存在的原因是摸底实测到的两支分叉：`zh_CN`（下划线不是分隔符）在第一支
+// 判「不支持」、在第二支（copy.py 的前缀匹配）判 zh。夹具里两种口径的输入都有，
+// 所以两支各自钉死、不许合并成一个「更聪明」的归一函数。
+func TestN8LanguageResolveCorpusClosure(t *testing.T) {
+	file := loadN8Fixture(t)
+	var accepted, rejected int
+	for _, entry := range file.LanguageResolveCorpus {
+		code, ok := normalizeLanguageCode(entry.Raw)
+		if entry.Want == nil {
+			rejected++
+			if ok {
+				t.Errorf("Python 认为 %q 等于没给语言，Go 却归一成了 %q", entry.Raw, code)
+			}
+			continue
+		}
+		accepted++
+		if !ok {
+			t.Errorf("Python 把 %q 判为 %q，Go 却认为不受支持", entry.Raw, *entry.Want)
+			continue
+		}
+		if code != *entry.Want {
+			t.Errorf("%q 的归一码不符：py=%q go=%q", entry.Raw, *entry.Want, code)
+		}
+	}
+	// 两条都非空才是闭包：全 accepted 意味着「不支持」那一支没有观测点，
+	// 全 rejected 意味着 Go 侧返回什么都不会红。
+	if accepted == 0 || rejected == 0 {
+		t.Fatalf("语言归一闭包只剩一类：生效 %d / 视为没给 %d", accepted, rejected)
+	}
+	t.Logf("language_resolve 闭包 %d 格（生效 %d / 视为没给 %d）",
+		len(file.LanguageResolveCorpus), accepted, rejected)
 }
 
 // TestN8FixtureCorpusCoversBothRejectShapes 是夹具自身的闸：

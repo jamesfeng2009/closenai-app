@@ -129,6 +129,34 @@ func (f n8ForbiddenOnboarding) OnboardingProfile(_ context.Context, userID strin
 	return domain.OnboardingProfile{}, errors.New("n8: store must not be read")
 }
 
+// n8ForbiddenBatch5 给批 5 的 validation 组用，理由与 n8ForbiddenOnboarding 同一条：
+// Batch5 为 nil 时那三条路由不注册，15 条 mood/reflection 的 400 用例会红成 404。
+// 挂上这个假件以后，红绿才在说「路由在、校验失败时一次库都不许碰」。
+//
+// 四个方法各自的消息写的是**表名**，因为这一组里读库的分支有三条
+// （mood_checkins 两次、users 一次由 n8ForbiddenStore 守、growth_records 一次）。
+type n8ForbiddenBatch5 struct{ t *testing.T }
+
+func (f n8ForbiddenBatch5) MoodHistory(_ context.Context, userID string, _ int64) ([]domain.MoodCheckinRow, error) {
+	f.t.Errorf("validation 用例读了 mood_checkins(%s)——Python 侧校验失败根本不进 store", userID)
+	return nil, errors.New("n8: store must not be read")
+}
+
+func (f n8ForbiddenBatch5) MoodTrendRows(_ context.Context, userID string, _ time.Time) ([]domain.Checkin, error) {
+	f.t.Errorf("validation 用例读了 mood_checkins 的窗口查询(%s)——Python 侧校验失败根本不进 store", userID)
+	return nil, errors.New("n8: store must not be read")
+}
+
+func (f n8ForbiddenBatch5) MoodUserTimezone(_ context.Context, userID string) (string, bool, error) {
+	f.t.Errorf("validation 用例读了 users 的时区(%s)——Python 侧校验失败根本不进 store", userID)
+	return "", false, errors.New("n8: store must not be read")
+}
+
+func (f n8ForbiddenBatch5) Reflections(_ context.Context, userID string, _ string, _ int64) ([]domain.ReflectionRow, error) {
+	f.t.Errorf("validation 用例读了 growth_records(%s)——Python 侧校验失败根本不进 store", userID)
+	return nil, errors.New("n8: store must not be read")
+}
+
 // n8RecordingRelay 记下发出去的事件，但**绝不联网**（测试里不许打 posthog）。
 //
 // mutex 不是装饰：relayEvents 是并发派发的，没有锁时这里追加的是竞争写，
@@ -154,14 +182,14 @@ func (r *n8RecordingRelay) count() int {
 }
 
 func newN8Server(t *testing.T, users UserProfileReader, moods MoodReader, relay Relay,
-	batch2 *Batch2, batch3 *Batch3, batch4 *Batch4) *Server {
+	batch2 *Batch2, batch3 *Batch3, batch4 *Batch4, batch5 *Batch5) *Server {
 	t.Helper()
 	cfg := config.Config{AppName: "ClosenAI", Environment: "development", HTTPAddr: ":0"}
 	signer := auth.NewSigner("n8-contract-golden-secret-n8-contract-golden",
 		30*time.Minute, 30*24*time.Hour)
 	// 这两条路由不碰 auth.Service；灰度闸留 nil＝全量由 Go 回答（见 cutover.Selected）。
 	return NewServer(cfg, signer, nil, nil, &Batch1{Users: users, Moods: moods, Relay: relay},
-		batch2, batch3, batch4)
+		batch2, batch3, batch4, batch5)
 }
 
 // replayN8Case 把一个夹具用例打回 Go 侧，并把响应压到与录制同样的口径。
@@ -221,8 +249,10 @@ func TestN8ValidationContractBytes(t *testing.T) {
 	file := loadN8Fixture(t)
 	forbidden := n8ForbiddenStore{t: t}
 	onb := n8ForbiddenOnboarding{t: t}
+	b5 := n8ForbiddenBatch5{t: t}
 	handler := newN8Server(t, forbidden, forbidden, &n8RecordingRelay{t: t},
-		nil, nil, &Batch4{Store: onb}).Handler()
+		nil, nil, &Batch4{Store: onb},
+		&Batch5{Moods: b5, Reflections: b5, Users: forbidden}).Handler()
 
 	var replayed int
 	for _, c := range file.Cases {
@@ -237,7 +267,22 @@ func TestN8ValidationContractBytes(t *testing.T) {
 	if replayed == 0 {
 		t.Fatal("validation 组为空：分组键 group 漂移了")
 	}
-	t.Logf("validation 组 %d 条 400 体逐字回放（全程未读库）", replayed)
+	// 批 5 的 15 条（trend 的 days 九条＋reflections 的 limit 六条）必须真的在这组里：
+	// 组名换了、或用例被删空，上面那句 replayed!=0 仍然绿，而 400 面已经没人回放了。
+	// 只设下界不设精确值——以后再加一格校验用例时这里不该变红。
+	var batch5Validated int
+	for _, c := range file.Cases {
+		if c.Group == "validation" && (strings.HasPrefix(c.Path, "/api/v1/mood/") ||
+			strings.HasPrefix(c.Path, "/api/v1/reflections")) {
+			batch5Validated++
+		}
+	}
+	if batch5Validated < 15 {
+		t.Fatalf("validation 组里批 5 的校验用例只有 %d 条，录制时是 15 条（days 9 + limit 6）"+
+			"——少一条就是 queryInt 的某一格失去了观测点", batch5Validated)
+	}
+	t.Logf("validation 组 %d 条 400 体逐字回放（全程未读库，其中批 5 %d 条）",
+		replayed, batch5Validated)
 }
 
 // TestN8MaskedFieldsStayRedacted 守的是掩码自身的失效模式：
@@ -375,7 +420,10 @@ func n8Pool(t *testing.T) *pgxpool.Pool {
 }
 
 // n8SeedRows 播种夹具给的同一批行：
-//   - mood_checkins 按 days_ago **相对当下**（批 1 只有 7/14 天窗口，没有日历字段）；
+//   - mood_checkins 有**两条通道**：批 1 的行按 days_ago 相对当下（discovery 只读
+//     7/14 天窗的计数与均值，没有日历字段），批 5 的行按 created_at 绝对时刻
+//     （trend 的 labels 是 `%m-%d`，history 把 created_at 原样写进响应）；
+//   - growth_records（批 5）按绝对时刻播种，record_type 与 related_memory_ids 给列原文；
 //   - journey_events 按 scheduled_at **绝对时刻**（批 2 的响应里有 week_start/date，
 //     两侧必须读同一串瞬间，见夹具的 recorded_at）；
 //   - users 的 push_time / created_at 与 onboarding_profiles.created_at 全是**列原文/
@@ -407,6 +455,29 @@ func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 		}
 	}
 	for _, m := range seed.MoodCheckins {
+		// 两条通道按**键是否缺席**分派：批 1 的行只有 days_ago（相对回放当下），
+		// 批 5 的行只有 created_at（绝对）。绝对行走相对口径会让 `/mood/trend` 的
+		// `%m-%d` 标签随重放日期整批漂移，而那是响应里的字节。
+		// 反过来把批 1 的行钉成绝对时刻，会让已结案的 discovery 用例换一批行。
+		if m.CreatedAt != nil {
+			if m.DaysAgo != 0 {
+				t.Fatalf("种子 %s 同时给了 created_at 与 days_ago——两条通道只能走一条", m.ID)
+			}
+			if _, err := pool.Exec(ctx, `
+				INSERT INTO mood_checkins (id, user_id, mood_emoji, mood_label,
+					ai_interpretation, created_at)
+				VALUES ($1, $2, $3, $4, $5, $6)
+				ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id,
+					mood_emoji = EXCLUDED.mood_emoji,
+					mood_label = EXCLUDED.mood_label,
+					ai_interpretation = EXCLUDED.ai_interpretation,
+					created_at = EXCLUDED.created_at`,
+				m.ID, m.UserID, m.MoodEmoji, m.MoodLabel, m.AIInterpretation,
+				*m.CreatedAt); err != nil {
+				t.Fatalf("seed mood(abs) %s: %v", m.ID, err)
+			}
+			continue
+		}
 		days := strconv.FormatFloat(m.DaysAgo, 'f', -1, 64)
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO mood_checkins (id, user_id, mood_emoji, created_at)
@@ -414,6 +485,23 @@ func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 			ON CONFLICT (id) DO NOTHING`,
 			m.ID, m.UserID, m.MoodEmoji, days); err != nil {
 			t.Fatalf("seed mood %s: %v", m.ID, err)
+		}
+	}
+	// 批 5 的 `GET /reflections` 读这张表。record_type 与 related_memory_ids 都给
+	// **列原文**：夹具里刻意种了一条 "Reflection"（首字母大写）来钉「精确等值」，
+	// 而 refs 的 NULL / "" / "," / "a,,b" 四形对应 falsy 判据与 split 段数。
+	for _, g := range seed.GrowthRecords {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO growth_records (id, user_id, record_type, content,
+				related_memory_ids, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id,
+				record_type = EXCLUDED.record_type, content = EXCLUDED.content,
+				related_memory_ids = EXCLUDED.related_memory_ids,
+				created_at = EXCLUDED.created_at`,
+			g.ID, g.UserID, g.RecordType, g.Content, g.RelatedMemoryIDs,
+			g.CreatedAt); err != nil {
+			t.Fatalf("seed growth %s: %v", g.ID, err)
 		}
 	}
 	for _, e := range seed.JourneyEvents {
@@ -459,6 +547,9 @@ func n8CleanSeedRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
 		`DELETE FROM mood_checkins WHERE id LIKE 'n8b1-%' OR user_id LIKE 'n8b1-%'`,
 		`DELETE FROM onboarding_profiles WHERE id LIKE 'n8b1-%' OR user_id LIKE 'n8b1-%'`,
 		`DELETE FROM journey_events WHERE id LIKE 'n8b1-%' OR user_id LIKE 'n8b1-%'`,
+		// 批 5：/reflections 是纯读，但**必须先清**——上一轮遗留的行会让 LIMIT 截断
+		// 落在不同行上（夹具的 reflections-many 钉的正是「20 条里截到第几条」）。
+		`DELETE FROM growth_records WHERE id LIKE 'n8b1-%' OR user_id LIKE 'n8b1-%'`,
 		`DELETE FROM users WHERE id LIKE 'n8b1-%'`,
 	} {
 		if _, err := pool.Exec(ctx, q); err != nil {
@@ -477,7 +568,7 @@ func TestN8SeededContractBytes(t *testing.T) {
 
 	relay := &n8RecordingRelay{t: t}
 	pg := store.NewPG(pool)
-	handler := newN8Server(t, pg, pg, relay, nil, nil, nil).Handler()
+	handler := newN8Server(t, pg, pg, relay, nil, nil, nil, nil).Handler()
 
 	var replayed, wantRelayed int
 	for _, c := range file.Cases {
@@ -540,7 +631,7 @@ func TestN8CurriculumContractBytes(t *testing.T) {
 
 	forbidden := &n8NoRelayStore{t: t}
 	pg := store.NewPG(pool)
-	srv := newN8Server(t, pg, pg, forbidden, &Batch2{Store: pg}, nil, nil)
+	srv := newN8Server(t, pg, pg, forbidden, &Batch2{Store: pg}, nil, nil, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -588,7 +679,7 @@ func TestN8JourneyContractBytes(t *testing.T) {
 
 	pg := store.NewPG(pool)
 	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t},
-		&Batch2{Store: pg}, &Batch3{Store: pg}, nil)
+		&Batch2{Store: pg}, &Batch3{Store: pg}, nil, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -636,7 +727,7 @@ func TestN8OnboardingContractBytes(t *testing.T) {
 	anchor := n8Anchor(t, file)
 
 	pg := store.NewPG(pool)
-	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t}, nil, nil, &Batch4{Store: pg})
+	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t}, nil, nil, &Batch4{Store: pg}, nil)
 	srv.cfg.SiteURL = file.ShareURLInputs.SiteURL
 	srv.cfg.AppStoreURL = file.ShareURLInputs.AppStoreURL
 	srv.now = func() time.Time { return anchor }
@@ -673,4 +764,174 @@ func TestN8OnboardingContractBytes(t *testing.T) {
 		"Go 侧掩码合计 uuid %d / 码 %d / created_at %d",
 		replayed, anchor.Format(time.RFC3339), file.ShareURLInputs.SiteURL,
 		goMasks, goCodes, goCreated)
+}
+
+// ── mood / reflection 组（批 5）：真库 + 冻时钟，四条掩码全为 0 ───────────────────
+
+// n8Count 数一组用例里响应体带着某个片段的条数，用作「这一组不是空跑」的判据。
+// 逐字比本身已经保证「Go 的字节＝Python 的字节」，但整组若都退化成了同一种形态
+// （例如种子行没插进去 ⇒ 40 条全是空数组），上面依然全绿。
+func n8Count(cases []n8Case, fragment string) int {
+	var n int
+	for _, c := range cases {
+		if strings.Contains(c.ResponseText, fragment) {
+			n++
+		}
+	}
+	return n
+}
+
+// TestN8MoodContractBytes 是批 5 的 mood 验收闸：GET /mood/history 与 GET /mood/trend
+// 的响应字节逐字等于真 FastAPI 录下来的那串。
+//
+// 这一组与批 3/批 4 最大的不同是**一条掩码都不许用**（夹具里 id/code/created_at
+// 三个计数全为 0）：history 的 id 是种子的 `n8b1-…` 形状而不是 uuid4，created_at 是
+// 按 ANCHOR 算好的绝对时刻。于是 `Z` 这个序列化形状是**逐字比出来的**，
+// 不是靠格式测推的——这也是批 5 取证推翻「批 5 走 +00:00」那句推定的那件事。
+//
+// 时钟仍要钉在 recorded_at：trend 的窗口下界是 `utc_now() − days*86400`，
+// 而 `mood-t-edge` 那三行里有一行正好压在 ANCHOR−14d 这一瞬、另一行差一秒落在窗外。
+// 回放晚一秒，边界行就会被读进/读出窗口（响应里的数字跟着变）。
+func TestN8MoodContractBytes(t *testing.T) {
+	file := loadN8Fixture(t)
+	pool := n8Pool(t)
+	n8SeedRows(t, pool, file.Seed)
+	anchor := n8Anchor(t, file)
+
+	relay := &n8RecordingRelay{t: t}
+	pg := store.NewPG(pool)
+	srv := newN8Server(t, pg, pg, relay, nil, nil, nil,
+		&Batch5{Moods: pg, Reflections: pg, Users: pg})
+	srv.now = func() time.Time { return anchor }
+	handler := srv.Handler()
+
+	var cases []n8Case
+	for _, c := range file.Cases {
+		if c.Group != "mood" {
+			continue
+		}
+		cases = append(cases, c)
+		t.Run(c.Name, func(t *testing.T) {
+			replayN8Case(t, handler, c)
+		})
+	}
+	if len(cases) == 0 {
+		t.Fatal("mood 组为空：分组键 group 漂移了")
+	}
+	// 四个形态各要有观测点：非空/空数组 × history/trend。
+	// 空态尤其要紧——Go 的 nil 切片 marshal 成 null，而契约是 []。
+	for fragment, why := range map[string]string{
+		`"checkins":[{`: "history 的非空数组（真读到了种子行）",
+		`"checkins":[]`: "history 的空态（必须是 []，不是 null）",
+		`"labels":["`:   "trend 的非空标签（%m-%d 日历字段）",
+		`"labels":[]`:   "trend 的空态（同上）",
+	} {
+		if n := n8Count(cases, fragment); n == 0 {
+			t.Errorf("mood 组没有任何一条走到 %s（缺片段 %q）——上面全绿不证明任何事", why, fragment)
+		}
+	}
+	// summary 走的是 15 语言文案副本：若整组都是 ASCII，说明语言依赖那条链没被走到
+	// （夹具的 trend-*-header 六条与 zh-db-preference 就是为这一格存在的）。
+	if n8Count(cases, `"labels":["10-`) == 0 {
+		t.Errorf("mood 组没有任何一条 trend 带出月-日标签：窗口与折算那一步没被走到")
+	}
+	if nonASCII := n8NonASCIISummaryCount(cases); nonASCII == 0 {
+		t.Errorf("mood 组没有任何一条非英文 summary：文案副本那一条链（copy.t）没被走到")
+	}
+	// 本域零外发：Python 侧 mood_service 一个分析事件都不打，Go 侧若「顺手」补一条
+	// 就是灰度期的数据面差异，而响应字节看不出来。
+	if got := relay.count(); got != 0 {
+		t.Errorf("mood 组外发了 %d 条事件，Python 侧这个域一条都不打", got)
+	}
+	t.Logf("mood 组 %d 条逐字回放（锚点 %s，真读 users/mood_checkins，零掩码、零外发）",
+		len(cases), anchor.Format(time.RFC3339))
+}
+
+// n8NonASCIISummaryCount 数 summary 里带非 ASCII 文案的用例条数（即走了本地化副本）。
+func n8NonASCIISummaryCount(cases []n8Case) int {
+	var n int
+	for _, c := range cases {
+		i := strings.Index(c.ResponseText, `"summary":"`)
+		if i < 0 {
+			continue
+		}
+		for _, r := range c.ResponseText[i+len(`"summary":"`):] {
+			if r == '"' {
+				break
+			}
+			if r > 0x7f {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+// TestN8ReflectionContractBytes 是批 5 的 reflections 验收闸：GET /reflections 的
+// 响应字节逐字等于录制那串。
+//
+// 这一组最要紧的三格都在**列原文**上，而它们都只能靠逐字比：
+//   - related_memory_ids 的 NULL / "" 两种列值都给 `null`（falsy 判据，不是 IS NULL）；
+//   - "," 给 ["",""]、"a,,b" 给 ["a","","b"]（段数完全由逗号位置决定）；
+//   - 夹具种了一条 record_type="Reflection"（首字母大写）必须**不出现**在响应里
+//     ——Go 侧若把等值写成宽松匹配，这一格立刻红。
+func TestN8ReflectionContractBytes(t *testing.T) {
+	file := loadN8Fixture(t)
+	pool := n8Pool(t)
+	n8SeedRows(t, pool, file.Seed)
+	anchor := n8Anchor(t, file)
+
+	relay := &n8RecordingRelay{t: t}
+	pg := store.NewPG(pool)
+	srv := newN8Server(t, pg, pg, relay, nil, nil, nil,
+		&Batch5{Moods: pg, Reflections: pg, Users: pg})
+	srv.now = func() time.Time { return anchor }
+	handler := srv.Handler()
+
+	var cases []n8Case
+	for _, c := range file.Cases {
+		if c.Group != "reflection" {
+			continue
+		}
+		cases = append(cases, c)
+		t.Run(c.Name, func(t *testing.T) {
+			replayN8Case(t, handler, c)
+		})
+	}
+	if len(cases) == 0 {
+		t.Fatal("reflection 组为空：分组键 group 漂移了")
+	}
+	for fragment, why := range map[string]string{
+		`"data":[]`:                         "空态给空数组而不是 null",
+		`"related_memory_ids":null`:         "列原文 NULL 与空串并成 null 那一支",
+		`"related_memory_ids":["a","","b"]`: "split 的段数由逗号位置决定那一支",
+		`"related_memory_ids":["",""]`:      `只有两个空 ID 的那一支（"," ⇒ ["",""]）`,
+	} {
+		if n := n8Count(cases, fragment); n == 0 {
+			t.Errorf("reflection 组没有任何一条走到 %s（缺片段 %q）", why, fragment)
+		}
+	}
+	// 精确等值那一格：同一个人名下种了 5 行，其中 daily_insight(g1)、
+	// weekly_summary(g2) 与 "Reflection"(g4，首字母大写) 三行**都不该出现在响应里**。
+	// 只断言「不出现」会被整组空响应蒙过，所以同时钉住 reflection 那两行确实出现了。
+	for _, forbiddenID := range []string{"n8b1-refl-types-g1", "n8b1-refl-types-g2",
+		"n8b1-refl-types-g4"} {
+		for _, c := range cases {
+			if strings.Contains(c.ResponseText, forbiddenID) {
+				t.Errorf("%s 的响应里有 %s——record_type 的等值被写成了宽松匹配"+
+					"（夹具那行给的是**列原文**类型，Python 侧走的是 SQL 的 =）",
+					c.Name, forbiddenID)
+			}
+		}
+	}
+	if n8Count(cases, `"id":"n8b1-refl-types-g0"`) == 0 {
+		t.Errorf("reflection 组没有一条响应带出 n8b1-refl-types-g0：上面那三条「不出现」" +
+			"是被空响应当过去的，等值那一格没有观测点")
+	}
+	if got := relay.count(); got != 0 {
+		t.Errorf("reflections 组外发了 %d 条事件，Python 侧 list 一条都不打", got)
+	}
+	t.Logf("reflection 组 %d 条逐字回放（锚点 %s，真读 growth_records，零掩码、零外发）",
+		len(cases), anchor.Format(time.RFC3339))
 }
