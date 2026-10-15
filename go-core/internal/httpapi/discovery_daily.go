@@ -30,7 +30,7 @@ func (s *Server) handleDiscoveryDaily(w http.ResponseWriter, r *http.Request) {
 
 	// get_request_language 在 FastAPI 里是**先于**端点函数执行的依赖，
 	// 所以它读库失败也不影响请求（Python 侧整段包在 except Exception 里）。
-	language := s.requestLanguage(r, userID)
+	language := s.requestLanguage(r, userID, s.batch1.Users)
 
 	profile, err := s.batch1.Users.UserProfile(r.Context(), userID)
 	if err != nil {

@@ -35,6 +35,9 @@ type Server struct {
 	// 所以「不注册」在灰度期意味着**连补写都不发生**——未放量的用户仍由 py-api 补，
 	// 两侧行为一致的前提是 0% 时请求真的整条转交（internal/cutover）。
 	batch3 *Batch3
+	// batch5 是 N8 批 5（mood + reflections 三条纯读）的依赖面；因为这个域全是读，
+	// 「nil 时不注册」没有批 3/批 4 那种「连补写都不发生」的连带后果。
+	batch5 *Batch5
 	// batch4 是 N8 批 4（onboarding 域）的依赖面；nil 时那两条路由不注册，口径同批 3。
 	// 这个域是已切流域里唯一**一次请求写三处**的（users.referral_code、
 	// onboarding_profiles、journey_events 六行），且三处的写条件不同源，
@@ -51,7 +54,7 @@ type Server struct {
 
 func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2,
-	batch3 *Batch3, batch4 *Batch4) *Server {
+	batch3 *Batch3, batch4 *Batch4, batch5 *Batch5) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
@@ -61,6 +64,7 @@ func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 		batch2:     batch2,
 		batch3:     batch3,
 		batch4:     batch4,
+		batch5:     batch5,
 		now:        time.Now,
 		mux:        http.NewServeMux(),
 	}
@@ -103,6 +107,17 @@ func (s *Server) routes() {
 	if s.batch4 != nil {
 		s.mux.HandleFunc("POST /api/v1/onboarding/first-read", s.handleFirstReadSubmit)
 		s.mux.HandleFunc("GET /api/v1/onboarding/first-read", s.handleFirstReadRestore)
+	}
+	// N8 批 5 的三条纯读。同域的 POST /mood/checkin、POST /reflections、
+	// POST /reflections/generate **不在**这里注册：它们要 LLM、配额与 AI 同意，
+	// 属后面几家。Ingress 那边只列 mood 的两条 path——**path 匹配不看方法**，
+	// 而 /api/v1/reflections 的 GET 与 POST 共用一个 path，Exact 一刀也会把 POST 搬来
+	// 打在这台没注册它的 mux 上（405），所以下面第三条此刻**从入口不可达**，
+	// 等最后一批把 POST 一起接走时再上 path；键 CLOSEN_CUTOVER_REFLECTIONS 已先声明为 0。
+	if s.batch5 != nil {
+		s.mux.HandleFunc("GET /api/v1/mood/history", s.handleMoodHistory)
+		s.mux.HandleFunc("GET /api/v1/mood/trend", s.handleMoodTrend)
+		s.mux.HandleFunc("GET /api/v1/reflections", s.handleReflectionsList)
 	}
 	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
 	s.mux.HandleFunc("/", s.handleNotFound)

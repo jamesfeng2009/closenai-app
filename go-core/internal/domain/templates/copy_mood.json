@@ -1,0 +1,92 @@
+{
+ "de": {
+  "empty": "Noch nicht genug Daten — beginne, deinen ersten Tag festzuhalten.",
+  "high": "Deine Stimmung war insgesamt richtig gut — behalte diesen Rhythmus bei.",
+  "low": "In letzter Zeit war deine Stimmung etwas gedrückt. Sei besonders gut zu dir — ich bin da.",
+  "mid": "Deine Stimmung ist recht stabil. Höre gelegentlich in dich hinein."
+ },
+ "en": {
+  "empty": "Not enough check-in data yet — start recording your first day.",
+  "high": "Your overall mood has been great — keep the rhythm going.",
+  "low": "Things have felt a bit low lately. Take extra care of yourself — I'm here.",
+  "mid": "Your mood is mostly steady. Check in with yourself now and then."
+ },
+ "es": {
+  "empty": "Aún no hay datos suficientes: empieza registrando tu primer día.",
+  "high": "Tu ánimo general ha sido muy bueno; mantiene ese ritmo.",
+  "low": "Últimamente te has sentido algo baja o bajo. Cuídate mucho; aquí estaré.",
+  "mid": "Tu ánimo se mantiene estable. Escúchate de vez en cuando."
+ },
+ "fr": {
+  "empty": "Pas encore assez de données — commence par noter ta première journée.",
+  "high": "Ton humeur générale a été très bonne — garde ce rythme.",
+  "low": "Ces derniers temps, l'humeur était un peu basse. Prends soin de toi — je suis là.",
+  "mid": "Ton humeur reste plutôt stable. Prends de ses nouvelles de temps en temps."
+ },
+ "id": {
+  "empty": "Data catatan masih kurang — mulailah mencatat hari pertamamu.",
+  "high": "Suasana hatimu secara keseluruhan bagus — pertahankan ritmenya.",
+  "low": "Beberapa waktu ini hatimu terasa agak rendah. Jagalah dirimu baik-baik, aku di sini.",
+  "mid": "Suasana hatimu cukup stabil. Sesekali perhatikan perasaanmu sendiri."
+ },
+ "it": {
+  "empty": "Ancora non ci sono abbastanza dati — inizia registrando la tua prima giornata.",
+  "high": "Il tuo umore generale è stato ottimo — mantieni questo ritmo.",
+  "low": "Ultimamente l'umore è un po' basso. Abbi molta cura di te — io sono qui.",
+  "mid": "Il tuo umore è abbastanza stabile. Ogni tanto ascolta come stai."
+ },
+ "ja": {
+  "empty": "まだ記録が足りません。最初の一日を記録してみましょう。",
+  "high": "全体的に気分が良いようです。この調子を続けましょう。",
+  "low": "ここ数日、少し気分が沈んでいるようです。自分をいたわってください。私はここにいます。",
+  "mid": "気分はおおむね安定しています。ときどき自分の気持ちに目を向けてみて。"
+ },
+ "km": {
+  "empty": "ទិន្នន័យកត់ត្រានៅមិនគ្រប់គ្រាន់ — ចាប់ផ្ដើមកត់ត្រាថ្ងៃដំបូងរបស់អ្នកទៅ។",
+  "high": "អារម្មណ៍រួមរបស់អ្នកល្អប្រសើរ — សូមរក្សាចង្វាក់នេះបន្តទៅ។",
+  "low": "ថ្មីៗនេះអារម្មណ៍ខុសពីធម្មតាបន្តិច។ សូមថែរក្សាខ្លួនឯងឲ្យបានល្អ — ខ្ញុំនៅទីនេះជានិច្ច។",
+  "mid": "អារម្មណ៍របស់អ្នកគ្រប់គ្រាន់ស្ថិរភាព។ ពេលខ្លះសូមត្រឡប់មកឮសំឡេងខ្លួនឯងមើល។"
+ },
+ "ko": {
+  "empty": "아직 기록이 부족해요. 첫 하루를 기록해 보세요.",
+  "high": "전반적인 기분이 좋아요. 이 흐름을 계속 이어가요.",
+  "low": "요즘 조금 가라앉아 있네요. 자신을 더 돌봐 주세요. 제가 여기 있을게요.",
+  "mid": "기분이 대체로 안정적이에요. 가끔은 내 마음도 살펴 보세요."
+ },
+ "ms": {
+  "empty": "Data rekod belum cukup — mula merekodkan hari pertama anda.",
+  "high": "Suasana hati anda secara keseluruhannya bagus — kekalkan rentak ini.",
+  "low": "Baru-baru ini hati anda agak rendah. Jaga diri dengan baik, saya di sini.",
+  "mid": "Suasana hati anda agak stabil. Kadangkala perhatikan perasaan sendiri."
+ },
+ "pt": {
+  "empty": "Ainda não há dados suficientes — comece registrando o seu primeiro dia.",
+  "high": "Seu humor geral esteve ótimo — mantenha esse ritmo.",
+  "low": "Ultimamente o humor está um pouco para baixo. Cuide-se bem — estou aqui.",
+  "mid": "Seu humor está bem estável. De vez em quando, olhe para dentro."
+ },
+ "ru": {
+  "empty": "Записей пока мало — начни с первого дня.",
+  "high": "Общее настроение отличное — держи этот ритм.",
+  "low": "В последнее время настроение немного ниже. Позаботься о себе — я рядом.",
+  "mid": "Настроение в основном ровное. Иногда прислушивайся к себе."
+ },
+ "th": {
+  "empty": "ข้อมูลบันทึกยังไม่พอ — เริ่มบันทึกวันแรกของเธอดูนะ",
+  "high": "อารมณ์โดยรวมดีมาก ๆ — รักษาจังหวะแบบนี้ต่อไป",
+  "low": "ช่วงนี้อารมณ์ค่อนข้างต่ำ ดูแลตัวเองให้มากขึ้นนะ ฉันอยู่ตรงนี้เสมอ",
+  "mid": "อารมณ์โดยรวมค่อนข้างนิ่ง คราว ๆ ก็กลับมาฟังใจตัวเองบ้างนะ"
+ },
+ "vi": {
+  "empty": "Dữ liệu ghi chép chưa đủ — hãy bắt đầu ghi ngày đầu tiên của bạn.",
+  "high": "Tâm trạng chung của bạn rất tốt — giữ nhịp này nhé.",
+  "low": "Dạo này tâm trạng hơi trầm. Chăm sóc bản thân nhiều hơn nhé — mình vẫn ở đây.",
+  "mid": "Tâm trạng khá ổn định. Thỉnh thoảng hãy lắng nghe chính mình."
+ },
+ "zh": {
+  "empty": "还没有足够的签到数据，开始记录你的第一天吧。",
+  "high": "整体情绪状态不错，保持这个节奏。",
+  "low": "这段时间情绪有些低落，记得多照顾自己，我在这里。",
+  "mid": "情绪总体平稳，偶尔关注自己的感受。"
+ }
+}

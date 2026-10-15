@@ -75,14 +75,18 @@ func isSupportedLanguage(code string) bool {
 // requestLanguage 复现 get_request_language 的三级优先：
 // ① X-Language 头（归一化后受支持才生效）② users.language（**原文**查表，不归一化）
 // ③ "en"。读库失败不阻塞请求，与 Python 侧的 except Exception 同。
-func (s *Server) requestLanguage(r *http.Request, userID string) string {
+//
+// reader 由调用方给（批 1 传 batch1.Users、批 5 传 batch5.Users）：FastAPI 先解子依赖、
+// 后校验 query 参数，所以 trend 那条即便最终 400 也会走到这一步——传对 reader
+// 才能让「回放时一次库都不许读」这条断言继续成立。
+func (s *Server) requestLanguage(r *http.Request, userID string, users UserProfileReader) string {
 	if code, ok := normalizeLanguageCode(r.Header.Get("X-Language")); ok {
 		return code
 	}
-	if s.batch1 != nil && s.batch1.Users != nil {
+	if users != nil {
 		// get_language：用户不存在或 language 为空串时返回 "en"（user_service.py:253-258）。
 		dbLang := "en"
-		if profile, err := s.batch1.Users.UserProfile(r.Context(), userID); err == nil &&
+		if profile, err := users.UserProfile(r.Context(), userID); err == nil &&
 			profile.Found && profile.Language != "" {
 			dbLang = profile.Language
 		}

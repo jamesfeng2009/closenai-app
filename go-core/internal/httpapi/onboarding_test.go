@@ -83,7 +83,7 @@ func newOnboardingServer(t *testing.T, fake *onboardingFakeStore) *Server {
 			code: "AB7CDEFG"}
 	}
 	srv := newN8Server(t, n8ForbiddenStore{t: t}, n8ForbiddenStore{t: t},
-		&n8NoRelayStore{t: t}, nil, nil, &Batch4{Store: fake, Gate: nil})
+		&n8NoRelayStore{t: t}, nil, nil, &Batch4{Store: fake, Gate: nil}, nil)
 	srv.cfg.SiteURL = testSiteURL
 	srv.cfg.AppStoreURL = testAppStoreURL
 	srv.now = func() time.Time { return time.Date(2026, 10, 14, 14, 45, 30, 0, time.UTC) }
@@ -479,7 +479,7 @@ func TestReferralLinkRTrimSlash(t *testing.T) {
 func TestOnboardingRoutesAbsentWithoutBatch4(t *testing.T) {
 	// 机制没接线（Batch4==nil）时 Go 一条都不答：与未注册路径逐字同形。
 	srv := newN8Server(t, n8ForbiddenStore{t: t}, n8ForbiddenStore{t: t},
-		&n8NoRelayStore{t: t}, nil, nil, nil)
+		&n8NoRelayStore{t: t}, nil, nil, nil, nil)
 	handler := srv.Handler()
 	reference := firstReadRequest(t, handler, http.MethodGet, "u-1", "", "")
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
