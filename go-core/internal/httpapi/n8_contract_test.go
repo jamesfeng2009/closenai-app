@@ -294,8 +294,10 @@ func loadN8Fixture(t *testing.T) n8Fixture {
 		"referral_corpus":          len(file.ReferralCorpus) == 0,
 		"mood_copy_corpus":         len(file.MoodCopyCorpus) == 0,
 		"language_resolve_corpus":  len(file.LanguageResolveCorpus) == 0,
-		"share_url_inputs.site_url": file.ShareURLInputs.SiteURL == "" ||
-			file.ShareURLInputs.AppStoreURL == "",
+		// 只判 site_url：U3-b 之后 `app_store_url` 的**合法值就是空**（两侧都改成
+		// 「没上架 ⇒ 回落站点落地页」），把它当「夹具没落」打红等于把正确形态判错。
+		// 这条判据要保的是「回放用的 cfg 至少有一个能拼出深链的站点」，不是「必须有商店链」。
+		"share_url_inputs.site_url": file.ShareURLInputs.SiteURL == "",
 	} {
 		if empty {
 			t.Fatalf("夹具的 %s 为空——键名漂移或生成脚本没落这一块，本节测会在空跑", name)
