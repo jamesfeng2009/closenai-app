@@ -86,6 +86,18 @@ test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人�
 - #125 不是假想变异：第一版 Go 就是按形状猜写成 `model_type`＋`class_name` 的，
   `onb-answer-item-not-dict` 的逐字节比对把它打红之后才按实测改正。
 
+批 4④（2026-10-15）实测：**23/23 打红**（#127–#149），一条不多一条不少——这一批的
+受害面换成了 Python 侧新写的 `test_n8_batch4_contract.py`（23 条闸），因为本批的口径
+大半是「两侧的常量、表、键序、SQL 谓词还同不同源」，Go 的逐字节回放看不见这些：
+常量两边一起漂它就全绿。所以那 23 条每条都要能被打红一次，否则改 Go 的人本地 CI 一片绿、
+放量那次才在现网现形。几处值得留名的：
+- #127/#128 打的是 `go:embed` 的形状：模板副本分叉在**两侧各自都合法**，回放比不出差异。
+- #132/#133/#136/#146 坏的是夹具本身（探针方向、可达性计数、upper 闭包、组名）——
+  语料过期不是 Go 的错，但只有 Python 侧现算才看得见它过期。
+- #137 与 #123 是**同一处坏法打两层**（Go 的语料测看结果、Python 的闸看源码形状）；
+  #131/#134 打的都是「判据形状的字面量」，语料面碰不到那一格时只有文本比对拦得住。
+- 备份写回后复跑：Go 五个包全绿，四份 Python 闸文件（批 1–4）76 passed / 1 skipped。
+
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
     .venv/bin/python scripts/mutate_n8_gates.py --check    # 只验锚点命中数，不跑测试
@@ -146,10 +158,15 @@ RJ = PY / "routers/journey.py"
 
 # 批 4（onboarding 域：措辞闸 / CPython upper / 深链 / 两条端点的字节面）
 PT = GO / "internal/domain/pytext.go"
+FR = GO / "internal/domain/first_read.go"
 FG = GO / "internal/domain/first_read_gate.go"
 OB = GO / "internal/httpapi/onboarding_body.go"
+OS = GO / "internal/httpapi/onboarding_submit.go"
 OR = GO / "internal/httpapi/onboarding_read.go"
 B4 = GO / "internal/httpapi/batch4.go"
+LS = GO / "internal/store/legacy_batch4.go"
+TPL_ZH = GO / "internal/domain/templates/first_read_zh.json"
+RO = PY / "routers/onboarding.py"
 B4_PYTEST = "backend/tests/test_n8_batch4_contract.py"
 
 API_TESTS = GO / "internal/httpapi"
@@ -160,6 +177,7 @@ STORE_TESTS = GO / "internal/store"
 
 B1_PYTEST = "backend/tests/test_n8_batch1_contract.py"
 B2_PYTEST = "backend/tests/test_n8_batch2_contract.py"
+B2PY = PY / "tests" / "test_n8_batch2_contract.py"
 B3_PYTEST = "backend/tests/test_n8_batch3_contract.py"
 K8S_PYTEST = "backend/tests/test_k8s_manifests.py"
 
@@ -525,6 +543,60 @@ OB_ITEM_MODEL_TYPE = ('\t\t\tkind:  "model_type",\n'
                       '"FirstReadAnswer")),\n')
 OR_CREATED_FROM_COLUMN = '\t\tpayload.set("created_at", pyStringValue(pyISOOffset(profile.CreatedAt)))\n'
 OR_CREATED_FROM_CLOCK = '\t\tpayload.set("created_at", pyStringValue(pyISOOffset(s.now())))\n'
+
+# 批 4④（#127–#149）：受害的是 **pytest 那一条闸**，坏的东西仍在 Go 源/夹具/清单/路由面上。
+# 分工与批 3④（#99–#116）同一条口径：Go 的逐字节回放只比字节，两侧常量漂在一起它就全绿，
+# 所以「字面量同源」这一半必须由 test_n8_batch4_contract.py 自己被打红一次。
+TPL_ZH_CLOSER = '"closer": "30 天后，你会收到第一份《每月故事》——那时它比今天更懂你。"'
+TPL_ZH_CLOSER_FORK = '"closer": "30 天后，你会收到第一份《每月故事》，那时它比今天更懂你。"'
+GEN_TPL_EN = '\t"en": mustParseTemplate(firstReadEnJSON),\n'
+GEN_TPL_EN_TYPO = '\t"eng": mustParseTemplate(firstReadEnJSON),\n'
+FG_BANNED_ZH_ITEM = '"焦虑症", "抑郁症",'
+FG_CAUSAL_ZH_ITEM = '"causal": {"导致", '
+FG_COMPILE_LEADING = ('out = append(out, regexp.MustCompile(`(?i)\\b`'
+                      '+regexp.QuoteMeta(term)))')
+FG_COMPILE_NO_EDGE = ('out = append(out, regexp.MustCompile(`(?i)`'
+                      '+regexp.QuoteMeta(term)))')
+GATE_LANGKEY_HEAD = ('func SafetyLangKey(language string) string {\n'
+                     '\tif strings.HasPrefix(language, "zh") {')
+GATE_LANGKEY_FUSED = ('func SafetyLangKey(language string) string {\n'
+                      '\tlanguage = strings.ToLower(language)\n'
+                      '\tif strings.HasPrefix(language, "zh") {')
+GEN_MIN_BOUND = '\tFirstReadMinAssertions = 2\n'
+OB_ANSWER_LIMIT = '\tmaxFirstReadAnswers = 10\n'
+SUB_KEYS_NINE = ('\tv.set("summary", pyStringValue(card.Summary))\n'
+                 '\tv.set("closer", pyStringValue(card.Closer))\n'
+                 '\tv.set("answer_count"')
+SUB_KEYS_NINE_SWAP = ('\tv.set("closer", pyStringValue(card.Closer))\n'
+                      '\tv.set("summary", pyStringValue(card.Summary))\n'
+                      '\tv.set("answer_count"')
+SUB_ANSWER_KEYS = ('item.set("q", pyStringValue(answer.Q))\n'
+                   '\t\titem.set("option", pyStringValue(answer.Option))')
+SUB_ANSWER_KEYS_SWAP = ('item.set("option", pyStringValue(answer.Option))\n'
+                        '\t\titem.set("q", pyStringValue(answer.Q))')
+SUB_GENERATED_OFFSET = 'v.set("generated_at", pyStringValue(pyISOOffset(now)))'
+SUB_GENERATED_Z = 'v.set("generated_at", pyStringValue(pyISO(now)))'
+OR_RESTORE_ID = '\tpayload.set("id", pyStringValue(profile.ID))\n'
+# 「加一道 consent 闸」在代码面留不下别的痕迹时，至少这个名字会——本条证的是那个字面量闸
+# 真的看代码面，而不是只看注释（注释会被 _code 剔掉，写注释声明「不检查 consent」不算证据）。
+OR_CONSENT_PROBE = '\tconst consentColumn = "ai_consent"\n' + OR_RESTORE_ID
+LS_CODE_GUARD = 'if user.Found && code == "" {'
+LS_CODE_GUARD_FUSED = 'if code == "" {'
+RP_REFERRAL_CHARS = 'regexp.MustCompile(`/r/[A-Z2-7]{8}`)'
+RP_REFERRAL_CHARS_TIGHT = 'regexp.MustCompile(`/r/[A-Z2-6]{8}`)'
+CM_ONBOARDING_ZERO = '  CLOSEN_CUTOVER_ONBOARDING: "0"\n'
+CM_ONBOARDING_FULL = '  CLOSEN_CUTOVER_ONBOARDING: "100"\n'
+RO_GET_DEPRECATED = '@router.get("/onboarding/first-read", deprecated=True)\n'
+RO_GET_LIVE = '@router.get("/onboarding/first-read")\n'
+FX_GROUP_ONBOARDING = '"group": "onboarding"'
+FX_GROUP_ONBOARDING_TYPO = '"group": "onboardingp"'
+FX_PROBE_HIT_BANNED = '"kind": "hit-banned"'
+FX_PROBE_HIT_BANNED_FLIP = '"kind": "safe-banned"'
+FX_REACHABLE_TRUE = '"reachable": true'
+FX_PERSONA_SHARP = '"raw": "\u00df\u00df",\n      "upper": "SSSS"'
+FX_PERSONA_SHARP_BAD = '"raw": "\u00df\u00df",\n      "upper": "SSss"'
+B2_CUT_ROLLCALL = '"journey", "onboarding")'
+B2_CUT_ROLLCALL_DROP = '"journey", "onboardingx")'
 
 MUTATIONS = [
     # ── analytics 的 400 体（FastAPI 的 body 读取面）──────────────────────────
@@ -1265,6 +1337,148 @@ MUTATIONS = [
            "onb-restore-seeded-full 等 8 条 created_at_masks=0 的用例当场差一串字节 ⇒ 红",
       "go", API_TESTS, "TestN8OnboardingContractBytes",
       backup(OR), patch(OR, OR_CREATED_FROM_COLUMN, OR_CREATED_FROM_CLOCK)),
+
+    # ── 批 4④：23 条 Python 闸（test_n8_batch4_contract.py），每条点一个受害测试 ──────
+    m(127, "只改 Go 内嵌模板的一个标点（「——」改成「，」）：go:embed 的副本与 backend/data "
+           "是两份文件，Python 的 sha256 闸看不见 Go 那份，Go 的回放也看不见——它只比字节，"
+           "两侧各自生成的卡都「合法」。文案分叉只能在这条闸上现形",
+      "pytest", B4_PYTEST + "::test_both_embedded_templates_are_byte_identical_to_python_data",
+      "", backup(TPL_ZH), patch(TPL_ZH, TPL_ZH_CLOSER, TPL_ZH_CLOSER_FORK)),
+
+    m(128, "Go 的模板表把键名漂成 eng：这条闸验的是「恰好两格、键就是 zh/en」。"
+           "多一格＝往闸里塞了一份没过措辞审校的文案，而 LocaleFor 永远查不到它 ⇒ "
+           "非中文用户静默拿到零模板。表在 Go 侧，红在 Python 侧",
+      "pytest", B4_PYTEST + "::test_templates_locales_are_exactly_two_and_default_en",
+      "", backup(FR), patch(FR, GEN_TPL_EN, GEN_TPL_EN_TYPO)),
+
+    m(129, "Go 黑名单删一条（zh 的「抑郁症」）：两张表逐条同序比对，条目顺序还会进日志"
+           "（命中哪一条是运维面）。少一条不改响应形状——模板文案本来一条都不命中——"
+           "所以只有表本身可比",
+      "pytest", B4_PYTEST + "::test_banned_terms_match_python_table_entry_by_entry_in_order",
+      "", backup(FG), patch(FG, FG_BANNED_ZH_ITEM, '"焦虑症",')),
+
+    m(130, "Go 的 causal 组删一条（zh 的「导致」）：越界判据是 (third∧label)∨(third∧causal)，"
+           "少一条指纹＝一类因果句从此放行。三组×两 locale 按序逐条比，"
+           "探针面另有 hit-causal-third 那一格",
+      "pytest", B4_PYTEST + "::test_attribution_markers_match_python_table_entry_by_entry_in_order",
+      "", backup(FG), patch(FG, FG_CAUSAL_ZH_ITEM, '"causal": {')),
+
+    m(131, "en 黑名单丢掉前边界：Python 那支是「词边界＋QuoteMeta」，Go 用 (?i) 拼出来；"
+           "去掉边界就是把 zh 的纯子串匹配搬到 en 上，「heal」会从「healing」里命中。"
+           "判据形状的字面量闸不是装饰，探针面的 hit-boundary-post 就是它的观测点",
+      "pytest", B4_PYTEST + "::test_gate_semantics_are_the_replicated_ones_not_a_rewrite",
+      "", backup(FG), patch(FG, FG_COMPILE_LEADING, FG_COMPILE_NO_EDGE)),
+
+    m(132, "把 hit-banned 两条探针的 kind 翻成 safe-*：探针面若只剩一个方向，"
+           "「删掉整条判据也全绿」就会回来（批 4 实测过：闭包 92 条一条都不被闸掉）。"
+           "这一条证的是 kind 词表本身就是判据，不是给人看的注释",
+      "pytest", B4_PYTEST + "::test_corpus_probes_are_two_sided_not_closure_only",
+      "", backup(FX), patch_all(FX, FX_PROBE_HIT_BANNED, FX_PROBE_HIT_BANNED_FLIP)),
+
+    m(133, "夹具的可达性计数被改掉（reachable 的 56 条全翻成 false）：这一条是"
+           "「夹具 == Python」那半段的接缝——Go 比的是「Go == 夹具」，输入是同一份 JSON。"
+           "夹具对 Python 的可达性一旦过期（改了 Python 侧没重录）必须在这里红，"
+           "而不是等回放出现代差",
+      "pytest", B4_PYTEST + "::test_template_corpus_is_still_python_answered", "",
+      backup(FX), patch_all(FX, FX_REACHABLE_TRUE, '"reachable": false')),
+
+    m(134, "把 SafetyLangKey 并进 lower 那一支（加一行 ToLower）：两支函数**答案不同**"
+           "（ZH 在 locale_for 落 zh、在 _lang_key 落 en）。合并看着是清理，实际同时改掉"
+           "了 safety 其它 scope 的语言判定，而 Go 的回放只覆盖本域那一条路",
+      "pytest", B4_PYTEST + "::test_locale_normalization_stays_two_functions_with_two_answers",
+      "", backup(FG), patch(FG, GATE_LANGKEY_HEAD, GATE_LANGKEY_FUSED)),
+
+    m(135, "断言条数下限从 2 抬到 3（PRD §5.19.2 B01 是 2–3）：MIN 决定补几条 filler、"
+           "MAX 决定截到几条，两个数各自进字节面。抄成一个数，就是那张卡少一句话"
+           "而形状照样合法",
+      "pytest", B4_PYTEST + "::test_assertion_count_bounds_shared_with_go", "",
+      backup(FR), patch(FR, GEN_MIN_BOUND, '\tFirstReadMinAssertions = 3\n')),
+
+    m(136, "夹具 upper 闭包里 ßß 那条写成 SSss：本条是把 BMP 全码位重扫一遍后逐条相等。"
+           "「多码位展开」在 persona_type 的校验（四张大写字母）上是响应面问题，"
+           "手挑几条永远说不出「Python 复刻的是 CPython 的 upper，不是 ASCII 的」",
+      "pytest", B4_PYTEST + "::test_persona_upper_corpus_is_a_python_closure", "",
+      backup(FX), patch(FX, FX_PERSONA_SHARP, FX_PERSONA_SHARP_BAD)),
+
+    m(137, "深链的 rstrip 写成 TrimSuffix（同一个坏法，这次打 Python 侧）：Go 的语料测看"
+           "拼装结果，这条闸看的是**源码形状**——剥单个还是剥一串只有在 site_url 配成"
+           "多尾斜杠时才现形，而那个串要落进 first_read 列、restore 按列复现不回查设置",
+      "pytest", B4_PYTEST + "::test_referral_link_and_alphabet_shared_by_both_sides", "",
+      backup(B4), patch(B4, B4_LINK_TRIM_RIGHT, B4_LINK_TRIM_SUFFIX)),
+
+    m(138, "九键里 summary 与 closer 换序：POST 直接把这份 dict 当 data 回，键序逐字进"
+           "响应体；同一份内容还以默认分隔符落进 first_read 列。pydantic 与 Go 的 "
+           "encoding/json 都不看序，所以只有「按出现序取 set」这条闸看得见",
+      "pytest", B4_PYTEST + "::test_card_payload_key_order_is_the_literal_order_on_both_sides",
+      "", backup(OS), patch(OS, SUB_KEYS_NINE, SUB_KEYS_NINE_SWAP)),
+
+    m(139, "restore 少写 id 那一键：GET 的 payload.update 里 id 是**追加在九键之后**的"
+           "第十键（已有键就地换值、位置不动），出参形状取决于列里那份 card_payload 有哪些键"
+           "——整域唯一会改 JSON 形状的地方，少一键就是十一键变十键",
+      "pytest", B4_PYTEST + "::test_restore_payload_keys_overwrite_in_place_and_append_the_missing",
+      "", backup(OR), patch(OR, OR_RESTORE_ID, "")),
+
+    m(140, "answers 列每项的两键换序（option 写在 q 前）：落库文本是**重建**的"
+           "（多余键已被 extra=ignore 丢掉），模型声明序就是字节序。"
+           "第一版 Go 就是按 JSON 习惯写成别的序，被这条闸拦下后才按声明序改正",
+      "pytest", B4_PYTEST + "::test_answers_column_two_keys_in_declaration_order", "",
+      backup(OS), patch(OS, SUB_ANSWER_KEYS, SUB_ANSWER_KEYS_SWAP)),
+
+    m(141, "推荐码的生成条件从「有账号且列为空」松成「列为空」：三处写的条件不同源"
+           "（码有守卫、profile 无条件 upsert、剧本另有守卫）。账号不存在或已注销时 "
+           "Python 照样写 profile、但**不**生成码；合并守卫＝给无账号用户发码，"
+           "而那条全表唯一约束在夹具里没有观测点",
+      "pytest", B4_PYTEST + "::test_three_writes_keep_three_different_conditions", "",
+      backup(LS), patch(LS, LS_CODE_GUARD, LS_CODE_GUARD_FUSED)),
+
+    m(142, "generated_at 走 pyISO（Z 形）而不是 pyISOOffset：这一键不过 pydantic 的 "
+           "datetime，是 service 自己 isoformat 折好的**字符串**，格式由 isoformat 决定"
+           "（批 3 同判据）。看着都是 UTC 时刻，字节不同，而它同时进响应与列文本",
+      "pytest", B4_PYTEST + "::test_generated_at_is_isoformat_with_offset_and_id_is_appended",
+      "", backup(OS), patch(OS, SUB_GENERATED_OFFSET, SUB_GENERATED_Z)),
+
+    m(143, "answers 的道上限从 10 收成 9：同一份请求在一侧 422、另一侧 200。"
+           "四道上限（10/30/40/10）逐字比的就是这个——校验层不在响应字节里，"
+           "「回放照绿」看不见它",
+      "pytest", B4_PYTEST + "::test_body_limits_come_from_the_same_field_params", "",
+      backup(OB), patch(OB, OB_ANSWER_LIMIT, '\tmaxFirstReadAnswers = 9\n')),
+
+    m(144, "Go 的推荐码掩码字符集从 2-7 收成 2-6：四条掩码两侧必须是**同一条**正则。"
+           "Go 少掩就常红、多掩就把真发散掩成绿；字符集写成码表的超集是刻意的"
+           "（宁多认不漏认，多掩由 code_masks 计数暴露成红）",
+      "pytest", B4_PYTEST + "::test_four_masks_are_the_same_four_regexes_on_both_sides",
+      "", backup(RP), patch(RP, RP_REFERRAL_CHARS, RP_REFERRAL_CHARS_TIGHT)),
+
+    m(145, "ConfigMap 把 onboarding 灰度键从 0 抬到 100：清单是运维侧唯一写"
+           "「这一批只接不放量」的地方。0% 的可证形态是四格同时成立（Ingress 一刀＋"
+           "键为 0＋Go 注册了这个域名＋py-api 地址非空），改任一格都让「灰度」变成换后端",
+      "pytest", B4_PYTEST + "::test_cutover_wiring_agrees_on_all_four_planes", "",
+      backup(CFG), patch(CFG, CM_ONBOARDING_ZERO, CM_ONBOARDING_FULL)),
+
+    m(146, "夹具 onboarding 组的组名漂一个字母（28 处一起改）：回放闸按组取用例，"
+           "组名一漂 Python 侧就看见空组——这一条证的是覆盖面闸不是只在数自己写的数"
+           "（GET 17/POST 11 的写面观测点分布、三条计数掩键的存在都挂在这张表上）",
+      "pytest",
+      B4_PYTEST + "::test_fixture_onboarding_group_covers_both_paths_exactly_once_each_writing_side",
+      "", backup(FX), patch_all(FX, FX_GROUP_ONBOARDING, FX_GROUP_ONBOARDING_TYPO)),
+
+    m(147, "在 restore 的代码面留一个 ai_consent 的名字（「顺手加一道 consent 闸」的形状）："
+           "初读卡是静态直出、零 LLM，两侧都不该检查它。判据只看代码面（Go 剔整行注释、"
+           "Python 剔 docstring），所以在注释里声明「不检查 consent」不算证据",
+      "pytest", B4_PYTEST + "::test_this_domain_has_no_ai_consent_check_on_either_side", "",
+      backup(OR), patch(OR, OR_RESTORE_ID, OR_CONSENT_PROBE)),
+
+    m(148, "第④步少标一条：GET 的 deprecated 被摘掉。客户端在 openapi 里看到的路径归属"
+           "与 Ingress/ConfigMap 说的不再一致——放量那次会以为自己在切一条其实仍全量由 "
+           "Python 答的线（路由本体必须留着，回滚＝把键改回 0）",
+      "pytest", B4_PYTEST + "::test_both_onboarding_routes_deprecated_yet_still_routable",
+      "", backup(RO), patch(RO, RO_GET_DEPRECATED, RO_GET_LIVE)),
+
+    m(149, "已切流域的全量登记表漏掉 onboarding：三方对齐闸（Ingress 域集 ≡ ConfigMap 键集 "
+           "≡ openapi deprecated 域集）少一格就永远判不出「清单漏了一刀」，"
+           "而每条单域闸各自都还是绿的",
+      "pytest", B4_PYTEST + "::test_batch4_registered_in_the_domain_roll_call", "",
+      backup(B2PY), patch(B2PY, B2_CUT_ROLLCALL, B2_CUT_ROLLCALL_DROP)),
 ]
 
 
@@ -1323,7 +1537,7 @@ def main() -> int:
             return 1
     proc = subprocess.run(
         [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, B3_PYTEST,
-         K8S_PYTEST, "-q", "--no-header"],
+         B4_PYTEST, K8S_PYTEST, "-q", "--no-header"],
         cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
     print(f"[{'GREEN' if proc.returncode == 0 else 'BROKEN'}] 复跑 Python 侧闸门："
