@@ -192,6 +192,9 @@ class UserService:
             analytics_consent=user.analytics_consent,
             push_time=user.push_time,
             conversation_style=user.conversation_style,
+            # 列非空且迁移带了 server_default='daily'，但老行仍可能是空串（迁移前写的）
+            # ⇒ 归一到 daily，否则 Literal 校验会当场 500 把整个个人页打挂。
+            push_frequency=user.push_frequency if user.push_frequency in ("daily", "important", "off") else "daily",
         )
 
     async def set_ai_consent(self, db: AsyncSession, user_id: str, consent: bool) -> bool:

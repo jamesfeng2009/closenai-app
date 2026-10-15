@@ -316,6 +316,19 @@ const resource = {
     "activeTime": "Active Message Time",
     "pushTimeTitle": "Choose Active Message Time",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "Message Frequency",
+    "pushFreqTitle": "Choose How Often We Check In",
+    "pushFreqOption": {
+      "daily": "Every day",
+      "important": "Only what matters",
+      "off": "Off"
+    },
+    "pushFreqHint": {
+      "daily": "One message each day, at the hour you pick",
+      "important": "Only when there is a milestone or something worth your attention",
+      "off": "No active messages; you can still start a chat anytime"
+    },
+
     "style": {
       "warm": "Warm & Caring",
       "warmDesc": "Empathetic and gentle — holds your feelings first, then talks it through",

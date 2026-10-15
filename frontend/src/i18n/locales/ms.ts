@@ -309,6 +309,19 @@ const resource = {
     "activeTime": "Masa Mesej Aktif",
     "pushTimeTitle": "Pilih Masa Mesej Aktif",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "Kekerapan Mesej",
+    "pushFreqTitle": "Berapa kerap kami menghantar mesej",
+    "pushFreqOption": {
+      "daily": "Setiap hari",
+      "important": "Hanya yang penting",
+      "off": "Jangan hantar"
+    },
+    "pushFreqHint": {
+      "daily": "Satu mesej setiap hari pada waktu yang anda pilih",
+      "important": "Hanya bila ada pencapaian atau sesuatu yang patut mendapat perhatian anda",
+      "off": "Tiada mesej aktif; anda boleh mula bila-bila masa"
+    },
+
     "style": {
       "warm": "Hangat & Penyayang",
       "warmDesc": "Penuh empati dan lembut — menerima perasaan anda dahulu, kemudian membahasnya bersama anda",

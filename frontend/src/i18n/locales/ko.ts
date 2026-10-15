@@ -309,6 +309,19 @@ const resource = {
     "activeTime": "능동 메시지 시간",
     "pushTimeTitle": "능동 메시지 시간 선택",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "메시지 주기",
+    "pushFreqTitle": "얼마나 자주 보낼까요",
+    "pushFreqOption": {
+      "daily": "매일",
+      "important": "중요한 때만",
+      "off": "보내지 않기"
+    },
+    "pushFreqHint": {
+      "daily": "지정한 시간에 매일 한 통을 보내요",
+      "important": "전환점이나 주목할 일이 있을 때만 보내요",
+      "off": "먼저 보내지는 않아요. 언제든지 당신이 시작할 수 있어요"
+    },
+
     "style": {
       "warm": "따뜻한 공감형",
       "warmDesc": "공감적이고 부드러운 어조 — 먼저 당신의 감정을 안아주고 천천히 이야기 나눕니다",

@@ -316,6 +316,19 @@ const resource = {
     "activeTime": "Zeit für aktive Nachricht",
     "pushTimeTitle": "Zeit für aktive Nachricht wählen",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "Nachrichten-Häufigkeit",
+    "pushFreqTitle": "Wie oft wir dich anschreiben sollen",
+    "pushFreqOption": {
+      "daily": "Jeden Tag",
+      "important": "Nur das Wichtige",
+      "off": "Aus"
+    },
+    "pushFreqHint": {
+      "daily": "Jeden Tag eine Nachricht zur gewählten Zeit",
+      "important": "Nur bei einem Meilenstein oder wenn es wirklich zählt",
+      "off": "Keine aktiven Nachrichten – du kannst jederzeit selbst anfangen"
+    },
+
     "style": {
       "warm": "Warm & fürsorglich",
       "warmDesc": "Einfühlsam und sanft — fängt deine Gefühle erst auf und spricht sie dann durch",

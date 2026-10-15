@@ -330,6 +330,10 @@ class UserProfileResponse(BaseModel):
     streak_freeze_count: int = 0  # 剩余 Streak 冻结券（PRD P0-F05）
     push_time: Optional[str] = None  # 主动消息时间 HH:MM（None 时后端按 09:00 调度）
     conversation_style: str = "warm"  # AI 对话风格（P1-F04）：warm | rational | philosophical
+    # 推送频率（U3-a）：cron_service.py:445-447 早已按这三档分流，但响应里一直没有回显
+    # ⇒ 前端 PATCH 写得进、读不出，设置界面无法显示当前档，重进页面就显示默认值。
+    # 追加在末尾是为了不打动上面已有字段的序列化顺序（切流面两侧逐字比的是字节序）。
+    push_frequency: Literal["daily", "important", "off"] = "daily"
 
 
 class AIConsentUpdate(BaseModel):

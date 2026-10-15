@@ -309,6 +309,19 @@ const resource = {
     "activeTime": "アクティブメッセージ時間",
     "pushTimeTitle": "アクティブメッセージの時間を選ぶ",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "メッセージの間隔",
+    "pushFreqTitle": "どのくらいの頻度で届けるか",
+    "pushFreqOption": {
+      "daily": "毎日",
+      "important": "大切なときだけ",
+      "off": "送らない"
+    },
+    "pushFreqHint": {
+      "daily": "選んだ時間に毎日1通届けます",
+      "important": "節目や目を向けてほしいことがあるときだけ送ります",
+      "off": "こちらから送ることはありません。いつでもあなたから始められます"
+    },
+
     "style": {
       "warm": "あたたかい寄り添い",
       "warmDesc": "共感とやさしさ。まず気持ちを受けとめ、それから一緒に言葉にします",

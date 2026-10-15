@@ -309,6 +309,19 @@ const resource = {
     "activeTime": "主动消息时间",
     "pushTimeTitle": "选择主动消息时间",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "主动消息频率",
+    "pushFreqTitle": "选择我们多久打扰你一次",
+    "pushFreqOption": {
+      "daily": "每天一次",
+      "important": "只发重要的",
+      "off": "不发"
+    },
+    "pushFreqHint": {
+      "daily": "每天在你选的时间送你一条消息",
+      "important": "只在有里程碑、值得你看一眼的时候才发",
+      "off": "不再主动发消息，你随时可以找我聊"
+    },
+
     "style": {
       "warm": "温暖知心",
       "warmDesc": "温柔共情，先接住你的情绪，再一起聊问题",

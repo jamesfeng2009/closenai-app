@@ -28,7 +28,7 @@ import AIConsentModal from '../components/AIConsentModal';
 import { SHARING_STATE_KEYS, sharingHasConsent, sharingState } from '../config/consent';
 import { clearAnalyticsQueue, setAnalyticsConsentAllowed } from '../services/analytics';
 import { SUPPORTED_LANGUAGES, setAppLanguage } from '../i18n';
-import type { ConversationStyle, PrimaryFramework, UserProfile } from '../types';
+import type { ConversationStyle, PrimaryFramework, PushFrequency, UserProfile } from '../types';
 
 // 主动消息时间：00:00–23:00 整点（不引入 datetimepicker 依赖）
 const PUSH_HOURS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
@@ -36,6 +36,9 @@ const PUSH_HOURS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2,
 const CONVERSATION_STYLES: ConversationStyle[] = ['warm', 'rational', 'philosophical'];
 // 主要性格框架两枚举（P0-F05：画像页与解读以所选框架为主；占星已按 PRD v2.1 移除）
 const PRIMARY_FRAMEWORKS: PrimaryFramework[] = ['mbti', 'enneagram'];
+// 推送频率三档（U3-a）：顺序照后端 Literal 的 daily|important|off，
+// 判档在 cron_service.py:445-447——off 直接不发，important 只在有里程碑时发。
+const PUSH_FREQUENCIES: PushFrequency[] = ['daily', 'important', 'off'];
 
 export default function ProfileScreen({
   navigation, route,
@@ -56,6 +59,7 @@ export default function ProfileScreen({
   const [timeVisible, setTimeVisible] = useState(false);
   const [styleVisible, setStyleVisible] = useState(false);
   const [frameworkVisible, setFrameworkVisible] = useState(false);
+  const [freqVisible, setFreqVisible] = useState(false);
   // 撤回分析同意后的结果文案（后端按 PostHog 是否配置决定能否真的删除）：
   // 「已删除」与「已停止上报」是两句不同的话，说错了就是向用户虚假承诺
   const [analyticsNote, setAnalyticsNote] = useState<string | null>(null);
@@ -143,6 +147,19 @@ export default function ProfileScreen({
       const updated = await updateUserSettings({ push_time: time });
       setProfile(updated);
       setTimeVisible(false);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    }
+  };
+
+  // 推送频率：三档选择 → PATCH /user/settings → 用响应刷新（后端 update_settings
+  // 走 get_profile，写后回读的是库里的值，不是请求体，所以档位真存上了才会变绿勾）
+  const onSelectPushFrequency = async (frequency: PushFrequency) => {
+    try {
+      const updated = await updateUserSettings({ push_frequency: frequency });
+      setProfile(updated);
+      setFreqVisible(false);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), msg);
@@ -302,6 +319,19 @@ export default function ProfileScreen({
           <Text style={styles.settingIcon}>🔔</Text>
           <Text style={styles.settingLabel}>{t('profile.activeTime')}</Text>
           <Text style={styles.settingValue}>{profile?.push_time || '09:00'}</Text>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+        {/* 推送频率（U3-a）：后端三档早已在 cron_service 判档，此前只有时间没有频率入口 */}
+        <TouchableOpacity
+          style={styles.settingItem}
+          accessibilityRole="button"
+          onPress={() => { if (requireAuth()) setFreqVisible(true); }}
+        >
+          <Text style={styles.settingIcon}>📮</Text>
+          <Text style={styles.settingLabel}>{t('profile.pushFreq')}</Text>
+          <Text style={styles.settingValueSmall}>
+            {t(`profile.pushFreqOption.${profile?.push_frequency || 'daily'}`)}
+          </Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
       </View>
@@ -519,6 +549,40 @@ export default function ProfileScreen({
               )}
             />
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setTimeVisible(false)}>
+              <Text style={styles.cancelText}>{t('common.done')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 推送频率选择（daily / important / off，U3-a） */}
+      <Modal
+        visible={freqVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFreqVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('profile.pushFreqTitle')}</Text>
+            {PUSH_FREQUENCIES.map((f) => {
+              const active = f === (profile?.push_frequency || 'daily');
+              return (
+                <TouchableOpacity
+                  key={f}
+                  accessibilityRole="button"
+                  style={[styles.langRow, active && styles.langRowActive]}
+                  onPress={() => onSelectPushFrequency(f)}
+                >
+                  <View style={styles.styleOptionText}>
+                    <Text style={styles.langName}>{t(`profile.pushFreqOption.${f}`)}</Text>
+                    <Text style={styles.styleDesc}>{t(`profile.pushFreqHint.${f}`)}</Text>
+                  </View>
+                  {active && <Text style={styles.langCheck}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setFreqVisible(false)}>
               <Text style={styles.cancelText}>{t('common.done')}</Text>
             </TouchableOpacity>
           </View>

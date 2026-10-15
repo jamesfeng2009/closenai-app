@@ -316,6 +316,19 @@ const resource = {
     "activeTime": "Hora de mensaje activo",
     "pushTimeTitle": "Elige la hora del mensaje activo",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "Frecuencia de mensajes",
+    "pushFreqTitle": "Con qué frecuencia te escribimos",
+    "pushFreqOption": {
+      "daily": "Cada día",
+      "important": "Solo lo importante",
+      "off": "Sin mensajes"
+    },
+    "pushFreqHint": {
+      "daily": "Un mensaje cada día a la hora que elijas",
+      "important": "Solo cuando hay un hito o algo que merece tu atención",
+      "off": "Nada de mensajes activos; tú puedes empezar cuando quieras"
+    },
+
     "style": {
       "warm": "Cálido y cercano",
       "warmDesc": "Empático y suave — primero acoge lo que sientes y luego lo habla contigo",

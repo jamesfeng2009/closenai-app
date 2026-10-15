@@ -309,6 +309,19 @@ const resource = {
     "activeTime": "Thởi gian Tin nhắn Chủ động",
     "pushTimeTitle": "Chọn giờ gửi tin nhắn chủ động",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "Tần suất tin nhắn",
+    "pushFreqTitle": "Chúng tôi nên nhắn cho bạn thường xuyên thế nào",
+    "pushFreqOption": {
+      "daily": "Mỗi ngày",
+      "important": "Chỉ khi quan trọng",
+      "off": "Không nhắn"
+    },
+    "pushFreqHint": {
+      "daily": "Mỗi ngày một tin nhắn vào giờ bạn chọn",
+      "important": "Chỉ gửi khi có mốc đáng nhớ hoặc điều thật sự cần bạn chú ý",
+      "off": "Không chủ động nhắn, bạn vẫn có thể bắt đầu bất cứ lúc nào"
+    },
+
     "style": {
       "warm": "Ấm áp, quan tâm",
       "warmDesc": "Đồng cảm và nhẹ nhàng — trước hết đón lấy cảm xúc của bạn, rồi cùng bạn nói rõ mọi chuyện",

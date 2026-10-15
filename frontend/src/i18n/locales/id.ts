@@ -309,6 +309,19 @@ const resource = {
     "activeTime": "Waktu Pesan Aktif",
     "pushTimeTitle": "Pilih Waktu Pesan Aktif",
     "hourOption": "{{hour}}:00",
+    "pushFreq": "Frekuensi Pesan",
+    "pushFreqTitle": "Seberapa sering kami mengirim pesan",
+    "pushFreqOption": {
+      "daily": "Setiap hari",
+      "important": "Hanya yang penting",
+      "off": "Matikan"
+    },
+    "pushFreqHint": {
+      "daily": "Satu pesan setiap hari pada waktu yang kamu pilih",
+      "important": "Hanya saat ada tonggak atau hal yang layak mendapat perhatianmu",
+      "off": "Tidak ada pesan aktif – kamu tetap bisa memulai kapan saja"
+    },
+
     "style": {
       "warm": "Hangat & Penuh Perhatian",
       "warmDesc": "Penuh empati dan lembut — menampung perasaan Anda lebih dulu, baru membahasnya perlahan.",

@@ -383,7 +383,15 @@ export interface UserProfile {
   push_time?: string | null;
   conversation_style?: ConversationStyle | null;
   primary_framework?: PrimaryFramework | null; // 主要性格框架（P0-F05）
+  // 推送频率（U3-a）：后端 PATCH 后仍走 get_profile 回显，所以读的路径与写的路径同一个类型
+  push_frequency?: PushFrequency | null;
 }
+
+/**
+ * 主动消息推送频率（U3-a）：与 backend/models/schemas.py 的
+ * `Literal["daily", "important", "off"]` 同集，读写两侧共用这一个类型以防漂移。
+ */
+export type PushFrequency = 'daily' | 'important' | 'off';
 
 export interface UserSettings {
   name?: string;
@@ -391,7 +399,7 @@ export interface UserSettings {
   push_time?: string;
   timezone?: string;
   language?: string;
-  push_frequency?: 'daily' | 'important' | 'off';
+  push_frequency?: PushFrequency;
   push_enabled?: boolean;
   mbti_type?: string;
   conversation_style?: ConversationStyle;
