@@ -96,13 +96,13 @@ async def test_generate_report_weekly_free_allowed(db, make_user):
 async def _seed_daily(db, uid: str, content: str, mids, at: datetime):
     """种一条 daily_insight，并把 `created_at` **显式钉死**。
 
-    为什么凡断言顺序的种子都必须自己给时间戳（2026-10-15 取证，替换掉原先的巧合）：
-    `created_at` 走 `server_default=func.now()`（models/growth.py:34-36），而 sqlite 的
-    CURRENT_TIMESTAMP **只到秒** ⇒ 同一测里连写的两条同瞬；`list_recent` 只按
-    `created_at DESC` 排、**没有次级排序键**（repositories/growth_repository.py:75）⇒
-    同秒时 sqlite 退回插入序（旧在前），一旦两插跨过秒边界就翻成新在前。
-    实测：两插之间 sleep(1.1) 后，并集从 [m1,m2,m3] 变成 [m2,m3,m1]。
-    时间戳交给钟，测的结果就随钟摆；这里把它交回给测。
+    为什么凡断言顺序的种子仍要自己给时间戳（2026-10-15 D-A 之后重写）：
+    这条测钉的是「并集按 created_at **降序**取前 5」这个业务语义，而降序只有在
+    种子时刻互异且已知时才等于「新在前」。写侧现在由 Python 取微秒值
+    （models/growth.py:34-38；PG 的 now() 是事务级的，一个事务写 N 行会整批同瞬），
+    读侧六处 ORDER BY 也都带了 `id` 次级键（growth_repository.py:2-11 的模块注记写明
+    那给的是字典序、不是写入序）⇒ 同刻行不再随机，但也不再是「谁先插谁新」。
+    所以把时刻交回给种子本身：期望序由 `at` 说了算，不由钟、也不由 uuid 决定。
     """
     record = await growth_repository.create(
         db, uid, "daily_insight", content, related_memory_ids=mids

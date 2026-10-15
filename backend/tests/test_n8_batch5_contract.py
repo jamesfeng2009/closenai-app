@@ -5,7 +5,7 @@
 reflections_list,batch5}.go`（对外形状）、`internal/store/legacy_batch5.go`（四条 SQL）、
 `internal/config/config.go` 与 `cmd/go-api/main.go`（两条灰度键）、
 `deploy/k8s/{10-config,50-ingress}.yaml`（放量面）、`contracts/openapi.json` 里这两条 GET
-的 deprecated，以及夹具的 mood 组（40）／reflection 组（11）＋
+的 deprecated，以及夹具的 mood 组（40）／reflection 组（13，含 D-A 的「同刻两行」两格）＋
 mood_copy_corpus（60）／language_resolve_corpus（23）两块语料。
 
 口径与批 1–4 相同（三段式，缺一段就有空转的格子）：
@@ -29,7 +29,7 @@ mood_copy_corpus（60）／language_resolve_corpus（23）两块语料。
 - avg>=4 / avg>=3            ← mood_service.py:344-348     ↔ domain/mood.go:162-169
 - 15 语言文案四键            ← core/copy.py:26-28,33-41,64-75 ↔ domain/mood.go:175-225 + templates/copy_mood.json
 - 两支语言归一不合并         ← core/language.py:20-34 ↔ httpapi/batch1.go:53-73；core/copy.py:35 ↔ domain/mood.go:184-195
-- 四条 SQL 的 WHERE/ORDER    ← mood_repository.py:155-165,187-205 / user_repository.py:83 / growth_repository.py:79-89
+- 四条 SQL 的 WHERE/ORDER    ← mood_repository.py:155-165,187-205 / user_repository.py:83 / growth_repository.py:86-96
                               ↔ store/legacy_batch5.go:27-32,57-61,85-88,105-110
 - falsy 的 related_memory_ids ← reflection_service.py:137  ↔ domain/mood.go:231-236
 - limit=Query(20,ge=1,le=100) ← routers/reflection.py:64   ↔ domain/mood.go:76-81
@@ -390,8 +390,15 @@ def test_batch5_sql_shapes_are_one_to_one():
         "GrowthRecord.user_id == user_id, GrowthRecord.record_type == record_type"
         in by_type.group(0)
     )
+    # 次级排序键两侧**同方向**才算同形：只有一侧带 `id` 时，夹具 refl-tie 的
+    # 「同刻两行」就会两侧给出相反顺序（D-A；重录字节里那条用例是它的证人）。
+    assert (".order_by(GrowthRecord.created_at.desc(), GrowthRecord.id.desc())"
+            in by_type.group(0)), "list_by_type 的 id 次级键没了"
     refl_sql = _go_sql("selectReflections").upper()
-    assert "AND RECORD_TYPE = $2" in refl_sql and "ORDER BY CREATED_AT DESC" in refl_sql
+    assert "AND RECORD_TYPE = $2" in refl_sql
+    assert "ORDER BY CREATED_AT DESC, ID DESC" in refl_sql, (
+        "Go 侧的次级键缺失或方向与 Python 不一致"
+    )
     assert "LIMIT $3" in refl_sql and "COALESCE(RELATED_MEMORY_IDS, '')" in refl_sql
 
 
@@ -444,7 +451,7 @@ def test_batch5_groups_are_mask_free_and_purely_read():
     全 200 的另一面：400 面（days/limit 越界、类型错）全在 validation 组，
     那 15 条批 5 用例走的是「零库读」支（夹具语言子依赖先短路），两侧同形。
     """
-    for group, want_cases in (("mood", 40), ("reflection", 11)):
+    for group, want_cases in (("mood", 40), ("reflection", 13)):
         cases = _cases(group)
         assert len(cases) >= want_cases, f"{group} 组只剩 {len(cases)} 条，覆盖面在缩"
         for c in cases:
@@ -462,6 +469,14 @@ def test_batch5_groups_are_mask_free_and_purely_read():
     assert all(r["id"].startswith("n8b1-") for r in rows), "播种行的 id 前缀漂了，清理 SQL 会漏删"
     growth = _fixture()["seed"]["growth_records"]
     assert growth and all(r["user_id"].startswith("n8b1-") for r in growth)
+    # D-A 的观测点自己也要有闸：夹具里必须**留着**「同一用户、同一 created_at」的两行，
+    # 否则次级排序键又退回只有注释、没有字节的状态。
+    instants = [(r["user_id"], r["created_at"]) for r in growth if r["created_at"]]
+    same_instant = {k for k in instants if instants.count(k) > 1}
+    assert same_instant, (
+        "夹具里没有任何同一用户、同一时刻的两行 growth_records："
+        "refl-tie 那一格被删了，两侧 ORDER BY 的同形就此失去唯一的证人"
+    )
 
 
 def test_created_at_bytes_are_z_shaped_because_these_routes_have_models():
