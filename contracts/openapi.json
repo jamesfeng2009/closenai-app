@@ -2977,6 +2977,7 @@
     },
     "/api/v1/mood/history": {
       "get": {
+        "deprecated": true,
         "description": "查询签到历史。",
         "operationId": "history_api_v1_mood_history_get",
         "responses": {
@@ -2997,6 +2998,7 @@
     },
     "/api/v1/mood/trend": {
       "get": {
+        "deprecated": true,
         "description": "查询情绪趋势。",
         "operationId": "trend_api_v1_mood_trend_get",
         "parameters": [

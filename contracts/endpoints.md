@@ -160,8 +160,8 @@
 | 59 | DELETE | `/api/v1/memories/{memory_id}` | JSON 信封 | auth | — | 200+422 | - | memory_id(path) | `backend/routers/memories.py:122` `delete_memory` |
 | 60 | GET | `/api/v1/memories/{memory_id}` | JSON 信封 | auth | — | 200+422 | - | memory_id(path) | `backend/routers/memories.py:45` `get_memory` |
 | 61 | POST | `/api/v1/mood/checkin` | JSON 信封 | auth | frontend/src/services/api.ts:395 | 200+422 | `MoodCheckinRequest`: emoji*, note | - | `backend/routers/mood.py:27` `checkin` |
-| 62 | GET | `/api/v1/mood/history` | JSON 信封 | auth | frontend/src/services/api.ts:407 | 200 | - | - | `backend/routers/mood.py:46` `history` |
-| 63 | GET | `/api/v1/mood/trend` | JSON 信封 | auth | frontend/src/services/api.ts:402（封装未接线） | 200+422 | - | days(query) | `backend/routers/mood.py:56` `trend` |
+| 62 | GET | `/api/v1/mood/history` | JSON 信封 | auth | frontend/src/services/api.ts:407 | 200 | - | - | `backend/routers/mood.py:57` `history` |
+| 63 | GET | `/api/v1/mood/trend` | JSON 信封 | auth | frontend/src/services/api.ts:402（封装未接线） | 200+422 | - | days(query) | `backend/routers/mood.py:67` `trend` |
 | 64 | GET | `/api/v1/onboarding/first-read` | JSON 信封 | auth | frontend/src/services/api.ts:652<br>frontend/src/services/api.ts:664 | 200 | - | - | `backend/routers/onboarding.py:46` `get_first_read` |
 | 65 | POST | `/api/v1/onboarding/first-read` | JSON 信封 | auth | — | 200+422 | `FirstReadRequest`: answers, language, persona_type | - | `backend/routers/onboarding.py:32` `create_first_read` |
 | 66 | GET | `/api/v1/personality/assessment` | JSON 信封 | auth | frontend/src/services/api.ts:481 | 200 | - | - | `backend/routers/personality.py:70` `get_assessment` |
