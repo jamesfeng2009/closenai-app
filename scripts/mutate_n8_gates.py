@@ -1,4 +1,4 @@
-"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey；批 4：onboarding）。
+"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey；批 4：onboarding；批 5：mood + reflections）。
 
 要证的不是「Go 抄得像」，而是**每一条口径都真的有人守着**：把实现按最可能的抄错方式
 破坏一次，对应闸门必须红。打不红的口径＝那条口径其实没闸，写进代码也只是口头声明。
@@ -98,6 +98,32 @@ test_n8_batch1_contract.py 抓；后者必须能被打红，否则改 Go 的人�
   #131/#134 打的都是「判据形状的字面量」，语料面碰不到那一格时只有文本比对拦得住。
 - 备份写回后复跑：Go 五个包全绿，四份 Python 闸文件（批 1–4）76 passed / 1 skipped。
 
+批 5④（2026-10-15，mood + reflections 两个域）实测：**24/24 打红**（#150–#173）。
+这一批的口径集中在四种只有跨语言闸看得见的东西：**表**（MOOD_MAP 六键、15×4=60 格文案闭包）、
+**序**（SQL 的 ASC/DESC、`CopySupportedLocales` 的前缀匹配顺序、响应键序）、
+**边界数**（limit=30、days 的 ge/le、`avg >= 3` 那个等号）、**登记面不对称**（D-10）。
+四处值得留名的处理：
+- #164 与 #165 是**同一格坏两次、两侧各一次**：先坏 Go 内嵌的 `templates/copy_mood.json`
+  副本（Python 现算不动），再坏 `backend/data/copy/zh.json` 原件（副本不动）。
+  60 格闭包若只比被 HTTP 用例命中的那一格，其余 59 格会静默分叉——这两条就是那 59 格的证据。
+- #167 打的不是「Go 少实现一条」，而是**本批新登记的不对称本身**（决策点 D-10：
+  Ingress 的 path 匹配不看 HTTP 方法，`/api/v1/reflections` 一个 path 上挂着 GET 与 POST，
+  把 GET 搬走＝POST 打在没注册它的 mux 上＝405）。所以这条变异是「把那一刀补回去」，
+  红的正是清单闸里按 (方法, 路径) 模拟路由的那条判据。
+- #171/#172/#173 三条守的是**录制侧的冻钟**，而它源于本轮真实踩到的空转：
+  `backend/repositories/__init__.py:26` 把子模块 `mood_repository` 遮蔽成单例实例，
+  `from backend.repositories import mood_repository` 后 `实例.utc_now = lambda: ANCHOR`
+  全局永远读不到 ⇒ 时钟看着钉了、其实没钉。批 2–4 全绿只是判据离边界够远；
+  本批 `mood-t-edge` 有一行正好压在 14 天窗口边界上，才把空转变成可证的字节差。
+  ↳ 连带修的闸：`test_n8_batch2_contract.py::test_recorder_freezes_python_clock_for_curriculum`
+  原先只正则匹配 `\.utc_now\s*=`，录制脚本改成钉四个模块后，单独撤掉 curriculum 那一行
+  **打不红**（别家模块那行把正则喂饱了）⇒ 与批 3 的 journey 闸统一为「行首 + 模块名」，
+  `gen_n8_contract_goldens.py` 的 freeze_clock 也从 `for mod in modules.values()` 回退成
+  逐行点名赋值，就是为了保住「这一行能被单独写坏」这件事。
+- #170 的锚点第一轮写错（`"days_ago": 0.5,` 在夹具里 0 命中），按实测值改成
+  `"days_ago": 2.5`（5 处）；#158 的 claim 字符串里嵌套引号导致整份脚本 `SyntaxError`，
+  一并改正。`--check` 与全表跑之前都过了一遍锚点自检：**173 条，坏锚点 0 个**。
+
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
     .venv/bin/python scripts/mutate_n8_gates.py --check    # 只验锚点命中数，不跑测试
@@ -168,6 +194,16 @@ LS = GO / "internal/store/legacy_batch4.go"
 TPL_ZH = GO / "internal/domain/templates/first_read_zh.json"
 RO = PY / "routers/onboarding.py"
 B4_PYTEST = "backend/tests/test_n8_batch4_contract.py"
+
+# ── 批 5（mood + reflections 三条纯读）的文件面 ──────────────────────────────
+DMOOD = GO / "internal/domain/mood.go"
+LB5 = GO / "internal/store/legacy_batch5.go"
+MHIST = GO / "internal/httpapi/mood_history.go"
+MTREND = GO / "internal/httpapi/mood_trend.go"
+REFL = GO / "internal/httpapi/reflections_list.go"
+CMOOD = GO / "internal/domain/templates/copy_mood.json"
+PYZH = PY / "data/copy/zh.json"
+B5_PYTEST = "backend/tests/test_n8_batch5_contract.py"
 
 API_TESTS = GO / "internal/httpapi"
 DOMAIN_TESTS = GO / "internal/domain"
@@ -595,8 +631,46 @@ FX_PROBE_HIT_BANNED_FLIP = '"kind": "safe-banned"'
 FX_REACHABLE_TRUE = '"reachable": true'
 FX_PERSONA_SHARP = '"raw": "\u00df\u00df",\n      "upper": "SSSS"'
 FX_PERSONA_SHARP_BAD = '"raw": "\u00df\u00df",\n      "upper": "SSss"'
-B2_CUT_ROLLCALL = '"journey", "onboarding")'
-B2_CUT_ROLLCALL_DROP = '"journey", "onboardingx")'
+B2_CUT_ROLLCALL = '"journey", "onboarding", "mood")'
+B2_CUT_ROLLCALL_DROP = '"journey", "onboardingx", "mood")'
+
+# ── 批 5④（2026-10-15）：mood + reflections 三条纯读的锚点 ──────────────────
+# 分工沿用批 3④/批 4④：**坏 Go 源也能红 Python 闸**（这一批的口径大半是
+# 「两侧常量、文案副本、SQL 谓词同不同源」，Go 的逐字节回放看不见这些——它只比字节，
+# 两侧一起漂它就全绿）；反过来坏文案源文件/坏夹具红的也是 Python 闸。
+B5_HISTORY_LIMIT = 'const MoodHistoryLimit = 30\n'
+B5_AVG_MID = '\tcase avg >= 3:\n'
+B5_SAMEDAY = '\t\tif _, ok := seen[label]; ok {\n\t\t\tcontinue\n\t\t}\n'
+B5_LABEL_FMT = '\t\tlabel := local.Format("01-02")\n'
+B5_DAYS_MAX = '\tMoodTrendMaxDays     = 90\n'
+B5_COPY_LOCALE = '\tif v := moodCopy[locale][key]; v != "" {'
+B5_FALSY = '\tif raw == "" {\n\t\treturn nil\n\t}'
+B5_TREND_ASC = '\tORDER BY created_at ASC`'
+B5_HIST_DESC = '\tORDER BY created_at DESC\n\tLIMIT $2'
+B5_ACTIVE_WHERE = "\tWHERE id = $1 AND status = 'active'`"
+B5_TYPE_WHERE = '\tWHERE user_id = $1 AND record_type = $2\n'
+B5_HIST_PYISO = '\t\t\tCreatedAt:        pyISO(row.CreatedAt),\n'
+B5_LEVEL_TABLE = 'var MoodLevels = map[string]int{\n\t"\U0001f60a": 5,\n'
+B5_LOCALE_ORDER = 'var CopySupportedLocales = []string{\n\t"zh", "en", "es", "ko", "ja", "ru",\n'
+# 文案库与内嵌副本的同一格：两侧各坏一次，红的是同一格（60 格闭包只比被命中的那一格＝空转）。
+B5_ZH_HIGH = '"high": "\u6574\u4f53\u60c5\u7eea\u72b6\u6001\u4e0d\u9519\uff0c\u4fdd\u6301\u8fd9\u4e2a\u8282\u594f\u3002"'
+B5_MOOD_GROUP = '"group": "mood"'
+CM_MOOD_ZERO = '  CLOSEN_CUTOVER_MOOD: "0"\n'
+ING_MOOD_TREND = ('          - path: /api/v1/mood/trend\n'
+                  '            pathType: Exact\n'
+                  '            backend:\n'
+                  '              service:\n'
+                  '                name: go-api\n'
+                  '                port:\n'
+                  '                  name: http\n')
+RO_HISTORY_DEPRECATED = '@router.get("/mood/history", deprecated=True)\n'
+# 批 5 第 12 条（mood 时钟钉在**真模块**）的三支锚点：赋值目标、取模块那一支、钉后自证。
+# 2026-10-15 的空转就是这三者里少了第三支才会发生：`_module()` 换成包属性查找后，
+# 赋值打在 MoodRepository 单例实例上，全局读不到而两侧字节仍可能全绿。
+GS_MOOD_FREEZE = '    mood_module.utc_now = lambda: ANCHOR\n'
+GS_MOOD_MODULE_GET = 'mood_module = _module("backend.repositories.mood_repository")'
+GS_MOOD_ATTR_GET = 'mood_module = __import__("backend.repositories").mood_repository'
+GS_MOOD_SELFCHECK = 'if mod.utc_now() != ANCHOR:'
 
 MUTATIONS = [
     # ── analytics 的 400 体（FastAPI 的 body 读取面）──────────────────────────
@@ -1479,6 +1553,153 @@ MUTATIONS = [
            "而每条单域闸各自都还是绿的",
       "pytest", B4_PYTEST + "::test_batch4_registered_in_the_domain_roll_call", "",
       backup(B2PY), patch(B2PY, B2_CUT_ROLLCALL, B2_CUT_ROLLCALL_DROP)),
+
+    # ── 批 5④（mood + reflections 三条纯读，2026-10-15）───────────────────────
+    m(150, "history 的 limit 从 30 改成 29：这一个数写在 service 层而不是端点上，"
+           "少一行就是响应数组少一格（夹具 mood-t-sh 有 30 行以上才打得出来）",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(DMOOD), patch(DMOOD, B5_HISTORY_LIMIT, 'const MoodHistoryLimit = 29\n')),
+
+    m(151, "四档判据把 `avg >= 3` 写成 `avg > 3`：夹具 trend-exactly3 特意种成 [2,5]"
+           "让均值**恰好**等于 3，就是为了让这条边界有观测点",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(DMOOD), patch(DMOOD, B5_AVG_MID, '\tcase avg > 3:\n')),
+
+    m(152, "同一本地日的「取首个」撤掉：升序进、后行覆盖前行 ⇒ 同一天两行时取到最后一次"
+           "签到，而 Python 是 day_map 的 `if key not in day_map`（trend-sameday 那格）",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(DMOOD), patch(DMOOD, B5_SAMEDAY, "")),
+
+    m(153, "日历日标签从 `%m-%d` 改成完整日期：labels 是响应字节，Python 侧写的是 "
+           "day.strftime(\"%m-%d\")，跨年撞键那条推论也挂在这个形状上",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(DMOOD), patch(DMOOD, B5_LABEL_FMT, '\t\tlabel := local.Format("2006-01-02")\n')),
+
+    m(154, "trend 的窗口查询从升序改成倒序：SQL 的 ORDER BY 就是「当日取首个」取哪一行的"
+           "判据，逐字节回放只看行序变化后的那一格",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(LB5), patch(LB5, B5_TREND_ASC, '\tORDER BY created_at DESC`')),
+
+    m(155, "history 的 ORDER BY 从倒序改成正序：checkins 数组的字节序跟着翻"
+           "（get_recent 的 .desc() 是本端点唯一的排序面）",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(LB5), patch(LB5, B5_HIST_DESC, '\tORDER BY created_at ASC\n\tLIMIT $2')),
+
+    m(156, "时区那一读撤掉 `status='active'`：Python 的 get_user 对 deleted 账号给 None"
+           "⇒ 趋势按 UTC 折算（不是 40401），撤掉过滤就改成读那个账号自己的时区"
+           "（夹具 trend-deleted-3 钉的就是这一格）",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(LB5), patch(LB5, B5_ACTIVE_WHERE, "\tWHERE id = $1`")),
+
+    m(157, "reflections 的 record_type 从精确等值改成 LOWER() 两边归一：夹具种了一条 "
+           "`Reflection`（首字母大写）专门用来打红这种「更宽松的实现」",
+      "go", API_TESTS, "TestN8ReflectionContractBytes",
+      backup(LB5), patch(LB5, B5_TYPE_WHERE,
+                         '\tWHERE user_id = $1 AND LOWER(record_type) = LOWER($2)\n')),
+
+    m(158, "related_memory_ids 的 falsy 判据撤掉：空串列本来给 null，"
+           "撤掉后 split(\"\") 给 [\"\"]（夹具 reflections-nulls 的五格同时测 NULL、空串、"
+           "\",\"、\"a,,b\"、\"only\"）",
+      "go", API_TESTS, "TestN8ReflectionContractBytes",
+      backup(DMOOD), patch(DMOOD, B5_FALSY, '\tif false && raw == "" {\n\t\treturn nil\n\t}')),
+
+    m(159, "文案取值跳过目标语言直接取 en：非英文用户的 summary 逐字变样，"
+           "而 /mood/trend 的 summary 是这条端点唯一的文案面",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(DMOOD), patch(DMOOD, B5_COPY_LOCALE, '\tif v := moodCopy["en"][key]; v != "" {')),
+
+    m(160, "days 的上界从 90 收成 89：`?days=90` 在一侧 200、另一侧 400，"
+           "三件套（默认/下界/上界）都在 validation 组的 400 体上有观测点",
+      "go", API_TESTS, "TestN8ValidationContractBytes",
+      backup(DMOOD), patch(DMOOD, B5_DAYS_MAX, '\tMoodTrendMaxDays     = 89\n')),
+
+    m(161, "history 的 created_at 走 pyISOOffset（+00:00）而不是 pyISO（Z）："
+           "这条路由的 data 是 pydantic 模型，走 pydantic-core 的 json mode，"
+           "分界不在「哪一批」而在「有没有模型」——两边看着都是 UTC 时刻，字节不同",
+      "go", API_TESTS, "TestN8MoodContractBytes",
+      backup(MHIST), patch(MHIST, B5_HIST_PYISO,
+                           '\t\t\tCreatedAt:        pyISOOffset(row.CreatedAt),\n')),
+
+    m(162, "坏 Go 侧的分值表（😊 从 5 改成 4）：Python 的现算与 Go 的常量分家，"
+           "而逐字节回放两侧一起漂就全绿——这条只有跨语言闸看得见",
+      "pytest", B5_PYTEST + "::test_mood_levels_table_is_one_table_on_both_sides", "",
+      backup(DMOOD), patch(DMOOD, B5_LEVEL_TABLE,
+                           'var MoodLevels = map[string]int{\n\t"\U0001f60a": 4,\n')),
+
+    m(163, "坏 Go 侧的文案语言表顺序（把 en 提到 zh 前）：locale_for 做的是**前缀**匹配，"
+           "顺序就是判据；两张表（supported_languages / SUPPORTED_LOCALES）一旦被人"
+           "合成同一张，zh_CN 那一格的分叉就消失而字节仍可能全绿",
+      "pytest", B5_PYTEST + "::test_two_language_branches_stay_two_functions", "",
+      backup(DMOOD), patch(DMOOD, B5_LOCALE_ORDER,
+                           'var CopySupportedLocales = []string{\n\t"en", "zh", "es", "ko", "ja", "ru",\n')),
+
+    m(164, "内嵌文案副本坏一格（zh/trend.high 末尾加一个字）：60 格闭包比的是"
+           "「源文件 == 副本 == 现算」，只比被 HTTP 用例命中的那一格会让其余格静默分叉",
+      "pytest", B5_PYTEST + "::test_mood_copy_corpus_is_a_sixty_cell_closure_on_three_sides",
+      "", backup(CMOOD), patch(CMOOD, B5_ZH_HIGH, B5_ZH_HIGH[:-1] + "」" + '"')),
+
+    m(165, "坏**源文件**同一格（backend/data/copy/zh.json 的 trend.high）：这次动的不是副本"
+           "而是原件，Python 现算先变，副本与夹具仍是旧值——两头各红一次才算闭包",
+      "pytest", B5_PYTEST + "::test_mood_copy_corpus_is_a_sixty_cell_closure_on_three_sides",
+      "", backup(PYZH), patch(PYZH, B5_ZH_HIGH, B5_ZH_HIGH[:-1] + "」" + '"')),
+
+    m(166, "ConfigMap 把 mood 灰度键从 0 抬到 100：清单是运维侧唯一写「这一批只接不放量」"
+           "的地方，而放量是两次独立动作（改数字 ≠ 发版）",
+      "pytest", B5_PYTEST + "::test_cutover_keys_exist_only_in_go_and_manifests_and_both_are_zero",
+      "", backup(CFG), patch(CFG, CM_MOOD_ZERO, '  CLOSEN_CUTOVER_MOOD: "100"\n')),
+
+    m(167, "给 /api/v1/reflections 补一条 Exact 指 go-api（把 D-10 撤掉）："
+           "Ingress 的 path 匹配不看 HTTP 方法，这一个 path 上挂着 GET 与 POST，"
+           "而 Go 的 mux 只注册了 GET ⇒ 上线即 405。清单闸按 (方法,路径) 模拟路由，"
+           "这一刀必须当场判出来",
+      "pytest", f"{K8S_PYTEST}::test_go_bound_contract_operations_are_registered_in_go", "",
+      backup(ING), patch(ING, ING_MOOD_TREND, ING_MOOD_TREND + (
+          '          - path: /api/v1/reflections\n'
+          '            pathType: Exact\n'
+          '            backend:\n'
+          '              service:\n'
+          '                name: go-api\n'
+          '                port:\n'
+          '                  name: http\n'))),
+
+    m(168, "第④步少标一条（GET /mood/history 的 deprecated 被摘）：path 级登记闸看得见，"
+           "但**方法级**的「POST /mood/checkin 不许跟着一起标」只有这一条看得见——"
+           "同 path 多方法是批 5 之后的常态",
+      "pytest", B5_PYTEST + "::test_only_the_two_cut_gets_are_deprecated", "",
+      backup(RM), patch(RM, RO_HISTORY_DEPRECATED, '@router.get("/mood/history")\n')),
+
+    m(169, "夹具 mood 组的组名漂一个字母（40 处一起改）：批 5 的覆盖面闸按组取用例，"
+           "组名一漂就看见空组——这条证的是「mood 组 40 条／reflection 组 11 条」"
+           "那个下界不是只在数自己写的数",
+      "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
+      backup(FX), patch_all(FX, B5_MOOD_GROUP, '"group": "moodp"')),
+
+    m(170, "播种行的两种时刻合并给（5 条相对行同时带上绝对 created_at）：Go 侧 seeding 的"
+           "两条分支按「有没有 created_at」分派，同时给就让批 5 钉边界的行位置不确定；"
+           "批 1 的窗口余量闸也按这个互斥口径只数相对行",
+      "pytest", B5_PYTEST + "::test_batch5_groups_are_mask_free_and_purely_read", "",
+      backup(FX), patch_all(FX, '"days_ago": 2.5\n',
+                             '"days_ago": 2.5,\n'
+                             '      "created_at": "2026-10-14T00:00:00+00:00"\n')),
+
+    m(171, "录制侧漏钉 mood 仓库的 utc_now：`count_by_day` 的窗口下界是 "
+           "`utc_now() − days*86400`，而 `mood-t-edge` 有一行正好压在 14 天边界上，"
+           "录制与回放之间差一秒就让那一行在窗口内外换边（trend 少一格）",
+      "pytest", B5_PYTEST + "::test_recorder_pins_the_mood_clock_to_the_real_module", "",
+      backup(GS), patch(GS, GS_MOOD_FREEZE, '    # 变异：忘了冻 mood 的时钟\n')),
+
+    m(172, "取模块退回**包属性**查找（`__import__` 拿到包、再点出 mood_repository）："
+           "`repositories/__init__.py:26` 把同名子模块遮蔽成 MoodRepository 单例，"
+           "于是冻钟打在实例属性上、全局永远读不到——这是 2026-10-15 真实踩过的空转形状，"
+           "而字节面在批 2–4 那种远离边界的判据上根本看不出差别",
+      "pytest", B5_PYTEST + "::test_recorder_pins_the_mood_clock_to_the_real_module", "",
+      backup(GS), patch(GS, GS_MOOD_MODULE_GET, GS_MOOD_ATTR_GET)),
+
+    m(173, "撤掉冻钟后的自证（把 `!= ANCHOR` 那行改成永假）：前两条锚点各守一支，"
+           "但「补丁落在读不到的名字上」只有那一次回读会当场停下；撤掉它，"
+           "下一次遮蔽换形状时录制会安静地产出一份错基准的夹具",
+      "pytest", B5_PYTEST + "::test_recorder_pins_the_mood_clock_to_the_real_module", "",
+      backup(GS), patch(GS, GS_MOOD_SELFCHECK, 'if mod.utc_now() != ANCHOR and False:')),
 ]
 
 
@@ -1537,7 +1758,7 @@ def main() -> int:
             return 1
     proc = subprocess.run(
         [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, B3_PYTEST,
-         B4_PYTEST, K8S_PYTEST, "-q", "--no-header"],
+         B4_PYTEST, B5_PYTEST, K8S_PYTEST, "-q", "--no-header"],
         cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
     tail = (proc.stdout + proc.stderr).strip().splitlines()
     print(f"[{'GREEN' if proc.returncode == 0 else 'BROKEN'}] 复跑 Python 侧闸门："
