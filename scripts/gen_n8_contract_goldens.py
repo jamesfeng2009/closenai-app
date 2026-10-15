@@ -131,7 +131,7 @@ def at_offset(days: int, seconds: int = 0) -> str:
     """ANCHOR − days*86400s − seconds：**逐秒**可指的绝对时刻。
 
     只为一格存在：`count_by_day` 的窗口是 `created_at >= utc_now() − days*86400`
-    （`mood_repository.py:194`，闭区间）。要钉住这个 `>=`，必须有一行**正好落在**
+    （`mood_repository.py:204`，闭区间）。要钉住这个 `>=`，必须有一行**正好落在**
     边界瞬间上（`ago(14)`＝ANCHOR−14d，与冻钟后的 utc_now−14d 同一瞬）＋
     一行差一秒落在窗外（本函数 days=14、seconds=1）。
     """
@@ -139,16 +139,31 @@ def at_offset(days: int, seconds: int = 0) -> str:
 
 
 def M(created_at: str, emoji: str, label: object = None,
-      ai: object = None) -> dict:
+      ai: object = None, key: str | None = None) -> dict:
     """一行**绝对时刻**的签到（批 5）。
 
     与 `rows: [(days_ago, emoji)]` 的批 1 口径并存、互不影响：那批行的响应里只有
     7/14 天窗的**计数与均值**，换了播种口径就会改动批 1 已结案用例的字节。
     `label`/`ai` 给的是**列原文**：None⇒SQL NULL、`""`⇒空串——`get_history` 的
     `r.mood_label or ""`(:315) 对这两者的响应相同，但列里不同，夹具要两种都种。
+
+    `key` 覆盖行主键后缀（默认是播种序号 `-m{i}`）。只为一件事：**同刻那一组的主键序，
+    必须既不等于插入序、也不等于插入序的倒序**。这两支是数据库在没有次级键时唯一会给出的
+    两种序（2026-10-15 实测：两行同刻时 `ORDER BY created_at DESC` 给的就是逆插入序，
+    恰好与 `id DESC` 重合 ⇒ 撤掉次级键字节不动，那格空转）。所以同刻组要三行、
+    且把 id 居中的那一行放在最后插——DESC 与 ASC 两侧都得手动拧，不能指望方向天然翻面。
     """
     return {"created_at": created_at, "mood_emoji": emoji,
-            "mood_label": label, "ai_interpretation": ai}
+            "mood_label": label, "ai_interpretation": ai, "row_key": key}
+
+
+def mood_row_id(uid: str, index: int, row: dict) -> str:
+    """绝对时刻签到行的主键：默认 `-m{序号}`，`M(key=…)` 可覆盖。
+
+    录侧与 `seed_spec()` 必须走这一个函数：Go 回放按 seed 里的 id 原样插行，
+    两侧算出不同主键的话，同刻那两行的 `id` 序就不在同一份数据上了。
+    """
+    return f"{uid}-{row.get('row_key') or f'm{index}'}"
 
 
 def G(created_at: str, record_type: str, content: str,
@@ -383,6 +398,17 @@ USERS: list[dict] = [
     # 已注销用户：`get_history` 不查 users 表 ⇒ 仍回 200 带行（与 discovery 的 40401 分叉）
     {"slug": "mood-deleted", "analytics": True, "language": "en", "status": "deleted",
      "abs_rows": [M(ago(1, hour=6), "😊"), M(ago(2, hour=6), "😌")]},
+    # M-G 观测点（history 面）：**三行同刻 + 一行更早**，同刻那组的主键序既不等于插入序
+    # 也不等于它的倒序（见 `M()` 的注释：两行时实测 `ORDER BY created_at DESC` 给的就是
+    # 逆插入序，恰好与 `id DESC` 撞同 ⇒ 撤键不改字节，那格空转；三行才堵得住两支）。
+    # 插入序 a→z→m 与 `created_at DESC, id DESC` 的 [z, m, a] 两支都不同 ⇒ 任一侧撤掉
+    # 次级键，响应数组的字节序必变。第四行证明次级键**不越权**（时刻更晚的行仍排在同刻组之后）。
+    # 这是 D-A refl-tie 那条格在 mood 侧的同型证人，结的是批 4 登记的「ORDER BY 无次级键」。
+    {"slug": "mood-h-tie", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=9), "😊", "同刻插第1·id最小", None, key="tie-a"),
+                  M(ago(1, hour=9), "😢", "同刻插第2·id最大", None, key="tie-z"),
+                  M(ago(1, hour=9), "😌", "同刻插第3·id居中", None, key="tie-m"),
+                  M(ago(2, hour=9), "😴", "更早一行不越权", None)]},
     # 趋势四档阈值：avg>=4 ⇒ high、>=3 ⇒ mid、else low、空 ⇒ empty。
     # [5,4]⇒4.5 high；[3,3,4]⇒3.333 mid（浮点除法，整数均值会算成 3 也落 mid，
     # 所以另给 [4,2]⇒3.0 那一格钉「>=3 取 mid」而不是「>3」）；[2,1]⇒1.5 low。
@@ -418,6 +444,25 @@ USERS: list[dict] = [
     # 取升序**首行**的 emoji（😊=5 而不是 😢=1）。这是那条判据唯一的可达格。
     {"slug": "mood-t-sameday", "analytics": True, "language": "en",
      "abs_rows": [M(ago(1, hour=1), "😊"), M(ago(1, hour=5), "😢")]},
+    # M-G 观测点（trend 面）：**三行同一瞬、同一本地日**，主键序与两种可能的计划序都不同。
+    # `count_by_day` 是 `created_at ASC, id ASC` ⇒ 当日首行取 `tie-a`（😢=1，low 档），
+    # 而它既不是先插的 `tie-z`（😊=5）也不是后插的 `tie-m`（😌=4）：
+    # - 撤掉次级键 ⇒ 首行落回计划序（插入序或逆插入序，两支的值档都不等于 1）⇒ values
+    #   与 summary 三段字节一起变；
+    # - 把次级键方向写成 DESC ⇒ 首行变成 `tie-z`（5，high 档）⇒ 同样红；
+    # - 若按播种序号编号，`id ASC` 与插入序重合，撤掉次级键也照样绿——那格是空转，
+    #   所以这里必须用 `key=`，且把 id 最小的那行放在**中间**插（M-G 两行版的实测教训）。
+    {"slug": "mood-t-tie", "analytics": True, "language": "en",
+     "abs_rows": [M(ago(1, hour=9), "😊", key="tie-z"),
+                  M(ago(1, hour=9), "😢", key="tie-a"),
+                  M(ago(1, hour=9), "😌", key="tie-m")]},
+    # `trend?days=1` 专用（M-G 重录时勘误）：一行在 24h 窗**内**（ANCHOR−1h）、
+    # 一行在窗外（ANCHOR−2d），两行的位置都只由 `ANCHOR − N 秒` 决定，与 ANCHOR 自己的
+    # 时分无关。原先这一格借用 `mood-t-high`（行钉在 `ago(1, hour=8)`＝「ANCHOR−1 天的
+    # 早上八点」），窗含不含它取决于录制时刻的钟点 ⇒ recorded_at 从 04:44 平移到 12:19
+    # 之后它掉成空态、与 `trend-empty` 重复。这条是重录的连带后果，不是次级键改出来的。
+    {"slug": "mood-t-1d", "analytics": True, "language": "en",
+     "abs_rows": [M(at_offset(0, 3600), "😊"), M(at_offset(2), "😢")]},
     # 已注销用户也走一遍 trend：`get_user`⇒None ⇒ tz=None ⇒ UTC，**不是** 40401
     {"slug": "mood-t-deleted", "analytics": True, "language": "en", "status": "deleted",
      "timezone": "Asia/Shanghai",
@@ -871,9 +916,11 @@ def seed() -> None:
             for i, (days_ago, emoji) in enumerate(user.get("rows", [])):
                 cur.execute(INSERT_MOOD, (f"{uid}-m{i}", uid, emoji, str(days_ago)))
             # 批 5 的绝对时刻通道：与上面那条 INSERT 只差在 created_at 是列原文，
-            # 行主键沿用同一个 `-m{i}` 编号规则（两个键不会同时出现在一个用户上）。
+            # 行主键默认沿用同一个 `-m{i}` 编号规则（两个键不会同时出现在一个用户上），
+            # `M(key=…)` 那几行除外——见 mood_row_id。
             for i, row in enumerate(user.get("abs_rows", [])):
-                cur.execute(INSERT_MOOD_ABS, (f"{uid}-m{i}", uid, row["mood_emoji"],
+                cur.execute(INSERT_MOOD_ABS, (mood_row_id(uid, i, row), uid,
+                                              row["mood_emoji"],
                                               row["mood_label"], row["ai_interpretation"],
                                               row["created_at"]))
             for i, row in enumerate(user.get("growth", [])):
@@ -921,7 +968,9 @@ def seed_spec() -> dict:
         ] + [
             # 批 5：带 `created_at`（绝对）⇒ Go 回放测走另一条 INSERT 分支，
             # 且 `days_ago` 必须**缺席**而不是 0（0＝今天，会让相对分支插出错行）。
-            {"id": f"{SEED_PREFIX}{u['slug']}-m{i}", "user_id": f"{SEED_PREFIX}{u['slug']}",
+            # id 走 mood_row_id：seed 里给的是**算好的最终主键**，Go 只按字面插。
+            {"id": mood_row_id(f"{SEED_PREFIX}{u['slug']}", i, row),
+             "user_id": f"{SEED_PREFIX}{u['slug']}",
              "mood_emoji": row["mood_emoji"], "mood_label": row["mood_label"],
              "ai_interpretation": row["ai_interpretation"],
              "created_at": row["created_at"]}
@@ -1586,6 +1635,10 @@ def onboarding_cases() -> list[tuple]:
          "mood-nulls", {}, None),
         ("history-ignores-language", "mood", "GET", "/api/v1/mood/history",
          "mood-nulls", {"X-Language": "th"}, None),
+        # M-G 观测点：同刻三行在倒序下的确定性序（`created_at DESC, id DESC`）。
+        # 响应里 id 是列原文、不掩码 ⇒ 这一格的字节直接写着 [tie-z, tie-m, tie-a, -m3]。
+        ("history-same-instant", "mood", "GET", "/api/v1/mood/history",
+         "mood-h-tie", {}, None),
         ("trend-default", "mood", "GET", "/api/v1/mood/trend", "mood-t-high", {}, None),
         ("trend-explicit-14", "mood", "GET", "/api/v1/mood/trend?days=14",
          "mood-t-high", {}, None),
@@ -1599,10 +1652,13 @@ def onboarding_cases() -> list[tuple]:
         # 窗口边界：days=14 时「正好落在 start 那一瞬」的行进窗、差一秒的出窗（`>=`）
         ("trend-edge-14", "mood", "GET", "/api/v1/mood/trend?days=14", "mood-t-edge", {}, None),
         ("trend-edge-13", "mood", "GET", "/api/v1/mood/trend?days=13", "mood-t-edge", {}, None),
-        ("trend-days-1", "mood", "GET", "/api/v1/mood/trend?days=1", "mood-t-high", {}, None),
+        ("trend-days-1", "mood", "GET", "/api/v1/mood/trend?days=1", "mood-t-1d", {}, None),
         ("trend-days-90", "mood", "GET", "/api/v1/mood/trend?days=90", "mood-t-edge", {}, None),
         # 同一本地日两行 ⇒ 取升序首行的 emoji（😊=5 而不是 😢=1）
         ("trend-sameday", "mood", "GET", "/api/v1/mood/trend", "mood-t-sameday", {}, None),
+        # M-G 观测点：同一瞬、同一本地日两行，主键序与插入序相反 ⇒ 当日首行取 `tie-a`(😢=1)
+        # 而不是先插的 `tie-z`(😊=5)。方向写反（一侧 id DESC）时值档从 low 翻成 high。
+        ("trend-same-instant", "mood", "GET", "/api/v1/mood/trend", "mood-t-tie", {}, None),
         # Asia/Shanghai：UTC 23:00 那行属**次一个**本地日 ⇒ labels 与 UTC 口径不同
         ("trend-sh-14", "mood", "GET", "/api/v1/mood/trend?days=14", "mood-t-sh", {}, None),
         ("trend-sh-3", "mood", "GET", "/api/v1/mood/trend?days=3", "mood-t-sh", {}, None),
