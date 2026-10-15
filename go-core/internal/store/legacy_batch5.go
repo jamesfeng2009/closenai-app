@@ -99,14 +99,18 @@ func (p *PG) MoodUserTimezone(ctx context.Context,
 	return timezone, true, nil
 }
 
-// Reflections 是 growth_repository.list_by_type（:79-89）：
+// Reflections 是 growth_repository.list_by_type（:86-96）：
 // user_id + record_type **精确**等值、倒序、LIMIT。content 与 related_memory_ids
 // 都是 TEXT，后者按 COALESCE 折成空串交给 domain.SplitMemoryIDs 判 falsy。
+//
+// `id DESC` 不是装饰：同一事务写入的多行 created_at 逐位相同，少了这条次级键，
+// Python 侧与这里的返回顺序都由查询计划决定，11 条回放在「同刻两行」格子上
+// 不可能逐字一致。两侧的次级键必须同方向（Python 用 .desc()，这里用 DESC）。
 const selectReflections = `
 	SELECT id, content, COALESCE(related_memory_ids, ''), created_at
 	FROM growth_records
 	WHERE user_id = $1 AND record_type = $2
-	ORDER BY created_at DESC
+	ORDER BY created_at DESC, id DESC
 	LIMIT $3`
 
 func (p *PG) Reflections(ctx context.Context, userID, recordType string,
