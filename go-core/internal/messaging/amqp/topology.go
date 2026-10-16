@@ -373,7 +373,8 @@ func Document() string {
 	b.WriteString("## 读这份文档之前必须先知道的一条\n\n")
 	b.WriteString("**R4 只是发射器。**十条领域事件在 R4 期只有 exchange、**没有消费者队列**，\n" +
 		"publisher 对它们一律回 `ErrNoConsumerBound`；命令面（`ai.*.requested`）的队列已声明、\n" +
-		"入队口 `domain.Service.RequestAITask` 已就绪但**今天零调用者**，消费者与 candidate 回投是 R5，\n" +
+		"入队口 `domain.Service.RequestAITask` 已就绪但**今天零调用者**；消费者与 candidate 回投已由 R5" +
+		"接通（2026-10-16 结案：两侧消费者都在、互操作闸真跑过，但三个 kill switch 默认关 ⇒ **流量仍是零**），\n" +
 		"生产者（谁下发任务）是 R6。\n" +
 		"「异步面通了」的判据是 R6 之后一条洞察能跨进程走完全程，不是本表把 exchange 声明出来。\n\n" +
 		"⚠️ 下面四个命令键串**不是在本文件生成的**，来自 `domain.AITaskKind.RoutingKey()`\n" +

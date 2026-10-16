@@ -176,6 +176,16 @@ Go 侧的 curriculum 只有读面（`server.go:96` 的 `GET /api/v1/curriculum/w
   （含 `google.golang.org/grpc`、`github.com/rabbitmq`）与 V3 **同源**，
   所以 R1/R2 加 gRPC 依赖时**不改这个闸**：proto 与 client 归 `internal/aiclient/`、`internal/messaging/amqp/`，
   domain 只收已解码的输入对象。这是本表预见到最容易做错的一格，写在前面。
+  - ⚠️ **2026-10-16 R5-② 补一行（这条纪律第一次被走到「边界之外」的位置）**：Go 侧的 candidate
+    入站消费者 `internal/messaging/inbound/` 也**必须**碰 proto，因为它按 D-R5-4 用
+    `protojson.Unmarshal` 把线上载荷解进 `gen/closenai/v1` 的生成物——生成物就是跨语言契约的
+    事实源，手抄第二份 struct 迟早漂；而 protojson 默认拒未知字段，这恰好挡住了 `Candidate`
+    里 `reserved 3,4,5`（提案方自报 `user_id` 那条归属面）。所以这一格**不是放开边界**，
+    而是把「传输边界层」这件事补全：`inbound` 与 `amqp` 同侧，都是 broker 的两端。
+    继续收紧的部分不变：**`google.golang.org/grpc` 仍然只许 `internal/aiclient/`**
+    （入站面是 AMQP，不是 RPC），闸在 `go-core/internal/aiclient/aiclient_test.go`
+    的 `TestOnlyAIClientImportsTheRPCSurface`（同批把 allowed 面按上述两类拆开，
+    并要求两个黑名单串各自命中过，不许空转）。
 - **Python 只提案，不写权威表**（O3 的物理落点）：三处直写点改造归 R5，含
   `memory_service.py:270` 的 `_detect_conflict`（现为「立即新建 + 旧行 supersede」→ 改 candidate 回投）。
 - **对外只有 Go 的 HTTP/SSE**：gRPC **不出 Ingress**，只在集群内（R7 的 manifests 口径）。
@@ -198,9 +208,9 @@ Go 侧的 curriculum 只有读面（`server.go:96` 的 `GET /api/v1/curriculum/w
 | gRPC 三方法各有真实调用点 | AST 逐 `Call` 计数：生产侧 `llm.complete/stream/embed` 共 **24** 个调用点 / **13** 个文件（排除 `core/llm.py` 与 `tests/`；grep 口径会给 25，多的一行是 `safety_service.py:36` 的 docstring 示例）。三条链分别命中 `memory_service.py:465`、`cron_service.py:1024`、`safety_service.py:375`（外层 `check_text` 在 `:356`）、`chat.py:54`→`message_generator.py:122` |
 | rerank / capability 零调用点 | 原写法 `grep -rniE "rerank\|capability"`（py+go，排除 `_test`）＝**0**。<br>⚠️ **2026-10-16 更正取证手段（结论不变，但这一行当时不可复制执行）**：Markdown 表格里的竖线**必须**写成转义形式才不会断列，而那份转义粘进 shell 后，在 ERE（`grep -E`）下 `\|` 变成**字面竖线** ⇒ 搜的是 `"rerank\|capability"` 这一个字符串，本来就会 0 命中，等于没测。可复制的等价写法（改用多个 `-e`，一条竖线都没有）：<br>`grep -rniE -e rerank -e capability --include='*.py' --include='*.go' --exclude='*_test.py' --exclude='*_test.go' backend go-core` ＝ **6 命中**，逐文件核对全部在生成物里（`go-core/gen/closenai/v1/closenai_ai_rpc_grpc.pb.go` 4、`backend/gen/closenai_ai_rpc_pb2_grpc.py` 2，都是 R1 抄进 `*_pb*` 的契约注释）；再加 `--exclude-dir=gen` ＝ **0 命中**（2026-10-16 复跑）。⇒ 「不建第四个 gRPC 方法」的判据成立，但下一批复用这行时必须带上 gen 排除，否则数到的是自家生成物 |
 | `evidence.accepted` 在 Go 不存在 | `grep "evidence.accepted\|evidence_accepted"`（go+py）＝**0** |
-| `Admit*` / `ConsumeIdempotent` 无生产调用方 | 非测试 grep 只命中**定义处与注释**（`service_proactive.go:97`、`service_evidence.go:121`、`delivery.go:267`） |
-| 只有 `cmd/go-api` | `ls go-core/cmd` ＝ `go-api` 一项；`internal/messaging/` 只有 `outbox/outbox.go` |
-| `backend/ai/` 目录尚不存在 | `ls -d backend/ai` ＝ No such file（⇒ O0「AI 独立目录 + 边界闸」未做，R3 的落点先建在这里） |
+| `Admit*` / `ConsumeIdempotent` 无生产调用方 | 非测试 grep 只命中**定义处与注释**（`service_proactive.go:97`、`service_evidence.go:121`、`delivery.go:267`）<br>⚠️ **2026-10-16 R5 结案时就地更正：这一行已漂，而且是这份表最要紧的那次变化**。<br>· `ConsumeIdempotent` 的**非测试**调用点现在有实码一处：`internal/messaging/inbound/inbound.go:473`（入站 Runner 的 `Handle`），它由 `cmd/go-api/main.go:164 inbound.New(...)` 起，而 `inbound.LoadSwitch` 的默认值是**关**（`CLOSEN_CANDIDATE_WORKER` 不给就不拨号）⇒ 准确说法是「调用方已存在、默认零流量」，不是「已上线」。<br>· `RequestAITask`（命令面入队口）**生产调用点实测仍为 0**：`grep -rn RequestAITask go-core`（排除 `_test.go`）只命中 `tools/r5interop/main.go:243`（互操作闸自己的工具）与两处注释 ⇒ 谁下发任务仍然是 **R6**，本表 §3 那句「生产者＝R6」不变。<br>· `Admit*` 三个领域入口经上面那条 `ConsumeIdempotent` 路径第一次有了生产可达的调用方，但同一格受 kill switch 与灰度 0 保护 |
+| 只有 `cmd/go-api` | `ls go-core/cmd` ＝ `go-api` 一项；`internal/messaging/` 只有 `outbox/outbox.go`<br>⚠️ **2026-10-16 就地更正**：`ls go-core/cmd` 仍是 `go-api` 一项（这条没漂）；后半句已不成立——`internal/messaging/` 现为 `outbox`／`amqp`／`dispatch`／`inbound` 四包（R4 建前三包、R5 建 `inbound`），另有 `tools/{protogen,protocross,eventscontract,r5interop,crosscheck}` 这些**非生产**工具目录 |
+| `backend/ai/` 目录尚不存在 | `ls -d backend/ai` ＝ No such file（⇒ O0「AI 独立目录 + 边界闸」未做，R3 的落点先建在这里）<br>⚠️ **2026-10-16 就地更正**：`backend/ai/` 由 O0 建立、`backend/ai/mq/` 由 R5 建立（`topology/contract/pipeline/publisher/consumer/worker`）。这一格的结案口径改成「**边界闸已落成禁令**」：`backend/tests/test_ai_boundary.py` 拦 AI 面直连 canonical 写面，合法出口＝candidate 回投（§5） |
 | 出箱面骨架就位、只差 broker 实现 | `outbox.go` 实测行号：`Repository`:29、`Publisher`:57、`RunOnce`:93、`Run`:163（§R 旧文写的 `:76 Worker.Run` 已漂，**以这里为准**） |
 | curriculum 的模型调用谁在调 | 链逐段命中：`routers/cron.py:174` → `cron_service.py:600`（`:619` 调 `generate_weekly`）→ `curriculum_service.py:126 → :141 → :274`；`grep -c "llm" curriculum_read.go curriculum_week.go`＝**0**；Go 侧 curriculum 路由两条都在读面（`server.go:96-97`） |
 | 切流到底切了几条（决定 §3.1 默认值的前提） | `grep -nE 'mux\.HandleFunc\(' go-core/internal/httpapi/server.go` 逐条数：灰度开关下 **11** 条（`:91/:92/:96/:97/:101/:102/:108/:109/:118/:119/:120`）＋ `:88` insight evidence 不受灰度键管；`deploy/k8s/10-config.yaml` 的 `CLOSEN_CUTOVER_*` 七个键（`:26/:27/:31/:36/:43/:59/:60`）**全为 "0"** ⇒ 「未切流 ⇒ 不必跨进程」这条默认值今天成立 |
