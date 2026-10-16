@@ -1,4 +1,4 @@
-"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey；批 4：onboarding；批 5：mood + reflections；D-A：created_at 同瞬根治）。
+"""N8 切流闸门的变异自证（批 1：analytics + discovery；批 2：curriculum；批 3：journey；批 4：onboarding；批 5：mood + reflections；批 6：memories；D-A：created_at 同瞬根治）。
 
 要证的不是「Go 抄得像」，而是**每一条口径都真的有人守着**：把实现按最可能的抄错方式
 破坏一次，对应闸门必须红。打不红的口径＝那条口径其实没闸，写进代码也只是口头声明。
@@ -146,6 +146,55 @@ id 最小那行插在中间）后 #188 与对偶的 #196 才都红。教训按 D
 **同刻组必须让主键序既不等于插入序、也不等于插入序的逆序**，两行做不到；
 这条判据现在由 `test_batch5_groups_are_mask_free_and_purely_read` 直接对夹具的播种序算，
 不再靠撞运气（#193/#194/#195 打的是它被「顺手整理」回两行/序号的三种退路）。
+
+批 6②（2026-10-17，memories 两条纯读的字节面）实测：**26/26 打红**（#197–#222；
+`--check` 全表 222 条，坏锚点 **1** 个——见下面第三条）。这一批的口径形状和前五批不同：
+响应**就是列原文**（没有时钟、没有外发、没有写），所以每条 SQL 谓词、每条解析规则都能直接
+在字节上被打红，16 条 Go 侧变异全部命中逐字回放；剩下 10 条打的是回放看不见的那一半
+（两侧常量同源、播种列清单同源、声明序与 Python 源同源）。四处值得留名：
+- #209 证的正是**本轮首录时抓到的一次空转**：`lab-quote` 原本嵌在顶层数组里，走的是
+  `str()` 而不是 `repr()`，把引号选择整支撤掉也打不出红；改成嵌一层（`{"labels": [["it's", …]]}`）
+  之后这一支第一次有观测点，才进了变异表。
+- #203 第一轮是这批唯一的 **GREEN-FAIL**：锚点误锚到**带 category 那一支**，而夹具里带
+  category 的四个用户（mem-cat-\*）种的全是 `current` 行——放宽那一支的 status 谓词，
+  四格用例一行都不多。改锚到不带 category 那一支才红。教训写死：
+  **两条 SQL 的谓词变异必须逐支各打一次**，同名不同支的锚点会静默空转。
+- 两处「打不红因此不做」，都不是闸门缺位而是没有观测点，登记在此免得被当成已证：
+  ① `memoryLabelsValue` 的 `if raw == ""` 那一支撤掉打不出红——列里的空串走
+  `pyJSONLoads("")` 同样报错、同样回 null，两侧字节不动（Python 的 `_parse_labels` 同源，
+  `json.loads("")` 也抛 JSONDecodeError）；NULL 与空串同判这一格靠的是**形状闸**
+  （`_parse_labels(None) is _parse_labels("") is None`）而不是回放。
+  ② `pyReprString` 的 `\\xNN`/`\\uNNNN` 非印刷支不复刻也不播种（batch6.go:174-177 已登记），
+  所以它没有变异条目；尾斜杠 `/api/v1/memories/` 的 307↔404 发散同理，**不钉成契约**。
+- 连带登记一条**既有锚点失效**（发现于 2026-10-17 的 `--check`，按「只登记不顺手修」处理）：
+  #182 的 `FX_TIE_ROW` 把夹具的 `created_at` 写死成 `2026-10-14T09:00:00+00:00`，而批 6 重录
+  之后 `refl-tie` 那行的时刻平移到 `2026-10-15…` ⇒ 命中 0 次、整表 `--check` 报 1 个坏锚点。
+  根因与 M-G 段注释说的是同一个毛病（那条注释已经点出「写死日期＝每批都可能坏」），
+  归**批 5/M-G 的锚点维护**这一格：改法是按 #530 那样从夹具现读整块原文，不在本批顺手改。
+
+批 6③④（2026-10-17，清单面与「不标废弃」那一句的证人：D-10「键先行、path 不上刀」那一档）
+实测：**8/8 打红**（#223–#230；跑完 `--check` 全表 230 条，坏锚点仍是那 1 个 #182）。
+这一批的闸不是把新判据重复登记，而是**补一个反向盲区**，所以两条闸的分工先说清：
+- 「这一档有哪些域」只登记在 batch2 的 `PATHLESS_KEYS`（三段登记闸比的是集合等式）；
+  k8s 侧新闸 `test_cutover_keys_without_ingress_path_stay_unrouted` **从清单本身推出**同一个
+  集合（声明了键、域却没有 go-api path 的那些），只钉每一格的内容（值为 0、该域零入口规则、
+  契约面上每个方法仍落 py-api、Go 侧每个 GET 已注册）。两处各写一份域名清单就是给下一批
+  留一处会漂移的缝，所以 #224/#229 的靶子是 batch2 那一条，#223/#226/#227/#228 才是新闸。
+- 反向盲区是实测出来的：把 `CLOSEN_CUTOVER_MEMORIES` 写进 `10-config.yaml` 前后，
+  `test_ingress_is_at_zero_percent_rollout` 都是同一份绿（它遍历 go-api 的 path 去要键），
+  先红的是 batch2 那条集合闸 ⇒ 本批把键落进清单这件事，此前没有任何一格的证人在「值必须为 0」
+  与「不许预铺 path」上。
+- #229 与 #225 是**同一坏法打两层**，且新 k8s 闸在这条坏法下反而不红（memories 拿到 go-api
+  path 之后就退出 key_only，四格判据对它不再执行）——这一格要留在表里，否则读者会以为
+  新闸覆盖了成员集合。
+- #230 是 ④ 那句**改判**的负向证人：这一档的域**不标** `deprecated`（批 5 的
+  `@router.get("/reflections")` 就没标，出处是 batch2 那条闸里「`PATHLESS_KEYS` 不进
+  deprecated 集合」那句）。「不标」不能只写在注释里——给 memories 的 GET 加上
+  `deprecated=True`，红的是三段登记闸里 `openapi_domains == CUT_DOMAINS` 那条等式。
+- 一条**既有缺陷登记**（同日发现，按「只登记不顺手修」）：本文件模块文档串 :119 那句
+  ``\\.utc_now\\s*=` `` 让 CPython 每次 import 都打 `SyntaxWarning: invalid escape sequence`。
+  它不影响锚点与断言，属脚本自身的文本卫生，归**变异脚本维护**那一格；
+  上面这两句自己已把反斜杠双写，不留第二条警告。
 
 用法：
     .venv/bin/python scripts/mutate_n8_gates.py            # 全部（串行）
@@ -774,6 +823,118 @@ GS_MOOD_FREEZE = '    mood_module.utc_now = lambda: ANCHOR\n'
 GS_MOOD_MODULE_GET = 'mood_module = _module("backend.repositories.mood_repository")'
 GS_MOOD_ATTR_GET = 'mood_module = __import__("backend.repositories").mood_repository'
 GS_MOOD_SELFCHECK = 'if mod.utc_now() != ANCHOR:'
+
+# ── 批 6②（2026-10-17，memories 两条纯读）的文件面与锚点 ─────────────────────
+# 这一批的观测点密度来自一个结构差别：这两条 GET 的响应**就是列原文**，
+# 没有时钟、没有外发、没有写，所以每一条 SQL 谓词、每一条解析规则都直接落在字节上。
+# 反过来说，坏夹具与坏播种列清单也各自有闸可红——批 6 是六批里唯一
+# 「列清单本身」被跨语言钉住的一批（drift_score 那一列 NOT NULL 无默认）。
+DM6 = GO / "internal/domain/memory.go"
+LB6 = GO / "internal/store/legacy_batch6.go"
+HB6 = GO / "internal/httpapi/batch6.go"
+MD6 = GO / "internal/httpapi/memory_detail.go"
+RP6 = GO / "internal/httpapi/n8_replay_test.go"
+MR6 = PY / "repositories/memory_repository.py"
+RR6 = PY / "routers/memories.py"
+SC6 = PY / "models/schemas.py"
+B6_PYTEST = "backend/tests/test_n8_batch6_contract.py"
+MEMS_TEST = "TestN8MemoriesContractBytes"
+VALS_TEST = "TestN8ValidationContractBytes"
+# limit 三件套（domain/memory.go:15-17）——Python 侧 routers/memories.py:34 的同一个数
+B6_DEFAULT_LIMIT = "\tMemoriesDefaultLimit = 20\n"
+B6_MIN_LIMIT = "\tMemoriesMinLimit     = 1\n"
+B6_MAX_LIMIT = "\tMemoriesMaxLimit     = 100"
+B6_PY_QUERY_SPEC = "limit: int = Query(20, ge=1, le=100)"
+B6_PY_QUERY_SPEC_BAD = "limit: int = Query(20, ge=1, le=99)"
+# 列表那条的次级键与 LIMIT 参数位（$2 只有列表这一支用，靠它把锚点分开）
+B6_LIST_TIE = "\tORDER BY created_at DESC, id DESC\n\tLIMIT $2"
+B6_LIST_NO_TIE = "\tORDER BY created_at DESC\n\tLIMIT $2"
+B6_CAT_TIE = "\tORDER BY created_at DESC, id DESC\n\tLIMIT $3"
+B6_CAT_TIE_FLIP = "\tORDER BY created_at DESC, id ASC\n\tLIMIT $3"
+B6_CAT_WHERE = "AND deleted = false AND category = $2\n"
+B6_CAT_WHERE_LOOSE = "AND deleted = false AND LOWER(category) = LOWER($2)\n"
+B6_LIST_DELETED = "\tWHERE user_id = $1 AND status = 'current' AND deleted = false\n"
+B6_LIST_DELETED_LOOSE = "\tWHERE user_id = $1 AND status = 'current'\n"
+# ⚠️ 必须打在**不带 category 那一支**上：夹具里带 category 的三个用户
+# （mem-cat-values/goal/blank/upper）种的全是 current 行，放宽带 category 那一条打不出红
+# （2026-10-17 第一轮实测：#203 原先锚到 byCategory 分支，15/16 里唯一一条 GREEN-FAIL）。
+B6_LIST_STATUS = ("\tWHERE user_id = $1 AND status = 'current' AND deleted = false\n"
+                  "\tORDER BY")
+B6_LIST_STATUS_ALL = ("\tWHERE user_id = $1 AND status != 'deleted' AND deleted = false\n"
+                      "\tORDER BY")
+# 详情那条：user_id 进 WHERE 是这条端点唯一的越权防线（决策点 ⑤ 的字节证人）
+B6_DETAIL_WHERE = "\tWHERE id = $1 AND user_id = $2 AND deleted = false`"
+B6_DETAIL_WITH_STATUS = "\tWHERE id = $1 AND user_id = $2 AND status = 'current' AND deleted = false`"
+B6_DETAIL_NO_USER = "\tWHERE id = $1 AND deleted = false`"
+# 响应形状四支：conviction 的 repr 形状、两个常量键的值、键序、labels 的两条解析规则
+B6_CONVICTION = '\tv.set("conviction", pyFloatValue(row.Conviction))\n'
+B6_CONVICTION_INT = '\tv.set("conviction", pyIntValue(int(row.Conviction)))\n'
+B6_REGRESSED = '\tv.set("regressed", pyBoolValue(false))\n'
+B6_REGRESSED_TRUE = '\tv.set("regressed", pyBoolValue(true))\n'
+B6_KEY_TAIL = ('\tv.set("similarity", pyNullValue())\n'
+               '\tv.set("regressed", pyBoolValue(false))\n'
+               '\tv.set("labels", memoryLabelsValue(row.Labels))\n')
+B6_KEY_TAIL_SWAP = ('\tv.set("labels", memoryLabelsValue(row.Labels))\n'
+                    '\tv.set("similarity", pyNullValue())\n'
+                    '\tv.set("regressed", pyBoolValue(false))\n')
+B6_LABELS_EMPTY = "\tif !present || list == nil || list.kind != pyArray || len(list.items) == 0 {\n"
+B6_LABELS_EMPTY_LOOSE = "\tif !present || list == nil || list.kind != pyArray {\n"
+B6_STRBOOL = '\t\tif v.truthy {\n\t\t\treturn "True"\n\t\t}\n\t\treturn "False"\n'
+B6_STRBOOL_BAD = '\t\tif v.truthy {\n\t\t\treturn "true"\n\t\t}\n\t\treturn "false"\n'
+B6_QUOTE = "\t\tquote = '\"'\n"
+B6_QUOTE_FIXED = "\t\tquote = '\\''\n"
+B6_NOT_FOUND_MSG = 'const memoryNotFoundMessage = "记忆不存在 / Memory not found"'
+B6_NOT_FOUND_MSG_BAD = 'const memoryNotFoundMessage = "Memory not found"'
+# 播种列清单（录制侧与 Go 回放侧各一条）：drift_score 是 NOT NULL 无默认那一列
+GS_MEM_COLUMNS = ('    "source, created_at, superseded_at, transition_reason, labels, '
+                  'deleted, drift_score) "')
+GS_MEM_COLUMNS_BAD = ('    "source, created_at, superseded_at, transition_reason, labels, '
+                      'deleted) "')
+RP_MEM_COLUMNS = "\t\t\t\ttransition_reason, labels, deleted, drift_score)\n"
+RP_MEM_COLUMNS_BAD = "\t\t\t\ttransition_reason, labels, deleted)\n"
+# Python 读侧的次级键与响应声明序（两侧同形的两条，只有 Python 闸看得见）
+MR6_TIE = "stmt = stmt.order_by(Memory.created_at.desc(), Memory.id.desc()).limit(limit)"
+MR6_NO_TIE = "stmt = stmt.order_by(Memory.created_at.desc()).limit(limit)"
+SC6_TAIL_KEYS = ('    similarity: Optional[float] = None  # 语义搜索命中时的相似度\n'
+                 '    regressed: bool = False  # 本次检索触发了回归识别（[回归信念] 标注）\n'
+                 '    labels: Optional[List[str]] = None  # 结构化标签（§5.18：["commitment"]），'
+                 '无标签为 None\n')
+SC6_TAIL_KEYS_SWAP = (
+    '    labels: Optional[List[str]] = None  # 结构化标签（§5.18：["commitment"]），'
+    '无标签为 None\n'
+    '    similarity: Optional[float] = None  # 语义搜索命中时的相似度\n'
+    '    regressed: bool = False  # 本次检索触发了回归识别（[回归信念] 标注）\n')
+# 夹具的两格逐字面（注意夹具里响应体是 JSON 字符串，引号在文件里带反斜杠）
+FX_LABELS_BOOL = r'\"labels\":[\"1\",\"True\",\"False\",\"None\"]'
+FX_LABELS_BOOL_BAD = r'\"labels\":[\"1\",\"true\",\"false\",\"None\"]'
+FX_CONV_ZERO = r'\"conviction\":0.0'
+FX_CONV_ZERO_BAD = r'\"conviction\":0,'
+# 批 6③ 清单闸（K8S_PYTEST::test_cutover_keys_without_ingress_path_stay_unrouted）的锚点。
+# 这一条测的是 D-10 那一档的反方向（有键、没 path），既有 k8s 闸只看 path 不看键，
+# 所以下面 223–228 每一格都只有这条新闸看得见。
+CM_MEM_ZERO = '  CLOSEN_CUTOVER_MEMORIES: "0"\n'
+SV_MEM_LIST = '\t\ts.mux.HandleFunc("GET /api/v1/memories", s.handleMemoriesList)\n'
+SV_MEM_DETAIL = '\t\ts.mux.HandleFunc("GET /api/v1/memories/{memory_id}", s.handleMemoryDetail)\n'
+ING_MEM_GO = ('          - path: /api/v1/memories\n'
+              '            pathType: Exact\n'
+              '            backend:\n'
+              '              service:\n'
+              '                name: go-api\n'
+              '                port:\n'
+              '                  name: http\n')
+ING_MEM_PY = ING_MEM_GO.replace("name: go-api", "name: py-api")
+# /health 那条是 paths 列表的最后一块，拿它当「在本域加一条指 py-api 的预铺规则」的追加锚点
+ING_HEALTH = ('          - path: /health\n'
+              '            pathType: Exact\n'
+              '            backend:\n'
+              '              service:\n'
+              '                name: py-api\n'
+              '                port:\n'
+              '                  name: http\n')
+# ④ 改判的那一格的负向证人：这一档的域**不许**被标废弃（锚在列表那条 GET 上，
+# 详情那条同域 ⇒ 同一判据，两条各打一次在这里没有额外信息量）
+RR6_GET_LIST = '@router.get("/memories")\n'
+RR6_GET_LIST_DEP = '@router.get("/memories", deprecated=True)\n'
 
 MUTATIONS = [
     # ── analytics 的 400 体（FastAPI 的 body 读取面）──────────────────────────
@@ -1946,6 +2107,199 @@ MUTATIONS = [
            "金标是插在中间的 tie-a(😢=1) ⇒ 两支都翻档，labels/values/summary 一起红",
       "go", API_TESTS, "TestN8MoodContractBytes",
       backup(LB5), patch(LB5, LB5_MOOD_TREND_TIE, LB5_MOOD_TREND_NO_TIE)),
+
+    # ── 批 6②（2026-10-17，memories 两条纯读的字节面）─────────────────────────
+    m(197, "limit 的默认值从 20 改成 19：memories-many 种了 25 行，"
+           "「不给 limit 时截到第几行」只有这一格能看见",
+      "go", API_TESTS, MEMS_TEST,
+      backup(DM6), patch(DM6, B6_DEFAULT_LIMIT, "\tMemoriesDefaultLimit = 19\n")),
+
+    m(198, "limit 的上界从 100 改成 99：夹具种了 `?limit=100` 这条 200 用例，"
+           "改小一格它就变成 400/40001——界值本身有用例，才说明 le=100 不是口头声明",
+      "go", API_TESTS, MEMS_TEST,
+      backup(DM6), patch(DM6, B6_MAX_LIMIT, "\tMemoriesMaxLimit     = 99")),
+
+    m(199, "limit 的下界从 1 改成 2：`?limit=0` 与 `?limit=-1` 的报错字节里带着 ctx.ge，"
+           "动一个数就动一份字节（validation 组那八条是批 6 的 400 面）",
+      "go", API_TESTS, VALS_TEST,
+      backup(DM6), patch(DM6, B6_MIN_LIMIT, "\tMemoriesMinLimit     = 2\n")),
+
+    m(200, "列表 SQL 撤掉 `id DESC` 次级键：mem-tie 种了**同刻三行**且主键最小的插在中间，"
+           "撤键后数据库只可能给插入序或其逆序，两支都翻档 ⇒ 红。"
+           "这一条就是批 5 那次「两行同刻＝空转」实测买到的判据",
+      "go", API_TESTS, MEMS_TEST,
+      backup(LB6), patch(LB6, B6_LIST_TIE, B6_LIST_NO_TIE)),
+
+    m(201, "category 的精确等值改成 LOWER() 两边归一：种子特意留了一行 `Values`（首字母大写），"
+           "宽松实现让 `?category=values` 多返回一行——Python 侧就是 `==`，不许更宽松",
+      "go", API_TESTS, MEMS_TEST,
+      backup(LB6), patch(LB6, B6_CAT_WHERE, B6_CAT_WHERE_LOOSE)),
+
+    m(202, "列表撤掉 `deleted = false`：dl-hidden 那行是**当前状态、软删标记为真**的组合，"
+           "撤掉过滤它就出现在列表里（详情那条另有 #205 单独打）",
+      "go", API_TESTS, MEMS_TEST,
+      backup(LB6), patch(LB6, B6_LIST_DELETED, B6_LIST_DELETED_LOOSE)),
+
+    m(203, "列表（不带 category 那一支）的 status 过滤从 `= 'current'` 改成 `!= 'deleted'`："
+           "这是最容易「顺手放宽」的一格，而 st-super/st-revert/st-other 三行"
+           "（superseded/reverted/archived）正是为它种的——放宽后列表凭空多三行",
+      "go", API_TESTS, MEMS_TEST,
+      backup(LB6), patch(LB6, B6_LIST_STATUS, B6_LIST_STATUS_ALL)),
+
+    m(204, "详情那条**加上** status 过滤：两支 WHERE 不同是今天的真实行为"
+           "（superseded 行列表读不到、详情读得到），统一成一条就让四格 200 一起变 404",
+      "go", API_TESTS, MEMS_TEST,
+      backup(LB6), patch(LB6, B6_DETAIL_WHERE, B6_DETAIL_WITH_STATUS)),
+
+    m(205, "详情撤掉 `user_id = $2`：这条端点唯一的越权防线就是主键查询带归属，"
+           "撤掉后 mem-detail-cross-user 从 40403 变成 200 并把别人的记忆发出去",
+      "go", API_TESTS, MEMS_TEST,
+      backup(LB6), patch(LB6, B6_DETAIL_WHERE, B6_DETAIL_NO_USER)),
+
+    m(206, "conviction 改用整型编出（模拟 encoding/json 把 0.0 写成 0）："
+           "列是 DOUBLE，Python 侧给的是 repr(float)——值相同、字节不同，逐字比才看得见",
+      "go", API_TESTS, MEMS_TEST,
+      backup(HB6), patch(HB6, B6_CONVICTION, B6_CONVICTION_INT)),
+
+    m(207, "labels 的「空数组也回 null」那一支撤掉：lab-empty 存的就是 `{\"labels\": []}`，"
+           "撤掉 len 判据就回 `[]`——Python 的 `... or None` 给的是 null",
+      "go", API_TESTS, MEMS_TEST,
+      backup(HB6), patch(HB6, B6_LABELS_EMPTY, B6_LABELS_EMPTY_LOOSE)),
+
+    m(208, "pyStrOf 的布尔支从 CPython 的 True/False 改成小写：lab-scalar 那行的元素是 "
+           "JSON 的 1/true/false/null，响应里是 [\"1\",\"True\",\"False\",\"None\"]——"
+           "这一支不是格式化，是 `str(x)` 的语义",
+      "go", API_TESTS, MEMS_TEST,
+      backup(HB6), patch(HB6, B6_STRBOOL, B6_STRBOOL_BAD)),
+
+    m(209, "pyReprString 的引号选择撤掉（串里有单引号也不换双引号）：lab-quote 那格是"
+           "2026-10-17 首录之后**才补上**的观测点——原先它嵌在顶层数组里走 str() 分支，"
+           "改这一支打不出红；嵌一层之后 repr 的引号选择第一次可证",
+      "go", API_TESTS, MEMS_TEST,
+      backup(HB6), patch(HB6, B6_QUOTE, B6_QUOTE_FIXED)),
+
+    m(210, "把 labels 提到 similarity/regressed 之前（即字母序）：13 个键的序＝pydantic "
+           "声明序，这两键在这两条路上恒为 null/false 但**键必须在**且位置在 labels 前",
+      "go", API_TESTS, MEMS_TEST,
+      backup(HB6), patch(HB6, B6_KEY_TAIL, B6_KEY_TAIL_SWAP)),
+
+    m(211, "regressed 的常量值从 false 翻成 true：前端读的是键存在性＋值，"
+           "「这两键恒为常量」这句话的证人就是这一格能不能被打红",
+      "go", API_TESTS, MEMS_TEST,
+      backup(HB6), patch(HB6, B6_REGRESSED, B6_REGRESSED_TRUE)),
+
+    m(212, "404 的文案只留英文：四支（不存在／他人／软删／匿名）给的是**同一串** 40403，"
+           "改文案让四格同时红——它是隐私判据的一半（另一半是四支必须同形）",
+      "go", API_TESTS, MEMS_TEST,
+      backup(MD6), patch(MD6, B6_NOT_FOUND_MSG, B6_NOT_FOUND_MSG_BAD)),
+
+    # ── 批 6②：坏 Go 源／坏录制面也能红 Python 闸（逐字节回放看不见常量与列清单）──
+    m(213, "Go 的 MemoriesMaxLimit 改成 99（Python 参数面没动）：Go 的逐字节回放两侧一起漂"
+           "仍然全绿，只有这一条 Python 闸比的是「两个源里的同一个数」",
+      "pytest", B6_PYTEST + "::test_limit_spec_and_the_400_envelope_match_go", "",
+      backup(DM6), patch(DM6, B6_MAX_LIMIT, "\tMemoriesMaxLimit     = 99")),
+
+    m(214, "带 category 那支的次级键方向反成 `id ASC`：Python 侧 .desc() 与 Go 侧必须同向，"
+           "而 SQL 文本这一面只有形状闸看得见",
+      "pytest", B6_PYTEST + "::test_the_two_sql_shapes_are_one_to_one", "",
+      backup(LB6), patch(LB6, B6_CAT_TIE, B6_CAT_TIE_FLIP)),
+
+    m(215, "详情 SQL 加上 status 过滤（与 #204 同一处坏法、打另一侧的闸）："
+           "Python 闸直接断言详情那条谓词里不许出现 STATUS——两支的差别失去证人时字节面"
+           "有可能恰好不变（本批正好同时红，正说明两层各管一件事）",
+      "pytest", B6_PYTEST + "::test_the_two_sql_shapes_are_one_to_one", "",
+      backup(LB6), patch(LB6, B6_DETAIL_WHERE, B6_DETAIL_WITH_STATUS)),
+
+    m(216, "录制脚本的播种列清单去掉 drift_score：实测 DDL 是 NOT NULL 且无 server_default，"
+           "少这一列真跑录制会当场被 PG 拒掉，但**闸读的是源文本**——两侧清单分叉先在这红",
+      "pytest", B6_PYTEST + "::test_recorder_and_go_seed_insert_the_same_column_list", "",
+      backup(GS), patch(GS, GS_MEM_COLUMNS, GS_MEM_COLUMNS_BAD)),
+
+    m(217, "Go 回放侧的播种列清单去掉 drift_score（与 #216 对偶，坏另一侧）："
+           "同一格两侧各打一次，才说明比的是「同一条列清单」而不是「同一份文本」",
+      "pytest", B6_PYTEST + "::test_recorder_and_go_seed_insert_the_same_column_list", "",
+      backup(RP6), patch(RP6, RP_MEM_COLUMNS, RP_MEM_COLUMNS_BAD)),
+
+    m(218, "Python 读侧撤掉 `Memory.id.desc()`：批 6 把这条端点切给 Go 读之前，"
+           "先要保证现网那条 SQL 也有次级键——否则两侧同形的是「一个不确定的序」",
+      "pytest", B6_PYTEST + "::test_the_two_sql_shapes_are_one_to_one", "",
+      backup(MR6), patch(MR6, MR6_TIE, MR6_NO_TIE)),
+
+    m(219, "Python 参数面 le=100 改成 99（Go 常量没动）：#198 打的是 Go 侧字节，"
+           "这一条打的是「两侧同源」——Go 不变而 Python 放宽／收紧时夹具会重录，"
+           "但闸必须在重录之前就红",
+      "pytest", B6_PYTEST + "::test_limit_spec_and_the_400_envelope_match_go", "",
+      backup(RR6), patch(RR6, B6_PY_QUERY_SPEC, B6_PY_QUERY_SPEC_BAD)),
+
+    m(220, "把 MemoryResponse 的 labels 声明提到 similarity 之前（即改声明序）："
+           "Go 侧是手写 v.set 串，声明序一变两侧就分家；这条闸把「序＝声明序」钉在 Python 源上",
+      "pytest", B6_PYTEST + "::test_response_key_order_is_declaration_order_with_two_constant_keys",
+      "", backup(SC6), patch(SC6, SC6_TAIL_KEYS, SC6_TAIL_KEYS_SWAP)),
+
+    m(221, "夹具里 lab-scalar 的 True/False 改成小写（坏录制面）：Python 闸用**现在这份**"
+           "_parse_labels 重算，夹具与现算一不同就红——这一条证的是「夹具存的确实是这条规则的结果」",
+      "pytest", B6_PYTEST + "::test_labels_column_text_replays_through_python_parse_into_fixture_bytes",
+      "", backup(FX), patch(FX, FX_LABELS_BOOL, FX_LABELS_BOOL_BAD)),
+
+    m(222, "夹具里所有 `\"conviction\":0.0` 写成 0（坏录制面）：repr(float) 那支的判据"
+           "在 Go 侧是 #206，在这里是夹具自己——两侧都要求字节里带小数点",
+      "pytest", B6_PYTEST + "::test_conviction_is_serialized_as_repr_float_not_json_number",
+      "", backup(FX), patch_all(FX, FX_CONV_ZERO, FX_CONV_ZERO_BAD)),
+
+    # ── 批 6③（2026-10-17，清单面：D-10 那一档的反方向闸）─────────────────────
+    m(223, "无 path 的域键抬到 1：既有 `test_ingress_is_at_zero_percent_rollout` 只遍历"
+           "「指 go-api 的 path」去要键，memories 这条键不在它的射程里 ⇒ 只有新闸拦得住"
+           "「清单里把一个没上刀的域悄悄调放量」。口径与 #35/#71/#166 同一条：放量是一次"
+           "有意的上线动作，改这条断言就是那次动作的登记点",
+      "pytest", f"{K8S_PYTEST}::test_cutover_keys_without_ingress_path_stay_unrouted", "",
+      backup(CFG), patch(CFG, CM_MEM_ZERO, '  CLOSEN_CUTOVER_MEMORIES: "1"\n')),
+
+    m(224, "把 CLOSEN_CUTOVER_MEMORIES 整行删掉：k8s 两条闸都看不见——一条遍历 go-api 的 path，"
+           "另一条按「有键没 path」推集合（少一格仍非空，四格判据照跑），"
+           "`test_env_var_names_do_not_drift_*` 也只查「声明的键有人读」。"
+           "红的是三段登记闸：ConfigMap 键集合 = CUT_DOMAINS ∪ PATHLESS_KEYS 那条等式，"
+           "删键＝三个登记面少一侧，回滚只剩改清单发版",
+      "pytest", f"{B2_PYTEST}::test_three_registers_agree_on_the_cut_domains", "",
+      backup(CFG), patch(CFG, CM_MEM_ZERO, "")),
+
+    m(225, "给 /api/v1/memories 补一条 Exact 指 go-api（把 D-10 撤掉）：path 匹配不看方法，"
+           "这一个 path 上挂着 GET 与 POST，而 Go 的 mux 只注册了 GET ⇒ 上线即 405。"
+           "#167 给 reflections 打过同一格，这条是 memories 的孪生证人",
+      "pytest", f"{K8S_PYTEST}::test_go_bound_contract_operations_are_registered_in_go", "",
+      backup(ING), patch(ING, ING_MOOD_TREND, ING_MOOD_TREND + ING_MEM_GO)),
+
+    m(226, "「预铺」一条指 py-api 的 /api/v1/memories 规则（看起来无害）：下一刀的人会按"
+           "「这个域已经有入口规则」去改百分比，而规则本身不切流量 ⇒ 0% 判据从「没上刀」"
+           "退成「上了一把指向 Python 的刀」。既有闸只遍历 go-api 的 backend，看不见这条；"
+           "batch2 的三段集合闸同样只数 go-api，也看不见 ⇒ 新闸是这一格的唯一证人",
+      "pytest", f"{K8S_PYTEST}::test_cutover_keys_without_ingress_path_stay_unrouted", "",
+      backup(ING), patch(ING, ING_HEALTH, ING_HEALTH + ING_MEM_PY)),
+
+    m(227, "撤掉 server.go 里列表那条 GET 注册：第四格（「没上刀」的原因是同 path 的写方法，"
+           "不是读面还没写）失去证人——前三格仍全绿，因为键、值、path 都没变，"
+           "而批 6 的实现已经不在。这是新闸唯一能显形的退步方向",
+      "pytest", f"{K8S_PYTEST}::test_cutover_keys_without_ingress_path_stay_unrouted", "",
+      backup(SV), patch(SV, SV_MEM_LIST, "")),
+
+    m(228, "同一处坏法打第二条 GET（详情那条）：#227 只证列表，这条证 for 循环里"
+           "两条 GET 是各查各的，不是「域里有任意一条注册就算过」",
+      "pytest", f"{K8S_PYTEST}::test_cutover_keys_without_ingress_path_stay_unrouted", "",
+      backup(SV), patch(SV, SV_MEM_DETAIL, "")),
+
+    m(229, "#225 的同一坏法打**成员集合**那一层：域从 PATHLESS_KEYS 那一侧挪进 Ingress 之后，"
+           "三段登记闸里 `PATHLESS_KEYS & ingress_domains` 那条点名判据必须红——"
+           "它给的是「这一域转正了，请把键移进 CUT_DOMAINS」的口径，#225 给的是「你会当场 405」。"
+           "两层各管一件事，缺任一层都留一条退路（新 k8s 闸在这条坏法下反而不红："
+           "memories 退出 key_only 之后，四格判据对它不再执行）",
+      "pytest", f"{B2_PYTEST}::test_three_registers_agree_on_the_cut_domains", "",
+      backup(ING), patch(ING, ING_MOOD_TREND, ING_MOOD_TREND + ING_MEM_GO)),
+
+    m(230, "批 6④ 的改判「这两条 GET 不标 deprecated」要有负向证人，不能只是一句注释："
+           "给 `GET /api/v1/memories` 加上 `deprecated=True`（入口还没接管就告诉客户端这条路要没了）"
+           "⇒ 三段登记闸里 `openapi_domains == CUT_DOMAINS` 那条等式必须红。"
+           "详情那条同域、由同一条判据管，所以这里只打一支",
+      "pytest", f"{B2_PYTEST}::test_three_registers_agree_on_the_cut_domains", "",
+      backup(RR6), patch(RR6, RR6_GET_LIST, RR6_GET_LIST_DEP)),
 ]
 
 
@@ -2002,16 +2356,17 @@ def main() -> int:
         if proc.returncode != 0:
             print((proc.stdout + proc.stderr)[-2000:])
             return 1
-    proc = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "-m", "pytest", B1_PYTEST, B2_PYTEST, B3_PYTEST,
-         B4_PYTEST, B5_PYTEST, DA_PYTEST, MOOD_PYTEST, K8S_PYTEST, "-q", "--no-header"],
-        cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
-    tail = (proc.stdout + proc.stderr).strip().splitlines()
-    print(f"[{'GREEN' if proc.returncode == 0 else 'BROKEN'}] 复跑 Python 侧闸门："
-          f"{tail[-1] if tail else ''}")
-    if proc.returncode != 0:
-        print((proc.stdout + proc.stderr)[-2000:])
-        return 1
+    for node in (B1_PYTEST, B2_PYTEST, B3_PYTEST, B4_PYTEST, B5_PYTEST, B6_PYTEST,
+                 DA_PYTEST, MOOD_PYTEST, K8S_PYTEST):
+        proc = subprocess.run(
+            [str(ROOT / ".venv/bin/python"), "-m", "pytest", node, "-q", "--no-header"],
+            cwd=ROOT, capture_output=True, text=True, env=ENV, timeout=900)
+        tail = (proc.stdout + proc.stderr).strip().splitlines()
+        print(f"[{'GREEN' if proc.returncode == 0 else 'BROKEN'}] 复跑 {node}："
+              f"{tail[-1] if tail else ''}")
+        if proc.returncode != 0:
+            print((proc.stdout + proc.stderr)[-2000:])
+            return 1
     return 1 if failures else 0
 
 

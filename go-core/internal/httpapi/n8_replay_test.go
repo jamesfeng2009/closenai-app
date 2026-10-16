@@ -157,6 +157,24 @@ func (f n8ForbiddenBatch5) Reflections(_ context.Context, userID string, _ strin
 	return nil, errors.New("n8: store must not be read")
 }
 
+// n8ForbiddenBatch6 给批 6 的 validation 组（memories 的 limit 越界/非整数那一档）。
+// 两个方法各自的错误消息点**表名**：这两条读的都是 memories，但读的动作有两个
+// （列表带 LIMIT、详情按主键），少守一个就会有一条用例在「校验失败却打库」上悄悄绿。
+type n8ForbiddenBatch6 struct{ t *testing.T }
+
+func (f n8ForbiddenBatch6) MemoryList(_ context.Context, userID string, _ int64,
+	_ string) ([]domain.MemoryRow, error) {
+	f.t.Errorf("validation 用例读了 memories(%s)——Python 侧 limit 校验失败根本不进 store", userID)
+	return nil, errors.New("n8: memories list must not be read")
+}
+
+func (f n8ForbiddenBatch6) MemoryByID(_ context.Context, memoryID,
+	userID string) (domain.MemoryRow, bool, error) {
+	f.t.Errorf("validation 用例读了 memories(%s/%s)——详情那条根本没有 query 参数",
+		userID, memoryID)
+	return domain.MemoryRow{}, false, errors.New("n8: memories detail must not be read")
+}
+
 // n8RecordingRelay 记下发出去的事件，但**绝不联网**（测试里不许打 posthog）。
 //
 // mutex 不是装饰：relayEvents 是并发派发的，没有锁时这里追加的是竞争写，
@@ -182,14 +200,14 @@ func (r *n8RecordingRelay) count() int {
 }
 
 func newN8Server(t *testing.T, users UserProfileReader, moods MoodReader, relay Relay,
-	batch2 *Batch2, batch3 *Batch3, batch4 *Batch4, batch5 *Batch5) *Server {
+	batch2 *Batch2, batch3 *Batch3, batch4 *Batch4, batch5 *Batch5, batch6 *Batch6) *Server {
 	t.Helper()
 	cfg := config.Config{AppName: "ClosenAI", Environment: "development", HTTPAddr: ":0"}
 	signer := auth.NewSigner("n8-contract-golden-secret-n8-contract-golden",
 		30*time.Minute, 30*24*time.Hour)
 	// 这两条路由不碰 auth.Service；灰度闸留 nil＝全量由 Go 回答（见 cutover.Selected）。
 	return NewServer(cfg, signer, nil, nil, &Batch1{Users: users, Moods: moods, Relay: relay},
-		batch2, batch3, batch4, batch5)
+		batch2, batch3, batch4, batch5, batch6)
 }
 
 // replayN8Case 把一个夹具用例打回 Go 侧，并把响应压到与录制同样的口径。
@@ -252,7 +270,8 @@ func TestN8ValidationContractBytes(t *testing.T) {
 	b5 := n8ForbiddenBatch5{t: t}
 	handler := newN8Server(t, forbidden, forbidden, &n8RecordingRelay{t: t},
 		nil, nil, &Batch4{Store: onb},
-		&Batch5{Moods: b5, Reflections: b5, Users: forbidden}).Handler()
+		&Batch5{Moods: b5, Reflections: b5, Users: forbidden},
+		&Batch6{Memories: n8ForbiddenBatch6{t: t}}).Handler()
 
 	var replayed int
 	for _, c := range file.Cases {
@@ -281,8 +300,20 @@ func TestN8ValidationContractBytes(t *testing.T) {
 		t.Fatalf("validation 组里批 5 的校验用例只有 %d 条，录制时是 15 条（days 9 + limit 6）"+
 			"——少一条就是 queryInt 的某一格失去了观测点", batch5Validated)
 	}
-	t.Logf("validation 组 %d 条 400 体逐字回放（全程未读库，其中批 5 %d 条）",
-		replayed, batch5Validated)
+	// 批 6 的八条 limit 校验同一条纪律：这组只设下界，绿的前提是「真的走到 store 之前」。
+	var batch6Validated int
+	for _, c := range file.Cases {
+		if c.Group == "validation" && strings.HasPrefix(c.Path, "/api/v1/memories") {
+			batch6Validated++
+		}
+	}
+	if batch6Validated < 8 {
+		t.Fatalf("validation 组里批 6 的校验用例只有 %d 条，录制时是 8 条（limit 的 abc/0/101/"+
+			"-1/2.5/空白/%%20/双错序）——少一条就是 MemoriesLimitSpec 的某一格没了观测点，"+
+			"而 n8ForbiddenBatch6 也再没机会翻脸", batch6Validated)
+	}
+	t.Logf("validation 组 %d 条 400 体逐字回放（全程未读库，其中批 5 %d 条、批 6 %d 条）",
+		replayed, batch5Validated, batch6Validated)
 }
 
 // TestN8MaskedFieldsStayRedacted 守的是掩码自身的失效模式：
@@ -536,6 +567,31 @@ func n8SeedRows(t *testing.T, pool *pgxpool.Pool, seed n8Seed) {
 			t.Fatalf("seed onboarding profile %s: %v", p.ID, err)
 		}
 	}
+	// 批 6：drift_score **必须显式写**——DDL 实测它是 NOT NULL 且没有 server_default
+	// （conviction_score 同理，所以那一个走夹具的值而不是字面量）。
+	// updated_at / emotion_context / superseded_by / reverted_from / generation_run_id /
+	// embedding 六列留给 server_default 或 NULL：这两条端点的响应面一个都不读，
+	// 而 embedding 是 halfvec——Go 全仓没有它的解析器，所以读侧也必须收缩列。
+	for _, m := range seed.Memories {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO memories (id, user_id, category, content, status,
+				conviction_score, source, created_at, superseded_at,
+				transition_reason, labels, deleted, drift_score)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0.0)
+			ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id,
+				category = EXCLUDED.category, content = EXCLUDED.content,
+				status = EXCLUDED.status,
+				conviction_score = EXCLUDED.conviction_score,
+				source = EXCLUDED.source, created_at = EXCLUDED.created_at,
+				superseded_at = EXCLUDED.superseded_at,
+				transition_reason = EXCLUDED.transition_reason,
+				labels = EXCLUDED.labels, deleted = EXCLUDED.deleted`,
+			m.ID, m.UserID, m.Category, m.Content, m.Status, m.ConvictionScore,
+			m.Source, m.CreatedAt, m.SupersededAt, m.TransitionReason, m.Labels,
+			m.Deleted); err != nil {
+			t.Fatalf("seed memory %s: %v", m.ID, err)
+		}
+	}
 }
 
 func n8CleanSeedRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
@@ -550,6 +606,9 @@ func n8CleanSeedRows(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
 		// 批 5：/reflections 是纯读，但**必须先清**——上一轮遗留的行会让 LIMIT 截断
 		// 落在不同行上（夹具的 reflections-many 钉的正是「20 条里截到第几条」）。
 		`DELETE FROM growth_records WHERE id LIKE 'n8b1-%' OR user_id LIKE 'n8b1-%'`,
+		// 批 6：同理——memories.user_id 上没有外键（实测 pg_constraint 零行），
+		// 但不清就会让上一轮回放的行留在 LIMIT 的截断窗口里。
+		`DELETE FROM memories WHERE id LIKE 'n8b1-%' OR user_id LIKE 'n8b1-%'`,
 		`DELETE FROM users WHERE id LIKE 'n8b1-%'`,
 	} {
 		if _, err := pool.Exec(ctx, q); err != nil {
@@ -568,7 +627,7 @@ func TestN8SeededContractBytes(t *testing.T) {
 
 	relay := &n8RecordingRelay{t: t}
 	pg := store.NewPG(pool)
-	handler := newN8Server(t, pg, pg, relay, nil, nil, nil, nil).Handler()
+	handler := newN8Server(t, pg, pg, relay, nil, nil, nil, nil, nil).Handler()
 
 	var replayed, wantRelayed int
 	for _, c := range file.Cases {
@@ -631,7 +690,7 @@ func TestN8CurriculumContractBytes(t *testing.T) {
 
 	forbidden := &n8NoRelayStore{t: t}
 	pg := store.NewPG(pool)
-	srv := newN8Server(t, pg, pg, forbidden, &Batch2{Store: pg}, nil, nil, nil)
+	srv := newN8Server(t, pg, pg, forbidden, &Batch2{Store: pg}, nil, nil, nil, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -679,7 +738,7 @@ func TestN8JourneyContractBytes(t *testing.T) {
 
 	pg := store.NewPG(pool)
 	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t},
-		&Batch2{Store: pg}, &Batch3{Store: pg}, nil, nil)
+		&Batch2{Store: pg}, &Batch3{Store: pg}, nil, nil, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -727,7 +786,7 @@ func TestN8OnboardingContractBytes(t *testing.T) {
 	anchor := n8Anchor(t, file)
 
 	pg := store.NewPG(pool)
-	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t}, nil, nil, &Batch4{Store: pg}, nil)
+	srv := newN8Server(t, pg, pg, &n8NoRelayStore{t: t}, nil, nil, &Batch4{Store: pg}, nil, nil)
 	srv.cfg.SiteURL = file.ShareURLInputs.SiteURL
 	srv.cfg.AppStoreURL = file.ShareURLInputs.AppStoreURL
 	srv.now = func() time.Time { return anchor }
@@ -801,7 +860,7 @@ func TestN8MoodContractBytes(t *testing.T) {
 	relay := &n8RecordingRelay{t: t}
 	pg := store.NewPG(pool)
 	srv := newN8Server(t, pg, pg, relay, nil, nil, nil,
-		&Batch5{Moods: pg, Reflections: pg, Users: pg})
+		&Batch5{Moods: pg, Reflections: pg, Users: pg}, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -885,7 +944,7 @@ func TestN8ReflectionContractBytes(t *testing.T) {
 	relay := &n8RecordingRelay{t: t}
 	pg := store.NewPG(pool)
 	srv := newN8Server(t, pg, pg, relay, nil, nil, nil,
-		&Batch5{Moods: pg, Reflections: pg, Users: pg})
+		&Batch5{Moods: pg, Reflections: pg, Users: pg}, nil)
 	srv.now = func() time.Time { return anchor }
 	handler := srv.Handler()
 
@@ -934,4 +993,153 @@ func TestN8ReflectionContractBytes(t *testing.T) {
 	}
 	t.Logf("reflection 组 %d 条逐字回放（锚点 %s，真读 growth_records，零掩码、零外发）",
 		len(cases), anchor.Format(time.RFC3339))
+}
+
+// ── 批 6（memories）组：真库、两条纯读、零掩码、零外发 ─────────────────────────
+
+// n8MemoryIDRe 按响应里出现的次序取出各行的主键（只用于同刻那一组的序核对）。
+var n8MemoryIDRe = regexp.MustCompile(`"id":"([^"]+)"`)
+
+// n8IsMemoriesList 分清「列表」与「详情」：详情那条 path 一定多一个段。
+// 这一分不是形式主义——两支的 WHERE 不同（列表过 status 与 deleted、详情都不过），
+// 把两条混在一组断言里就会让「列表漏了过滤」这种红看起来像详情坏了。
+func n8IsMemoriesList(path string) bool {
+	return path == "/api/v1/memories" || strings.HasPrefix(path, "/api/v1/memories?")
+}
+
+// TestN8MemoriesContractBytes 是批 6 的验收闸：memories 两条端点的响应字节逐字等于
+// 真 FastAPI 录下来的那串。
+//
+// 这一组**不冻时钟**（与批 2–5 的唯一不同）：两条端点里没有由「今天」推出的字段，
+// `created_at` 全是列原文。播种仍走绝对时刻，因为 LIMIT 截断与同刻次级键的落点
+// 必须与录制时同一批行——那是**响应里的 id**，不是格式差异。
+//
+// 三条只能靠逐字比才成立的东西：
+//   - conviction 是这批第一个**非整型浮点**列：`0.0`／`1.0`／`0.333` 三形都进响应，
+//     Go 若用 encoding/json 的 float，`0.0` 会写成 `0`（字节不同、值相同，
+//     而灰度期的前端不做 JSON 数值比较，它比的是渲染结果）。
+//   - transition_reason 的 NULL 与 `""` 给 null 与 `""` **两种字节**（pydantic 的
+//     Optional[str] 不折空串），夹具各留一格。
+//   - labels 是**解析出来的**数组而不是列原文：坏 JSON／顶层数组／空数组全给 null，
+//     非字符串元素走 Python 的 `str()`，嵌套容器走 `repr()`（含引号选择那一支）。
+//
+// ⚠️ 这两条 path 今天**不能上刀**（决策点 D-10）：同 path 还挂着 POST 与 DELETE，
+// Ingress 的 path 匹配不看方法 ⇒ 声明键 CLOSEN_CUTOVER_MEMORIES、但不给 path，
+// 所以这一组的绿证明的是「Go 已经能逐字节回答」，不证明「用户能走到」。
+func TestN8MemoriesContractBytes(t *testing.T) {
+	file := loadN8Fixture(t)
+	pool := n8Pool(t)
+	n8SeedRows(t, pool, file.Seed)
+
+	relay := &n8RecordingRelay{t: t}
+	pg := store.NewPG(pool)
+	srv := newN8Server(t, pg, pg, relay, nil, nil, nil, nil, &Batch6{Memories: pg})
+	handler := srv.Handler()
+
+	var cases, listCases []n8Case
+	for _, c := range file.Cases {
+		if c.Group != "memories" {
+			continue
+		}
+		cases = append(cases, c)
+		if n8IsMemoriesList(c.Path) {
+			listCases = append(listCases, c)
+		}
+		t.Run(c.Name, func(t *testing.T) {
+			replayN8Case(t, handler, c)
+		})
+	}
+	if len(cases) == 0 {
+		t.Fatal("memories 组为空：分组键 group 漂移了")
+	}
+	if len(listCases) == 0 {
+		t.Fatal("memories 组里没有列表用例：path 形状漂移，两支 WHERE 的差别没证人")
+	}
+
+	// 每个观测点都要有人证：任一片段整组不出现就说明对应那条复刻跑了偏，
+	// 而上面那些逐字比会因为「两侧都偏了」照样绿（口径同批 5 的 reflection 组）。
+	for fragment, why := range map[string]string{
+		`"data":[]`:                             "空态给空数组而不是 null",
+		`"conviction":0.0`:                      "conviction 走 pyFloatValue（encoding/json 会写成 0）",
+		`"conviction":1.0`:                      "另一端界同样要带小数点",
+		`"conviction":0.333`:                    "非整值浮点的 repr 形状",
+		`"transition_reason":""`:                "空串那一支（pydantic 不折空串）",
+		`"transition_reason":null`:              "NULL 那一支——两支必须在同一组里同时存在",
+		`"superseded_at":"20`:                   "可空时刻列的有值支（Z 形，不是 +00:00）",
+		`"labels":["commitment"]`:               "生产写入形状那一支",
+		`"labels":["1","True","False","None"]`:  "非字符串元素走 Python 的 str()",
+		`"labels":["['a', 1]","{'k': 'v'}"]`:    "嵌套容器走 repr()（list 与 dict 两支）",
+		`"labels":["[\"it's\", 'say \"hi\"']"]`: "repr 的引号选择两支（Go 的 pyReprString）",
+		`"similarity":null,"regressed":false`:   "两键恒为 null/false，且排在 labels 之前",
+		`"code":40403`:                          "不存在／他人／软删／匿名四支必须同串",
+	} {
+		if n8Count(cases, fragment) == 0 {
+			t.Errorf("memories 组没有任何一条走到 %s（缺片段 %q）", why, fragment)
+		}
+	}
+
+	// 列表过 status='current' 与 deleted=false、详情两者都不过 ⇒ 这四行**只该**出现在详情里。
+	// 只断言「列表里不出现」会被整组空响应当过去，所以同时钉住 st-current 确实进了列表。
+	for _, forbiddenID := range []string{
+		"n8b1-mem-status-st-super", "n8b1-mem-status-st-revert",
+		"n8b1-mem-status-st-other", "n8b1-mem-del-dl-hidden",
+	} {
+		for _, c := range listCases {
+			if strings.Contains(c.ResponseText, forbiddenID) {
+				t.Errorf("%s 的列表响应里有 %s——WHERE 少了 status 或 deleted 过滤，"+
+					"两侧会从同一批行里读出不同的列表（详情那条**允许**读到它，别一起改）",
+					c.Name, forbiddenID)
+			}
+		}
+	}
+	if n8Count(listCases, `"id":"n8b1-mem-status-st-current"`) == 0 {
+		t.Errorf("列表用例一个都没带出 n8b1-mem-status-st-current：上面四条「不出现」" +
+			"是被空响应当过去的，两支 WHERE 的差别没有观测点")
+	}
+
+	// 同刻那一组：期望序由 id DESC 定，而它既不等于插入序也不等于逆插入序
+	// （夹具把 id 最小的那行插在中间，判据来自批 5 的 M-G 空转实测）。
+	// limit=1 那一格钉的是「同刻里谁活下来」——次级键的真实后果是截断落点，不是可读序。
+	for name, want := range map[string][]string{
+		"memories-tie": {"n8b1-mem-tie-tie-z", "n8b1-mem-tie-tie-m",
+			"n8b1-mem-tie-tie-a", "n8b1-mem-tie-tie-old"},
+		"memories-tie-limit-1": {"n8b1-mem-tie-tie-z"},
+	} {
+		var found *n8Case
+		for i := range cases {
+			if cases[i].Name == name {
+				found = &cases[i]
+				break
+			}
+		}
+		if found == nil {
+			t.Errorf("夹具里没有 %s 这一格：同刻次级键没有字节证人", name)
+			continue
+		}
+		got := n8MemoryIDRe.FindAllStringSubmatch(found.ResponseText, -1)
+		var ids []string
+		for _, m := range got {
+			if strings.HasPrefix(m[1], "n8b1-mem-tie-") {
+				ids = append(ids, m[1])
+			}
+		}
+		if strings.Join(ids, ",") != strings.Join(want, ",") {
+			t.Errorf("%s 的行序是 %v，want %v——created_at 同瞬时次级键没生效或方向反了",
+				name, ids, want)
+		}
+	}
+
+	// category 的两支互为对照：空串在 Python 是假值（不进 WHERE ⇒ 全量，含 category="" 那行），
+	// 一个空格是**真值**（进 WHERE ⇒ 空数组）。把空串当一次过滤就会少三行。
+	if n8Count(listCases, `"id":"n8b1-mem-cat-ct-blank"`) == 0 {
+		t.Errorf("没有任何列表响应带出 category=\"\" 那一行：`?category=` 的假值判据没证人")
+	}
+
+	// 本域零外发：memory_service 的这两条一个分析事件都不打（实测 grep capture/posthog 零命中），
+	// Go 侧「顺手补一条」就是灰度期的数据面差异，而响应字节看不出来。
+	if got := relay.count(); got != 0 {
+		t.Errorf("memories 组外发了 %d 条事件，Python 侧这两条读一条都不打", got)
+	}
+	t.Logf("memories 组 %d 条逐字回放（列表 %d／详情 %d，真读 memories，零掩码、零外发、不冻时钟）",
+		len(cases), len(listCases), len(cases)-len(listCases))
 }

@@ -150,7 +150,7 @@ func newJourneyServer(t *testing.T, fake *journeyFakeStore) *Server {
 		fake = prefilledFake(t)
 	}
 	srv := newN8Server(t, n8ForbiddenStore{t: t}, n8ForbiddenStore{t: t},
-		&n8RecordingRelay{t: t}, nil, &Batch3{Store: fake, Gate: nil}, nil, nil)
+		&n8RecordingRelay{t: t}, nil, &Batch3{Store: fake, Gate: nil}, nil, nil, nil)
 	srv.now = func() time.Time { return time.Date(2026, 10, 14, 14, 45, 30, 0, time.UTC) }
 	return srv
 }
@@ -577,7 +577,7 @@ func TestJourneyEventsPrefillFailureDoesNotReadOrLeakPartialState(t *testing.T) 
 func TestJourneyRoutesAbsentWithoutBatch3(t *testing.T) {
 	// 机制没接线（Batch3==nil）时 Go 一条都不答：与未注册路径逐字同形。
 	srv := newN8Server(t, n8ForbiddenStore{t: t}, n8ForbiddenStore{t: t},
-		&n8RecordingRelay{t: t}, nil, nil, nil, nil)
+		&n8RecordingRelay{t: t}, nil, nil, nil, nil, nil)
 	handler := srv.Handler()
 	for _, pair := range [][2]string{
 		{http.MethodGet, "/api/v1/journey/events"},

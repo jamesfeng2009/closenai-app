@@ -59,7 +59,9 @@ CUT_PATHS = {
 }
 # 灰度键已在 ConfigMap 声明、但本批**没有** Ingress path 的域（决策点 D-10）。
 # 与 CUT_DOMAINS 分开的理由写在 test_three_registers_agree_on_the_cut_domains 的文档串里。
-PATHLESS_KEYS = frozenset({"reflections"})
+# 批 5 只有 reflections 一格；批 6 的 memories 是**两条 path 都这格**（`/memories` 同 path
+# 挂 POST、`/memories/{memory_id}` 同 path 挂 DELETE），所以这一档从一格变两格。
+PATHLESS_KEYS = frozenset({"reflections", "memories"})
 
 
 def _go(rel: str) -> str:
@@ -228,6 +230,13 @@ def test_three_registers_agree_on_the_cut_domains():
        这类键在本批调高也不放量（入口没有指向它的 path），失败方向是「没切」而不是 405；
        它也**不进** deprecated 集合——
        标废弃＝告诉客户端这条路要没了，而 Python 还在整条答它。
+       ↳ 这一档**只有这一处登记表**：backend/tests/test_k8s_manifests.py 的
+       `test_cutover_keys_without_ingress_path_stay_unrouted` 从清单本身推出同一个集合
+       （声明了键、却没有 go-api path 的域），只负责钉每一格的内容；
+       在两个文件各写一份域名清单就是给下一批留一处会漂移的缝。
+       ↳ 批 6 起这一档有两格（reflections、memories）；实测证据是加键那一刻——
+       `CLOSEN_CUTOVER_MEMORIES` 落进 `10-config.yaml` 之后只有这条闸红，
+       k8s 那份「有 path ⇒ 有键」的遍历对它完全无感。
     """
     ing = next(d for d in yaml.safe_load_all(
         (MANIFESTS / "50-ingress.yaml").read_text(encoding="utf-8"))

@@ -246,6 +246,29 @@ type n8Seed struct {
 		// 因为 `ensure_prefilled` 的基准日取的就是这一列，回落 user.created_at。
 		CreatedAt *string `json:"created_at"`
 	} `json:"onboarding_profiles"`
+	// Memories 是批 6 的 `GET /memories` 与 `/memories/{id}` 读的那张表。
+	// 三个可空列一律给**列原文**（nil⇒SQL NULL、""⇒空串）：
+	// transition_reason 的 NULL 与 "" 在响应里是 null 与 "" 两种字节
+	// （pydantic 的 Optional[str] 不折空串），把 NULL 折成 "" 会让
+	// mem-detail-reason-empty 失去它的对照行。
+	// labels 是给 `_parse_labels` 的**输入**而不是响应值，所以坏 JSON、顶层数组、
+	// 空数组全都种得进去——列是自由 TEXT，写入侧不校验，这一格的真实形状就是「什么都有」。
+	// ConvictionScore 是这批第一个**非整型浮点**列（0.0/1.0/0.333），
+	// Go 侧序列化必须走 pyFloatValue：encoding/json 会把 0.0 写成 0。
+	Memories []struct {
+		ID               string  `json:"id"`
+		UserID           string  `json:"user_id"`
+		Category         string  `json:"category"`
+		Content          string  `json:"content"`
+		Status           string  `json:"status"`
+		ConvictionScore  float64 `json:"conviction_score"`
+		Source           string  `json:"source"`
+		CreatedAt        string  `json:"created_at"`
+		SupersededAt     *string `json:"superseded_at"`
+		TransitionReason *string `json:"transition_reason"`
+		Labels           *string `json:"labels"`
+		Deleted          bool    `json:"deleted"`
+	} `json:"memories"`
 }
 
 type n8Case struct {

@@ -71,7 +71,7 @@ func newBatch5Server(t *testing.T, moods *moodFakeStore, refl *reflectionFakeSto
 	srv := newN8Server(t, &fakeProfileReader{language: language}, n8ForbiddenStore{t: t},
 		&n8NoRelayStore{t: t}, nil, nil, nil, &Batch5{
 			Moods: moods, Reflections: refl, Users: &fakeProfileReader{language: language},
-		})
+		}, nil)
 	if !now.IsZero() {
 		srv.now = func() time.Time { return now }
 	}

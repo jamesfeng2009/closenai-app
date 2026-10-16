@@ -95,7 +95,7 @@ func newBatch2Server(t *testing.T, fake *batch2FakeStore) *Server {
 		fake = consentingFake(t)
 	}
 	srv := newN8Server(t, n8ForbiddenStore{t: t}, n8ForbiddenStore{t: t},
-		&n8RecordingRelay{t: t}, &Batch2{Store: fake, Gate: nil}, nil, nil, nil)
+		&n8RecordingRelay{t: t}, &Batch2{Store: fake, Gate: nil}, nil, nil, nil, nil)
 	srv.now = func() time.Time { return time.Date(2026, 10, 14, 14, 45, 30, 0, time.UTC) }
 	return srv
 }
@@ -260,7 +260,7 @@ func TestCurriculumReadIsIdempotentInStoreCalls(t *testing.T) {
 func TestCurriculumRoutesAbsentWithoutBatch2(t *testing.T) {
 	// 机制没接线（Batch2==nil）时 Go 一条都不答：与未注册路径逐字同形。
 	srv := newN8Server(t, n8ForbiddenStore{t: t}, n8ForbiddenStore{t: t},
-		&n8RecordingRelay{t: t}, nil, nil, nil, nil)
+		&n8RecordingRelay{t: t}, nil, nil, nil, nil, nil)
 	handler := srv.Handler()
 	for _, path := range []string{"/api/v1/curriculum/week", "/api/v1/curriculum/ev-1/read"} {
 		got := batch2Request(t, handler, http.MethodGet, path, "u-5")

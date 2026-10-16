@@ -60,7 +60,8 @@ func TestN8CutoverDefaults(t *testing.T) {
 	t.Setenv("JWT_SECRET", "unit-test-secret-unit-test-unit-test")
 	for _, key := range []string{"CLOSEN_PY_API_URL", "CLOSEN_CUTOVER_ANALYTICS",
 		"CLOSEN_CUTOVER_DISCOVERY", "CLOSEN_CUTOVER_CURRICULUM", "CLOSEN_CUTOVER_JOURNEY",
-		"CLOSEN_CUTOVER_ONBOARDING", "POSTHOG_API_KEY", "POSTHOG_HOST",
+		"CLOSEN_CUTOVER_ONBOARDING", "CLOSEN_CUTOVER_MEMORIES",
+		"POSTHOG_API_KEY", "POSTHOG_HOST",
 		"SITE_URL", "APP_STORE_URL"} {
 		if os.Getenv(key) != "" {
 			t.Fatalf("环境里已有 %s，这条用例会比错值", key)
@@ -71,10 +72,10 @@ func TestN8CutoverDefaults(t *testing.T) {
 		t.Fatalf("默认配置 Load: %v", err)
 	}
 	if cfg.CutoverAnalytics != 0 || cfg.CutoverDiscovery != 0 || cfg.CutoverCurriculum != 0 ||
-		cfg.CutoverJourney != 0 || cfg.CutoverOnboarding != 0 {
-		t.Errorf("灰度默认 = (%d, %d, %d, %d, %d)，期望全 0",
+		cfg.CutoverJourney != 0 || cfg.CutoverOnboarding != 0 || cfg.CutoverMemories != 0 {
+		t.Errorf("灰度默认 = (%d, %d, %d, %d, %d, %d)，期望全 0",
 			cfg.CutoverAnalytics, cfg.CutoverDiscovery, cfg.CutoverCurriculum,
-			cfg.CutoverJourney, cfg.CutoverOnboarding)
+			cfg.CutoverJourney, cfg.CutoverOnboarding, cfg.CutoverMemories)
 	}
 	if cfg.CutoverPyAPIURL != "" {
 		t.Errorf("CLOSEN_PY_API_URL 不该有默认值：%q", cfg.CutoverPyAPIURL)
@@ -116,7 +117,10 @@ func TestN8CutoverDefaults(t *testing.T) {
 func TestN8CutoverPercentRefusesOutOfRange(t *testing.T) {
 	t.Setenv("JWT_SECRET", "unit-test-secret-unit-test-unit-test")
 	for _, key := range []string{"CLOSEN_CUTOVER_ANALYTICS", "CLOSEN_CUTOVER_DISCOVERY",
-		"CLOSEN_CUTOVER_CURRICULUM", "CLOSEN_CUTOVER_JOURNEY", "CLOSEN_CUTOVER_ONBOARDING"} {
+		"CLOSEN_CUTOVER_CURRICULUM", "CLOSEN_CUTOVER_JOURNEY", "CLOSEN_CUTOVER_ONBOARDING",
+		// 批 5 的 MOOD/REFLECTIONS 两键**没有**进这两张名单（本批登记为欠账，不顺手补：
+		// 它们不在「memories 两条纯读」的射程里，且补它们要同时给批 5 的默认值断言加分支）。
+		"CLOSEN_CUTOVER_MEMORIES"} {
 		for _, bad := range []string{"-5", "101", "1000"} {
 			t.Setenv("CLOSEN_INSIGHT_EVIDENCE_READ", "on")
 			t.Setenv(key, bad)

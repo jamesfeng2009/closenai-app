@@ -68,7 +68,12 @@ MASKED_CREATED_AT = '"created_at":"<created_at>"'
 # 批 5 的 mood / reflection 两组：**组名不等于域**，指的是「回放时要不要冻时钟」——
 # 两组的响应里都有 created_at / %m-%d 日历字段，都按绝对时刻播种，所以都必须钉在
 # recorded_at（Go 侧 srv.now、Python 侧 mood_repository.utc_now）。
-DB_GROUPS = frozenset({"curriculum", "journey", "onboarding", "mood", "reflection"})
+DB_GROUPS = frozenset({"curriculum", "journey", "onboarding", "mood", "reflection",
+                       # 批 6：memories 要真库，但**不冻时钟**——两条端点的响应里没有
+                       # 任何由「今天」推出的字段（created_at 全是列原文）。
+                       # 它与 seeded 组的分别是：seeded 组按相对天数播种、本组按绝对时刻，
+                       # 所以夹具里两类行必须分组，Go 回放才知道走哪条 INSERT 分支。
+                       "memories"})
 # 会现生成 uuid 主键、因而需要按形状掩两组 id 的组（批 3 的预写 INSERT、批 4 的 profile INSERT）。
 ID_MASK_GROUPS = frozenset({"journey", "onboarding"})
 
@@ -176,6 +181,55 @@ def G(created_at: str, record_type: str, content: str,
     """
     return {"created_at": created_at, "record_type": record_type,
             "content": content, "related_memory_ids": refs}
+
+
+def LABELS_JSON(value: object) -> str:
+    """把 labels 的**列原文**按 CPython `json.dumps(obj, ensure_ascii=False)` 折出来。
+
+    只为一件事：这些行要交给 `_parse_labels`(memory_service.py:102-112) 去 `json.loads`，
+    手写转义串一旦与 `dumps` 的输出不同形，钉住的就不再是同一条解析路径。
+    """
+    return json.dumps(value, ensure_ascii=False)
+
+
+def MEM(created_at: str, content: str, *, category: str = "factual",
+        status: str = "current", source: str = "self", conviction: float = 0.5,
+        superseded_at: str | None = None, transition_reason: object = None,
+        labels: object = None, deleted: bool = False,
+        key: str | None = None) -> dict:
+    r"""一行**绝对时刻**的记忆（批 6 的 `GET /memories` 与 `/memories/{id}`）。
+
+    - `transition_reason`／`labels` 给的是**列原文**：None⇒SQL NULL、`""`⇒空串。
+      这两列都是可空 Text，而 pydantic 的 `Optional[str]` 不把 `""` 当 None，
+      所以响应里 `null` 与 `""` 是两种字节，两侧必须各留一格。
+    - `labels` 是**给 `_parse_labels` 的输入**，不是响应值：坏 JSON、顶层数组、
+      空数组、非字符串元素全都种得进去（列是自由 TEXT，写入侧不校验）。
+      唯一种不进去的是「不可打印字符」——那要走 `repr` 的 `\xNN` 分支，
+      而 Go 侧那一支**刻意没复刻**（见 batch6.go 的 pyReprString 注释），
+      所以也不把它种进夹具：种了就是把一条两侧本就不同形的字节钉成契约。
+    - `conviction` 是这批第一个**非整型浮点**列：`0.0`／`1.0`／`0.333` 三种形态
+      都进响应（Go 的 encoding/json 会把 0.0 写成 0，那一格靠 pyFloatValue 才同形）。
+    - `superseded_at` 与 `status` 是**两列**，不是同一个判据：现网只在 superseded 行上有值，
+      但列上没有这个约束，所以这里给一行 current＋superseded_at 的组合作为形状证人
+      （钉的是「有值 ⇒ `Z` 形时刻、NULL ⇒ null」，不是业务语义）。
+    - `key` 覆盖行主键后缀（默认序号 `-mm{i}`），理由与 `M(key=…)` 同一条：
+      同刻那一组的主键序必须**既不等于插入序、也不等于插入序的倒序**（判据见 M 的注释）。
+    """
+    return {"created_at": created_at, "content": content, "category": category,
+            "status": status, "source": source, "conviction": conviction,
+            "superseded_at": superseded_at, "transition_reason": transition_reason,
+            "labels": labels, "deleted": deleted, "row_key": key}
+
+
+def memory_row_id(uid: str, index: int, row: dict) -> str:
+    """记忆行的主键：默认 `-mm{序号}`，`MEM(key=…)` 可覆盖。
+
+    与 `mood_row_id` 同一条纪律——录侧 `seed()` 与 `seed_spec()` 必须走这一个函数，
+    否则 Go 按 seed 里的 id 插行、Python 按自己算的 id 插行，同刻那组的 `id` 序
+    就不在同一份数据上了。前缀用 `mm` 而不是 `m`：同一批 user_id 上已经种过
+    `-m{i}`（mood_checkins），两张表的主键规则撞在一起时「谁没插进去」很难读。
+    """
+    return f"{uid}-{row.get('row_key') or f'mm{index}'}"
 
 
 def first_read_column(assertions: list[str], summary: str, closer: str, *,
@@ -508,6 +562,135 @@ USERS: list[dict] = [
          G(ago(1, hour=9), "reflection", "同刻后插（id 大，次序应领先）"),
          G(ago(2, hour=9), "reflection", "更早一行（证明次级键不越权）"),
      ]},
+    # ── 批 6（memories 两条纯读）─────────────────────────────────────────────
+    # 这一组**不冻时钟**：两条端点的响应里没有日历字段，`created_at` 全部是列原文
+    # （M-G/D-A 那两批要冻钟是因为响应里有 week_start／labels%b-%d／day_no）。
+    # 但播种仍走绝对时刻：`seed_spec()` 要把同一串字面量交给 Go，两侧读同一批行。
+    # 零行 ⇒ `data: []`（空数组不是 null——前端两样都不认，口径同 reflections-empty）
+    {"slug": "mem-empty", "analytics": True, "language": "en"},
+    # 形状主干：三个可空列的 NULL／空串／有值、非整型浮点、转义正文、遗留 source 值
+    {"slug": "mem-basic", "analytics": True, "language": "en",
+     "memories": [
+         # 承诺标签列（生产里唯一真实的写入形状）＋ conviction 0.8
+         MEM(ago(1, hour=9), "每周至少运动三次", conviction=0.8,
+             labels=LABELS_JSON({"labels": ["commitment"],
+                                 "commitment": {"kind": "habit",
+                                                "follow_up_count": 0,
+                                                "muted": False}}),
+             key="lab-commit"),
+         # 正文同时含 `"`、`\`、换行与中文：钉 pydantic 的转义与 ensure_ascii=False
+         MEM(ago(2, hour=9), '她说"再想想"，\\ 斜杠\n第二行', category="relationship",
+             source="others", conviction=0.333, key="esc"),
+         # transition_reason 的**空串**那一支：pydantic 的 Optional[str] 不折 ""⇒ 响应里是 ""
+         MEM(ago(3, hour=9), "把项目按周拆", transition_reason="",
+             source="hypothetical", conviction=0.0, key="reason-empty"),
+         # transition_reason 的**有值**那一支
+         MEM(ago(4, hour=9), "害怕冲突时会先沉默", category="values",
+             transition_reason="superseded", conviction=1.0, key="reason-full"),
+         # 遗留 source 值（旧数据 self_reflection/ai_inference 仍可读，模型注释承诺过这一条）
+         MEM(ago(5, hour=9), "夜里会复盘白天的对话", source="ai_inference",
+             conviction=0.25, key="src-legacy"),
+         # 已注销但仍在库里的一行由 mem-del 承担；这里钉 conviction 的整数值形状
+         MEM(ago(6, hour=9), "讨厌临时改约定", category="preference",
+             conviction=0.5, key="plain"),
+     ]},
+    # `_parse_labels`(:102-112) 的输入面：14 种列原文，一次全带回
+    # （正文写成「变体号＋期望归宿」，所以响应里的 labels 与 content 互为证人）
+    {"slug": "mem-lab", "analytics": True, "language": "en",
+     "memories": [
+         MEM(ago(1, hour=9), "1 正常三标签",
+             labels=LABELS_JSON({"labels": ["a", "b", "commitment"]}), key="lab-multi"),
+         MEM(ago(2, hour=9), "2 只有 commitment 键没有 labels",
+             labels=LABELS_JSON({"commitment": {"kind": "event"}}), key="lab-nokey"),
+         MEM(ago(3, hour=9), "3 非字符串元素走 str()",
+             labels=LABELS_JSON({"labels": [1, True, False, None]}), key="lab-scalar"),
+         MEM(ago(4, hour=9), "4 浮点元素", labels=LABELS_JSON({"labels": [1.5, 2.0]}),
+             key="lab-float"),
+         MEM(ago(5, hour=9), "5 嵌套容器走 repr()",
+             labels=LABELS_JSON({"labels": [["a", 1], {"k": "v"}]}), key="lab-nested"),
+         # repr 的引号选择两支：内层的 `it's` 有 `'` 无 `"` ⇒ 换成双引号；
+         # `say "hi"` 反之 ⇒ 留单引号。这一格是 Go 侧 pyReprString 唯一的字节证人，
+         # 所以 labels **必须嵌一层容器**——顶层元素是裸字符串时走的是 `str()`，
+         # 而 `str("it's")` 就是 `it's`，引号选择那一支一次都不会被碰到
+         # （2026-10-17 首录实测：不嵌层时这一格与 lab-multi 同路径，属空转）。
+         # 不可打印字符那一支**刻意没种**：Go 没复刻 \xNN 转义，已登记在 batch6.go 注释里。
+         MEM(ago(6, hour=9), "6 引号选择两支",
+             labels=LABELS_JSON({"labels": [["it's", 'say "hi"']]}), key="lab-quote"),
+         MEM(ago(7, hour=9), "7 顶层是数组⇒null",
+             labels=LABELS_JSON(["commitment"]), key="lab-toparray"),
+         MEM(ago(8, hour=9), "8 顶层是标量⇒null", labels=LABELS_JSON(3), key="lab-topint"),
+         MEM(ago(9, hour=9), "9 顶层是 null⇒null", labels=LABELS_JSON(None),
+             key="lab-topnull"),
+         MEM(ago(10, hour=9), "10 空数组⇒null 不是 []",
+             labels=LABELS_JSON({"labels": []}), key="lab-empty"),
+         MEM(ago(11, hour=9), "11 labels 不是数组⇒null",
+             labels=LABELS_JSON({"labels": "commitment"}), key="lab-notlist"),
+         MEM(ago(12, hour=9), "12 坏 JSON⇒null 不是 500", labels="{labels: [",
+             key="lab-broken"),
+         MEM(ago(13, hour=9), "13 纯空白也是坏 JSON", labels="   ", key="lab-space"),
+         MEM(ago(14, hour=9), "14 空串与 NULL 同判（另一支见 mem-lab-null）",
+             labels="", key="lab-blank"),
+     ]},
+    # labels 的 **SQL NULL** 那一支单独一个用户：上面那一串全是「列里有文本」的判据，
+    # 把 NULL 混进去会让「14 种原文」这条口径变得不可读。
+    {"slug": "mem-lab-null", "analytics": True, "language": "en",
+     "memories": [MEM(ago(1, hour=9), "labels 是 NULL⇒null", labels=None, key="lab-null")]},
+    # 两条端点**过滤条件不同**的唯一证人：列表只回 current，详情不过滤 status
+    {"slug": "mem-status", "analytics": True, "language": "en",
+     "memories": [
+         MEM(ago(1, hour=9), "当前这条", key="st-current"),
+         MEM(ago(2, hour=9), "被取代的旧信念", status="superseded",
+             superseded_at=at_offset(1, 3600), transition_reason="drift",
+             conviction=0.9, key="st-super"),
+         MEM(ago(3, hour=9), "回滚过一次", status="reverted", conviction=0.4,
+             key="st-revert"),
+         # 读侧不做白名单：status 是 String(20)＋pydantic 的裸 str，
+         # 所以一个库里有的陌生值照样进详情（钉的是「没有映射表」，不是业务语义）
+         MEM(ago(4, hour=9), "状态值不在三档里", status="archived", key="st-other"),
+     ]},
+    # 软删行落在**最新时刻**：列表里它必须缺席（deleted=false 那条 WHERE），
+    # 详情里它也必须缺席（get 同样带 deleted）——但缺席的原因不同，两条用例各自钉。
+    {"slug": "mem-del", "analytics": True, "language": "en",
+     "memories": [
+         MEM(ago(0, hour=9), "已软删的最新一行", deleted=True, key="dl-hidden"),
+         MEM(ago(5, hour=9), "同一用户的正常行", key="dl-visible"),
+     ]},
+    # category 精确等值：三种受支持值＋空串＋大小写不同的一组
+    {"slug": "mem-cat", "analytics": True, "language": "en",
+     "memories": [
+         MEM(ago(1, hour=9), "价值观一条", category="values", key="ct-values"),
+         MEM(ago(2, hour=9), "目标一条", category="goal", key="ct-goal"),
+         # category="" 是列上的空串（NOT NULL 但允许空串）：`?category=` 走假值支
+         # ⇒ **不加过滤**，这一行照样出现在全量里；而 `?category=` 永远筛不出它，
+         # 因为空串在两侧都不进 WHERE。
+         MEM(ago(3, hour=9), "类别是空串", category="", key="ct-blank"),
+         MEM(ago(4, hour=9), "类别大写", category="Values", key="ct-upper"),
+     ]},
+    # 25 行 ⇒ 默认 limit 20 的截断（前 5 行必须被切掉）与 limit=1/100 的界
+    {"slug": "mem-many", "analytics": True, "language": "en",
+     "memories": [MEM(ago(k, hour=9), f"第 {k} 条记忆", conviction=0.5)
+                  for k in range(1, 26)]},
+    # D-A/M-G 的同一条纪律：同刻**三行**、且主键最小的那行插在**中间**。
+    # 插入序 [tie-a, tie-z, tie-m]：无次级键时数据库只可能给插入序或其逆序，
+    # 而 `id DESC` 给的 [tie-z, tie-m, tie-a] 与这两支都不重合 ⇒ 撤键必红。
+    # 第四行更早，钉的是「次级键不越权」——它必须始终排最后。
+    {"slug": "mem-tie", "analytics": True, "language": "en",
+     "memories": [
+         MEM(ago(1, hour=9), "同刻插入第一（id 最小）", key="tie-a"),
+         MEM(ago(1, hour=9), "同刻插入第二（id 最大）", key="tie-z"),
+         MEM(ago(1, hour=9), "同刻插入第三（id 居中）", key="tie-m"),
+         MEM(ago(2, hour=9), "更早一行", key="tie-old"),
+     ]},
+    # 归属面的另一侧：这一行的主键会被 `mem-owner` 之外的用户读到 ⇒ 40403
+    {"slug": "mem-owner", "analytics": True, "language": "en",
+     "memories": [MEM(ago(1, hour=9), "只有主人能读", key="own")]},
+    # 已注销用户名下有行：两条读**都不查 users** ⇒ 列表 200 带回行、详情 200。
+    # （口径与批 5 的 refl-deleted 一致：这一格钉的是「不要顺手加 40401」。）
+    {"slug": "mem-gone", "analytics": True, "language": "en", "status": "deleted",
+     "memories": [
+         MEM(ago(1, hour=9), "注销前的记忆", key="gone-a"),
+         MEM(ago(2, hour=9), "注销前的第二条", key="gone-b"),
+     ]},
 ]
 
 COLUMNS = ("id, timezone, streak_count, relationship_level, chat_count, "
@@ -550,6 +733,18 @@ INSERT_MOOD_ABS = (
 INSERT_GROWTH = (
     "INSERT INTO growth_records (id, user_id, record_type, content, "
     "related_memory_ids, created_at) VALUES (%s, %s, %s, %s, %s, %s)"
+)
+# 批 6：`GET /memories` 与 `/memories/{id}` 读的这一张表。
+# `drift_score` **必须显式给值**：DDL 实测它是 NOT NULL 且**没有 server_default**
+# （`id/user_id/category/content/status/source/conviction_score/drift_score` 七列同档，
+# 后六个的 default=… 只写在 ORM 侧，不进 DDL）。不写这一列的 INSERT 会被数据库直接拒掉，
+# 而不是「落 0.0」——这一格两侧同源，Go 回放的镜像在 n8SeedRows 里带同一个字面量。
+# updated_at / emotion_context / superseded_by / reverted_from / generation_run_id /
+# embedding 留给 server_default 或 NULL：这两条端点的响应面一个都不读它们。
+INSERT_MEMORY = (
+    "INSERT INTO memories (id, user_id, category, content, status, conviction_score, "
+    "source, created_at, superseded_at, transition_reason, labels, deleted, drift_score) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0.0)"
 )
 
 
@@ -904,6 +1099,11 @@ def seed() -> None:
         # 但**必须先清**——上一轮遗留的行会让 limit 截断落在不同行上。
         cur.execute("DELETE FROM growth_records WHERE id LIKE %s OR user_id LIKE %s",
                     (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
+        # 批 6 的 memories 两条读。user_id 上没有外键（实测 pg_constraint 零行），
+        # 但**同样按 user_id 一起删**：现网写入方的主键是 uuid4、不带前缀，
+        # 只按 id LIKE 清会留下上一轮的孤儿行，而 limit 截断恰好会被孤儿行挪位。
+        cur.execute("DELETE FROM memories WHERE id LIKE %s OR user_id LIKE %s",
+                    (f"{SEED_PREFIX}%", f"{SEED_PREFIX}%"))
         cur.execute("DELETE FROM users WHERE id LIKE %s", (f"{SEED_PREFIX}%",))
         for user in USERS:
             uid = f"{SEED_PREFIX}{user['slug']}"
@@ -927,6 +1127,15 @@ def seed() -> None:
                 cur.execute(INSERT_GROWTH, (f"{uid}-g{i}", uid, row["record_type"],
                                             row["content"], row["related_memory_ids"],
                                             row["created_at"]))
+            # 批 6：主键走 memory_row_id（同刻那组要靠 `key=` 拧序，见 M() 的注释）
+            for i, row in enumerate(user.get("memories", [])):
+                cur.execute(INSERT_MEMORY, (memory_row_id(uid, i, row), uid,
+                                            row["category"], row["content"],
+                                            row["status"], row["conviction"],
+                                            row["source"], row["created_at"],
+                                            row["superseded_at"],
+                                            row["transition_reason"], row["labels"],
+                                            row["deleted"]))
             row = profile_row(user)
             if row:
                 cur.execute(INSERT_PROFILE, (row["id"], row["user_id"],
@@ -944,6 +1153,24 @@ def seed() -> None:
 
 def seeded_profiles() -> list[dict]:
     return [row for row in (profile_row(user) for user in USERS) if row]
+
+
+def seeded_memories() -> list[dict]:
+    """批 6 的播种计划原样交给 Go：`deleted`／四个可空列全部是**列值**而不是 SQL 文本。
+
+    Go 侧必须走同一份 `id`：同刻那组靠主键字典序定序，两侧算出不同主键就等于比两份数据。
+    """
+    return [
+        {"id": memory_row_id(f"{SEED_PREFIX}{u['slug']}", i, row),
+         "user_id": f"{SEED_PREFIX}{u['slug']}",
+         "category": row["category"], "content": row["content"], "status": row["status"],
+         "conviction_score": row["conviction"], "source": row["source"],
+         "created_at": row["created_at"], "superseded_at": row["superseded_at"],
+         "transition_reason": row["transition_reason"], "labels": row["labels"],
+         "deleted": row["deleted"]}
+        for u in USERS
+        for i, row in enumerate(u.get("memories", []))
+    ]
 
 
 def seed_spec() -> dict:
@@ -987,6 +1214,7 @@ def seed_spec() -> dict:
         ],
         "journey_events": seeded_events(),
         "onboarding_profiles": seeded_profiles(),
+        "memories": seeded_memories(),
     }
 
 
@@ -1452,6 +1680,7 @@ def cases() -> list[tuple]:
          {"Content-Type": "text/plain"}, "raw:not json"),
     ]
     out += onboarding_cases()
+    out += memories_cases()
     return out
 
 
@@ -1766,6 +1995,139 @@ def onboarding_cases() -> list[tuple]:
         # days 参数不该影响 reflections（多余的键被 Starlette 忽略、不进校验）⇒ 200
         ("reflections-ignores-days", "reflection", "GET", "/api/v1/reflections?days=abc",
          "refl-many", {"X-Language": "en"}, None),
+    ]
+
+
+# ── 批 6（memories 两条纯读）的用例面 ─────────────────────────────────────────
+# 两条 GET 都是纯读（一条 memories 查询、零 users 读、零 LLM、零 embed），
+# 所以这一组**没有顺序依赖**：批 3/批 4 那种「POST 之后紧跟的 GET 必须读到写后的状态」
+# 在这里不存在，顺序只服务可读性（列表⇒详情⇒limit 的界⇒校验面）。
+MEMS = "/api/v1/memories"
+
+
+def memories_cases() -> list[tuple]:
+    def detail(slug_key: str) -> str:
+        """把详情用例的 path 段拼成**算好的种子主键**，而不是随手写一颗 id。
+
+        为什么非要拼：主键由 `memory_row_id` 决定，硬编码全串之后一旦改了 `MEM(key=…)`
+        却忘了改这里，用例会静默变成「查一颗不存在的 id」——照样 40403、照样绿，
+        但比的再也不是想钉的那一行（形状闸最容易这样空转）。
+        """
+        return f"{MEMS}/{SEED_PREFIX}{slug_key}"
+
+    return [
+        # ── 列表：空态与主干形状 ──
+        # 无 X-User-Id ⇒ dev 口径的 "anonymous"（get_current_user 不查库，两侧同串）
+        ("memories-anonymous", "memories", "GET", MEMS, "", {}, None),
+        ("memories-empty", "memories", "GET", MEMS, "mem-empty", {}, None),
+        # 六个形状挤在一个用户上：一次请求把「列原文⇒响应字节」的六条映射全钉住
+        # （conviction 的 0.8/0.333/0.0/1.0/0.25/0.5、transition_reason 的 NULL／""／有值、
+        #   正文里的 `"` `\` 换行与中文、遗留 source 值、labels 的生产写入形状）
+        ("memories-basic", "memories", "GET", MEMS, "mem-basic", {}, None),
+        # `_parse_labels` 的 14 种列原文一次带回
+        ("memories-labels", "memories", "GET", MEMS, "mem-lab", {}, None),
+        ("memories-labels-null", "memories", "GET", MEMS, "mem-lab-null", {}, None),
+        # 列表过 status='current'、详情不过 ⇒ 这四行只回一行
+        ("memories-status-list", "memories", "GET", MEMS, "mem-status", {}, None),
+        # 软删行种在**最新时刻**：它若漏进 WHERE 就顶到数组第一位，比缺行更显眼
+        ("memories-deleted-row", "memories", "GET", MEMS, "mem-del", {}, None),
+        ("memories-category-list", "memories", "GET", MEMS, "mem-cat", {}, None),
+        ("memories-many-default-limit", "memories", "GET", MEMS, "mem-many", {}, None),
+        # D-A/M-G 的同一条纪律在 memories 上的证人：三行同瞬，序由 id DESC 定
+        ("memories-tie", "memories", "GET", MEMS, "mem-tie", {}, None),
+        # limit=1 钉的是「同刻里谁活下来」——截断落点才是这条次级键的真实后果
+        ("memories-tie-limit-1", "memories", "GET", f"{MEMS}?limit=1", "mem-tie", {}, None),
+        # 注销用户名下有行：这条读**不查 users** ⇒ 200 带回行，不许顺手加 40401
+        ("memories-deleted-user", "memories", "GET", MEMS, "mem-gone", {}, None),
+        # users 里根本没有这个 id：同样 200 空数组（同上，没有归属存在性检查）
+        ("memories-ghost-user", "memories", "GET", MEMS, "ghost-user", {}, None),
+        # ── category：假值判据 + 精确等值 ──
+        ("memories-cat-values", "memories", "GET", f"{MEMS}?category=values",
+         "mem-cat", {}, None),
+        ("memories-cat-goal", "memories", "GET", f"{MEMS}?category=goal", "mem-cat", {}, None),
+        # `?category=` 在 Python 是假值 ⇒ **不进 WHERE**，返回全量（含 category="" 那行）。
+        # Go 若把空串当成一次过滤，这一格会少三行。
+        ("memories-cat-empty", "memories", "GET", f"{MEMS}?category=", "mem-cat", {}, None),
+        # 精确等值、不 lower：`Values` 只命中大写那一行
+        ("memories-cat-upper", "memories", "GET", f"{MEMS}?category=Values",
+         "mem-cat", {}, None),
+        # `%20` 是**真值**（一个空格）⇒ 进 WHERE ⇒ 空数组。与空串那一格成对。
+        ("memories-cat-space", "memories", "GET", f"{MEMS}?category=%20", "mem-cat", {}, None),
+        ("memories-cat-none", "memories", "GET", f"{MEMS}?category=nope", "mem-cat", {}, None),
+        # 重复标量键取**最后一个**（证人：reflections-limit-duplicate 的录制体）
+        ("memories-cat-duplicate", "memories", "GET", f"{MEMS}?category=a&category=goal",
+         "mem-cat", {}, None),
+        ("memories-cat-and-limit", "memories", "GET", f"{MEMS}?category=values&limit=1",
+         "mem-cat", {}, None),
+        # ── limit 的合法档位：截断落点 ──
+        ("memories-limit-1", "memories", "GET", f"{MEMS}?limit=1", "mem-many", {}, None),
+        ("memories-limit-3", "memories", "GET", f"{MEMS}?limit=3", "mem-many", {}, None),
+        ("memories-limit-100", "memories", "GET", f"{MEMS}?limit=100", "mem-many", {}, None),
+        ("memories-limit-duplicate", "memories", "GET", f"{MEMS}?limit=2&limit=1",
+         "mem-many", {}, None),
+        # 未声明的键被 Starlette 忽略 ⇒ 200 且与不带时逐字相同（所以不能标 validation）
+        ("memories-ignores-days", "memories", "GET", f"{MEMS}?days=abc", "mem-basic", {}, None),
+        # ── 详情：三条可空列与「列表读不到、详情读得到」的那三行 ──
+        ("mem-detail-basic", "memories", "GET", detail("mem-basic-lab-commit"),
+         "mem-basic", {}, None),
+        ("mem-detail-escaped", "memories", "GET", detail("mem-basic-esc"),
+         "mem-basic", {}, None),
+        # transition_reason 的 ""：pydantic 的 Optional[str] 不折空串 ⇒ 响应里是 ""
+        ("mem-detail-reason-empty", "memories", "GET", detail("mem-basic-reason-empty"),
+         "mem-basic", {}, None),
+        ("mem-detail-reason-full", "memories", "GET", detail("mem-basic-reason-full"),
+         "mem-basic", {}, None),
+        # 遗留 source 值（模型注释承诺「旧数据保持可读」，读侧没有 Literal 校验）
+        ("mem-detail-source-legacy", "memories", "GET", detail("mem-basic-src-legacy"),
+         "mem-basic", {}, None),
+        # superseded_at 有值那一支：`Z` 形时刻。它与 status 是两列，这里各行其是
+        ("mem-detail-superseded", "memories", "GET", detail("mem-status-st-super"),
+         "mem-status", {}, None),
+        ("mem-detail-reverted", "memories", "GET", detail("mem-status-st-revert"),
+         "mem-status", {}, None),
+        # 状态值不在三档里也照样读得出来 ⇒ 读侧没有映射表
+        ("mem-detail-other-status", "memories", "GET", detail("mem-status-st-other"),
+         "mem-status", {}, None),
+        ("mem-detail-label-nested", "memories", "GET", detail("mem-lab-lab-nested"),
+         "mem-lab", {}, None),
+        # repr 的引号选择两支（Go 侧 pyReprString 唯一的字节证人）
+        ("mem-detail-label-quote", "memories", "GET", detail("mem-lab-lab-quote"),
+         "mem-lab", {}, None),
+        ("mem-detail-label-null", "memories", "GET", detail("mem-lab-null-lab-null"),
+         "mem-lab-null", {}, None),
+        ("mem-detail-deleted-user", "memories", "GET", detail("mem-gone-gone-a"),
+         "mem-gone", {}, None),
+        # ── 40403 的四支必须**逐字同串**（不存在／别人的／已软删／匿名）──
+        # 回 403 或给两条文案＝替旁人确认这颗 id 是真的，端点退化成 id 枚举 oracle
+        ("mem-detail-missing", "memories", "GET", detail("no-such-memory"),
+         "mem-basic", {}, None),
+        ("mem-detail-cross-user", "memories", "GET", detail("mem-owner-own"),
+         "mem-basic", {}, None),
+        ("mem-detail-soft-deleted", "memories", "GET", detail("mem-del-dl-hidden"),
+         "mem-del", {}, None),
+        ("mem-detail-anonymous", "memories", "GET", detail("mem-basic-plain"), "", {}, None),
+        # path 段是自由字符串：GET /memories/search 命中 {memory_id} 而不是 405
+        # （同 path 的 search 只注册了 POST，两侧的匹配都是按声明序落到详情那条）
+        ("mem-detail-path-collision", "memories", "GET", f"{MEMS}/search",
+         "mem-basic", {}, None),
+        # ── limit 的校验面（400 / 40001 三消息集，形状同 reflections-limit-*）──
+        ("memories-limit-abc", "validation", "GET", f"{MEMS}?limit=abc",
+         "mem-many", {"X-Language": "en"}, None),
+        ("memories-limit-zero", "validation", "GET", f"{MEMS}?limit=0",
+         "mem-many", {"X-Language": "en"}, None),
+        ("memories-limit-101", "validation", "GET", f"{MEMS}?limit=101",
+         "mem-many", {"X-Language": "en"}, None),
+        ("memories-limit-negative", "validation", "GET", f"{MEMS}?limit=-1",
+         "mem-many", {"X-Language": "en"}, None),
+        ("memories-limit-float", "validation", "GET", f"{MEMS}?limit=2.5",
+         "mem-many", {"X-Language": "en"}, None),
+        ("memories-limit-blank", "validation", "GET", f"{MEMS}?limit=",
+         "mem-many", {"X-Language": "en"}, None),
+        ("memories-limit-space", "validation", "GET", f"{MEMS}?limit=%20",
+         "mem-many", {"X-Language": "en"}, None),
+        # 两条错误同时命中时 msg 数组的**次序**也由这条钉住
+        ("memories-limit-two-errors-order", "validation", "GET",
+         f"{MEMS}?limit=abc&limit=\u00b1", "mem-many", {"X-Language": "en"}, None),
     ]
 
 
@@ -2458,14 +2820,15 @@ def main() -> None:
                    encoding="utf-8")
     counts = {g: sum(1 for c in recorded if c["group"] == g)
               for g in ("validation", "seeded", "curriculum", "journey", "onboarding",
-                        "mood", "reflection")}
+                        "mood", "reflection", "memories")}
     accepted = sum(1 for c in corpus if c["ok"])
     print(f"wrote {OUT}: {len(recorded)} cases "
           f"(validation {counts['validation']} / seeded {counts['seeded']} / "
           f"curriculum {counts['curriculum']} / journey {counts['journey']} / "
           f"onboarding {counts['onboarding']} / mood {counts['mood']} / "
-          f"reflection {counts['reflection']})")
+          f"reflection {counts['reflection']} / memories {counts['memories']})")
     print(f"recorded_at={ANCHOR.isoformat()} journey_events={len(seed_spec()['journey_events'])} "
+          f"memories={len(seed_spec()['memories'])} "
           f"week_window_corpus={len(payload['week_window_corpus'])} "
           f"push_moment_corpus={len(payload['push_moment_corpus'])} "
           f"id_masks={sum(c['id_masks'] for c in recorded)} "

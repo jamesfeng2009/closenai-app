@@ -298,6 +298,82 @@ def test_go_bound_contract_operations_are_registered_in_go():
     assert len(go_answered) == 10, f"归 go-api 的契约操作 {len(go_answered)} 个：{go_answered}"
 
 
+def test_cutover_keys_without_ingress_path_stay_unrouted():
+    """「键先行、path 不上刀」这一档可证——它今天是既有清单闸的反向盲区。
+
+    `test_ingress_is_at_zero_percent_rollout` 遍历的是**指 go-api 的 path**，
+    从 path 去要键（有 path ⇒ 键必须存在、必须是 0、Go 侧必须有该域路由）。
+    反方向一条断言都没有：实测证据是本批把 `CLOSEN_CUTOVER_MEMORIES` 写进
+    `10-config.yaml` 前后跑那个文件都是 13 passed / 1 skipped，
+    先红的是另一侧的三段登记闸
+    （batch2::test_three_registers_agree_on_the_cut_domains，它 own 这一档的**成员集合**）。
+
+    所以分工写清楚，免得两处各登记一份域名清单：
+      · 「这一档有哪些域」＝ batch2 的 `PATHLESS_KEYS`（唯一登记表）；
+      · 本条从清单本身**推出**同一个集合（声明了键、域却没有 go-api path 的那些），
+        只钉这一档每一格的**内容**：
+        1. 键的值必须是 "0"：无 path 的域放量落在 path 上，键调高也不放量，
+           但清单里留一个非零值＝运维侧读到「这域正在放量」；
+        2. 该域在 Ingress 里**没有任何规则**，连指 py-api 的预铺规则也不行——
+           下一刀的人会按「这个域已经有入口规则了」去改百分比；
+        3. 契约面上该域的**每一个方法**（含 Go 没实现的 POST/DELETE）按最长前缀模拟
+           仍落 py-api——D-10 的实质不是「GET 不切」，是「整条 path 不切」；
+        4. Go 侧该域的每一个 **GET** 已在 server.go 带方法注册：前三格全绿也可能是
+           实现被删（键、值、path 都没变），这一条把那个退路显形。
+    """
+    cm = _one("ConfigMap", "closenai-config")
+    entries = _ingress_entries()
+    operations = _operations()
+    go_routes = (ROOT / "go-core" / "internal" / "httpapi" / "server.go").read_text(
+        encoding="utf-8")
+
+    def domain_of(key: str) -> str:
+        return key[len("CLOSEN_CUTOVER_"):].lower().replace("_", "-")
+
+    routed = {
+        entry["path"][len("/api/v1/"):].split("/")[0]
+        for entry in entries if entry["backend"] == "go-api"
+    }
+    declared = {
+        domain_of(key) for key in cm["data"] if key.startswith("CLOSEN_CUTOVER_")
+    }
+    key_only = sorted(declared - routed)
+    assert key_only, (
+        "声明了键却没有 go-api path 的域一个都不剩：这一档是空的，"
+        "下面的四格判据全部空转（成员集合变更请回 batch2 的 PATHLESS_KEYS 对账）"
+    )
+
+    for domain in key_only:
+        key = f"CLOSEN_CUTOVER_{domain.upper().replace('-', '_')}"
+        assert cm["data"][key] == "0", (
+            f"{key}={cm['data'][key]!r}：这一域没有入口 path，键非零＝清单在谎报放量状态"
+        )
+
+        prefix = f"/api/v1/{domain}"
+        blocking = [entry for entry in entries
+                    if entry["path"] == prefix or entry["path"].startswith(prefix + "/")]
+        assert not blocking, (
+            f"{prefix} 在 Ingress 里出现了规则（{[b['path'] for b in blocking]}）："
+            "这一档的域不该有任何入口规则——把 path 指给 go-api 会把同 path 的写方法"
+            "搬进只注册了 GET 的 Go，指给 py-api 则让下一刀误判自己已经上过刀"
+        )
+
+        ops = [op for op in operations
+               if op[1] == prefix or op[1].startswith(prefix + "/")]
+        assert ops, f"{prefix} 在契约面上一个操作都没有：域键名和 path 对不上"
+        for method, path in ops:
+            winner = _route(path, entries)
+            assert winner["backend"] == "py-api", (
+                f"{method} {path} 落到了 {winner['backend']}（规则 {winner['path']}）："
+                f"{domain} 是 D-10 的「只声明不上刀」档，本批一条方法都不该切"
+            )
+            if method == "GET":
+                assert f'"GET {path}"' in go_routes, (
+                    f"GET {path} 在 server.go 没有带方法的注册：{domain} 的读面没实现，"
+                    "D-10 的理由（只等同 path 的写侧）不成立，这一格得重新谈"
+                )
+
+
 def test_contract_paths_are_routed():
     """契约面只有两类入口：/api/v1/* 与 app 级 /health（N0 计数的 98 = 97 + 1）。
 
