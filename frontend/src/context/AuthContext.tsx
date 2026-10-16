@@ -19,6 +19,7 @@ import {
 import {
   clearPendingFirstRead, peekPendingFirstRead, saveFirstReadCard,
 } from '../services/firstRead';
+import { flushAnalytics } from '../services/analytics';
 import { registerForPushNotifications } from '../services/push';
 import { resetSession, resetSessionFull } from '../services/session';
 import { onSessionReset } from '../services/api';
@@ -88,6 +89,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // 登录成功后补报推送 token（fire-and-forget；权限/模拟器/失败在 push.ts 内静默处理）
     registerForPushNotifications().catch(() => {});
+    // 游客期攒下的埋点事件在登录这一刻 drain 一次：独立的 fire-and-forget 语句，
+    // 不接在别的 await 链后面（上面那两串同样不 await，登录渲染不被网络往返拖住）。
+    // 只挂冷启动首帧与回前台两个点的话，同日登录的会话要等下一次前后台切换才上送。
+    flushAnalytics().catch(() => {});
     void flushPendingOnboarding();
   }, [flushPendingOnboarding]);
 

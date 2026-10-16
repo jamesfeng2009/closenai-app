@@ -7,7 +7,8 @@
  * - 游客**不发**上送请求：两个 flush 点都在 `if (isLoggedIn())` 里，
  *   所以不会出现「游客必 401 → 队列被误判成已发送」；
  * - 事件也**不会丢**：track() 只看本地 consent 门闸，不看登录态，队列在 SQLite 里等；
- * - 真正的上送发生在登录后的下一次冷启动首帧 / 回前台，按 occurred_at 补口径。
+ * - 真正的上送有三个点：登录成功那一刻（2026-10-16 补，此前只有下面两个 ⇒ 同日登录的
+ *   会话要等下一次前后台切换）、冷启动首帧、回前台，都按 occurred_at 补口径。
  *
  * 这个文件把上面三条钉死，改坏任何一条都会红。
  */
@@ -150,11 +151,16 @@ describe('登录之后：队列一次性 drain，失败也不丢', () => {
 });
 
 describe('口径边界（登记为事实，不许悄悄改）', () => {
-  it('登录成功那一刻不 drain：flush 只挂在冷启动首帧与回前台两处', () => {
-    // AuthContext.login 里没有 flushAnalytics —— 这是现状而非理想；
-    // 用例把它钉成可见事实，将来接上 drain 时这条会红，提醒同步改口径文档。
+  it('登录成功那一刻 drain 一次：flush 挂在 login 里，另有冷启动首帧与回前台两处', () => {
+    // 2026-10-14 这条还是负向闸（`not.toContain`），钉的是「登录不 drain」这个现状；
+    // 同日登记的缺陷（tasks.md 那条「登录成功那一刻不 drain 游客期队列」）修掉后翻成正向。
     const src = read('src/context/AuthContext.tsx');
-    expect(src).not.toContain('flushAnalytics');
+    const calls = [...src.matchAll(/^\s*(.*flushAnalytics\(\).*);$/gm)].map((m) => m[1].trim());
+    expect(calls).toEqual(["flushAnalytics().catch(() => {})"]);
+    // 不许变成阻塞位：既不 await，也不嵌进别的 await 链
+    expect(src).not.toMatch(/await flushAnalytics/);
+    const login = src.slice(src.indexOf('const login = useCallback'));
+    expect(login.slice(0, login.indexOf('\n  }, [')).includes('flushAnalytics')).toBe(true);
   });
 
   it('year_review 已进 FUNNEL_SOURCES（新增物料必须先进枚举，否则后端按未知 source 吞掉）', () => {

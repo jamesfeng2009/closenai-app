@@ -20,10 +20,14 @@ F16–F27（2026-10-14 追加）覆盖 #64 年报入口、#65 游客态埋点与
 F28–F30（2026-10-14 再追加）固化 2026-10-13 i18n 审校里只剩口头声明的 3 条反向验证
 （当时的脚本在 /tmp/i18n/，目录已消失，仓内不可重跑）——见下方该段的注释。
 
+F47/F48＋G5（2026-10-16 追加，S2）盯的是「登录成功那一刻 drain 游客埋点队列」这条正向闸：
+F47 让登记过的缺陷原样复发（删掉那一行），F48 把它挪到别的异步链尾巴上（tasks.md 点名不许的
+「阻塞位」），G5 证明这条闸钉的是语句形态而不是行号——函数体在它旁边长 20 行不该变红。
+
 用法：
     python3 scripts/mutate_frontend_gates.py --check   # 只验锚点，各命中一次
-    python3 scripts/mutate_frontend_gates.py           # 46 条红 + 4 条绿
-    python3 scripts/mutate_frontend_gates.py --only F1,F9
+    python3 scripts/mutate_frontend_gates.py           # 48 条红 + 5 条绿
+    python3 scripts/mutate_frontend_gates.py --only F47,F48,G5
 """
 from __future__ import annotations
 
@@ -529,6 +533,27 @@ MUTATIONS += [
         PDF_TEST,
         "pdf.exporting：15 语言都非空",
     ),
+    (
+        "F47",
+        "2026-10-14 登记的那条缺陷原样复发：删掉 login 里的 flushAnalytics 那一行 ⇒ 游客期攒的"
+        "事件又要等下一次冷启动/回前台才上送，同日登录的会话内拿不到",
+        AUTH,
+        "    flushAnalytics().catch(() => {});\n",
+        "",
+        GUEST,
+        "登录成功那一刻 drain 一次",
+    ),
+    (
+        "F48",
+        "把 drain 从独立语句挪到别的异步链尾巴上（`void flushPendingOnboarding().then(...)`）："
+        "tasks.md 那条改法点名的就是「不在阻塞位」——挂上去之后，前面那条链没落定就一直不上送，"
+        "链里抛错时 drain 直接被跳过，登录这一屏可能永远不带事件",
+        AUTH,
+        "    flushAnalytics().catch(() => {});\n",
+        "    void flushPendingOnboarding().then(() => flushAnalytics());\n",
+        GUEST,
+        "登录成功那一刻 drain 一次",
+    ),
 ]
 
 # ---------------------------------------------------------------- 绿闸清单
@@ -572,6 +597,16 @@ GREEN: list[tuple[str, str, Path, str, str, str]] = [
         "    setPdfBusy('report');\n"
         + "".join(f"      // 增长占位 {i}\n" for i in range(15)),
         PDF_TEST,
+    ),
+    (
+        "G5",
+        "往 AuthContext.login 的 drain 之前插 20 行注释（同类增长，且就顶在那条正向闸钉的语句旁边）："
+        "S2 的 drain 闸匹配的是语句形态与 login 切片，不是行号窗口，函数体变长不该把它变红",
+        AUTH,
+        "    flushAnalytics().catch(() => {});\n",
+        "".join(f"    // 增长占位 {i}\n" for i in range(20))
+        + "    flushAnalytics().catch(() => {});\n",
+        GUEST,
     ),
 ]
 
