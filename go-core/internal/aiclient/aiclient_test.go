@@ -248,23 +248,37 @@ func TestMemoryEventNeedsNonEmptyMemories(t *testing.T) {
 	}
 }
 
-// TestOnlyAIClientImportsTheRPCSurface 是 ownership.md §5 的边界纪律落闸：
-// 「proto 与 client 只归 internal/aiclient/、internal/messaging/amqp/，
-// domain 只收已解码的输入对象」。
+// TestOnlyAIClientImportsTheRPCSurface 是 ownership.md §5 的边界纪律落闸。
+//
+// 两条黑名单**各有各的射程**，不许并成一张表：
+//   - `google.golang.org/grpc` ⇒ 只许 `internal/aiclient/`。这是「谁握着 RPC 出口」，
+//     入站面是 AMQP 不是 RPC，R5-② 没有、也不该给它开这一条。
+//   - `closenai-app/go-core/gen/` ⇒ 许 `internal/aiclient/` 与 `internal/messaging/inbound/`。
+//     后者按 D-R5-4 用 `protojson` 把线上字节解进生成物（生成物是跨语言契约的事实源，
+//     手抄第二份 struct 迟早漂；而 protojson 默认拒未知字段，正好挡住 `Candidate` 的
+//     `reserved 3,4,5`）。ownership.md §5 的 2026-10-16 那一行登记的就是这次放开。
 //
 // 为什么单独来一遍而不信 domain/arch_test.go：那份闸的射程是 **domain 一个包**
 // （transportImports 黑名单只在 domain 的文件上跑）。R1 加进 grpc/protobuf 依赖之后，
 // 「别的运行时包随手 import gen/」是它管不到的——而那种写法一旦散开，
 // R2 的接口面就退化成一层没人用的装饰。
 //
-// 自证：黑名单里两个 import 路径都必须在**全仓**命中过（aiclient 自己命中），
-// 否则这条测又是在数空气。
+// 自证：两条黑名单各自必须在**允许面**里命中过，否则这条测又是在数空气。
 func TestOnlyAIClientImportsTheRPCSurface(t *testing.T) {
 	// 遍历根＝go module 根（不是 internal/）：这条闸要管的是**全仓**，
 	// cmd/ 里的装配代码 import gen/ 和 domain 里 import grpc 是同一种越界。
 	root := filepath.Join("..", "..")
-	allowed := map[string]bool{"internal/aiclient": true}
-	banned := []string{"google.golang.org/grpc", "closenai-app/go-core/gen/"}
+	rules := []struct {
+		path    string
+		allowed map[string]bool
+		why     string
+	}{
+		{"google.golang.org/grpc", map[string]bool{"internal/aiclient": true},
+			"AI 出口的 gRPC client 只许在 internal/aiclient/"},
+		{"closenai-app/go-core/gen/", map[string]bool{"internal/aiclient": true,
+			"internal/messaging/inbound": true},
+			"proto 生成物只许握着传输边界的两个包（RPC 出口＋AMQP 入站），domain 只收已解码对象"},
+	}
 	var scanned int
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -286,17 +300,18 @@ func TestOnlyAIClientImportsTheRPCSurface(t *testing.T) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if allowed[filepath.ToSlash(filepath.Dir(rel))] {
-			return nil // aiclient 内部当然可以，跳过它自己的文件
-		}
+		dir := filepath.ToSlash(filepath.Dir(rel))
 		scanned++
 		src, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return readErr
 		}
-		for _, b := range banned {
-			if strings.Contains(string(src), b) {
-				t.Errorf("%s  import 了 %q：AI 出口的 import 面只许在 internal/aiclient/", rel, b)
+		for _, r := range rules {
+			if r.allowed[dir] {
+				continue // 允许面内部当然可以，跳过它自己的文件
+			}
+			if strings.Contains(string(src), r.path) {
+				t.Errorf("%s  import 了 %q：%s", rel, r.path, r.why)
 			}
 		}
 		return nil
@@ -304,24 +319,35 @@ func TestOnlyAIClientImportsTheRPCSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("扫不动：%v", err)
 	}
-	// 扫到的文件数也得非空：只扫到 aiclient 自己的话，这条闸同样是在数空气。
+	// 扫到的文件数也得非空：只扫到允许面那几个包的话，这条闸同样是在数空气。
 	if scanned < 20 {
-		t.Fatalf("遍历根 %s 下只扫到 %d 个非 aiclient 的 .go 文件 ⇒ 遍历面变了，这条闸测不到越界",
+		t.Fatalf("遍历根 %s 下只扫到 %d 个 .go 文件 ⇒ 遍历面变了，这条闸测不到越界",
 			root, scanned)
 	}
-	// aiclient 自己必须命中（黑名单非空转）——用同一份黑名单在它自己的文件上数一次。
-	src, err := os.ReadFile(filepath.Join("grpc.go"))
-	if err != nil {
-		t.Fatalf("读不到 grpc.go：%v", err)
-	}
-	self := 0
-	for _, b := range banned {
-		if strings.Contains(string(src), b) {
-			self++
+	// 每条黑名单必须在**允许面**里真的命中过：串写错了、包名改了，都会让上面那个循环
+	// 一声不响地全绿（这是「闸在数空气」的第二种形态，与 R1 落闸时同一个担心）。
+	for _, r := range rules {
+		hits := 0
+		for dir := range r.allowed {
+			_ = filepath.Walk(filepath.Join(root, dir), func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return err
+				}
+				if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+					return nil
+				}
+				src, readErr := os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				if strings.Contains(string(src), r.path) {
+					hits++
+				}
+				return nil
+			})
 		}
-	}
-	if self != len(banned) {
-		t.Fatalf("黑名单里的路径在 aiclient 自己包里都没命中（self=%d/%d）⇒ 这两个字符串是空气",
-			self, len(banned))
+		if hits == 0 {
+			t.Errorf("%q 在所有允许面里 0 命中 ⇒ 这条黑名单是空气，闸根本没在管任何东西", r.path)
+		}
 	}
 }

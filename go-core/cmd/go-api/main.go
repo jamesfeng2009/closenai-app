@@ -25,6 +25,7 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/httpapi"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/amqp"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/dispatch"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/inbound"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/posthog"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
@@ -149,6 +150,39 @@ func main() {
 	// 而它又登记在 `defer pool.Close()` 之后 ⇒ 退出时先等 worker，最后才关池。
 	defer closeWorker(worker, stopWorker, workerDone, sws.DrainTimeout+5*time.Second)
 
+	// R5-② candidate 入站 worker。**默认关**：`CLOSEN_CANDIDATE_WORKER` 不给值时
+	// Runner.Run 打一行「未启动」就返回，不拨号、不声明拓扑、不消费、不碰 DB。
+	// 与出箱 worker 分开关是 D-R5-9 定的：灰度时可以只放开箱（R4 的现网形态不变），
+	// 也可以只关入站（Python 投出的候选先在队列里积着，等 Go 侧准备好再收）。
+	//
+	// 停机顺序靠 defer 的后进先出：这条登记在 closeWorker **之后**，因此**先**执行——
+	// 正好是「入站把在途的候选收完（它会产生新的 outbox 行），出箱再把那批发完」。
+	inboundSw := inbound.LoadSwitch(os.Getenv)
+	// 领域写入口单独建变量：`:64` 的 `service` 是 auth 面，与 canonical 的
+	// `domain.Service` 只是名字直觉上的巧合——共用一个变量名会让人读成「消费者拿到了 auth」。
+	candidateDomain := domain.NewService(canonical, domain.DefaultPolicy())
+	candidates, err := inbound.New(inbound.Deps{
+		Dial: func(c context.Context, url string, timeout time.Duration) (inbound.Session, error) {
+			sess, err := amqp.Dial(c, url, timeout)
+			if err != nil {
+				return nil, err
+			}
+			return sess, nil
+		},
+		// 领域入口只有这一个来源：入站消费者不许绕过 Service 直接写 canonical 表
+		// （domain/arch_test.go 拍的那条约束，这条接线是它第一次在**生产**里被走到）。
+		Domain: candidateDomain,
+		Switch: inboundSw,
+		Log:    func(format string, args ...any) { log.Printf("go-api: "+format, args...) },
+	})
+	if err != nil {
+		log.Fatalf("go-api: candidate worker: %v", err)
+	}
+	inboundCtx, stopInbound := context.WithCancel(context.Background())
+	inboundDone := make(chan error, 1)
+	go func() { inboundDone <- candidates.Run(inboundCtx) }()
+	defer closeInbound(candidates, stopInbound, inboundDone, inboundSw.DrainTimeout+5*time.Second)
+
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -194,8 +228,47 @@ func closeWorker(r *dispatch.Runner, cancel context.CancelFunc, done chan error,
 			log.Printf("go-api: outbox worker 已退出：batches=%d claimed=%d accepted=%d rejected=%d dlq=%d lost=%d unrecorded=%d dials=%d redials=%d",
 				st.Batches, st.Claimed, st.Accepted, st.Rejected, st.DeadLettered,
 				st.Lost, st.Unrecorded, st.Dials, st.Redials)
+			return
 		}
+		// 这句话**必须由退出路径自己说**，不能靠 Run 里那行「未启动」：那一行是
+		// 另一个 goroutine 打的，它与任何读日志的时机之间没有同步——实测 300 轮里
+		// 抖动 1 次（闸在 main_test.go）。而运维在停机日志里要看到的是「这段接线存在、
+		// 但灰度 0 没动过任何东西」，这句话的主语本来就是这里。
+		log.Printf("go-api: outbox worker 未启动或零批次就退出了：batches=0 dials=%d（kill switch 关着时这就是预期形态）",
+			st.Dials)
 	case <-timer.C:
 		log.Printf("go-api: outbox worker 在 %v 内没退出 ⇒ 放弃等待，未确认的行按租约到期后重投", budget)
+	}
+}
+
+// closeInbound 停掉 candidate 入站 worker 并等它退出，形状与 closeWorker 一致。
+//
+// 超时后**只打日志**：一条没 ack 的消息会由 broker 重投，幂等键 (message_id, consumer)
+// 保证重投不会让领域入口跑第二次（inbox 那侧），所以「没等到退出」的代价是延迟不是重复生效。
+func closeInbound(r *inbound.Runner, cancel context.CancelFunc, done chan error, budget time.Duration) {
+	cancel()
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		st := r.Stats()
+		if err != nil {
+			log.Printf("go-api: candidate worker 退出带回错误：%v（processed=%d transient=%d rejected=%d）",
+				err, st.Processed, st.Transient, st.Rejected)
+			return
+		}
+		if st.Received > 0 {
+			log.Printf("go-api: candidate worker 已退出：received=%d processed=%d duplicate=%d rejected=%d "+
+				"transient=%d acks=%d nacks=%d settle_errs=%d dials=%d redials=%d",
+				st.Received, st.Processed, st.Duplicates, st.Rejected, st.Transient,
+				st.Acks, st.Nacks, st.SettleErrs, st.Dials, st.Redials)
+			return
+		}
+		// 与 closeWorker 同一条理由：零消费时的这句话由退出路径自己说，不靠 Run 里那行
+		// 「未启动」——那行出自另一个 goroutine，与读日志的时机没有同步，是一条会抖动的闸。
+		log.Printf("go-api: candidate worker 未启动或零消费就退出了：received=0 dials=%d（kill switch 关着时这就是预期形态）",
+			st.Dials)
+	case <-timer.C:
+		log.Printf("go-api: candidate worker 在 %v 内没退出 ⇒ 放弃等待，未确认的消息由 broker 重投", budget)
 	}
 }
