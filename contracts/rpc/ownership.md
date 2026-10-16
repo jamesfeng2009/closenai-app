@@ -179,9 +179,15 @@ Go 侧的 curriculum 只有读面（`server.go:96` 的 `GET /api/v1/curriculum/w
 - **Python 只提案，不写权威表**（O3 的物理落点）：三处直写点改造归 R5，含
   `memory_service.py:270` 的 `_detect_conflict`（现为「立即新建 + 旧行 supersede」→ 改 candidate 回投）。
 - **对外只有 Go 的 HTTP/SSE**：gRPC **不出 Ingress**，只在集群内（R7 的 manifests 口径）。
-- **依赖面实测**（本批 2026-10-16 复核）：`go-core/go.mod` 无 grpc、无 amqp；
-  `backend/requirements.txt` 无 grpcio、无 aio-pika/pika ⇒ R1/R2/R4 各自要新增依赖，
-  且都要过 D-7 那套「按实测计数 + 体积/内存前后差」的取证，不许口头通过。
+- **依赖面实测**（⚠️ 2026-10-16 R4 复核时这一格已经漂了，原文写的是「`go-core/go.mod` 无 grpc、
+  无 amqp；`backend/requirements.txt` 无 grpcio、无 aio-pika/pika」——那是 R0 落表当天的快照，
+  R1/R2/R3/R4 之后前半句整段不成立。**现值以下面这行为准**）：
+  `go-core/go.mod:9-10` 实测有 `github.com/rabbitmq/amqp091-go v1.10.0`（R4）与
+  `google.golang.org/grpc v1.84.0`（R1/R2）；`backend/requirements.txt:49-50` 运行时装包列里有
+  `grpcio>=1.84.0`、`protobuf>=7.35.1`（R3 从 dev 挪进来），`grpcio-tools` 仍是构建期工具不在运行列；
+  `aio-pika`/`pika` 实测 **0 命中** ⇒ Python 侧今天仍不连 broker，消费面归 R5。
+  D-7 那条取证口径（按实测计数 ＋ 体积／内存前后差，不许口头通过）**继续有效**，
+  只是它约束的对象从「要不要加依赖」变成了「已加的这四个依赖的镜像与内存前后差有没有记进台账」。
 
 ---
 
