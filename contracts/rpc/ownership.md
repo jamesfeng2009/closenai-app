@@ -190,7 +190,7 @@ Go 侧的 curriculum 只有读面（`server.go:96` 的 `GET /api/v1/curriculum/w
 | 断言 | 实测手段与结果 |
 |---|---|
 | gRPC 三方法各有真实调用点 | AST 逐 `Call` 计数：生产侧 `llm.complete/stream/embed` 共 **24** 个调用点 / **13** 个文件（排除 `core/llm.py` 与 `tests/`；grep 口径会给 25，多的一行是 `safety_service.py:36` 的 docstring 示例）。三条链分别命中 `memory_service.py:465`、`cron_service.py:1024`、`safety_service.py:375`（外层 `check_text` 在 `:356`）、`chat.py:54`→`message_generator.py:122` |
-| rerank / capability 零调用点 | `grep -rniE "rerank\|capability"`（py+go，排除 `_test`）＝**0** |
+| rerank / capability 零调用点 | 原写法 `grep -rniE "rerank\|capability"`（py+go，排除 `_test`）＝**0**。<br>⚠️ **2026-10-16 更正取证手段（结论不变，但这一行当时不可复制执行）**：Markdown 表格里的竖线**必须**写成转义形式才不会断列，而那份转义粘进 shell 后，在 ERE（`grep -E`）下 `\|` 变成**字面竖线** ⇒ 搜的是 `"rerank\|capability"` 这一个字符串，本来就会 0 命中，等于没测。可复制的等价写法（改用多个 `-e`，一条竖线都没有）：<br>`grep -rniE -e rerank -e capability --include='*.py' --include='*.go' --exclude='*_test.py' --exclude='*_test.go' backend go-core` ＝ **6 命中**，逐文件核对全部在生成物里（`go-core/gen/closenai/v1/closenai_ai_rpc_grpc.pb.go` 4、`backend/gen/closenai_ai_rpc_pb2_grpc.py` 2，都是 R1 抄进 `*_pb*` 的契约注释）；再加 `--exclude-dir=gen` ＝ **0 命中**（2026-10-16 复跑）。⇒ 「不建第四个 gRPC 方法」的判据成立，但下一批复用这行时必须带上 gen 排除，否则数到的是自家生成物 |
 | `evidence.accepted` 在 Go 不存在 | `grep "evidence.accepted\|evidence_accepted"`（go+py）＝**0** |
 | `Admit*` / `ConsumeIdempotent` 无生产调用方 | 非测试 grep 只命中**定义处与注释**（`service_proactive.go:97`、`service_evidence.go:121`、`delivery.go:267`） |
 | 只有 `cmd/go-api` | `ls go-core/cmd` ＝ `go-api` 一项；`internal/messaging/` 只有 `outbox/outbox.go` |
