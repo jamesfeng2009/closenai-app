@@ -27,7 +27,7 @@ from backend.services.first_read_service import (
     first_read_service,
     load_template,
 )
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 ZH_ANSWERS = [
     {"q": "conflict", "option": "speak_now"},

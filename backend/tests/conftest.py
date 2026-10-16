@@ -32,7 +32,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import backend.models  # noqa: F401  注册全部表到 Base.metadata
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import safe_zoneinfo
 from backend.database import Base
 from backend.repositories import memory_repository, user_repository

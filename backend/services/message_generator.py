@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core import copy
 from backend.core import redis as redis_client
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import local_day_start_utc, utc_now
 from backend.models.user import CONVERSATION_STYLES, DEFAULT_CONVERSATION_STYLE
 from backend.repositories import (
@@ -24,7 +24,7 @@ from backend.repositories import (
 )
 from backend.services.discovery_service import discovery_service
 from backend.services.memory_service import memory_service
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.message")
 

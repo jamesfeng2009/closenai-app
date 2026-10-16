@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import local_day_start_utc, local_today
 from backend.models.growth import GrowthRecord
 from backend.models.user import User
@@ -35,7 +35,7 @@ from backend.repositories import (
     safety_repository,
     user_repository,
 )
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.bedtime")
 

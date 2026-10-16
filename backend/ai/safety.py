@@ -18,7 +18,7 @@ import re
 from typing import AsyncGenerator, Awaitable, Callable, List, Optional, Tuple
 
 from backend.core import copy
-from backend.core.llm import llm
+from backend.ai.llm import llm
 
 logger = logging.getLogger("closenai.safety")
 
@@ -435,6 +435,104 @@ class SafetyService:
             safe_reply=self.safe_reply(language),
             max_sentence_len=self.MAX_SENTENCE_LEN,
         )
+
+    async def check_text_tri(
+        self, text: str, language: str = "en", *, scope: str = "chat"
+    ) -> dict:
+        """三态安全判定（R3 的 `ClassifySafety` 落点，也是 D-8 在 Python 侧的那一半）。
+
+        返回 `{"status", "reason", "matched", "categories", "advice_blocked"}`。
+        与 `check_text`（:356，原样保留、HTTP 面一个字节都没动）的三条差异，逐条写在这里
+        是因为这是本批唯一的语义变更面：
+
+        1. **超时/异常不再 fail-open 放行** ⇒ `unavailable`。`check_text` 的 :393-395 那条
+           「检测故障不阻断主流程」是 HTTP 面的既有口径（用户发送路径零阻塞），而跨进程后的
+           消费方是 Go 领域门（`gate.go:396` 把 unavailable 当拦下），超时当放行会变成
+           「拿不到判定就当安全」——proto `closenai_common.proto:90-95` 点名的正是这一格。
+        2. **命中面回传**：今天黑名单/越界/模型三处只 log（:366、:371、:391），这里带出
+           `reason`（banned|overreach|crisis|model|""）与 `matched`，让消费方能按面降级
+           而不是整面重跑（`SafetyResult.reason`/`matched` 的契约注释）。
+        3. **危机单列**：`crisis_intercept` 今天不在 `check_text` 里跑（那是输入侧的闸，
+           由 `message_generator` 的危机分支调用），这里跑——`SafetyStatus` 只有三态，
+           Go 侧要靠它区分「危机退出常规管道」（`gate.go:399`）。
+
+        ⚠️ 契约缺口（登记在 tasks.md §R3，不是实现遗漏）：proto 的三态里**没有 UNSAFE**。
+        非危机的违规输出（banned/overreach/model）只能落 `crisis`，由 `reason` 说明是哪一面；
+        Go 侧两条路都拦（`gate.go:396` unavailable / `:399` crisis），所以这个映射只会把
+        reject reason 说成「危机信号」而不会放错行。要分得更细得给 enum 加值（V3 15 §8 允许）
+        ＋ Go domain 第四态，那属于另一批。
+
+        模型调用与 `check_text` 共享同一份类常量（`_CHECK_PROMPT:262`、`CHECK_TIMEOUT:212`）
+        与同一个 `purpose`（:381 那个固定值），所以 `ai_generation_runs` 里两条路可对账。
+        """
+        if not text or not text.strip():
+            return _tri(SAFETY_OK, "", [], advice_blocked=False)
+
+        crisis = self.crisis_intercept(text, language)
+        if crisis:
+            return _tri(
+                SAFETY_CRISIS, "crisis", crisis["matched"],
+                categories=[crisis["kind"]], advice_blocked=crisis["advice_blocked"],
+            )
+
+        banned = self.banned_hit(text, language)
+        if banned:
+            logger.warning("safety L3(tri) 黑名单命中(%s): %.100s", banned, text)
+            return _tri(SAFETY_CRISIS, "banned", [banned], advice_blocked=False)
+
+        if scope == "assertion":
+            overreach = self.attribution_hit(text, language)
+            if overreach:
+                logger.warning("safety L3(tri) 推理越界(%s): %.100s", overreach, text)
+                return _tri(SAFETY_CRISIS, "overreach", [overreach], advice_blocked=False)
+
+        try:
+            result = await asyncio.wait_for(
+                llm.complete(
+                    f"{self._CHECK_PROMPT}{text}",
+                    language=language,
+                    lite=True,
+                    max_tokens=10,
+                    temperature=0.0,
+                    purpose="safety_service.check_text",
+                    track=False,
+                ),
+                timeout=self.CHECK_TIMEOUT,
+            )
+        except Exception:  # noqa: BLE001  D-8：超时/异常＝不可用，不是放行
+            logger.exception("safety(tri) 检测不可用，按 unavailable 回传: %.100s", text)
+            return _tri(SAFETY_UNAVAILABLE, "model", [], advice_blocked=False)
+
+        verdict = (result or "").strip().upper()
+        if "UNSAFE" in verdict:
+            logger.warning("safety L3(tri) 模型命中拦截: %.100s", text)
+            return _tri(SAFETY_CRISIS, "model", [], advice_blocked=False)
+        if "SAFE" in verdict:
+            return _tri(SAFETY_OK, "", [], advice_blocked=False)
+        # 今天这一格走 :389 的 `"UNSAFE" not in verdict` ⇒ 不可解析被读成安全。
+        # 三态面反过来：分类器没给出可判定的答案就是「判定缺失」。
+        logger.warning("safety(tri) 分类器输出不可解析，按 unavailable: %.40s", result)
+        return _tri(SAFETY_UNAVAILABLE, "model", [], advice_blocked=False)
+
+
+# 三态取值（与 `closenai_common.proto` 的 SafetyStatus 一一对应；UNSPECIFIED 不在这里出现，
+# 因为它在 Go 侧与「判定缺失」同形，服务端永远不该发它）。
+SAFETY_OK = "ok"
+SAFETY_CRISIS = "crisis"
+SAFETY_UNAVAILABLE = "unavailable"
+
+
+def _tri(
+    status: str, reason: str, matched: List[str], *,
+    categories: Optional[List[str]] = None, advice_blocked: bool = False,
+) -> dict:
+    return {
+        "status": status,
+        "reason": reason,
+        "matched": list(matched or []),
+        "categories": list(categories or []),
+        "advice_blocked": bool(advice_blocked),
+    }
 
 
 safety_service = SafetyService()

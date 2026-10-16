@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import settings
 from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import (
     local_day_start_utc,
     local_now,
@@ -36,7 +36,7 @@ from backend.repositories import (
     mood_repository,
     user_repository,
 )
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 from backend.services.quota_service import FREE_TIER
 from backend.services.user_service import user_service
 

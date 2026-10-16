@@ -6,7 +6,7 @@
 import pytest
 
 from backend.config import settings
-from backend.core.llm import get_embedding_model
+from backend.ai.llm import get_embedding_model
 
 
 def test_dashscope_default(monkeypatch):

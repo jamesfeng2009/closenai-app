@@ -24,7 +24,7 @@ from backend.core.referral import referral_link
 from backend.core.time_utils import local_today, utc_now
 from backend.repositories import onboarding_repository, user_repository
 from backend.services.journey_service import journey_service
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.first_read")
 

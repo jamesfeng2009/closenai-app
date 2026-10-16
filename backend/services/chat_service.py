@@ -3,12 +3,19 @@
 
 承载 POST /chat/stream 的阶段一事务编排（配额校验 + 扣减 + 用户消息落库），
 使 router 层只做传输（SSE 流），不持有事务边界（四层架构：routers → services → repositories）。
+
+R3 起还多一件事：`rpc_chat_stream` / `validate_stream_input` 是 gRPC `StreamChat`
+的服务端底座。`backend/ai/rpc/server.py` 的边界闸不许它自己碰数据库
+（见 `backend/tests/test_ai_boundary.py`），所以「自带 session 的只生成链」放在这一层。
 """
 import logging
+from typing import AsyncGenerator, Tuple
 
 from backend.core.errors import AppException, ErrorCode
 from backend.database import SessionLocal
+from backend.models.schemas import ChatStreamRequest
 from backend.repositories import chat_repository, user_repository
+from backend.services.message_generator import message_generator
 from backend.services.quota_service import quota_service
 
 logger = logging.getLogger("closenai.chat")
@@ -46,6 +53,54 @@ class ChatService:
                     session, user_id, "user", content, message_type=message_type
                 )
                 await user_repository.increment_chat_count(session, user_id)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    def validate_stream_input(self, content: str, message_type: str) -> ChatStreamRequest:
+        """R3 gRPC `StreamChat` 的入参校验：复用 HTTP 的同一个 Pydantic 模型。
+
+        4000 上限与 message_type 取值面都不许在 RPC handler 里重抄一遍
+        （`closenai_ai_rpc.proto:207-208` 逐字「重抄＝两处会漂」）。
+        空 message_type 用模型的 Field 默认（reply），与 HTTP 缺省同形。
+
+        Raises:
+            pydantic.ValidationError：由 handler 翻成 `INVALID_ARGUMENT`。
+        """
+        return ChatStreamRequest(content=content, message_type=message_type or "reply")
+
+    async def rpc_chat_stream(
+        self, user_id: str, content: str, message_type: str, language: str
+    ) -> AsyncGenerator[Tuple[str, object], None]:
+        """R3 gRPC `StreamChat` 的生成链：自带 session，只产内容事件。
+
+        产出 `("memory", [dict])`（有记忆时一次，条数与 HTTP 的 `memories[:3]` 同形）
+        与 `("token", str)`（每个生成块），收尾由 handler 发 `DONE` 块。
+
+        与 HTTP 面（`routers/chat.py:99-130`）的**刻意差异**，三条都归 R3b：
+        不做 consent 前置（`:73`）、不做配额与用户消息落库（`:78-80`）、
+        流后不落 AI 回复／不抽取记忆／不记承诺（`:121-130`）——那些是权威态写入，
+        按 O3 的裁决归 Go。本函数保证的是「同一个生成器、同一份 prompt 组装」，
+        于是两条路径的文案不会分叉。
+
+        末尾的 commit 只为一件事：`generate_chat_stream` 的危机分支会写一行
+        `safety_events` 审计（`message_generator.py:88-102`，规范 §二 2.3）。
+        不 commit 就等于让危机信号静默消失——那是比多写一行审计表更坏的取舍。
+        """
+        async with SessionLocal() as session:
+            try:
+                memories = await message_generator.get_memory_context(session, user_id, content)
+                if memories:
+                    yield "memory", memories[:3]
+                async for text in message_generator.generate_chat_stream(
+                    db=session,
+                    user_id=user_id,
+                    user_input=content,
+                    message_type=message_type,
+                    language=language,
+                ):
+                    yield "token", text
                 await session.commit()
             except Exception:
                 await session.rollback()

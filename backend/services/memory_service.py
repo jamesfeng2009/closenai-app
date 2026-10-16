@@ -19,7 +19,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.errors import AppException, ErrorCode
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import local_day_start_utc, utc_now
 from backend.models.memory import Memory
 from backend.models.schemas import MemoryResponse

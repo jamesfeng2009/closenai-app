@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import local_day_start_utc
 from backend.models.schemas import (
     ReflectionDraftResponse,
@@ -27,7 +27,7 @@ from backend.repositories import (
     user_repository,
 )
 from backend.services.quota_service import quota_service
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.reflection")
 

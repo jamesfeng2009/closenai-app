@@ -21,8 +21,8 @@ from sqlalchemy.pool import StaticPool
 
 import backend.models  # noqa: F401  注册全部表到 Base.metadata
 from backend.core import generation_run
-from backend.core import llm as llm_mod
-from backend.core.llm import llm
+from backend.ai import llm as llm_mod
+from backend.ai.llm import llm
 from backend.core.logging import set_trace_id, set_user_id
 from backend.database import Base
 from backend.models.generation_run import AiGenerationRun
@@ -240,7 +240,7 @@ async def test_recorder_failure_does_not_break_generation(fake_llm, monkeypatch)
 
 async def test_classifier_call_does_not_steal_run_pointer(fake_llm, run_store):
     """正文生成 → 安全分类器自检：指针必须仍是正文那次（否则派生行链错）。"""
-    from backend.services.safety_service import safety_service
+    from backend.ai.safety import safety_service
 
     await llm.complete("正文", language="zh")
     content_run = llm.current_run_id()
@@ -258,7 +258,7 @@ async def _unsafe(text, language, scope="chat"):
 
 async def test_check_or_marks_fallback_and_clears_pointer(fake_llm, run_store, monkeypatch):
     """闸门丢弃 AI 产出、改发模板：留痕置 fallback 且指针清空（落库正文不是 AI 写的）。"""
-    from backend.services.safety_service import safety_service
+    from backend.ai.safety import safety_service
 
     monkeypatch.setattr(safety_service, "check_text", _unsafe)
     await llm.complete("正文", language="zh")
@@ -305,7 +305,7 @@ async def test_growth_daily_insight_links_run_or_stays_null(
 ):
     """正文可用 → 回链 run；被闸门拦截回退模板 → generation_run_id 为空。"""
     from backend.services.growth_service import growth_service
-    from backend.services.safety_service import safety_service
+    from backend.ai.safety import safety_service
 
     await make_user("u1")
     monkeypatch.setattr(safety_service, "check_text", _safe)

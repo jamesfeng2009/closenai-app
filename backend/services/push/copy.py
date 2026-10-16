@@ -15,12 +15,12 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core import copy
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import local_today
 from backend.models.user import User
 from backend.repositories import mood_repository
 from backend.services.message_generator import conversation_style_prompt
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.push.copy")
 

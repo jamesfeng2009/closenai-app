@@ -54,7 +54,7 @@ from backend.services.first_read_service import (
     first_read_service,
     locale_for,
 )
-from backend.services.safety_service import SafetyService, _lang_key
+from backend.ai.safety import SafetyService, _lang_key
 
 ROOT = Path(__file__).resolve().parents[2]
 GO = ROOT / "go-core"

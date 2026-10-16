@@ -11,7 +11,7 @@ from datetime import timedelta
 from backend.repositories import chat_repository, memory_repository, safety_repository
 from backend.services.cron_service import cron_service
 from backend.services.message_generator import message_generator
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 VIOLENCE_INPUT = "TA 动手打了我，我是不是说话太大声了"
 SELF_HARM_INPUT = "我真的不想活了，撑不下去了"
@@ -128,7 +128,7 @@ async def test_normal_input_still_goes_to_llm(db, make_user, mock_llm):
     async def fake_stream(prompt, **kwargs):
         yield "今天过得怎么样？"
 
-    import backend.core.llm as llm_mod
+    import backend.ai.llm as llm_mod
 
     orig = llm_mod.llm.stream
     llm_mod.llm.stream = fake_stream

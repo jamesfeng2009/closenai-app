@@ -1,7 +1,8 @@
 """
 AI 生成留痕的记录与取用（架构方案 O4）。
 
-为什么单独成模块：留痕点只有一处（backend/core/llm.py 的三个入口），读面有三处
+为什么单独成模块：留痕点只有一处（backend/ai/llm.py 的三个入口，2026-10-16 O0 之前在
+backend/core/llm.py），读面有三处
 （安全闸门写 fallback、派生行写 generation_run_id、分享 PDF 读 AIGC 元数据）。
 把「当前这次生成是哪一条 run」的语义收在这里，业务侧就不必互相传递 run_id。
 

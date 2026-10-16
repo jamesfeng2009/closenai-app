@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import (
     local_day_start_utc,
     local_now,
@@ -45,7 +45,7 @@ from backend.repositories import (
     memory_repository,
 )
 from backend.repositories.journey_repository import parse_json
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.curriculum")
 

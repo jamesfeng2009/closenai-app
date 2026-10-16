@@ -14,7 +14,7 @@ from backend.services.mood_service import MoodService
 from backend.services.personality_service import PersonalityService
 from backend.services.push.copy import PushCopywriter
 from backend.services.reflection_service import ReflectionService
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 from backend.services.share_service import ShareService
 from backend.services.message_generator import MessageGenerator, message_generator
 

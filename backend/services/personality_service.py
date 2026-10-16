@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import local_day_start_utc, local_now, utc_now
 from backend.models.schemas import (
     AssessmentAnswerRequest,
@@ -36,7 +36,7 @@ from backend.repositories import (
     user_repository,
 )
 from backend.config import settings
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.personality")
 

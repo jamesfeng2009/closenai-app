@@ -7,7 +7,7 @@
 import asyncio
 
 from backend.services.message_generator import message_generator
-from backend.services.safety_service import SafetyService, safety_service
+from backend.ai.safety import SafetyService, safety_service
 
 
 # ── check_text ─────────────────────────────────────────────
@@ -36,7 +36,7 @@ async def test_check_text_fail_open_on_exception(mock_llm):
 
 async def test_check_text_fail_open_on_timeout(mock_llm, monkeypatch):
     """检测超时 → fail-open True。"""
-    from backend.core.llm import llm
+    from backend.ai.llm import llm
 
     async def _slow(prompt, **kwargs):
         await asyncio.sleep(5)
@@ -180,7 +180,7 @@ async def test_chat_stream_safe_flow(db, make_user, mock_llm):
             yield part
 
     mock_llm.state["complete_fn"] = lambda prompt, **kwargs: "SAFE"
-    import backend.core.llm as llm_mod
+    import backend.ai.llm as llm_mod
     # stream 需要逐句输出；直接用 monkeypatch 由 conftest 的 calls 记录
     chunks = []
     orig_stream = llm_mod.llm.stream
@@ -207,7 +207,7 @@ async def test_chat_stream_unsafe_replaced(db, make_user, mock_llm):
         yield "更多违规内容。"
 
     mock_llm.state["complete_fn"] = lambda prompt, **kwargs: "UNSAFE"
-    import backend.core.llm as llm_mod
+    import backend.ai.llm as llm_mod
     chunks = []
     orig_stream = llm_mod.llm.stream
     llm_mod.llm.stream = fake_stream

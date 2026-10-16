@@ -31,7 +31,7 @@ from backend.repositories import (
 )
 from backend.repositories.journey_repository import parse_json
 from backend.services.memory_service import memory_service
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.commitment")
 

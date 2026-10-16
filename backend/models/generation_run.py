@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
 
-# 调用类型（与 backend/core/llm.py 的三个入口一一对应）
+# 调用类型（与 backend/ai/llm.py 的三个入口一一对应）
 AI_RUN_OPS = ("complete", "stream", "embed")
 
 # 结局：ok=产出可用；error=调用抛异常；fallback=产出被安全闸门丢弃、调用方回退模板

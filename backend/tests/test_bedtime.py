@@ -26,7 +26,7 @@ from backend.services import bedtime_service as bs
 from backend.services.bedtime_service import bedtime_service
 from backend.services.cron_service import cron_service
 from backend.services.push.copy import push_copywriter, templates_for
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 # 动态冻结：取「真实今天的 22:30」——SQLite 行 created_at 走 CURRENT_TIMESTAMP
 # 真实墙钟（落在真实今天内），冻结在同一日历日可让 service 内新建的行天然命中

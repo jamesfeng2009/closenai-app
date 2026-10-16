@@ -17,7 +17,7 @@ LLM 客户端封装（多 Provider + 多语言）。
 留痕写失败只记日志，不影响生成结果。
 
 用法：
-    from backend.core.llm import llm
+    from backend.ai.llm import llm
     text = await llm.complete("你好", language="zh")
     async for chunk in llm.stream("你好", language="zh"):
         ...

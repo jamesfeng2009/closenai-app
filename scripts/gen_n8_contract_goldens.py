@@ -2205,7 +2205,7 @@ def template_corpus() -> list[dict]:
     探针不是模板产出的文本（reachable=False），它们只喂 `filter_template` 这一支函数。
     """
     from backend.services.first_read_service import load_template
-    from backend.services.safety_service import safety_service
+    from backend.ai.safety import safety_service
 
     out: list[dict] = []
     seen: set[tuple[str, str]] = set()

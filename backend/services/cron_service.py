@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core import copy
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.time_utils import (
     local_day_start_utc,
     local_now,

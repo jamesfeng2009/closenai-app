@@ -26,7 +26,7 @@ from backend.services.journey_service import (
     journey_service,
     load_template,
 )
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 TZ = "UTC"
 NOW = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)

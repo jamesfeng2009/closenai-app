@@ -31,7 +31,7 @@ from backend.config import settings
 from backend.core import copy
 from backend.core import generation_run
 from backend.core.errors import AppException, ErrorCode
-from backend.core.llm import llm
+from backend.ai.llm import llm
 from backend.core.referral import normalize_referral_code, referral_link
 from backend.core.time_utils import (
     local_day_start_utc,
@@ -40,7 +40,7 @@ from backend.core.time_utils import (
     safe_zoneinfo,
     utc_now,
 )
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 from backend.models.user import User
 from backend.repositories import (
     chat_repository,

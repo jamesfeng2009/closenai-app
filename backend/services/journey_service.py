@@ -49,7 +49,7 @@ from backend.repositories.journey_repository import parse_json
 from backend.services.commitment_service import commitment_service
 from backend.services.mood_service import mood_label_for
 from backend.services.push import push_copywriter, push_service
-from backend.services.safety_service import safety_service
+from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.journey")
 
