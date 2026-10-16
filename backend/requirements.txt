@@ -50,3 +50,11 @@ posthog>=3.0.0
 # 开发工具
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# ── R1 跨语言契约面（2026-10-16）：grpcio / grpcio-tools / protobuf **不在这一列**
+# 这份文件是运行时镜像的装包清单（deploy/Dockerfile.py-api:11-12 直接 pip install 它）。
+# 今天 backend 没有任何模块 import 生成的 `backend/gen/*_pb2.py` ⇒ 装进来只是给镜像白加
+# 实测 40M(grpc) + 22M(grpc_tools) 的安装体积（wheel 下载量 12.3M + 6.0M，2026-10-16 实测）。
+# 它们登记在 pyproject.toml 的 dev extra（闸与 codegen 用），R3 的 gRPC server 落地那天
+# 才把 grpcio/protobuf 挪进本文件的主依赖列——那时它们是运行时依赖，不再是构建期工具。
+

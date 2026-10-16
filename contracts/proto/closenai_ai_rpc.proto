@@ -1,0 +1,261 @@
+// ClosenAI 的同步 RPC 面（R1）：**只有三个方法**，多一个都不加。
+//
+// ───────────────────────── 出处（这一面整面是本地补齐，不是 V3 条文）
+// V3 一共 22 篇编号文档（00–21，实测 `ls docs | grep -cE "^[0-9]{2}_"` ＝ 22）。全库逐字扫
+// （ERE 交替，五者同一模式）：
+//     grep -rnE "^message |^service |^enum |^ +rpc " ClosenAI_Personal_Intelligence_Runtime_V3/docs/*.md
+//   命中只有五行，且只有一个是真定义：
+//     04_PROACTIVE_OUTCOME_LOOP.md:42   "message volume."      ← 散文，不是定义
+//     15_PROTOBUF_WIRE_CONTRACT.md:41    "message MessageEnvelope {"  ← 唯一的 protobuf 定义
+//     15:152                            "message type"         ← §11 登记表的一行字面量
+//     16_SERIALIZATION_DESERIALIZATION.md:86 / :105            ← Python 伪代码示例
+// ⇒ **V3 没有定义过任何 service、任何 rpc、任何 enum、任何请求/响应消息**。
+// 本文件的三个方法名与全部消息形状都来自**本仓实测**＋两份本仓登记：
+//   · `contracts/rpc/ownership.md` §1 的三行（每行单独回答了「为什么不能等 MQ 回投」）
+//   · tasks.md §R 的 R2/R3（「方法面＝R3 收窄后的三个，多一个都不加」）
+// 它们能引到的 V3 依据只有两条泛化条目：`06_SYSTEM_COMPONENTS_AND_BOUNDARIES.md:167`
+// （embedding service）、`:170`（low-latency inference），加对话 token 流那条来自裁决文档
+// §八 风险 3（在 `closenai-prd` 子模块里，不在 V3）。**别把这段读成「V3 给了这三个方法」。**
+//
+// ⚠️ Candidate / Draft / Task 一律**不在这里出现**——它们由 MQ 投递（R5/R6）。
+// 同步返回等于让 Python 决定权威态的写入时机（V3 10 §3 candidate principle ＋
+// ownership.md 判据 4）。V3 15 §4 的六族（`:64-71`）也全部落在 MQ 面。
+//
+// 号位纪律：15 §6「Never reuse a field number」（`:89-98`，删除写 reserved）；
+// 15 §7「Prefer additive changes」＋同号不许换类型（`:100-124`）；15 §8 enum 只加值不重编号、
+// 消费方要容忍未知值（`:126-130`）；15 §9 跨语言时间一律 Timestamp（`:132-138`）；
+// 15 §10 id 一律显式 string（`:140-145`）。
+// 注：「enum 0 号位必须是 UNSPECIFIED」是 **proto3 语言规则**（首个值必须为 0），
+// 不是 V3 条文——V3 §8 只讲了加值与容忍，这里按语言规则落 0 号位。
+//
+// ───────────────────────── 本文件第一稿的勘误（留痕，不许抹掉）
+// 2026-10-16 首稿把消息形状标成 `15:120`、`15:122`、`15:123-124`、`15:146 RequestContext`、
+// `15:148 EmbeddingModel`、`15:155-157 EmbeddingVector`、`15:165-167 SafetyCheck`、
+// `15:204-211 ChatRequest`、`15:218-220 bool last`、以及「15 §8 逐字要求 zero value 必须是
+// UNSPECIFIED」。**这些行号与条目全部不存在**——`15_PROTOBUF_WIRE_CONTRACT.md` 实测只有 170 行
+// （`nl -ba` 到 §12 的五行契约测试为止），全篇唯一成文消息是 `:41-53` 的 `MessageEnvelope`。
+// 首稿还凭空造过 `ChatTurn / PersonalityState / RetrievalState / conversation_id / mode /
+// framework / low_latency_mode` 七个字段——本仓的对话请求面里一个都没有（见下面
+// StreamChatRequest 的实测面）。现稿一律改成本仓 file:line 锚点，无出处的字段直接删。
+syntax = "proto3";
+
+package closenai.v1;
+
+import "closenai_common.proto";
+
+// go_package 必须等于 go-core/go.mod:1 的 module 路径加子目录，否则生成的包 import 不进来。
+option go_package = "github.com/jamesfeng2009/closenai-app/go-core/gen/closenai/v1;closenaiv1";
+// 刻意不加 java_* option：V3 15 §2（`:16-34`）只列了 Go 与 Python 两个生成面，本仓也没有 JVM 消费方。
+
+service ClosenAI {
+  // 【Embed】向量化：单条（写路径）与批量（漂移检测取均值）共用一条方法。
+  // 实测调用点：`backend/services/memory_service.py:462-469`（`_embed_or_none`，内部
+  // `:465` 调 `llm.embed([text])`）＋ `backend/services/cron_service.py:1021-1031`
+  // （`_mean_embedding`，`:1024` 调 `llm.embed(texts)` 后取列均值）。
+  // 为什么不能等 MQ 回投：记忆刚落库就要能被语义检索到（ownership.md §1 第一行）。
+  // 失败面（保持）：两个调用点今天都 `except → return None`（fail-soft，只少一个向量），
+  // 跨进程后不得变硬失败——一次网络抖动不该让「记一条想法」失败。
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+
+  // 【ClassifySafety】内容交到用户手上**之前**必须判完（ownership.md §1 第二行）。
+  // 实测调用点：`backend/services/safety_service.py:356`（`check_text`，模型调用在 `:374-387`，
+  // 外面包 `asyncio.wait_for(..., timeout=self.CHECK_TIMEOUT)`）；流式侧同一判定由 `SentenceGate`
+  // 按句调用（`:31-48` 的用法注释与 `:47` 的「命中：不下发违规句，改发安全话术，blocked=True」）。
+  // ⚠️ D-8（必须反过来）：今天两侧都写明 fail-open——`check_text` 的 docstring `:360`
+  // 「超时/异常/不可解析 → fail-open True + 日志」、实现 `:393-395`、`SentenceGate` 的 `:48`。
+  // 跨进程后超时**不得等于放行** ⇒ 显式回 SAFETY_STATUS_UNAVAILABLE，由 Go 侧决定拦截或降级模板。
+  rpc ClassifySafety(TextInput) returns (SafetyResult);
+
+  // 【StreamChat】用户在线等 token；走 MQ 等于把首字延迟变成「排队 + 回投」两轮。
+  // 实测调用点：`backend/routers/chat.py:54`（`POST /chat/stream`）→ `:108-114`
+  // （`generator.generate_chat_stream(...)`）→ `backend/services/message_generator.py:122`
+  // 的 `llm.stream`。产的是文本增量，不是洞察草稿——InsightDraft 属于 MQ 面（closenai_ai.proto）。
+  // 验收要求（ownership.md §1 第三行）：首字延迟与背压要一条实测数字，不接受「应该差不多」；
+  // Go 侧 SSE 由 gRPC server streaming 透传＝裁决文档 §八 风险 3 的结案点。
+  //
+  // ⚠️ **第四个方法刻意不加**：V3 `06:168` reranking service 与 `:169` model capability check
+  // 在本仓**零调用点**——2026-10-16 重测口径：`grep -rniE "rerank|capability"` 扫 backend+go-core
+  // 的 .py/.go，排除 `_test` 与**生成物目录**（backend/gen、go-core/gen）＝ **0 命中**；
+  // 不排除生成物则是 6 命中，全部是这段注释自己被打进 `*_pb2_grpc.py`／`*_grpc.pb.go` 的副本
+  // ⇒ 任何按这两个词数调用点的闸都必须排除 gen 目录，否则恒不为零。计数登记见
+  // ownership.md §4，按 §0 判据 2「Do not introduce gRPC merely because both
+  // runtimes use Protobuf」（`06:173` 逐字）——答不出「为什么不能等 MQ 回投」就不许上这一面。
+  rpc StreamChat(StreamChatRequest) returns (stream ChatChunk);
+}
+
+// ---------------------------------------------------------------- Embed
+
+message EmbedRequest {
+  string schema_version = 1;
+  // 形状直接取 `backend/core/llm.py:259-263` 的入参面：
+  // `async def embed(texts: list[str], dim: int | None = None, purpose: Optional[str] = None)`。
+  // cron 那处今天就是同步 await，没有需要解耦的等待方（ownership.md §0 判据 3 的坑那一段）。
+  repeated string texts = 2;
+  // 目标维度。⚠️ 必须是 optional：`dim=None` 与 `dim=0` 语义不同——None 走 provider 默认，
+  // 而 dashscope 分支会自己塞 `settings.embedding_dim`（`llm.py:281-284`，
+  // `backend/config.py:86` 默认 512；落库列是 `HALFVEC(512)`，`backend/models/memory.py:36`）。
+  optional uint32 dimensions = 3;
+  // 留空＝用服务端默认。⚠️ 刻意是 string 而不是枚举：本仓取值是**按 provider 切换的自由字符串**
+  // （`llm.py:123-137` `get_embedding_model()` 逐分支返回 `config.py:57` dashscope
+  // "text-embedding-v4"、`:68` gemini "text-embedding-004"、`:74` openai "text-embedding-3-small"、
+  // `:63` doubao 空串并在 `llm.py:134-136` 未配置时 raise）。做成 enum 会逼着每次换供应商都改契约，
+  // 那是把配置项误当契约。改判条件见 ownership.md §4。
+  string model = 4;
+  // 调用归属三件套**必须显式带上**，因为今天这三样都是从进程内的上下文里取的，跨进程后取不到：
+  //   · user_id / trace_id：`backend/core/generation_run.py:55-56` 读 `get_user_id()` /
+  //     `get_trace_id()`（contextvar，来源 `:24` 的 `backend/core/logging.py`），
+  //     写入 run 行 `:62-63`（列定义 `backend/models/generation_run.py:33` 与 `:35`）。
+  //   · purpose：`backend/core/llm.py:74` 的 `purpose or _purpose_from_frame(depth=3)` ——
+  //     **由调用栈帧推导**。跨进程后栈帧是 RPC handler，推出来的 purpose 会变成 handler 名，
+  //     留痕（表 `ai_generation_runs`，O4 已交付）当场失真。⇒ purpose 只能由调用方显式传。
+  string user_id = 5;
+  string purpose = 6;
+  string trace_id = 7;
+}
+
+message EmbedResponse {
+  string schema_version = 1;
+  // 形状＝`llm.py:263` 的返回类型 `list[list[float]]`，一层套一层，不拆平。
+  // ⚠️ 本仓是本地补齐的嵌套消息，不是 V3 条文（V3 全篇只有 `MessageEnvelope`，见文件头）。
+  // 顺序即契约：`llm.py:291-293` 拿到 provider 响应后按 `index` 排序再返回，
+  // 注释逐字「按输入顺序返回向量」⇒ vectors[i] 对应 EmbedRequest.texts[i]。
+  repeated EmbeddingVector vectors = 2;
+  // 单值而非每条一个：同一批必同维（`llm.py:268` 注明 dashscope MRL 支持 128-2048，
+  // `_mean_embedding` 就是按 `len(vectors[0])` 当维度做列均值，`cron_service.py:1027`）。
+  uint32 dimensions = 3;
+  // 实际用掉的模型名回带给调用方留痕/排障（切换 provider 后需重嵌入，见 `llm.py:126` 的注释）。
+  string model = 4;
+}
+
+message EmbeddingVector {
+  repeated float values = 1;
+}
+
+// ---------------------------------------------------------------- ClassifySafety
+
+message TextInput {
+  string schema_version = 1;
+  // 空串／纯空白今天由 Python 直接判安全（`safety_service.py:362-363`）。
+  // ⚠️ 这条短路留在服务端，映射层不许在 Go 侧另判一套（否则「空文本」在两处结论不同）。
+  string text = 2;
+  // 默认 "en"（`safety_service.py:356` 形参默认值）；语言只分 zh/en 两张词表
+  // （`_lang_key:28`「zh 前缀→zh，其余→en」，词表见 `:180-196`）。
+  string language = 3;
+  // chat|assertion。取值面实测：默认 "chat"（`:356` 的 keyword-only 形参），
+  // `:368` `if scope == "assertion":` 才加判推理越界（`:369` `attribution_hit`，
+  // 句式标签在 `:351/:353`）。断言型文案的调用点很多（`:242` 的注释列了面：
+  // 洞察/模式/报告/剧本/主动消息/分享卡；实调如 `message_generator.py:248/:392`）。
+  // 空＝chat，与 Python 侧默认一致；映射层不许把空读成「全档都判」。
+  string scope = 4;
+}
+
+message SafetyResult {
+  string schema_version = 1;
+  // 复用 closenai_common.proto 的 `Safety`（形状取自 `go-core/internal/domain/candidate.go:33-36`
+  // 的 `Status SafetyStatus + Categories []string`，nil 视为判定缺失 → fail-closed）。
+  // 这样 RPC 返回能直接塞进 Candidate.Safety / ProactiveDraft.Safety，无需二次映射。
+  // ⚠️ 本仓真实判定是三态（ok|crisis|unavailable），而 `check_text` 今天只回一个 bool
+  // （`:356` 返回类型 `-> bool`，True=安全）⇒ 三态是 R2/R3 要补的面，不是现状。
+  Safety safety = 2;
+  // 命中面：banned | overreach | crisis | model | ""（未命中）。
+  // 逐个对应实测分支：黑名单 `:364-367`（`banned_hit:325-335`）、越界句式 `:368-372`
+  // （`attribution_hit`，标签 `:351/:353`）、危机词 `crisis_intercept:290-319`、
+  // 模型语义分类 `:373-392`（`:389` `"UNSAFE" not in verdict`）。
+  // 今天这四样**只 log 不回传**（`:366`、`:371`、`:391`）⇒ 本字段是本地补齐，为的是跨进程后
+  // 还能按面降级；不补就只能整面重跑。
+  string reason = 3;
+  // 命中的具体词/句式。危机面本来就返回列表（`:305-309` 累积 `matched`，`:314` 放进载荷），
+  // 黑名单与越界各返回单个命中项（`:332/:334`、`:344`）⇒ 统一成 repeated，一条命中就一个元素。
+  repeated string matched = 4;
+  // §二 铁律开关：关系暴力类恒为 True（`:317` `kind == "relationship_violence"`），
+  // 调用方据此禁用沟通/关系修复类建议。显式带出而不让消费方从 categories 反推——
+  // 反推等于把一条合规铁律写进两个语言各自的代码里。
+  bool advice_blocked = 5;
+  // ⚠️ **刻意不带**的两样，都记在这里免得下一个人当遗漏：
+  //   · `hotline` / `reply`：按 users.timezone 推热线（`resolve_hotline:279-288`）并从文案库
+  //     渲染（`:316` `copy.t("safety", f"crisis.{kind}", language)`）——那是展示面与文案库，
+  //     拉进 RPC 面等于让 Go 复制一份热线表。留在 Python 侧。
+  //   · `model` / `prompt_version`：`check_text` 今天不返回模型名（prompt 是类常量
+  //     `_CHECK_PROMPT:262-268`，模型名由 `llm.complete(lite=True)` 内部按 provider 选）。
+  //     要查哪次调用用了什么模型，去 `ai_generation_runs`——purpose 固定写
+  //     "safety_service.check_text"（`:381`），列面 `models/generation_run.py:39-40`。
+}
+
+// ---------------------------------------------------------------- StreamChat
+
+message StreamChatRequest {
+  string schema_version = 1;
+  // 实测请求面**只有两个字段**：`backend/models/schemas.py:20-23`
+  //   content: str = Field(..., max_length=4000)
+  //   message_type: Literal["reply", "mood_checkin"] = Field("reply")
+  // user_id 来自鉴权依赖（`routers/chat.py:58` `Depends(get_current_user)`），
+  // language 来自 `:59` `Depends(get_request_language)`
+  //   → `backend/core/language.py:36-45`「X-Language header → users.language → en」。
+  // 跨进程后这三样必须由 Go 显式带：handler 侧没有 HTTP 请求，也没有鉴权中间件往里塞 contextvar。
+  string user_id = 2;
+  string content = 3;
+  // 自由字符串而不是枚举：`schemas.py:23` 的 Literal 只有 reply|mood_checkin 两个值，
+  // 但它同时是前端↔Python 的既有 JSON 值面，加值时改这里比改枚举号位轻（15 §8 的容忍未知值）。
+  string message_type = 4;
+  string language = 5;
+  // ⚠️ **没有** conversation_id / history / mode / framework / personality / retrieval /
+  // low_latency_mode。第一稿凭空造过这七个，现在按实测删净。为什么不需要：
+  //   · 会话历史与记忆上下文都在服务端就地取（`chat.py:102` `get_memory_context`、
+  //     `:108-114` 只往下传 user_input/message_type/language）；
+  //   · 配额、AI 同意、用户消息落库都在进流之前由服务端做完（`:73` require_ai_consent、
+  //     `:78-80` prepare_chat_turn）——那是权威态写入，本就不属于 RPC 入参。
+  // 4000 字符上限仍由服务端按 `schemas.py:22` 判：R3 的 handler 要复用同一个 Pydantic 模型，
+  // 不在 proto 里重抄一遍数字（重抄＝两处会漂）。
+}
+
+message ChatChunk {
+  string schema_version = 1;
+  // 四个 SSE 事件面（`routers/chat.py` 逐字）：
+  //   · `:116` `_sse_event("token", {"content": chunk})`      → content
+  //   · `:104` `_sse_event("memory_context", {"memories": memories[:3]})` → memories
+  //   · `:132` `_sse_event("done", {})`                        → finish＝DONE
+  //   · `:137` `_sse_event("error", {"code", "message"})`      → finish＝ERROR ＋ 下面两字段
+  // SSE 的行形态是 `{'type': event_type, **payload}`（`_sse_event:40-42`）⇒ 这里用 finish 枚举
+  // 承载 type，Go 侧透传时再展回去，映射表在 R2。
+  string content = 2;
+  ChatFinish finish = 3;
+  // 错误码沿用现网数字：`backend/core/errors.py:52` QUOTA_EXCEEDED＝40301、`:72` INTERNAL_ERROR＝500
+  // （配额超限走 `chat.py:85-88` 的只含错误事件的流，异常走 `:137-140`，两处都是 int）。
+  optional int32 error_code = 4;
+  // 文案：`:139` 那条已做脱敏（异常细节只落日志 `:136`，不下发客户端），不许在 RPC 面回填堆栈。
+  string error_message = 5;
+  repeated StreamMemory memories = 6;
+}
+
+message StreamMemory {
+  // 形状取自 `message_generator.py:398-404`：`{"id", "content", "category"}` 三个键，
+  // 由 `chat.py:104` 原样下发。
+  // ⚠️ **这不是** closenai_common.proto 的 `MemoryRef`。`MemoryRef` 是
+  // `{memory_id, excerpt, created_at}` 三键（`routers/chat.py:174-182` 在 /chat/history
+  // 里逐字构造，前端按这三个键渲染「记忆依据 ▾」）。两套键面都已经固化在现网字节里，
+  // 合一套＝改动其中一条端点的响应形状，那是 N8 契约回放闸的红灯面，不在 R1 里做。
+  string id = 1;
+  string content = 2;
+  string category = 3;
+}
+
+enum ChatFinish {
+  // proto3 硬性要求首个值＝0。这里让它＝「还没收尾」而不是「有语义的 CHUNK」，
+  // 因为本仓的流**有四种收尾**，0 号位留给任何一个都会让默认值读出真意。
+  // V3 15 §8（`:126-130`）的约束只有两条：加值不重编号、消费方容忍未知值。
+  CHAT_FINISH_UNSPECIFIED = 0;
+  // 正常结束（`chat.py:132` 的 done 事件）。
+  CHAT_FINISH_DONE = 1;
+  // 错误（`chat.py:85-88` 配额 / `:137-140` 异常）。
+  CHAT_FINISH_ERROR = 2;
+  // 第三种收尾：SentenceGate 命中 ⇒ 流被安全闸截断，既不是错误也不是正常结束
+  // （`safety_service.py:47`「命中：不下发违规句，改发安全话术，blocked=True」＋
+  //  `chat.py` 的流循环 `:39-40` 命中后停止消费 LLM）。
+  // ⚠️ **今天现网流里没有这个收尾**：`/chat/stream` 走的 `message_generator.py:122` 那段
+  // 只发 token/done/error。BLOCKED 是 R2 把闸口接进这条流之后才产得出的值——
+  // 先把号位定下来，免得 R2 落地时两个语言各自临时编号。
+  CHAT_FINISH_BLOCKED = 3;
+  // 第四种：Go 侧配额耗尽/超时主动停流后下发降级模板（D-8 的「不许当 ERROR」）。
+  // 同样是 **R2 落点，不是现状**。
+  CHAT_FINISH_DEGRADED = 4;
+}

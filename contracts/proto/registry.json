@@ -1,0 +1,1861 @@
+{
+  "enums": [
+    {
+      "file": "closenai_ai_rpc.proto",
+      "name": "closenai.v1.ChatFinish",
+      "values": [
+        {
+          "name": "CHAT_FINISH_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "CHAT_FINISH_DONE",
+          "number": 1
+        },
+        {
+          "name": "CHAT_FINISH_ERROR",
+          "number": 2
+        },
+        {
+          "name": "CHAT_FINISH_BLOCKED",
+          "number": 3
+        },
+        {
+          "name": "CHAT_FINISH_DEGRADED",
+          "number": 4
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.Explicitness",
+      "values": [
+        {
+          "name": "EXPLICITNESS_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "EXPLICITNESS_EXPLICIT",
+          "number": 1
+        },
+        {
+          "name": "EXPLICITNESS_STRONGLY_IMPLIED",
+          "number": 2
+        },
+        {
+          "name": "EXPLICITNESS_WEAKLY_IMPLIED",
+          "number": 3
+        },
+        {
+          "name": "EXPLICITNESS_SPECULATIVE",
+          "number": 4
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.Kind",
+      "values": [
+        {
+          "name": "KIND_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "KIND_FACT",
+          "number": 1
+        },
+        {
+          "name": "KIND_PATTERN",
+          "number": 2
+        },
+        {
+          "name": "KIND_INSIGHT",
+          "number": 3
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.RefType",
+      "values": [
+        {
+          "name": "REF_TYPE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "REF_TYPE_PATTERN",
+          "number": 1
+        },
+        {
+          "name": "REF_TYPE_GOAL",
+          "number": 2
+        },
+        {
+          "name": "REF_TYPE_COMMITMENT",
+          "number": 3
+        },
+        {
+          "name": "REF_TYPE_INSIGHT",
+          "number": 4
+        },
+        {
+          "name": "REF_TYPE_FACT",
+          "number": 5
+        },
+        {
+          "name": "REF_TYPE_OUTCOME",
+          "number": 6
+        },
+        {
+          "name": "REF_TYPE_PROACTIVE",
+          "number": 7
+        }
+      ]
+    },
+    {
+      "file": "closenai_common.proto",
+      "name": "closenai.v1.SafetyStatus",
+      "values": [
+        {
+          "name": "SAFETY_STATUS_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "SAFETY_STATUS_OK",
+          "number": 1
+        },
+        {
+          "name": "SAFETY_STATUS_CRISIS",
+          "number": 2
+        },
+        {
+          "name": "SAFETY_STATUS_UNAVAILABLE",
+          "number": 3
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.SourceKind",
+      "values": [
+        {
+          "name": "SOURCE_KIND_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "SOURCE_KIND_USER_STATEMENT",
+          "number": 1
+        },
+        {
+          "name": "SOURCE_KIND_USER_CORRECTION",
+          "number": 2
+        },
+        {
+          "name": "SOURCE_KIND_USER_SELECTION",
+          "number": 3
+        },
+        {
+          "name": "SOURCE_KIND_USER_BEHAVIOR",
+          "number": 4
+        },
+        {
+          "name": "SOURCE_KIND_USER_EMOTION",
+          "number": 5
+        },
+        {
+          "name": "SOURCE_KIND_AI_EXTRACTION",
+          "number": 6
+        },
+        {
+          "name": "SOURCE_KIND_AI_SEMANTIC_INFERENCE",
+          "number": 7
+        },
+        {
+          "name": "SOURCE_KIND_FRAMEWORK_INFERENCE",
+          "number": 8
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.Specificity",
+      "values": [
+        {
+          "name": "SPECIFICITY_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "SPECIFICITY_SPECIFIC",
+          "number": 1
+        },
+        {
+          "name": "SPECIFICITY_CONTEXTUAL",
+          "number": 2
+        },
+        {
+          "name": "SPECIFICITY_GENERIC",
+          "number": 3
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.TaskType",
+      "values": [
+        {
+          "name": "TASK_TYPE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "TASK_TYPE_OBSERVATION_EXTRACT",
+          "number": 1
+        },
+        {
+          "name": "TASK_TYPE_PATTERN_DETECT",
+          "number": 2
+        },
+        {
+          "name": "TASK_TYPE_INSIGHT_DRAFT",
+          "number": 3
+        },
+        {
+          "name": "TASK_TYPE_PROACTIVE_DRAFT",
+          "number": 4
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.TriggerSource",
+      "values": [
+        {
+          "name": "TRIGGER_SOURCE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "TRIGGER_SOURCE_NEW_PATTERN",
+          "number": 1
+        },
+        {
+          "name": "TRIGGER_SOURCE_PATTERN_RECURRENCE",
+          "number": 2
+        },
+        {
+          "name": "TRIGGER_SOURCE_GOAL_DUE",
+          "number": 3
+        },
+        {
+          "name": "TRIGGER_SOURCE_COMMITMENT_DUE",
+          "number": 4
+        },
+        {
+          "name": "TRIGGER_SOURCE_PREVIOUS_PROACTIVE",
+          "number": 5
+        },
+        {
+          "name": "TRIGGER_SOURCE_USER_REQUESTED_FOLLOW_UP",
+          "number": 6
+        },
+        {
+          "name": "TRIGGER_SOURCE_PENDING_OUTCOME",
+          "number": 7
+        }
+      ]
+    },
+    {
+      "file": "closenai_ai.proto",
+      "name": "closenai.v1.TriggerType",
+      "values": [
+        {
+          "name": "TRIGGER_TYPE_UNSPECIFIED",
+          "number": 0
+        },
+        {
+          "name": "TRIGGER_TYPE_MEMORY_RECALL",
+          "number": 1
+        },
+        {
+          "name": "TRIGGER_TYPE_PATTERN_FOLLOWUP",
+          "number": 2
+        },
+        {
+          "name": "TRIGGER_TYPE_GOAL_FOLLOWUP",
+          "number": 3
+        },
+        {
+          "name": "TRIGGER_TYPE_COMMITMENT_FOLLOWUP",
+          "number": 4
+        },
+        {
+          "name": "TRIGGER_TYPE_REFLECTION_PROMPT",
+          "number": 5
+        },
+        {
+          "name": "TRIGGER_TYPE_OUTCOME_CHECK",
+          "number": 6
+        },
+        {
+          "name": "TRIGGER_TYPE_MILESTONE",
+          "number": 7
+        }
+      ]
+    }
+  ],
+  "generated_by": "scripts/gen_proto.py",
+  "messages": [
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "kind",
+          "label": 1,
+          "name": "kind",
+          "number": 2,
+          "type": 14,
+          "type_name": ".closenai.v1.Kind"
+        },
+        {
+          "json_name": "origin",
+          "label": 1,
+          "name": "origin",
+          "number": 10,
+          "type": 9
+        },
+        {
+          "json_name": "subjectKey",
+          "label": 1,
+          "name": "subject_key",
+          "number": 11,
+          "type": 9
+        },
+        {
+          "json_name": "predicate",
+          "label": 1,
+          "name": "predicate",
+          "number": 12,
+          "type": 9
+        },
+        {
+          "json_name": "objectValue",
+          "label": 1,
+          "name": "object_value",
+          "number": 13,
+          "type": 9
+        },
+        {
+          "json_name": "patternType",
+          "label": 1,
+          "name": "pattern_type",
+          "number": 20,
+          "type": 9
+        },
+        {
+          "json_name": "scope",
+          "label": 1,
+          "name": "scope",
+          "number": 21,
+          "type": 9
+        },
+        {
+          "json_name": "description",
+          "label": 1,
+          "name": "description",
+          "number": 22,
+          "type": 9
+        },
+        {
+          "json_name": "fingerprint",
+          "label": 1,
+          "name": "fingerprint",
+          "number": 23,
+          "type": 9
+        },
+        {
+          "json_name": "statement",
+          "label": 1,
+          "name": "statement",
+          "number": 30,
+          "type": 9
+        },
+        {
+          "json_name": "claimType",
+          "label": 1,
+          "name": "claim_type",
+          "number": 31,
+          "type": 9
+        },
+        {
+          "json_name": "confidence",
+          "label": 1,
+          "name": "confidence",
+          "number": 40,
+          "type": 1
+        },
+        {
+          "json_name": "detectorVersion",
+          "label": 1,
+          "name": "detector_version",
+          "number": 41,
+          "type": 9
+        },
+        {
+          "json_name": "evidenceIds",
+          "label": 3,
+          "name": "evidence_ids",
+          "number": 42,
+          "type": 9
+        },
+        {
+          "json_name": "patternIds",
+          "label": 3,
+          "name": "pattern_ids",
+          "number": 43,
+          "type": 9
+        },
+        {
+          "json_name": "windowFrom",
+          "label": 1,
+          "name": "window_from",
+          "number": 50,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        },
+        {
+          "json_name": "windowTo",
+          "label": 1,
+          "name": "window_to",
+          "number": 51,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        },
+        {
+          "json_name": "generationRunId",
+          "label": 1,
+          "name": "generation_run_id",
+          "number": 60,
+          "type": 9
+        },
+        {
+          "json_name": "generationModel",
+          "label": 1,
+          "name": "generation_model",
+          "number": 61,
+          "type": 9
+        },
+        {
+          "json_name": "generationVer",
+          "label": 1,
+          "name": "generation_ver",
+          "number": 62,
+          "type": 9
+        },
+        {
+          "json_name": "safety",
+          "label": 1,
+          "name": "safety",
+          "number": 70,
+          "type": 11,
+          "type_name": ".closenai.v1.Safety"
+        }
+      ],
+      "file": "closenai_ai.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.Candidate",
+      "referenced_by": [],
+      "reserved_names": [
+        "candidate_id",
+        "personal_model_id",
+        "user_id"
+      ],
+      "reserved_numbers": [
+        3,
+        4,
+        5,
+        71
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "content",
+          "label": 1,
+          "name": "content",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "finish",
+          "label": 1,
+          "name": "finish",
+          "number": 3,
+          "type": 14,
+          "type_name": ".closenai.v1.ChatFinish"
+        },
+        {
+          "json_name": "errorCode",
+          "label": 1,
+          "name": "error_code",
+          "number": 4,
+          "type": 5
+        },
+        {
+          "json_name": "errorMessage",
+          "label": 1,
+          "name": "error_message",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "memories",
+          "label": 3,
+          "name": "memories",
+          "number": 6,
+          "type": 11,
+          "type_name": ".closenai.v1.StreamMemory"
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.ChatChunk",
+      "referenced_by": [],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "texts",
+          "label": 3,
+          "name": "texts",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "dimensions",
+          "label": 1,
+          "name": "dimensions",
+          "number": 3,
+          "type": 13
+        },
+        {
+          "json_name": "model",
+          "label": 1,
+          "name": "model",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "userId",
+          "label": 1,
+          "name": "user_id",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "purpose",
+          "label": 1,
+          "name": "purpose",
+          "number": 6,
+          "type": 9
+        },
+        {
+          "json_name": "traceId",
+          "label": 1,
+          "name": "trace_id",
+          "number": 7,
+          "type": 9
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.EmbedRequest",
+      "referenced_by": [],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "vectors",
+          "label": 3,
+          "name": "vectors",
+          "number": 2,
+          "type": 11,
+          "type_name": ".closenai.v1.EmbeddingVector"
+        },
+        {
+          "json_name": "dimensions",
+          "label": 1,
+          "name": "dimensions",
+          "number": 3,
+          "type": 13
+        },
+        {
+          "json_name": "model",
+          "label": 1,
+          "name": "model",
+          "number": 4,
+          "type": 9
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.EmbedResponse",
+      "referenced_by": [],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "values",
+          "label": 3,
+          "name": "values",
+          "number": 1,
+          "type": 2
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": false,
+      "name": "closenai.v1.EmbeddingVector",
+      "referenced_by": [
+        "closenai.v1.EmbedResponse"
+      ],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": null,
+      "schema_version_type": null
+    },
+    {
+      "fields": [
+        {
+          "json_name": "messageId",
+          "label": 1,
+          "name": "message_id",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "messageType",
+          "label": 1,
+          "name": "message_type",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "occurredAt",
+          "label": 1,
+          "name": "occurred_at",
+          "number": 4,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        },
+        {
+          "json_name": "producer",
+          "label": 1,
+          "name": "producer",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "correlationId",
+          "label": 1,
+          "name": "correlation_id",
+          "number": 6,
+          "type": 9
+        },
+        {
+          "json_name": "causationId",
+          "label": 1,
+          "name": "causation_id",
+          "number": 7,
+          "type": 9
+        },
+        {
+          "json_name": "userId",
+          "label": 1,
+          "name": "user_id",
+          "number": 8,
+          "type": 9
+        },
+        {
+          "json_name": "personalModelId",
+          "label": 1,
+          "name": "personal_model_id",
+          "number": 9,
+          "type": 9
+        },
+        {
+          "json_name": "attempt",
+          "label": 1,
+          "name": "attempt",
+          "number": 10,
+          "type": 13
+        },
+        {
+          "json_name": "payload",
+          "label": 1,
+          "name": "payload",
+          "number": 11,
+          "type": 12
+        }
+      ],
+      "file": "closenai_common.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.Envelope",
+      "referenced_by": [],
+      "reserved_names": [
+        "origin"
+      ],
+      "reserved_numbers": [
+        12
+      ],
+      "schema_version_number": 3,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "messageId",
+          "label": 1,
+          "name": "message_id",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "messageType",
+          "label": 1,
+          "name": "message_type",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "occurredAt",
+          "label": 1,
+          "name": "occurred_at",
+          "number": 4,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        },
+        {
+          "json_name": "producer",
+          "label": 1,
+          "name": "producer",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "correlationId",
+          "label": 1,
+          "name": "correlation_id",
+          "number": 6,
+          "type": 9
+        },
+        {
+          "json_name": "causationId",
+          "label": 1,
+          "name": "causation_id",
+          "number": 7,
+          "type": 9
+        },
+        {
+          "json_name": "userId",
+          "label": 1,
+          "name": "user_id",
+          "number": 8,
+          "type": 9
+        },
+        {
+          "json_name": "personalModelId",
+          "label": 1,
+          "name": "personal_model_id",
+          "number": 9,
+          "type": 9
+        },
+        {
+          "json_name": "attempt",
+          "label": 1,
+          "name": "attempt",
+          "number": 10,
+          "type": 13
+        },
+        {
+          "json_name": "payload",
+          "label": 1,
+          "name": "payload",
+          "number": 11,
+          "type": 12
+        },
+        {
+          "json_name": "aggregateType",
+          "label": 1,
+          "name": "aggregate_type",
+          "number": 12,
+          "type": 9
+        },
+        {
+          "json_name": "aggregateId",
+          "label": 1,
+          "name": "aggregate_id",
+          "number": 13,
+          "type": 9
+        }
+      ],
+      "file": "closenai_events.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.EventEnvelope",
+      "referenced_by": [],
+      "reserved_names": [
+        "routing_key"
+      ],
+      "reserved_numbers": [
+        14
+      ],
+      "schema_version_number": 3,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "sourceKind",
+          "label": 1,
+          "name": "source_kind",
+          "number": 3,
+          "type": 14,
+          "type_name": ".closenai.v1.SourceKind"
+        },
+        {
+          "json_name": "source",
+          "label": 1,
+          "name": "source",
+          "number": 4,
+          "type": 11,
+          "type_name": ".closenai.v1.SourcePointer"
+        },
+        {
+          "json_name": "evidenceType",
+          "label": 1,
+          "name": "evidence_type",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "role",
+          "label": 1,
+          "name": "role",
+          "number": 6,
+          "type": 9
+        },
+        {
+          "json_name": "observation",
+          "label": 1,
+          "name": "observation",
+          "number": 7,
+          "type": 9
+        },
+        {
+          "json_name": "excerpt",
+          "label": 1,
+          "name": "excerpt",
+          "number": 8,
+          "type": 9
+        },
+        {
+          "json_name": "metadataJson",
+          "label": 1,
+          "name": "metadata_json",
+          "number": 9,
+          "type": 9
+        },
+        {
+          "json_name": "explicitness",
+          "label": 1,
+          "name": "explicitness",
+          "number": 10,
+          "type": 14,
+          "type_name": ".closenai.v1.Explicitness"
+        },
+        {
+          "json_name": "specificity",
+          "label": 1,
+          "name": "specificity",
+          "number": 11,
+          "type": 14,
+          "type_name": ".closenai.v1.Specificity"
+        },
+        {
+          "json_name": "generationRunId",
+          "label": 1,
+          "name": "generation_run_id",
+          "number": 12,
+          "type": 9
+        },
+        {
+          "json_name": "proposedIndependentIds",
+          "label": 3,
+          "name": "proposed_independent_ids",
+          "number": 13,
+          "type": 9
+        }
+      ],
+      "file": "closenai_ai.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.EvidenceCandidate",
+      "referenced_by": [],
+      "reserved_names": [
+        "memory_refs",
+        "user_id"
+      ],
+      "reserved_numbers": [
+        2,
+        14
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "invalidated",
+          "label": 1,
+          "name": "invalidated",
+          "number": 2,
+          "type": 5
+        },
+        {
+          "json_name": "monitored",
+          "label": 1,
+          "name": "monitored",
+          "number": 3,
+          "type": 5
+        },
+        {
+          "json_name": "revalidationRequested",
+          "label": 1,
+          "name": "revalidation_requested",
+          "number": 4,
+          "type": 5
+        }
+      ],
+      "file": "closenai_events.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.EvidenceWithdrawnPayload",
+      "referenced_by": [],
+      "reserved_names": [
+        "evidence_id",
+        "reason",
+        "withdrawn_at"
+      ],
+      "reserved_numbers": [
+        5,
+        6
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "feedbackType",
+          "label": 1,
+          "name": "feedback_type",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "targetType",
+          "label": 1,
+          "name": "target_type",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "targetId",
+          "label": 1,
+          "name": "target_id",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "changed",
+          "label": 1,
+          "name": "changed",
+          "number": 5,
+          "type": 8
+        },
+        {
+          "json_name": "status",
+          "label": 1,
+          "name": "status",
+          "number": 6,
+          "type": 9
+        }
+      ],
+      "file": "closenai_events.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.FeedbackRecordedPayload",
+      "referenced_by": [],
+      "reserved_names": [
+        "feedback_id",
+        "recorded_at"
+      ],
+      "reserved_numbers": [
+        7
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "status",
+          "label": 1,
+          "name": "status",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "reason",
+          "label": 1,
+          "name": "reason",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "detail",
+          "label": 1,
+          "name": "detail",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "checks",
+          "label": 3,
+          "name": "checks",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "fingerprint",
+          "label": 1,
+          "name": "fingerprint",
+          "number": 6,
+          "type": 9
+        },
+        {
+          "json_name": "evidenceCount",
+          "label": 1,
+          "name": "evidence_count",
+          "number": 7,
+          "type": 5
+        }
+      ],
+      "file": "closenai_events.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.GateOutcome",
+      "referenced_by": [],
+      "reserved_names": [
+        "admitted_at",
+        "confidence",
+        "fact_id",
+        "object_value",
+        "predicate",
+        "subject_key"
+      ],
+      "reserved_numbers": [
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "status",
+          "label": 1,
+          "name": "status",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "reason",
+          "label": 1,
+          "name": "reason",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "claimType",
+          "label": 1,
+          "name": "claim_type",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "combined",
+          "label": 1,
+          "name": "combined",
+          "number": 5,
+          "type": 1
+        }
+      ],
+      "file": "closenai_events.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.InsightStatusChanged",
+      "referenced_by": [],
+      "reserved_names": [
+        "insight_id",
+        "retracted_at"
+      ],
+      "reserved_numbers": [
+        6
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "outcomeType",
+          "label": 1,
+          "name": "outcome_type",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "summary",
+          "label": 1,
+          "name": "summary",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "evidenceIds",
+          "label": 3,
+          "name": "evidence_ids",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "occurredAt",
+          "label": 1,
+          "name": "occurred_at",
+          "number": 6,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        }
+      ],
+      "file": "closenai_ai.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.OutcomeRecord",
+      "referenced_by": [],
+      "reserved_names": [
+        "user_id"
+      ],
+      "reserved_numbers": [
+        2,
+        7
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "outcomeType",
+          "label": 1,
+          "name": "outcome_type",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "origin",
+          "label": 1,
+          "name": "origin",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "result",
+          "label": 1,
+          "name": "result",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "targets",
+          "label": 1,
+          "name": "targets",
+          "number": 5,
+          "type": 5
+        }
+      ],
+      "file": "closenai_events.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.OutcomeRecordedPayload",
+      "referenced_by": [],
+      "reserved_names": [
+        "outcome_id",
+        "proactive_id",
+        "recorded_at"
+      ],
+      "reserved_numbers": [
+        6,
+        7
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "from",
+          "label": 1,
+          "name": "from",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "to",
+          "label": 1,
+          "name": "to",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "action",
+          "label": 1,
+          "name": "action",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "outcomeType",
+          "label": 1,
+          "name": "outcome_type",
+          "number": 5,
+          "type": 9
+        },
+        {
+          "json_name": "confidence",
+          "label": 1,
+          "name": "confidence",
+          "number": 6,
+          "type": 1
+        }
+      ],
+      "file": "closenai_events.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.PatternLifecycleChanged",
+      "referenced_by": [],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "candidateId",
+          "label": 1,
+          "name": "candidate_id",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "triggerType",
+          "label": 1,
+          "name": "trigger_type",
+          "number": 5,
+          "type": 14,
+          "type_name": ".closenai.v1.TriggerType"
+        },
+        {
+          "json_name": "triggerSource",
+          "label": 1,
+          "name": "trigger_source",
+          "number": 6,
+          "type": 14,
+          "type_name": ".closenai.v1.TriggerSource"
+        },
+        {
+          "json_name": "message",
+          "label": 1,
+          "name": "message",
+          "number": 7,
+          "type": 9
+        },
+        {
+          "json_name": "confidence",
+          "label": 1,
+          "name": "confidence",
+          "number": 8,
+          "type": 1
+        },
+        {
+          "json_name": "evidenceIds",
+          "label": 3,
+          "name": "evidence_ids",
+          "number": 9,
+          "type": 9
+        },
+        {
+          "json_name": "refIds",
+          "label": 3,
+          "name": "ref_ids",
+          "number": 10,
+          "type": 9
+        },
+        {
+          "json_name": "anchorRefType",
+          "label": 1,
+          "name": "anchor_ref_type",
+          "number": 11,
+          "type": 14,
+          "type_name": ".closenai.v1.RefType"
+        },
+        {
+          "json_name": "anchorRefId",
+          "label": 1,
+          "name": "anchor_ref_id",
+          "number": 12,
+          "type": 9
+        },
+        {
+          "json_name": "scheduledAt",
+          "label": 1,
+          "name": "scheduled_at",
+          "number": 20,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        },
+        {
+          "json_name": "expiresAt",
+          "label": 1,
+          "name": "expires_at",
+          "number": 21,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        },
+        {
+          "json_name": "journeyEventId",
+          "label": 1,
+          "name": "journey_event_id",
+          "number": 22,
+          "type": 9
+        },
+        {
+          "json_name": "generationRunId",
+          "label": 1,
+          "name": "generation_run_id",
+          "number": 30,
+          "type": 9
+        },
+        {
+          "json_name": "generationModel",
+          "label": 1,
+          "name": "generation_model",
+          "number": 31,
+          "type": 9
+        },
+        {
+          "json_name": "generationVer",
+          "label": 1,
+          "name": "generation_ver",
+          "number": 32,
+          "type": 9
+        },
+        {
+          "json_name": "safety",
+          "label": 1,
+          "name": "safety",
+          "number": 40,
+          "type": 11,
+          "type_name": ".closenai.v1.Safety"
+        }
+      ],
+      "file": "closenai_ai.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.ProactiveDraft",
+      "referenced_by": [],
+      "reserved_names": [
+        "memory_refs",
+        "personal_model_id",
+        "user_id"
+      ],
+      "reserved_numbers": [
+        3,
+        4,
+        41
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "status",
+          "label": 1,
+          "name": "status",
+          "number": 1,
+          "type": 14,
+          "type_name": ".closenai.v1.SafetyStatus"
+        },
+        {
+          "json_name": "categories",
+          "label": 3,
+          "name": "categories",
+          "number": 2,
+          "type": 9
+        }
+      ],
+      "file": "closenai_common.proto",
+      "has_schema_version": false,
+      "name": "closenai.v1.Safety",
+      "referenced_by": [
+        "closenai.v1.Candidate",
+        "closenai.v1.ProactiveDraft",
+        "closenai.v1.SafetyResult"
+      ],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": null,
+      "schema_version_type": null
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "safety",
+          "label": 1,
+          "name": "safety",
+          "number": 2,
+          "type": 11,
+          "type_name": ".closenai.v1.Safety"
+        },
+        {
+          "json_name": "reason",
+          "label": 1,
+          "name": "reason",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "matched",
+          "label": 3,
+          "name": "matched",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "adviceBlocked",
+          "label": 1,
+          "name": "advice_blocked",
+          "number": 5,
+          "type": 8
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.SafetyResult",
+      "referenced_by": [],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "sourceTable",
+          "label": 1,
+          "name": "source_table",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "sourceId",
+          "label": 1,
+          "name": "source_id",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "occurredAt",
+          "label": 1,
+          "name": "occurred_at",
+          "number": 3,
+          "type": 11,
+          "type_name": ".google.protobuf.Timestamp"
+        }
+      ],
+      "file": "closenai_common.proto",
+      "has_schema_version": false,
+      "name": "closenai.v1.SourcePointer",
+      "referenced_by": [
+        "closenai.v1.EvidenceCandidate",
+        "closenai.v1.TaskRequested"
+      ],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": null,
+      "schema_version_type": null
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "userId",
+          "label": 1,
+          "name": "user_id",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "content",
+          "label": 1,
+          "name": "content",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "messageType",
+          "label": 1,
+          "name": "message_type",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "language",
+          "label": 1,
+          "name": "language",
+          "number": 5,
+          "type": 9
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.StreamChatRequest",
+      "referenced_by": [],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "id",
+          "label": 1,
+          "name": "id",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "content",
+          "label": 1,
+          "name": "content",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "category",
+          "label": 1,
+          "name": "category",
+          "number": 3,
+          "type": 9
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": false,
+      "name": "closenai.v1.StreamMemory",
+      "referenced_by": [
+        "closenai.v1.ChatChunk"
+      ],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": null,
+      "schema_version_type": null
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "taskType",
+          "label": 1,
+          "name": "task_type",
+          "number": 2,
+          "type": 14,
+          "type_name": ".closenai.v1.TaskType"
+        },
+        {
+          "json_name": "sourceRecordIds",
+          "label": 3,
+          "name": "source_record_ids",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "evidenceIds",
+          "label": 3,
+          "name": "evidence_ids",
+          "number": 4,
+          "type": 9
+        },
+        {
+          "json_name": "sources",
+          "label": 3,
+          "name": "sources",
+          "number": 5,
+          "type": 11,
+          "type_name": ".closenai.v1.SourcePointer"
+        },
+        {
+          "json_name": "policyVersion",
+          "label": 1,
+          "name": "policy_version",
+          "number": 6,
+          "type": 9
+        },
+        {
+          "json_name": "promptVersion",
+          "label": 1,
+          "name": "prompt_version",
+          "number": 7,
+          "type": 9
+        }
+      ],
+      "file": "closenai_ai.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.TaskRequested",
+      "referenced_by": [],
+      "reserved_names": [
+        "causation_id",
+        "correlation_id",
+        "personal_model_id",
+        "requested_at",
+        "user_id"
+      ],
+      "reserved_numbers": [
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    },
+    {
+      "fields": [
+        {
+          "json_name": "schemaVersion",
+          "label": 1,
+          "name": "schema_version",
+          "number": 1,
+          "type": 9
+        },
+        {
+          "json_name": "text",
+          "label": 1,
+          "name": "text",
+          "number": 2,
+          "type": 9
+        },
+        {
+          "json_name": "language",
+          "label": 1,
+          "name": "language",
+          "number": 3,
+          "type": 9
+        },
+        {
+          "json_name": "scope",
+          "label": 1,
+          "name": "scope",
+          "number": 4,
+          "type": 9
+        }
+      ],
+      "file": "closenai_ai_rpc.proto",
+      "has_schema_version": true,
+      "name": "closenai.v1.TextInput",
+      "referenced_by": [],
+      "reserved_names": [],
+      "reserved_numbers": [],
+      "schema_version_number": 1,
+      "schema_version_type": 9
+    }
+  ],
+  "note": "生成物，勿手改（V3 15 §2 `:34`「Generated code must not be hand-edited」）。要改字段面，先改 contracts/proto/*.proto 里带出处注释的那一行，再重跑脚本。",
+  "proto_files": [
+    "closenai_common.proto",
+    "closenai_ai.proto",
+    "closenai_events.proto",
+    "closenai_ai_rpc.proto"
+  ],
+  "services": [
+    {
+      "file": "closenai_ai_rpc.proto",
+      "methods": [
+        {
+          "client_streaming": false,
+          "input": ".closenai.v1.EmbedRequest",
+          "name": "Embed",
+          "output": ".closenai.v1.EmbedResponse",
+          "server_streaming": false
+        },
+        {
+          "client_streaming": false,
+          "input": ".closenai.v1.TextInput",
+          "name": "ClassifySafety",
+          "output": ".closenai.v1.SafetyResult",
+          "server_streaming": false
+        },
+        {
+          "client_streaming": false,
+          "input": ".closenai.v1.StreamChatRequest",
+          "name": "StreamChat",
+          "output": ".closenai.v1.ChatChunk",
+          "server_streaming": true
+        }
+      ],
+      "name": "closenai.v1.ClosenAI"
+    }
+  ]
+}

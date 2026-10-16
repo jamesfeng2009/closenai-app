@@ -29,6 +29,16 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pypdf>=4.0.0",
+    # R1 跨语言契约面（2026-10-16 实测后放这里，**不放** backend/requirements.txt）：
+    #   · grpcio-tools 里带 protoc（本机 libprotoc 35.1）与 python 插件，是**构建期**工具；
+    #   · 运行时镜像（deploy/Dockerfile.py-api:12 装 requirements.txt）今天不 import 任何
+    #     生成物 ⇒ 装它等于给镜像白加 40M(grpc)+22M(grpc_tools)；R3 的 gRPC server 落地时
+    #     才把 grpcio/protobuf 挪进 dependencies 主列。
+    #   · `~=1.84.0` 而不是 `>=`：protoc 版本一变，生成物字节就变，R1 的逐字节漂移闸
+    #     （scripts/gen_proto.py --check）会在别人没换工具链时假红。
+    "grpcio~=1.84.0",
+    "grpcio-tools~=1.84.0",
+    "protobuf>=7.35.1",
 ]
 
 [tool.pytest.ini_options]

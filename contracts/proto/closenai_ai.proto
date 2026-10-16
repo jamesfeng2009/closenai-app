@@ -1,0 +1,358 @@
+// ClosenAI 的 AI 面消息：Go 下发的**命令** + Python 回投的**提案/草稿**（R1）。
+//
+// ⚠️ 一份 proto、两个承载面（tasks.md §R R1 第一条逐字要求）：
+//   - 本文件里的 Candidate / ProactiveDraft / OutcomeRecord **由 MQ 投递**
+//     （队列名 V3 `14_MESSAGING_ARCHITECTURE.md:50-56` 那五条，逐字在 `:51-55`），
+//     gRPC 侧**不返回它们**、也不在 `closenai_ai_rpc.proto` 里重复定义；
+//   - gRPC 只承载 `contracts/rpc/ownership.md` §1 那三个同步方法。
+//   判据是 V3 10 §3「candidate principle」（`:25-42`：Python 可以回 candidate content /
+//   evidence references / confidence / detector metadata / semantic fingerprint /
+//   model-prompt information，**must not** 回 lifecycle / canonical status /
+//   confirmed flag / final score / authorization result）＋ ownership.md 判据 2。
+//   这三类的产物要过 Go 的领域门（N3/N4/N5）才能进权威态，同步返回＝让 Python 决定写入时机。
+//
+// 字段面出处（逐条可回表；全部是本仓今天的真实形状，V3 只给逻辑清单不给字段号）：
+//   Candidate          = go-core/internal/domain/candidate.go:41-66
+//   EvidenceCandidate   = go-core/internal/domain/service_evidence.go:25-50
+//   ProactiveCandidate = go-core/internal/domain/proactive.go:189-222
+//   Kind              = candidate.go:14-18；SafetyStatus = candidate.go:24-28
+//   SourceKind         = evidence_score.go:19-28；Explicitness = :33-38；Specificity = :46-50
+//   TriggerType        = proactive.go:17-25；TriggerSource = :45-53；RefType = :92-100
+// 号位纪律见 closenai_common.proto 头注释（V3 15 §6/§7/§8/§9/§10 ＋ 10 §10）。
+//
+// ───────────────────────── 一条统一的取舍，四个消息都按它走（先说破免得逐条争论）
+// **payload 只放业务字段，追溯与归属字段一律归 Envelope**。
+// 理由：V3 把同一批 id 写在两处——15 §3 的 `MessageEnvelope`（`:41-53`，含
+// message_id/schema_version/correlation_id/causation_id/user_id/personal_model_id）与
+// 10 §4 的「Request Envelope」（`:48-61`，那六样之外才多出 task_type /
+// source_record_ids / evidence_ids / context / policy_version / prompt_version）。
+// 而 15:56-58 逐字给了解法：「The actual project may instead use typed top-level messages
+// with a common metadata message.」⇒ 本仓取「typed payload + Envelope」这一支，
+// Envelope 就是那份 common metadata。
+// 为什么值得为此删字段：`user_id` 是 Go Gate 归属校验的第一道（V3 10 §9 `:136-147` 的
+// 「ownership」），两个地方各带一份＝跨进程后一旦不一致**无从判哪份是真的**；
+// `correlation_id` 还要进 AMQP properties（14:80-85 只有那一份）。
+// ⇒ 下面每条消息都**不**声明 user_id / personal_model_id / message_id / correlation_id /
+// causation_id / occurred_at，消费者从 Envelope 取值再填进 `domain.*` 结构体
+// （那几列在 Go 侧确实存在，逐字 candidate.go:42-43、service_evidence.go:26、
+//  proactive.go:190-191，删除号位只发生在**线上消息**这一层）。
+syntax = "proto3";
+
+package closenai.v1;
+
+import "google/protobuf/timestamp.proto";
+import "closenai_common.proto";
+
+// go_package 必须等于 go-core/go.mod:1 的 module 路径加子目录，否则生成的包 import 不进来。
+option go_package = "github.com/jamesfeng2009/closenai-app/go-core/gen/closenai/v1;closenaiv1";
+// 刻意不加 java_* option：V3 15 §2（`:16-34`）只列 Go 与 Python 两个生成面，本仓没有 JVM 消费方。
+
+// ---------------------------------------------------------------- 枚举（V3 15 §8 `:126-130`：只加值，不重编号）
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  KIND_FACT = 1;
+  KIND_PATTERN = 2;
+  KIND_INSIGHT = 3;
+}
+
+enum SourceKind {
+  SOURCE_KIND_UNSPECIFIED = 0;
+  SOURCE_KIND_USER_STATEMENT = 1;
+  SOURCE_KIND_USER_CORRECTION = 2;
+  SOURCE_KIND_USER_SELECTION = 3;
+  SOURCE_KIND_USER_BEHAVIOR = 4;
+  SOURCE_KIND_USER_EMOTION = 5;
+  SOURCE_KIND_AI_EXTRACTION = 6;
+  SOURCE_KIND_AI_SEMANTIC_INFERENCE = 7;
+  SOURCE_KIND_FRAMEWORK_INFERENCE = 8;
+}
+
+enum Explicitness {
+  EXPLICITNESS_UNSPECIFIED = 0;
+  EXPLICITNESS_EXPLICIT = 1;
+  EXPLICITNESS_STRONGLY_IMPLIED = 2;
+  EXPLICITNESS_WEAKLY_IMPLIED = 3;
+  EXPLICITNESS_SPECULATIVE = 4;
+}
+
+enum Specificity {
+  SPECIFICITY_UNSPECIFIED = 0;
+  SPECIFICITY_SPECIFIC = 1;
+  SPECIFICITY_CONTEXTUAL = 2;
+  SPECIFICITY_GENERIC = 3;
+}
+
+enum TriggerType {
+  TRIGGER_TYPE_UNSPECIFIED = 0;
+  TRIGGER_TYPE_MEMORY_RECALL = 1;
+  TRIGGER_TYPE_PATTERN_FOLLOWUP = 2;
+  TRIGGER_TYPE_GOAL_FOLLOWUP = 3;
+  TRIGGER_TYPE_COMMITMENT_FOLLOWUP = 4;
+  TRIGGER_TYPE_REFLECTION_PROMPT = 5;
+  TRIGGER_TYPE_OUTCOME_CHECK = 6;
+  TRIGGER_TYPE_MILESTONE = 7;
+}
+
+enum TriggerSource {
+  TRIGGER_SOURCE_UNSPECIFIED = 0;
+  TRIGGER_SOURCE_NEW_PATTERN = 1;
+  TRIGGER_SOURCE_PATTERN_RECURRENCE = 2;
+  TRIGGER_SOURCE_GOAL_DUE = 3;
+  TRIGGER_SOURCE_COMMITMENT_DUE = 4;
+  TRIGGER_SOURCE_PREVIOUS_PROACTIVE = 5;
+  TRIGGER_SOURCE_USER_REQUESTED_FOLLOW_UP = 6;
+  TRIGGER_SOURCE_PENDING_OUTCOME = 7;
+}
+
+enum RefType {
+  REF_TYPE_UNSPECIFIED = 0;
+  REF_TYPE_PATTERN = 1;
+  REF_TYPE_GOAL = 2;
+  REF_TYPE_COMMITMENT = 3;
+  REF_TYPE_INSIGHT = 4;
+  REF_TYPE_FACT = 5;
+  REF_TYPE_OUTCOME = 6;
+  REF_TYPE_PROACTIVE = 7;
+}
+
+// ---------------------------------------------------------------- Go → Python 的命令
+
+// TaskRequested 是面③四条命令（`ai.observation.requested` / `ai.pattern.requested` /
+// `ai.insight.requested` / `ai.proactive.requested`——队列名逐字取自 V3 `14:51-54`，
+// routing key 名 `ai.*.requested` 是本地补齐，见 ownership.md §3 顶部那段 `grep -cE` 留痕）的
+// **同一条消息形状**，靠 routing key 与 task_type 分流。
+// 为什么不拆成四个消息：四者的输入面今天完全相同（都是「为这个用户、这些来源行，跑一次提案」），
+// 拆开会让 R4 的四条 binding 各自维护一份字段漂移。
+// ⚠️ `ai.insight.requested` 今天**没有对应的 canonical 物**（ownership.md §3 第三行：
+// `growth_service.generate_daily_insight:384` / `generate_weekly_insight:420` 写的是 legacy
+// 文案面，不是 canonical insight），所以它的输入形状**不在这里预先发明**——
+// task_type 留 INSIGHT_DRAFT 这个值，R6 判定该域时才补上下文字段。
+message TaskRequested {
+  string schema_version = 1;
+  // 取值面＝V3 10 §4 的 `task_type`（`:50`），四个值与 `14:51-54` 四条队列一一对应
+  // （队列名逐字，取值名是本仓映射）。
+  TaskType task_type = 2;
+  repeated string source_record_ids = 3;
+  repeated string evidence_ids = 4;
+  // 10 §4 的 `context`（`:58`）＝「有限、可核实」的上下文：这里只放指针，不放正文。
+  // 依据 V3 14 §9「Message Size」（`:154-159`）逐字：
+  // 「Keep messages bounded. Large context should be referenced by IDs or a controlled
+  //  context object, not by embedding arbitrary large transcripts.」
+  repeated SourcePointer sources = 5;
+  string policy_version = 6;
+  string prompt_version = 7;
+  // ⚠️ 首稿在这里放过 user_id(8) / personal_model_id(9) / requested_at(10) /
+  // correlation_id(11) / causation_id(12)，全部按本文件顶部那条统一取舍删回 Envelope：
+  // 前三样分别由 Envelope 的 `user_id`(8)、`personal_model_id`(9)、`occurred_at`(4) 承载
+  // （V3 15:45/49/50），后两样由 `correlation_id`(6)/`causation_id`(7) 承载（15:47-48）。
+  // 号位一经发布永不复用（15 §6 `:91`）⇒ 就地 reserved。
+  reserved 8, 9, 10, 11, 12;
+  reserved "user_id", "personal_model_id", "requested_at", "correlation_id", "causation_id";
+}
+
+enum TaskType {
+  TASK_TYPE_UNSPECIFIED = 0;
+  TASK_TYPE_OBSERVATION_EXTRACT = 1;
+  TASK_TYPE_PATTERN_DETECT = 2;
+  TASK_TYPE_INSIGHT_DRAFT = 3;
+  TASK_TYPE_PROACTIVE_DRAFT = 4;
+}
+
+// ---------------------------------------------------------------- Python → Go 的提案
+
+// Candidate 覆盖 fact / pattern / insight 三类（Kind 分流），未用的字段留空——
+// 这与 Go 侧 `domain.Candidate` 的注释逐字一致（candidate.go:38-40「字段按三种 Kind
+// 取用，未用的留空」）。**故意不拆三个消息**：拆了就要在映射层写三套 switch，
+// 而权威侧只有一个入口 `Service.Admit(ctx, c Candidate)`（service.go:272）。
+//
+// 与 V3 10 §5/§6/§7 的差异（本地口径，必须留痕，别让下一个人以为是 V3 原文）：
+//   - 10 §5 的 `subject/predicate/object/value`（`:71-73`）→ 本仓叫
+//     `subject_key/predicate/object_value`（candidate.go:46-48 逐字）；
+//   - 10 §5/§6/§7 的 `candidate_id`（`:69/:88/:105`）→ **本仓不放**（见下面 reserved 3 的理由）；
+//   - 10 §5/§6 的 `evidence_refs[]`（`:74/:91`）→ 本仓是 `evidence_ids[]`（candidate.go:57）＋
+//     单独的 EvidenceCandidate 消息，因为提案方**不许**自报算分（03 §5 `:95-108`：
+//     「Final Evidence Strength is calculated by domain code」＋「LLM confidence …never the final
+//     Evidence score」）；
+//   - 10 §5 的 `temporal_scope`（`:76`）/ §6 的 `observed_time_range`（`:92`）
+//     → candidate.go:50 的 `scope` ＋ `:59-61` 的 `window_from/window_to/has_window`；
+//   - 10 §6 的 `candidate_strength`（`:93`）→ 本仓 Candidate 没有这一列：strength 由
+//     `AdmitEvidence` 算（service_evidence.go:121），提案自报一律不采信 ⇒ 不预先发明字段；
+//   - 10 §7 的 `title`/`body`（`:107-108`）→ candidate.go:53 只有一个 `statement`
+//     （canonical insight 的展示面由 Go 拼，不由提案方给两段文本）；
+//   - 10 §7 的 `policy_version`（`:115`）→ 只在命令面 TaskRequested 上有（提案方不回传策略版本，
+//     它是输入不是产出）；
+//   - 10 §5/§6/§7 的 `candidate_type`（`:70`）→ 本仓 `Kind`（candidate.go:12-18 三值）。
+message Candidate {
+  string schema_version = 1;
+  Kind kind = 2;
+  // ⚠️ 删掉首稿的 candidate_id(3) / user_id(4) / personal_model_id(5)：
+  //   · candidate_id——V3 10 §5:69 确实列了它，但本仓 `domain.Candidate`（:41-66）**没有这一列**，
+  //     `Service.Admit` 也不吃提案侧 id，权威 id 由 Go 生成后从 `Result.ID` 返回（service.go:236-238）。
+  //     幂等重跑靠 Envelope.message_id ＋ inbox 认领位
+  //     （`go-core/internal/store/canonical_repo.go:814` 的 `InsertInbox`「认领幂等位」，
+  //      消费入口 `ConsumeIdempotent` 在 `internal/domain/delivery.go:267`；
+  //      ownership.md §3 已实测它今天**零调用方**，归 R5）。⇒ 需要时再加新号位，不复用 3。
+  //   · 后两样归 Envelope（见文件头那条统一取舍；Go 侧列确实存在，candidate.go:42-43）。
+  reserved 3, 4, 5;
+  reserved "candidate_id", "user_id", "personal_model_id";
+
+  // fact 用这四列
+  string origin = 10; // direct|repeated|temporal|behavioral|user_confirmed|user_corrected
+  string subject_key = 11;
+  string predicate = 12;
+  string object_value = 13;
+
+  // pattern 用这四列
+  string pattern_type = 20;
+  string scope = 21;
+  string description = 22;
+  string fingerprint = 23;
+
+  // insight 用这两列
+  string statement = 30;
+  string claim_type = 31;
+
+  double confidence = 40;
+  string detector_version = 41;
+  repeated string evidence_ids = 42;
+  repeated string pattern_ids = 43;
+
+  // HasWindow 在 Go 侧是显式布尔（candidate.go:61）；这里用两个 optional 时间戳，映射层判
+  // 「两个都在＝有窗口」，不许用「非零值」猜（proto3 的 0 值陷阱）。
+  optional google.protobuf.Timestamp window_from = 50;
+  optional google.protobuf.Timestamp window_to = 51;
+
+  // 留痕三列（candidate.go:62-64）：写进 memories/insights 的 generation_run_id 要能指回
+  // ai_generation_runs 那一行（表模型 backend/models/generation_run.py:28-58）。
+  string generation_run_id = 60;
+  string generation_model = 61;
+  string generation_ver = 62;
+
+  // D-8：nil ⇒ Go 侧 fail-closed（candidate.go:65 逐字「nil 视为判定缺失 → fail-closed」）。
+  // 跨进程后**不许省略**这个字段当「没问题」，没问题要显式 SAFETY_STATUS_OK。
+  Safety safety = 70;
+
+  // 10 §5 有 `semantic_fingerprint`、§6 也有（`:77/:94`）——本仓 candidate.go:52 只有一个
+  // `Fingerprint`（pattern 用）。fact 侧今天没有语义指纹列 ⇒ 不预先发明字段，
+  // 等 N4 的算分面真的需要它再加 71 号位。
+  reserved 71;
+}
+
+// EvidenceCandidate 是一条证据提案（service_evidence.go:25-50）。
+// ⚠️ **没有 strength**：V3 03 §5「Final Evidence Strength is calculated by domain code」
+// （`:95-108`）＋ Go 侧注释逐字（service_evidence.go:21-24）——提案只给算分输入
+// （source_kind / explicitness / specificity / role，对应 03 §5 的五因子公式 `:100-105`）。
+// 输入面本身取自 03 §4 的 EvidenceCandidate 六行（`:81-90`：source_record_id、observation、
+// evidence_type、role、strength、rationale），其中 strength 被刻意剔除。
+message EvidenceCandidate {
+  string schema_version = 1;
+  reserved 2;              // 首稿的 user_id，按文件头取舍归 Envelope
+  reserved "user_id";
+  SourceKind source_kind = 3;
+  // source_table / source_id / occurred_at 三列取自 service_evidence.go:30-32
+  // （D-2：source_records 只做指针，不复制内容）。
+  SourcePointer source = 4;
+  // 02 §3 六值：direct|repeated|temporal|behavioral|user_confirmed|user_corrected
+  // （逐字抄自 Go 侧注释 service_evidence.go:34）。
+  string evidence_type = 5;
+  string role = 6; // supporting|contradicting；空＝supporting（N2 DDL 默认，:35）
+  string observation = 7;
+  string excerpt = 8;
+  // 原样落 evidence.metadata_json。⚠️ 这里刻意是 string 而不是 map<string,string>：
+  // Go 侧是 `Metadata json.RawMessage`（:39「调用方的自由文本 JSON，原样存进
+  // evidence.metadata_json」），现网列是 JSON 文本且 Python 自由构造，
+  // 换成 map 会丢键的顺序与嵌套结构。
+  string metadata_json = 9;
+  Explicitness explicitness = 10;
+  Specificity specificity = 11;
+  string generation_run_id = 12;
+  // 提案方认为「同一观测的独立重复」的既有证据 id。**Go 一个都不采信**
+  // （service_evidence.go:46-48 逐字：「一个都不采信：逐条核验归属、时刻先后、不同源、不同日，
+  //  只数过闸的条数」＋ 03 §5 的 Repetition 因子、§6:161-163 的同源/同日不得计独立重复）
+  // ⇒ 字段保留、语义是「候选」。
+  repeated string proposed_independent_ids = 13;
+  // ⚠️ 删掉首稿的 memory_refs(14)：本仓的证据面**不接受**提案方给的记忆引用。
+  // 1) `domain.EvidenceCandidate`（:25-50）没有这一列；
+  // 2) 读路径按 (source_table, source_id) **现构** memory_ref，
+  //    `internal/domain/evidence_read.go:236` 逐字「source_id 为空 ⇒ 不给 memory_ref」；
+  // 3) 前端那份三键（`memory_refs[].{memory_id,excerpt,created_at}`）是
+  //    `contracts/frontend-compat.md:99` 登记的**响应载荷**契约，不是提案契约。
+  // 留着它＝提案方能伪造「这条证据来自用户哪句原话」，而回链是给用户看的。
+  reserved 14;
+  reserved "memory_refs";
+}
+
+// ProactiveDraft 是主动触达提案（proactive.go:189-222）。
+// 04 §10 的边界（Go 侧注释逐字，proactive.go:182-188）：LLM 拿到的是受限包
+// （trigger/evidence/pattern/fact/goal/time context/user preference/safety policy/tone policy），
+// 返回 message/evidence refs/action type，且「must not introduce unsupported facts」——
+// 这条在 Go 的可执行形式是「引用必须全部可核实」：EvidenceIDs 与 RefIDs 每条都要在库里、
+// 属于该用户、状态不构成 stale。
+//
+// 与 V3 10 §8 的四处本地偏离（`:120-132` 那份逻辑清单）：
+//   - `candidate_id`（`:123`）→ 本仓叫 `candidate_id` 但它是**幂等重跑位**，
+//     出处是 proactive.go:192「重跑同一次生成时传入，用于幂等；留空即新建」；
+//   - `reason`（`:125`）→ 本仓没有自由文本 reason，由 TriggerType/TriggerSource 两个枚举承担
+//     （04 §3 的七源见 proactive.go:38-40 的注释）；
+//   - `recommended_window`（`:131`）→ 本仓是 scheduled_at/expires_at 两组显式在场性
+//     （proactive.go:210-213 的 HasScheduledAt/HasExpiresAt）；
+//   - `candidate_relevance`（`:129`）→ **今天不在** Go 的形状里（proactive.go:189-222 无
+//     Relevance 列）⇒ 不预先发明，需要时加新号位。
+message ProactiveDraft {
+  string schema_version = 1;
+  // 幂等重跑时由提案方回传同一 id（proactive.go:192）。这是四个提案消息里**唯一**带
+  // 提案侧 id 的一条，也只有它有：`AdmitProactive` 拿它做「同一次生成重跑」的认领，
+  // 而 fact/pattern/insight 的 Admit 不吃 id（Candidate 那边已记为 reserved 3）。
+  string candidate_id = 2;
+  TriggerType trigger_type = 5;
+  TriggerSource trigger_source = 6;
+  string message = 7;
+  double confidence = 8;
+  repeated string evidence_ids = 9;
+  repeated string ref_ids = 10;
+  // AnchorRef：提案只能指出「锚点在哪一行」，**时刻由 Go 回库里取那行说了算**——
+  // proactive.go:203-205 逐字「必须来自权威行…由 Go 从库里核，不采信提案自报」「提案只能指出
+  // 锚点在哪一行，时刻由那行说了算」。⇒ 这里刻意**没有** anchor_at 字段。
+  RefType anchor_ref_type = 11;
+  string anchor_ref_id = 12;
+  optional google.protobuf.Timestamp scheduled_at = 20;
+  optional google.protobuf.Timestamp expires_at = 21;
+  string journey_event_id = 22;
+  string generation_run_id = 30;
+  string generation_model = 31;
+  string generation_ver = 32;
+  // D-8：proactive.go:221 逐字「nil 视为判定缺失 → fail-closed」。
+  Safety safety = 40;
+  // ⚠️ 删掉首稿的 memory_refs(41)：canonical `proactives` 表的 INSERT 列面里**没有**这一列
+  // （逐字 `go-core/db/queries/canonical.sql:340-345`：id, user_id, personal_model_id, status,
+  //  trigger_type, message, scheduled_at, expires_at, eligibility_score, eligibility_detail,
+  //  block_reason, reject_reason, generation_model, generation_version, generation_run_id,
+  //  model_version, journey_event_id）。`memory_refs` 只挂在 legacy 的 journey_events 文本列上
+  // （backend/models/journey.py:57 ＋ backend/repositories/journey_repository.py:47-60 由
+  //  **Python 自己写**）⇒ 那是 ownership.md §2 已登记的 journey_events 双写欠账，
+  //  归 R5/R6 先定权威写权，不在契约里预先给出一条绕过那条判定的通道。
+  // 同理 3/4 号位（首稿的 user_id / personal_model_id）按文件头取舍归 Envelope。
+  reserved 3, 4, 41;
+  reserved "user_id", "personal_model_id", "memory_refs";
+}
+
+// OutcomeRecord 是 15 §4 家族里的 AIOutcomeCandidate（`:70`），但**本仓今天没有它的跨进程形态**：
+// outcome 由 Go 在 N6 的 outcome loop 里直接记（`outcome_recorded` 已在 delivery.go:45 的
+// 十条路由里），Python 侧没有对应的生成点（2026-10-16 用 AST 逐 `Call` 节点扫生产侧
+// llm.complete/stream/embed，共 24 个调用点 / 13 个文件，无一属于 outcome，计数口径见
+// ownership.md §3.1）。定义保留作为 R6 的落点，但**不在首批投递面上**；
+// 若最终由 Go 单侧产生，本消息该删——删的时候按 15 §6 把号位 reserved 掉。
+message OutcomeRecord {
+  string schema_version = 1;
+  reserved 2;              // 首稿的 user_id，按文件头取舍归 Envelope
+  reserved "user_id";
+  string outcome_type = 3;
+  string summary = 4;
+  repeated string evidence_ids = 5;
+  // 事件自身的时刻归 Envelope.occurred_at（15:45）；这里只留「结果在业务上发生于何时」。
+  // ⚠️ 首稿把它放在 6 号位当必填，现按 V3 9 Timestamp 规矩保留但标为可选：
+  // 提案方给不出发生时刻时宁缺毋滥，映射层不许拿 created_at 顶替。
+  optional google.protobuf.Timestamp occurred_at = 6;
+  reserved 7;
+}

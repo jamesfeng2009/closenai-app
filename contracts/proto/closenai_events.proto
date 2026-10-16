@@ -1,0 +1,236 @@
+// ClosenAI 的事件面（R1）：Go 出箱 → 任何下游。
+//
+// ⚠️ 只有「权威模型内容变了」的那十条才在这里（判据＝go-core/internal/domain/delivery.go:31-36，
+// 表在 :37-48；十个 routing key 里逐字来自 V3 的只有 `pattern.created`/`pattern.updated`
+// （14:67-68），其余按同一命名法本地补齐＝已登记的本地口径）。
+// 命令面 `ai.*.requested` **不在本文件**：它在 closenai_ai.proto 的 TaskRequested，
+// 走 `closenai.ai.tasks`（ownership.md §3）。
+//
+// ───────────────────────── 与 V3 两份「事件名清单」的关系（本地口径，必须留痕）
+// V3 给的是一套**更粗、且两篇互不一致**的事件名。逐字：
+//   · 11 §3「Domain Event Examples」（`:37-54`）十四条：SourceRecordCreated、
+//     EvidenceAccepted、FactCreated、**FactUpdated**、PatternCreated、PatternRecalculated、
+//     PatternConfirmed、PatternRejected、InsightPublished、ProactiveScheduled、
+//     ProactiveDelivered、OutcomeRecorded、UserFeedbackRecorded、PersonalModelVersionCreated；
+//   · 15 §5（`:74-87`）九条，其中把 11 的 PatternRecalculated/PatternConfirmed/PatternRejected
+//     **三条合成一条 `PatternUpdated`**，又少了 FactUpdated、ProactiveDelivered、
+//     PersonalModelVersionCreated（⇒ 这两篇本身就对不上，谁当权威要拍，不在这里默默选边）。
+// 本仓今天**两套名都不发**，发的是 delivery.go 的十个 key ⇒ 本文件的 routing key 跟着
+// delivery.go 走。唯一一条「V3 有键、Go 没有事件类型」的是 `evidence.accepted`（14:66），
+// 它归 R6 补 ⇒ 这里**不预先发明**它的键名，只在文末留位。
+//
+// ───────────────────────── payload 消息的字段面：照今天真的发出去的键，不照 V3 的愿望
+// 今天 `outbox_messages.payload` 是**JSON 文本**（列定义 0003:45 `payload text DEFAULT '{}'`），
+// 内容由 domain 现格拼出，六个产出点各一套键。本文件下面六个 payload 消息**逐字**对应那六套键；
+// 每个字段都注了产出点行号，没有出处的字段一个都不放（R0 验收判据：指不回既有领域的字段就删）。
+// ⚠️ 于是有两件事必须先说破，免得下一个人以为契约里已经有了：
+//   1. **聚合身份不在 payload 里，也不在 outbox 行里。**「这条事件说的是哪一行」记在
+//      `personal_model_events.aggregate_type / aggregate_id`（backend/models/canonical.py:94-95，
+//      Go 侧同名字段 service.go:94-95），而 `OutboxRow` 九列里没有它们
+//      （delivery.go:58-70），表列面里也没有（0003:36-52）。⇒ R4 的 publisher **必须**
+//      用 `message_id`＝事件行 PK（delivery.go:60-62 逐字「本项目取事件行 PK」）join 回来
+//      才能填下面 EventEnvelope 的 aggregate_type/aggregate_id。这两条字段是**实现义务**，
+//      不是既有事实，所以标得很清楚。
+//   2. **JSON → protobuf 的转换点还没建。** V3 14 §6（`:90-95`）要的是
+//      「AMQP body ＝ 序列化的 protobuf 字节」（14:92-95 逐字），16:91 是
+//      `body = message.SerializeToString()`；今天库里存的是 JSON。
+//      默认值＝**在发布处做映射**（JSON 键 → 下面这些消息 → SerializeToString），
+//      **不改 `payload` 列**——改列要动 N8 的契约回放面与既有断言，代价大于收益。
+//      改判条件：若实测映射一次事件的 CPU 开销让出箱 worker 追不上积压，再谈让 domain
+//      直接产 proto 字节；谈的时候要带前后实测计数。
+syntax = "proto3";
+
+package closenai.v1;
+
+import "google/protobuf/timestamp.proto";
+// 刻意**不**import closenai_common.proto：本文件的六个 payload 消息与 EventEnvelope 都不用
+// common 里的任何形状（Safety/MemoryRef/Envelope 一个都不引用），而 proto 对未使用的 import
+// 直接报错（protoc 29.3 实测 `was not used`）⇒ 留着它编译不过。
+// 如果将来事件载荷要带 Safety 或 MemoryRef，再把这个 import 加回来。
+
+// go_package 必须等于 go-core/go.mod:1 的 module 路径加子目录，否则生成的包 import 不进来。
+option go_package = "github.com/jamesfeng2009/closenai-app/go-core/gen/closenai/v1;closenaiv1";
+// 刻意不加 java_* option：V3 15 §2（`:16-34`）只列 Go 与 Python 两个生成面，本仓没有 JVM 消费方。
+
+// EventEnvelope ＝ V3 11 §2 的十一推荐字段（`:21-33` 逐字列名）＋三条本地补充。
+//
+// 为什么不用 closenai_common.proto 的 Envelope：两者字段面高度重叠但**权威来源不同**——
+// 11 §2 那一份对得上本仓 outbox 的真实列面，而 15:41-53 那份「通用信封」里
+// 有 `producer`、有 `personal_model_id`、有 `attempt`，本仓 outbox 表**一列都没有**
+// （逐字对照 0003:36-52 与 delivery.go:58-70）。合并＝同时改两个契约源，
+// 收益只是少一个消息，代价是 R4 的 outbox 映射要重写 ⇒ 这里照 11 §2，不合。
+//
+// 逐列对表（11 §2 的十一个名字 → 本仓今天有没有）：
+//   message_id        ✓ outbox 列 0003:38 ＋ UNIQUE :63；取事件行 PK（delivery.go:60-62）
+//   message_type      ✓ 列 :39，值＝row.EventType（delivery.go:155 逐字 `MessageType: row.EventType`）
+//   schema_version    ✓ 列 :40，**integer** DEFAULT 1，CHECK >= 1（:54）
+//   occurred_at       ✗ 列面没有。取值＝outbox 行的 created_at（:51）——它是「这行何时入箱」，
+//                     不是「事件业务上何时发生」（后者只在 personal_model_events.created_at）。
+//                     两件事必须分得开，所以这里保留字段但把口径写死。
+//   producer          ✗ 列面没有 ⇒ 由 R4 的 publisher 侧写常量（V3 11 §6 的 go-api）。
+//   correlation_id    ✓ 列 :43（DEFAULT ''）；优先级见 delivery.go:114-124
+//                     （ctx 注入 → generation_run_id → 事件行 id）。
+//   causation_id      ✓ 列 :44；causationFor 取入站消息的 message_id（delivery.go:126-132）。
+//   user_id           ✓ 列 :42（NOT NULL，同时是消费分区键，V3 14:150「routing/consumer partitioning」）。
+//   personal_model_id ✗ outbox 列面没有（它在 personal_model_events:92）⇒ 同 occurred_at，join 回来。
+//   attempt           ✓ 列 :47 `attempt_count`（CHECK >= 0 :53）；语义＝认领时已 ++
+//                     （delivery.go:73 逐字「1 表示『这是第一次投递尝试』」）。
+//   payload           ✓ 列 :45（JSON 文本，见文件头第 2 条）。
+// 本地补的两条：aggregate_type(12)、aggregate_id(13)。
+// ⚠️ **routing key 刻意不进 body**：它是传输层地址（outbox 列 0003:41），而
+// `RoutingKeyFor(message_type)`（delivery.go:50 起）是一张**纯函数表**——
+// 放进 body 就等于造出第二个必须永远一致、却会先漂移的真相源。
+// schema_version 这里取 **string**：V3 15:44 是本仓能找到的**唯一一处**给这个字段定类型的地方
+// （逐字 `string schema_version = 3;`），而 11 §2 `:21-33` 那份事件信封只列名字不列类型；
+// 本文件下面六个 payload 消息与 common 的 Envelope、ai 的提案消息因此一律 string。
+// ⚠️ 代价要说破：outbox 的列是 **integer**（0003:40 DEFAULT 1 ＋ CHECK >=1 :54），
+// 所以映射层必须显式转换——outbox→proto 走 int→十进制字符串，反向 parse 后写回 int 列。
+// 为什么不干脆用 uint32 贴列面：那会让这份契约里同时存在两种 proto 口径
+// （命令信封 string、事件信封 uint32），而转换代码本来就要为命令信封写一次
+// ⇒ 统一成「**proto 一律 string，int 只活在数据库那一层**」。
+// 类型一经发布不许再改（15 §7 `:100-124` 明令禁止同号换类型）。
+message EventEnvelope {
+  string message_id = 1;
+  // ＝ personal_model_events.event_type（admit 类名字，如 `fact_admitted`），
+  // 不是路由键——今天 outbox 的 `message_type` 列装的就是它（delivery.go:155）。
+  // ⚠️ 首稿把路由键塞在 message_type 上，与列面反了；两个名字不能都挤在 11 §2 那一个
+  // `message_type` 上 ⇒ 路由键**根本不进 body**（理由见上面那条纯函数表），
+  // 14 号位与 `routing_key` 这个名字就此 reserved 当护栏。
+  string message_type = 2;
+  string schema_version = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+  // 11 §6 producer identity：go-api / python-worker。今天没有列 ⇒ R4 写常量（见上面逐列表）。
+  string producer = 5;
+  string correlation_id = 6;
+  string causation_id = 7;
+  string user_id = 8;
+  string personal_model_id = 9;
+  uint32 attempt = 10;
+  // 序列化的**业务事件**字节：下面六个消息之一（14:92-95 ＋ 16:91）。
+  bytes payload = 11;
+  // 本地补：聚合身份。outbox 没有这两列，publisher 必须 join 事件行取
+  // （canonical.py:94-95；取值处见 service.go:521-522 的 AggregateType/AggregateID）。
+  // 为什么补在信封而不是 payload：六个 payload 消息今天都没有实体 id（见各自注释里的 reserved），
+  // 而消费方拿到「fact.created」却不知道该看哪条 fact，等于事件不可用。
+  string aggregate_type = 12;
+  string aggregate_id = 13;
+  reserved 14;
+  reserved "routing_key";
+}
+
+// ---------------------------------------------------------------- 六个 payload 消息
+
+// GateOutcome ＝ 领域门判定结果，**四条路由共用它**。
+// ⚠️ 下面四行是**机器可检查的**：`backend/tests/test_proto_cross_language.py` 用同一个
+// 「反引号里 event_type 空格→空格 routing_key」正则同时扫这份文件和 `delivery.go` 的
+// outboxRouting，两个集合必须**完全相等**⇒ 改路由表不在这儿加行就红（反向亦然）。
+//   `fact_admitted → fact.created`
+//   `pattern_admitted → pattern.created`
+//   `insight_admitted → insight.created`
+//   `pattern_reactivated → pattern.updated`
+// 字段面逐字来自 `Service.eventRow` 的那个匿名 struct（service.go:511-519），
+// 而 `eventRow` 被 :416（fact/pattern/insight_admitted 由 eventType() 派生，见 :527-541）
+// 和 :441（pattern_reactivated）调用。
+// ⚠️ 首稿在这里放过 fact_id/subject_key/predicate/object_value/confidence/admitted_at——
+// **今天 domain 一条都没往 payload 里写这些**：实体明细在权威表行里，不在事件 JSON 里。
+// 那六个名字就此 reserved：它们归**权威表**与信封的 aggregate_*，不许再回到这条消息。
+// ⚠️ 这里要分清 reserved 的两种用途：本仓 v1 **一条字节都没发布过**，所以 reserved 号位
+// 不是在保护线上数据（15 §6 `:91-98` 的原意），而是**机器可检查的护栏**——谁想把
+// 已判定「不该在这里」的字段名加回来，protoc 直接报错，逼他先回来改这条注释。
+// 号位是预先占下的空位，v1 无消费方 ⇒ 代价为零。下面五个消息同理。
+message GateOutcome {
+  string schema_version = 1;  // 恒 "1"；V3 10:151「Every contract message has schema_version」逐字
+  string status = 2;          // service.go:512（`Status`，取值是各入口的 status 字面量）
+  string reason = 3;          // :513 `json:"reason,omitempty"` ＝ outcome.Reason.String()
+  string detail = 4;          // :514 omitempty ＝ outcome.Detail
+  repeated string checks = 5; // :515 omitempty ＝ outcome.Checks（过闸明细）
+  string fingerprint = 6;     // :516 omitempty ＝ c.Fingerprint
+  int32 evidence_count = 7;   // :517 `Evidence int` ＝ len(c.EvidenceIDs)
+  reserved 8, 9, 10, 11, 12, 13;
+  reserved "fact_id", "subject_key", "predicate", "object_value", "confidence", "admitted_at";
+}
+
+// PatternLifecycleChanged ＝ pattern 的一次**状态转移**（与晋升分两条消息，见下）。
+//   `pattern_lifecycle → pattern.updated`
+// 与 GateOutcome 同号不同名是刻意不合并的：pattern 的**转移**与**晋升**是两条不同事实，
+// 合并成一个消息会让消费方靠 reason 猜是哪一路。
+// 字段面逐字来自 service_outcome.go:187-188 那次 fmt.Sprintf。
+message PatternLifecycleChanged {
+  string schema_version = 1;
+  string from = 2;           // state.Status
+  string to = 3;             // 新状态（02:165-174 的八态词表，见 proactive.go:66-79）
+  string action = 4;         // 用户/系统的哪个动作拍出来的
+  string outcome_type = 5;   // p.Type
+  double confidence = 6;     // `%.4f` 格式化，四位小数
+}
+
+// InsightStatusChanged ＝ insight 的两支状态变更共用（delivery.go:43-44）。
+//   `insight_retracted → insight.retracted`
+//   `insight_expired → insight.expired`
+// 字段面逐字来自 service_evidence.go:420-421。
+// ⚠️ `combined` 是**已算分**的终局强度（03 §5 的五因子结果），不是提案置信度；
+// 消费方不许把它读成 Candidate.confidence。
+message InsightStatusChanged {
+  string schema_version = 1;
+  string status = 2;         // next（expired 支同时决定 event_type，见 :404-407）
+  string reason = 3;
+  string claim_type = 4;     // state.ClaimType
+  double combined = 5;       // `%.4f`
+  reserved 6;                // 护栏：insight_id 归信封 aggregate_id，时刻归信封 occurred_at
+  reserved "insight_id", "retracted_at";
+}
+
+// OutcomeRecordedPayload ＝ `outcome_recorded → outcome.recorded`（delivery.go:45）。
+// 字段面逐字来自 service_outcome.go:95-96。
+// ⚠️ 只有 status==recorded 才走这条 event_type，`outcome_candidate` 是同一处的另一支
+// （:91-94），那条不在十条路由里（判据：权威内容没变）⇒ 消费方收到的永远是 recorded。
+// proactive_id 首稿放过但今天不在 payload 里：targets 是**计数**（`len(p.Targets)`），
+// 具体指向哪几条要回 outcomes 表查 ⇒ 号位留 reserved 当护栏。
+message OutcomeRecordedPayload {
+  string schema_version = 1;
+  string outcome_type = 2;   // p.Type
+  string origin = 3;         // p.Origin
+  string result = 4;         // p.Result
+  int32 targets = 5;         // len(p.Targets)
+  reserved 6, 7;
+  reserved "outcome_id", "proactive_id", "recorded_at";
+}
+
+// FeedbackRecordedPayload ＝ `user_feedback_recorded → feedback.recorded`（delivery.go:46）。
+// 字段面逐字来自 service_outcome.go:350-352。
+message FeedbackRecordedPayload {
+  string schema_version = 1;
+  string feedback_type = 2;  // f.Type
+  string target_type = 3;    // f.TargetType（aggregate_type 由它加 s 派生，见 :354）
+  string target_id = 4;      // f.TargetID（＝aggregate_id）
+  bool changed = 5;          // 这条反馈有没有真的改状态
+  string status = 6;         // receipt.TargetStatus（反馈到达时的目标状态）
+  reserved 7;
+  reserved "feedback_id", "recorded_at";
+}
+
+// EvidenceWithdrawnPayload ＝ `evidence_withdrawn → evidence.withdrawn`（delivery.go:47）。
+// 失效传播的源头事件：下游据此把引用该证据的派生态标 stale。
+// 字段面逐字来自 service_outcome.go:556-560，**三个都是计数**不是 id 列表：
+// 具体失效了哪几条要回 propagation 结果表查（`result.Invalidated/Monitored/RevalidationRequested`）。
+// ⚠️ 同处的另一支（:546-554「没有仅依赖这条证据的派生行 / 只有 insight 需要重算」）
+// **直接 return nil，不 emit**⇒ 消费方永远不会收到「全零」的这条事件；
+// 而 `insight_revalidation_requested`（ownership.md §2 已登记）走的是另一条不投递的事件类型。
+message EvidenceWithdrawnPayload {
+  string schema_version = 1;
+  int32 invalidated = 2;              // len(result.Invalidated)
+  int32 monitored = 3;                // len(result.Monitored)
+  int32 revalidation_requested = 4;   // len(result.RevalidationRequested)
+  reserved 5, 6;
+  reserved "evidence_id", "reason", "withdrawn_at";
+}
+
+// 待补的一条（R6，不在这里预先发明键名）：
+//   evidence.accepted（V3 14:66 有键，本仓 delivery.go 无对应 event_type）
+// ⇒ 补它时必须同时补一个 payload 消息并在契约登记表里加行，否则闸会红。
+//
+// 刻意**不进**事件面的五类（判据 4 的两条否定支，delivery.go:34-36；代码注释里编号为判据 1/2）：
+// candidate_*（含 :323 candidate_suppressed、:352 candidate_rejected、:529 candidate_admitted）、
+// unknown_admitted（:539）、proactive_*（service_outcome.go:290 proactive_cancelled）、
+// target_completed（:241）、insight_revalidation_requested（:519、:634）。
+// 最后那条确实在发，它「不发到 MQ」的正当性来自判据，不来自它不存在。
