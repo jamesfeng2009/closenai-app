@@ -26,6 +26,11 @@ dependencies = [
     # backend/requirements.txt 的主依赖列同口径（那份是镜像的装包清单，两边不许漂）。
     "grpcio>=1.84.0",
     "protobuf>=7.35.1",
+    # R5（2026-10-16）：`backend/ai/mq/` 的消费者是**运行时**依赖，与
+    # backend/requirements.txt 的主依赖列同口径（那份是镜像的装包清单，两边不许漂）。
+    # 写上界而不是 `~=`：`~=10.1.1` 会把 10.2.x 一起挡掉，而 10.x 才是我们要跟的主线；
+    # 但大版本一换，`publish()` 的 confirm 语义就可能变（它是 D-R5 那条"未确认不许 ACK"的地基）。
+    "aio-pika>=10.1.1,<11",
 ]
 
 [project.optional-dependencies]

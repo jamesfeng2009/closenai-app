@@ -49,6 +49,17 @@ sse-starlette>=2.0.0
 grpcio>=1.84.0
 protobuf>=7.35.1
 
+# ── R5 Python ⇄ RabbitMQ（2026-10-16 新增运行期依赖）─────────────────────────
+# 这一列就是镜像的装包清单（deploy/Dockerfile.py-api 装它），而 `backend/ai/mq/` 的消费者
+# 今天真的 import aio_pika ⇒ 只能进主列，不能进 dev extra（进了 dev 就是"镜像里没这个包、
+# 进程一启动就 ImportError"，而那条失败在 CI 里看不见，因为 CI 装的是 dev）。
+#   为什么是 aio-pika 不是 pika：全栈已 asyncio（FastAPI＋AsyncSession），pika 是阻塞库，
+#   要用就得再养一个线程池 —— 那是第二套并发模型，不是少一个依赖。
+#   实测代价（取证见 R5管道工作单-2026-10-16.md §二）：连带 6 个包、site-packages +2,684 KB；
+#   选它而不是选 aiormq 裸用，是因为 confirm/prefetch/reconnect 这三件在 aio-pika 里有语义，
+#   在裸库里要自己写第二份（而"publish 未确认就 ACK"正是 17 §5 禁的那一格）。
+aio-pika>=10.1.1,<11
+
 # PDF 导出（P1-F04 社交分享）
 reportlab>=4.0.0
 # 分享卡引流二维码（M4 分享卡体系）：纯 Python，图像后端用已随 reportlab 在环的 Pillow
