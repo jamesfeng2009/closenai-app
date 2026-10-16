@@ -38,24 +38,24 @@ type chunkView struct {
 // result 是一次场景的**观测值**（不是断言）：期望值只写在 pytest 那一侧，本命令不许顺手判。
 // 字段按 op 复用——同名在不同 op 里的含义写在各自的 fill* 函数里，不在此处再抄一遍。
 type result struct {
-	Case      string      `json:"case"`
-	Err       string      `json:"err"`
-	Kind      string      `json:"kind"`
-	Failure   string      `json:"failure"`
-	Attempts  int         `json:"attempts"`
-	ElapsedMS int64       `json:"elapsedMs"`
-	Status    string      `json:"status"`
-	Degraded  bool        `json:"degraded"`
-	Model     string      `json:"model"`
-	Vectors   int         `json:"vectors"`
-	Dimensions uint32     `json:"dimensions"`
-	Reason    string      `json:"reason"`
-	Matched   []string    `json:"matched"`
-	Categories []string   `json:"categories"`
-	Advice    bool        `json:"adviceBlocked"`
-	Chunks    []chunkView `json:"chunks"`
-	SSE       []string    `json:"sse"`
-	Note      string      `json:"note"`
+	Case       string      `json:"case"`
+	Err        string      `json:"err"`
+	Kind       string      `json:"kind"`
+	Failure    string      `json:"failure"`
+	Attempts   int         `json:"attempts"`
+	ElapsedMS  int64       `json:"elapsedMs"`
+	Status     string      `json:"status"`
+	Degraded   bool        `json:"degraded"`
+	Model      string      `json:"model"`
+	Vectors    int         `json:"vectors"`
+	Dimensions uint32      `json:"dimensions"`
+	Reason     string      `json:"reason"`
+	Matched    []string    `json:"matched"`
+	Categories []string    `json:"categories"`
+	Advice     bool        `json:"adviceBlocked"`
+	Chunks     []chunkView `json:"chunks"`
+	SSE        []string    `json:"sse"`
+	Note       string      `json:"note"`
 }
 
 func main() {
