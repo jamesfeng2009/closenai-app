@@ -116,7 +116,11 @@ class MemoryRepository:
         )
         if category:
             stmt = stmt.where(Memory.category == category)
-        stmt = stmt.order_by(Memory.created_at.desc()).limit(limit)
+        # `id` 次级键不是装饰：created_at 的 server_default 是 now()，PG 里它是**事务级**
+        # 时间戳 ⇒ 同一事务写入的多行必然同瞬，少了这条次级键返回顺序由查询计划决定，
+        # 而 LIMIT 截断落在谁身上也随之决定。N8 批 6 把这条端点切给 Go 读，
+        # 两侧的 ORDER BY 必须同方向（Go 镜像见 internal/store/legacy_batch6.go）。
+        stmt = stmt.order_by(Memory.created_at.desc(), Memory.id.desc()).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 

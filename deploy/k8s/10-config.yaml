@@ -58,6 +58,18 @@ data:
   # 按 (方法, 路径) 模拟最长前缀路由的那条判据守住。
   CLOSEN_CUTOVER_MOOD: "0"
   CLOSEN_CUTOVER_REFLECTIONS: "0"
+  # 批 6（memories 两条**纯读**：GET /memories、GET /memories/{memory_id}）：这一键同样
+  # **只声明不上 path**，而且比 REFLECTIONS 更硬——两条 path 各挂着未实现的兄弟方法
+  # （`/api/v1/memories` 同 path 有 POST 建记忆、`/api/v1/memories/{memory_id}` 同 path 有
+  # DELETE 软删，openapi 实测），Ingress 的 path 匹配不看方法 ⇒ Exact 也把写侧一起搬进
+  # 只注册了 GET 的 go-api ⇒ 405，与百分比无关（决策点 D-10 在批 6 命中两条而不是一条）。
+  # Go 侧两条读面与夹具都齐了（memories 组 43 条逐字节回放、掩码次数 0），整刀与
+  # POST/DELETE、以及语义搜索那条一起归最后一批。键先落在清单里、值为 0，
+  # 是为了让「放量只改数字」不需要再发版——口径与 REFLECTIONS 逐字一致。
+  # ⚠️ 本域另有一条**已登记的两侧发散**不随本键生效：`GET /api/v1/memories/`（尾斜杠）
+  # Python 走 Starlette 的 redirect_slashes 给 307，Go 的 mux 没有那条 pattern 给 404 信封；
+  # 它没种进夹具（种了就是把已知不同形钉成契约），属放量前置项，见 memory_detail.go 文件头。
+  CLOSEN_CUTOVER_MEMORIES: "0"
   # PostHog 收件箱地址。默认值两侧都是这个字面量（backend/config.py:160），
   # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
   # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。

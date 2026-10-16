@@ -57,9 +57,12 @@ func pyStringValue(s string) *pyValue { return &pyValue{kind: pyString, str: s} 
 
 func pyBoolValue(b bool) *pyValue { return &pyValue{kind: pyBool, truthy: b} }
 
-func pyIntValue(n int) *pyValue {
-	return &pyValue{kind: pyInt, intLit: strconv.Itoa(n)}
-}
+func pyIntValue(n int) *pyValue { return &pyValue{kind: pyInt, intLit: strconv.Itoa(n)} }
+
+// pyFloatValue 给的是**列里那个 float**（如 memories.conviction_score），
+// 序列化走 pyFloatRepr（Python repr(float) 口径：0.0 不是 0）。
+// encoding/json 会把 0.0 写成 0，那一格两侧不同形，所以这类字段一律走 pyValue。
+func pyFloatValue(f float64) *pyValue { return &pyValue{kind: pyFloat, float: f} }
 
 func pyNullValue() *pyValue { return &pyValue{kind: pyNull} }
 

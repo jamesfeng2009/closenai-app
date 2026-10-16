@@ -29,6 +29,7 @@ const (
 	CodeAIConsentRequired   = 40303
 	CodeUserNotFound        = 40401
 	CodeResourceNotFound    = 40402
+	CodeMemoryNotFound      = 40403
 	CodeEmailAlreadyUsed    = 40903
 	CodeUsernameAlreadyUsed = 40904
 	CodeInternalError       = 500

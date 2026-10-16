@@ -56,6 +56,12 @@ type Config struct {
 	// 在它没有入口规则之前，这个键调到多少都不放量，方向是安全的「没切」。
 	CutoverMood        int
 	CutoverReflections int
+	// CutoverMemories 是 N8 批 6（memories 两条纯读）的放量键，与 REFLECTIONS 同一档：
+	// **只有键、没有 Ingress path**（决策点 D-10——`/api/v1/memories` 同 path 还挂 POST、
+	// `/api/v1/memories/{memory_id}` 同 path 还挂 DELETE，一刀下去会把写侧方法搬进
+	// 只注册了 GET 的这台 mux，405 与百分比无关）。
+	// 所以在它没有入口规则之前，这个键调到多少都不放量，方向是安全的「没切」。
+	CutoverMemories int
 	// InsightEvidenceRead 是 N9 依据展开端点的回退开关（D-3「旧口径留回退开关」）。
 	// 这是本结构里唯一的 Go-only 变量：CLOSEN_ 前缀与 domain 的数值闸同源，
 	// Python 侧没有对应字段，所以它不进上面的跨语言名单口径。
@@ -98,6 +104,7 @@ func Load() (Config, error) {
 		CutoverOnboarding:      envInt("CLOSEN_CUTOVER_ONBOARDING", 0),
 		CutoverMood:            envInt("CLOSEN_CUTOVER_MOOD", 0),
 		CutoverReflections:     envInt("CLOSEN_CUTOVER_REFLECTIONS", 0),
+		CutoverMemories:        envInt("CLOSEN_CUTOVER_MEMORIES", 0),
 	}
 	if cfg.JWTAlgorithm != "HS256" {
 		return cfg, errors.New("unsupported JWT_ALGORITHM: cross-language baseline is HS256")
@@ -115,6 +122,7 @@ func Load() (Config, error) {
 		"CLOSEN_CUTOVER_ONBOARDING":  cfg.CutoverOnboarding,
 		"CLOSEN_CUTOVER_MOOD":        cfg.CutoverMood,
 		"CLOSEN_CUTOVER_REFLECTIONS": cfg.CutoverReflections,
+		"CLOSEN_CUTOVER_MEMORIES":    cfg.CutoverMemories,
 	} {
 		if pct < 0 || pct > 100 {
 			return cfg, fmt.Errorf("%s must be 0..100, got %d", name, pct)

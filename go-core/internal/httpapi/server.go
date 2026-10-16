@@ -43,6 +43,11 @@ type Server struct {
 	// onboarding_profiles、journey_events 六行），且三处的写条件不同源，
 	// 见 batch4.go 头注释——所以未放量时的逐字一致完全依赖 0% 真转交。
 	batch4 *Batch4
+	// batch6 是 N8 批 6（memories 两条纯读）的依赖面；nil 时两条路由不注册，口径同批 5。
+	// 这批的特殊处是**两条 path 都不能上 Ingress 刀**（同 path 还挂 POST/DELETE，
+	// 见 batch6.go 头注释），所以「已实现」与「从入口可达」在这批是两件事——
+	// 与批 5 那条 `GET /api/v1/reflections` 同一档。
+	batch6 *Batch6
 	// now 是**时钟注入点**，默认 time.Now。契约回放必须把它冻在录制那一刻：
 	// curriculum 的 week_start/每张卡的 date 都是「今天所在本地周」的函数，
 	// 夹具跨天重放会得到另一周（同 discovery 的 7/14 天窗口，但周视图是整周平移，
@@ -54,7 +59,7 @@ type Server struct {
 
 func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2,
-	batch3 *Batch3, batch4 *Batch4, batch5 *Batch5) *Server {
+	batch3 *Batch3, batch4 *Batch4, batch5 *Batch5, batch6 *Batch6) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
@@ -65,6 +70,7 @@ func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 		batch3:     batch3,
 		batch4:     batch4,
 		batch5:     batch5,
+		batch6:     batch6,
 		now:        time.Now,
 		mux:        http.NewServeMux(),
 	}
@@ -118,6 +124,18 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("GET /api/v1/mood/history", s.handleMoodHistory)
 		s.mux.HandleFunc("GET /api/v1/mood/trend", s.handleMoodTrend)
 		s.mux.HandleFunc("GET /api/v1/reflections", s.handleReflectionsList)
+	}
+	// N8 批 6 的 memories 两条纯读。这一批是六个域里唯一**两条 path 一条都上不了刀**的：
+	// `/api/v1/memories` 同 path 还挂 POST、`/api/v1/memories/{memory_id}` 同 path 还挂 DELETE，
+	// 而 path 匹配不看方法（D-10）⇒ Exact 会把那两个方法搬进只注册 GET 的这台 mux（405）。
+	// 所以 CLOSEN_CUTOVER_MEMORIES 与 REFLECTIONS 同一处置：先声明为 0、path 不上，
+	// 这两条今天「已实现、已逐字节回放、从入口不可达」。
+	// 另一处不许「顺手修正」的形状：`{memory_id}` 是单段通配，会吃掉
+	// `GET /api/v1/memories/search`——这与 Python 侧按声明序匹配到 `/memories/{memory_id}`
+	// 同形（夹具 list-path-collision 钉它），不是 Go 的 pattern 写错了。
+	if s.batch6 != nil {
+		s.mux.HandleFunc("GET /api/v1/memories", s.handleMemoriesList)
+		s.mux.HandleFunc("GET /api/v1/memories/{memory_id}", s.handleMemoryDetail)
 	}
 	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
 	s.mux.HandleFunc("/", s.handleNotFound)

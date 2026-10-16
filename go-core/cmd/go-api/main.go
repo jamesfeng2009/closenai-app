@@ -107,10 +107,15 @@ func main() {
 	// N8 批 5（mood + reflections 三条纯读）：零写入、零 LLM、零外发。
 	batch5 := &httpapi.Batch5{Moods: pg, Reflections: pg, Users: pg, Gate: gate}
 
+	// N8 批 6（memories 两条纯读）：一条列表、一条主键读，零写入、零 embed。
+	// 这两条今天从入口**不可达**（两条 path 都上不了 Ingress 刀，见 httpapi/batch6.go），
+	// 接进来的原因是让灰度两侧走同一份 SQL 这件事先有实现与字节基准，而不是先有流量。
+	batch6 := &httpapi.Batch6{Memories: pg, Gate: gate}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: httpapi.NewServer(cfg, signer, service, explainer,
-			batch1, batch2, batch3, batch4, batch5).Handler(),
+			batch1, batch2, batch3, batch4, batch5, batch6).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
