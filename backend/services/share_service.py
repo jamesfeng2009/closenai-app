@@ -749,7 +749,7 @@ class ShareService:
 
         - period 白名单：weekly / monthly / quarterly / yearly，非法 → 400
         - monthly / quarterly / yearly 为 Pro 权益（40302）
-        - 同周期缓存：命中 share_exports 直接返回，不重复调 LLM、不重复落库
+        - 同周期同语种缓存：命中 share_exports 直接返回，不重复调 LLM、不重复落库
         """
         if period not in ALLOWED_PERIODS:
             raise AppException(
@@ -762,7 +762,7 @@ class ShareService:
                 "该周期报告为 Pro 订阅权益 / This report requires Pro subscription",
             )
 
-        period_key = self._period_key(period, user.timezone)
+        period_key = self._period_key(period, user.timezone, language)
         cached = await share_repository.get_cached(db, user_id, period, period_key)
         if cached is not None:
             return json.loads(cached.payload)
@@ -1145,17 +1145,26 @@ class ShareService:
             "content": content,
         }
 
-    def _period_key(self, period: str, tz: Optional[str]) -> str:
-        """周期键（按用户本地日历）：weekly=ISO 周 / monthly=月 / quarterly=季 / yearly=年。"""
+    def _period_key(self, period: str, tz: Optional[str], language: Optional[str]) -> str:
+        """周期键（按用户本地日历 + 语种）：weekly=ISO 周 / monthly=月 / quarterly=季 / yearly=年。
+
+        语种后缀必须进键：报告载荷整体按 language 生成（`_build_weekly_report` 的
+        `period_label`/`mood_trend`、`growth_service.generate_report` 的正文），不进键就是
+        同一用户同一周期换 UI 语言拿回首次生成那个语种的报告。
+        取 `copy.locale_for` 的规范化码，zh 与 zh-CN 命中同一条；年报卡的 `year_` 前缀键
+        （`_year_in_review_key`）与本键不同形，两者不互吃。
+        """
         today = local_today(tz)
         if period == "weekly":
             iso = today.isocalendar()
-            return f"{iso[0]}-W{iso[1]:02d}"
-        if period == "monthly":
-            return f"{today.year}-{today.month:02d}"
-        if period == "quarterly":
-            return f"{today.year}-Q{(today.month - 1) // 3 + 1}"
-        return str(today.year)
+            base = f"{iso[0]}-W{iso[1]:02d}"
+        elif period == "monthly":
+            base = f"{today.year}-{today.month:02d}"
+        elif period == "quarterly":
+            base = f"{today.year}-Q{(today.month - 1) // 3 + 1}"
+        else:
+            base = str(today.year)
+        return f"{base}_{copy.locale_for(language)}"
 
     # ── 文案生成 ──
 

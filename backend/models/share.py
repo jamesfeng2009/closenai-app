@@ -1,7 +1,7 @@
 """
 分享导出缓存表模型（P1-F04）。
 
-同一用户同 period 同周期（period_key）的导出结果只生成一次：
+同一用户同 period 同周期同语种（period_key 末段是 `copy.locale_for` 的规范化码）的导出结果只生成一次：
 重复请求直接返回缓存，不重复调 LLM、不重复写 growth_records。
 """
 from datetime import datetime
