@@ -1,0 +1,112 @@
+{
+  "note": "gen_go_ai_side.py 生成，源＝backend/data/copy/*.json 的 msg.fallback",
+  "locales": [
+    "zh",
+    "en",
+    "es",
+    "ko",
+    "ja",
+    "ru",
+    "id",
+    "ms",
+    "th",
+    "de",
+    "fr",
+    "it",
+    "pt",
+    "vi",
+    "km"
+  ],
+  "fallback": {
+    "zh": [
+      "今天过得怎么样？有什么想和我聊聊的吗？",
+      "我注意到你最近很关注自己的成长，这真的很棒。",
+      "你最近提到的那件事，现在进展如何了？",
+      "如果今天有什么让你困扰的，我很愿意听你说说。"
+    ],
+    "en": [
+      "How's your day going? Anything you'd like to talk about?",
+      "I've noticed you've been really focused on your growth lately — that's wonderful.",
+      "How is that thing you mentioned recently going?",
+      "If anything is bothering you today, I'd love to hear about it."
+    ],
+    "es": [
+      "¿Cómo va tu día? ¿Hay algo de lo que te apetezca hablar?",
+      "He notado que últimamente estás muy centrado en tu crecimiento; eso es maravilloso.",
+      "¿Cómo va aquello que mencionaste hace poco?",
+      "Si hoy algo te preocupa, me encantaría escucharlo."
+    ],
+    "ko": [
+      "오늘 하루는 어땠어요? 저랑 이야기 나누고 싶은 게 있나요?",
+      "요즘 자신의 성장에 진지하게 집중하고 계신 것 같아요. 정말 멋져요.",
+      "지난번에 말씀하셨던 그 일은 지금 어떻게 되어가고 있나요?",
+      "오늘 마음에 걸리는 일이 있다면, 기꺼이 들어드릴게요."
+    ],
+    "ja": [
+      "今日はどんな一日でしたか？何か一緒にお話ししませんか？",
+      "最近、自分の成長にしっかり向き合ってますね。本当に素敵なことです。",
+      "この前話してたあの件、今どうなっていますか？",
+      "今日、心がかかっていることがあれば、ぜひ聞かせてください。"
+    ],
+    "ru": [
+      "Как прошёл твой день? Есть что-то, о чём хочется поговорить?",
+      "Я заметил, что ты в последнее время всерьёз увлечён своим ростом, — это здорово.",
+      "Как продвигается то, о чём ты недавно упоминал?",
+      "Если сегодня что-то тебя тревожит, я с удовольствием выслушаю."
+    ],
+    "id": [
+      "Harimu bagaimana? Ada yang mau kamu obrolan-kan denganku?",
+      "Aku perhatikan akhir-akhir ini kamu serius menekuni pertumbuhanmu; itu luar biasa.",
+      "Gimana kelanjutan hal yang kamu sebut belakangan ini?",
+      "Kalau hari ini ada yang mengganjal, aku senang mendengarnya."
+    ],
+    "ms": [
+      "Bagaimana hari anda? Ada apa-apa yang anda nak bualkan dengan saya?",
+      "Saya perhatikan belakangan ini anda sangat fokus pada pertumbuhan diri; itu memang hebat.",
+      "Bagaimana perkembangan perkara yang anda sebutkan baru-baru ini?",
+      "Kalau hari ini ada yang mengganggu fikiran anda, saya sudi mendengar."
+    ],
+    "th": [
+      "วันนี้เป็นยังไงบ้าง? มีเรื่องอะไรอยากคุยกับฉันไหม?",
+      "ฉันสังเกตว่าช่วงนี้เธอให้ความสำคัญกับการเติบโตของตัวเองมากจริง ๆ นั่นแหละเยี่ยม",
+      "เรื่องที่เธอพูดถึงเมื่อไม่นานมานี้เป็นยังไงบ้างแล้ว?",
+      "ถ้าวันนี้มีอะไรรบกวนใจ ฉันยินดีรับฟังนะ"
+    ],
+    "de": [
+      "Wie war dein Tag? Gibt es etwas, worüber du mit mir reden möchtest?",
+      "Mir ist aufgefallen, dass du dich zuletzt sehr mit deinem eigenen Wachstum beschäftigst — das ist wirklich schön.",
+      "Wie läuft eigentlich die Sache, die du neulich erwähnt hast?",
+      "Wenn dich heute etwas bedrückt, höre ich mir das gern an."
+    ],
+    "fr": [
+      "Comment s'est passée ta journée ? Y a-t-il quelque chose dont tu as envie de me parler ?",
+      "J'ai remarqué que tu te consacrais vraiment à ta croissance ces derniers temps — c'est formidable.",
+      "Comment évolue ce dont tu as parlé récemment ?",
+      "Si quelque chose te préoccupe aujourd'hui, j'aimerais beaucoup l'entendre."
+    ],
+    "it": [
+      "Com'è andata la tua giornata? C'è qualcosa di cui ti va di parlare con me?",
+      "Ho notato che ultimamente sei davvero concentrato sulla tua crescita — è una cosa meravigliosa.",
+      "Com'è andata quella cosa che hai menzionato poco fa?",
+      "Se oggi qualcosa ti preoccupa, mi piacerebbe ascoltarti."
+    ],
+    "pt": [
+      "Como foi o seu dia? Há algo sobre o que queira conversar comigo?",
+      "Notei que ultimamente você está bem focado no seu crescimento — isso é ótimo.",
+      "Como está aquilo que você mencionou recentemente?",
+      "Se hoje algo estiver lhe pesando, eu adoraria ouvir."
+    ],
+    "vi": [
+      "Hôm nay của bạn thế nào? Có điều gì bạn muốn tâm sự với mình không?",
+      "Mình thấy dạo gần đây bạn rất chú tâm phát triển bản thân — điều đó thật đáng quý.",
+      "Chuyện bạn nhắc đến hồi trước giờ tiến triển ra sao rồi?",
+      "Nếu hôm nay có điều gì làm bạn vướng lòng, mình rất muốn lắng nghe."
+    ],
+    "km": [
+      "ថ្ងៃនេះរបស់អ្នកយ៉ាងណាដែរ? មានអ្វីដែលអ្នកចង់និយាយជាមួយខ្ញុំទេ?",
+      "ខ្ញុំសង្កេតឃើញថាបច្ចុប្បន្ននេះអ្នកផ្តោតលើការលូតលាស់ខ្លួនឯងខ្លាំងណាស់ — វាពិតជាល្អឥតខ្ចោះ។",
+      "រឿងដែលអ្នកបានលើកឡើងនៅថ្មីៗនេះ ឥឡូវវិញវិវត្តទៅជាយ៉ាងណាហើយ?",
+      "ប្រសិនបើថ្ងៃនេះមានអ្វីរំខានចិត្តអ្នក ខ្ញុំសុខចិត្តស្តាប់។"
+    ]
+  }
+}

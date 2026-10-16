@@ -1,0 +1,107 @@
+{
+  "note": "gen_go_ai_side.py 生成，期望字节＝backend/routers/chat.py::_sse_event",
+  "cases": [
+    {
+      "event": "token",
+      "payload": {
+        "content": "你好"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"\\u4f60\\u597d\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": "He said \"hi\" and left"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"He said \\\"hi\\\" and left\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": "a\\b"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"a\\\\b\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": "<script>&</script>"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"<script>&</script>\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": ""
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": "line1\nline2\ttab"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"line1\\nline2\\ttab\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": "emoji 😀 ok"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"emoji \\ud83d\\ude00 ok\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": "del  nul \u0000 nel  end"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"del \\u007f nul \\u0000 nel \\u0085 end\"}\n\n"
+    },
+    {
+      "event": "token",
+      "payload": {
+        "content": "ls   ps   end"
+      },
+      "line": "data: {\"type\": \"token\", \"content\": \"ls \\u2028 ps \\u2029 end\"}\n\n"
+    },
+    {
+      "event": "memory_context",
+      "payload": {
+        "memories": [
+          {
+            "id": "m1",
+            "content": "我最近在改作息",
+            "category": "habit"
+          },
+          {
+            "id": "m2",
+            "content": "<b>&x</b>",
+            "category": "emotion"
+          }
+        ]
+      },
+      "line": "data: {\"type\": \"memory_context\", \"memories\": [{\"id\": \"m1\", \"content\": \"\\u6211\\u6700\\u8fd1\\u5728\\u6539\\u4f5c\\u606f\", \"category\": \"habit\"}, {\"id\": \"m2\", \"content\": \"<b>&x</b>\", \"category\": \"emotion\"}]}\n\n"
+    },
+    {
+      "event": "done",
+      "payload": {},
+      "line": "data: {\"type\": \"done\"}\n\n"
+    },
+    {
+      "event": "error",
+      "payload": {
+        "code": 40301,
+        "message": "今日对话次数已用完"
+      },
+      "line": "data: {\"type\": \"error\", \"code\": 40301, \"message\": \"\\u4eca\\u65e5\\u5bf9\\u8bdd\\u6b21\\u6570\\u5df2\\u7528\\u5b8c\"}\n\n"
+    },
+    {
+      "event": "error",
+      "payload": {
+        "code": 500,
+        "message": "生成失败，请稍后再试 / Generation failed, please try again later"
+      },
+      "line": "data: {\"type\": \"error\", \"code\": 500, \"message\": \"\\u751f\\u6210\\u5931\\u8d25\\uff0c\\u8bf7\\u7a0d\\u540e\\u518d\\u8bd5 / Generation failed, please try again later\"}\n\n"
+    }
+  ]
+}
