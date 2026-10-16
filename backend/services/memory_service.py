@@ -14,11 +14,14 @@
 """
 import json
 import logging
+import math
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.errors import AppException, ErrorCode
+from backend.config import settings
 from backend.ai.llm import llm
 from backend.core.time_utils import local_day_start_utc, utc_now
 from backend.models.memory import Memory
@@ -42,6 +45,58 @@ EMOTION_CONTEXT_PENDING = "pending_high_emotion"
 
 VALID_CATEGORIES = {"values", "preference", "relationship", "goal", "factual"}
 VALID_SOURCES = {"self", "others", "hypothetical"}
+
+# 注入位次（A5）：distance = spec memory-layer.md §2.2 的逐字口径（只按向量距离排）；
+# weighted 只在**已取回的那批行**里置换先后，谁进 top-5 仍由 SQL 的距离序决定。
+INJECT_RANK_DISTANCE = "distance"
+INJECT_RANK_WEIGHTED = "weighted"
+
+
+def _aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """naive 时间按 UTC 解释（sqlite 的 server_default 给的是 naive 值，PG 给 tz-aware）。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _inject_rank_score(resp: MemoryResponse, moment: datetime) -> float:
+    """注入位次分 = 相似度 + conviction 项 + 按 created_at 的指数衰减项。
+
+    三项都落在 0..1 同域，默认权重（`config.py` 的占位值）下 conviction 与新近度合计
+    最多挪 0.2——够改变这批行的先后，不够改变谁进这批行。
+    """
+    similarity = resp.similarity or 0.0
+    created = _aware(resp.created_at)
+    age_days = max(0.0, (moment - created).total_seconds() / 86400.0) if created else 0.0
+    half_life = max(1, settings.memory_inject_decay_half_life_days)
+    recency = math.exp(-math.log(2.0) * age_days / half_life)
+    return (
+        similarity
+        + settings.memory_inject_conviction_weight * (resp.conviction or 0.0)
+        + settings.memory_inject_recency_weight * recency
+    )
+
+
+def order_for_injection(
+    responses: List[MemoryResponse], *, now: Optional[datetime] = None
+) -> List[MemoryResponse]:
+    """按 `settings.memory_inject_rank` 决定注入位次；默认 `distance` 原序返回。
+
+    调用点在回归识别循环**之后**：revert 的副作用序列仍按距离序，开不开加权都不多不漏一次
+    revert（有专门用例比对两种模式的调用序列）。稳定排序保证 `distance` 模式与
+    权重清零时的顺序与今天逐字一致。
+    """
+    raw = settings.memory_inject_rank
+    mode = (raw or INJECT_RANK_DISTANCE).strip().lower()
+    if mode == INJECT_RANK_DISTANCE:
+        return responses
+    if mode != INJECT_RANK_WEIGHTED:
+        logger.warning("memory_inject_rank=%r 不是 distance/weighted，按 distance 口径处理", raw)
+        return responses
+    moment = now or utc_now()
+    return sorted(responses, key=lambda r: -_inject_rank_score(r, moment))
 
 
 def _parse_labels(raw: Optional[str]) -> Optional[List[str]]:
@@ -399,7 +454,8 @@ class MemoryService:
                 except Exception as exc:  # noqa: BLE001  回归失败不影响注入
                     logger.warning("回归识别 revert 失败 memory=%s: %s", row["id"], exc)
             responses.append(resp)
-        return responses
+        # 位次重排在回归循环之后：成员集合与 revert 的调用序列都不随之改变（A5 决策点 ①②）
+        return order_for_injection(responses)
 
     async def record_version(
         self,

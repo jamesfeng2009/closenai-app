@@ -85,6 +85,21 @@ class Settings(BaseSettings):
     # 512 维为 MRL 推荐截断点之一，召回损失 <1%，存储/索引较 768 维 float4 节省 ~66%（Supabase 免费版 500MB 约束下的性价比最优解）
     embedding_dim: int = 512
 
+    # 记忆注入位次（A5，2026-10-17）。
+    # `distance`（默认）＝ spec `.trellis/spec/memory-layer.md` §2.2 逐字口径：只按向量距离排。
+    # `weighted` 只在 `memory_service.get_memory_context` 返回前置重已取回的那一批行——
+    # 成员集合仍由向量距离决定（top-5 是回归识别 `similarity > 0.80` 的取数窗口，不动它），
+    # 只有先后吃 conviction 与年龄。权重不进 SQL 是刻意的：三条规范（memory-layer §2.2/§4.2、
+    # context-engineering §3.4、PRD 的信念强度节）都没给过加权式，未标定就改 `ORDER BY`
+    # 等于用一条自造数字换掉一条有出处的口径。
+    # 下面三个数字是**占位、不是门**（同 P-4 处理方式）：真实分布标定归跟踪器 #59，
+    # 标定后只改这里的默认值；`w_c = w_r = 0` 时加权分退化为相似度，与 `distance` 同序。
+    memory_inject_rank: str = "distance"  # distance | weighted
+    memory_inject_conviction_weight: float = 0.1
+    memory_inject_recency_weight: float = 0.1
+    # 时间衰减半衰期（天）：距 created_at 满一个半衰期 ⇒ 新近项减半
+    memory_inject_decay_half_life_days: int = 90
+
     # Redis (Upstash)
     redis_url: str = ""
     redis_token: str = ""
