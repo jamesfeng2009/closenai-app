@@ -387,7 +387,18 @@ def test_every_planned_case_actually_ran():
 
     漏跑通常发生在「加了一个 case 忘了接进某个 mode 的清单」——那种情况下 probe 的返回值
     仍然自洽，只有这张表会发现它没跑。
+
+    ⚠️ 一条环境例外，也是本文件唯一的 skip 判据收窄：**本机连一个 go 二进制都找不到**时
+    这条必须 skip 而不是 fail。理由是它 fail 出去的信息是假的——它读起来像「互操作面没跑齐」，
+    实际是「这台机器压根没有工具链」，两种的处置完全不同（前者查代码，后者装 go）。
+    而「找到了 go 却一条都没跑」（混合安装那种一编译就报版本不符的机器）仍按 fail 处理：
+    那正是拆闸场景，不能让它退化成静默 skip。
     """
+    if not _go_candidates():
+        pytest.skip(
+            f"本机连 go 二进制都没有（GO_BIN/GOROOT/PATH 全空）⇒ {len(CASE_PLAN)} 条"
+            "互操作用例一条都无从跑起，这是环境事实不是回归"
+        )
     missing = sorted(set(CASE_PLAN) - set(_RAN))
     print(
         f"\n[r3-interop] 计划 {len(CASE_PLAN)} 条 / 实跑 {len(_RAN)} 条 / "
