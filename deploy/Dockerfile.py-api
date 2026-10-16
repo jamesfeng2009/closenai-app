@@ -17,5 +17,8 @@ WORKDIR /app
 COPY --from=deps /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY backend/ ./backend/
-EXPOSE 8000
+# 8000＝HTTP 面（本镜像的默认 CMD），50051＝R3 的 AI 面 gRPC。
+# 一个镜像两个进程：独立 Deployment（deploy/k8s/50-ai-rpc.yaml）不改镜像、只把 CMD 换成
+# `python -m backend.ai.rpc.server`。EXPOSE 只是元信息，真正放行端口的是那份清单。
+EXPOSE 8000 50051
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

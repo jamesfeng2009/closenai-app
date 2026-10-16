@@ -22,6 +22,10 @@ dependencies = [
     "pgvector>=0.3.0",
     "greenlet>=3.0.0",
     "posthog>=3.0.0",
+    # R3（2026-10-16）：gRPC server 落地后这两个是**运行时**依赖，与
+    # backend/requirements.txt 的主依赖列同口径（那份是镜像的装包清单，两边不许漂）。
+    "grpcio>=1.84.0",
+    "protobuf>=7.35.1",
 ]
 
 [project.optional-dependencies]
@@ -29,16 +33,14 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pypdf>=4.0.0",
-    # R1 跨语言契约面（2026-10-16 实测后放这里，**不放** backend/requirements.txt）：
-    #   · grpcio-tools 里带 protoc（本机 libprotoc 35.1）与 python 插件，是**构建期**工具；
-    #   · 运行时镜像（deploy/Dockerfile.py-api:12 装 requirements.txt）今天不 import 任何
-    #     生成物 ⇒ 装它等于给镜像白加 40M(grpc)+22M(grpc_tools)；R3 的 gRPC server 落地时
-    #     才把 grpcio/protobuf 挪进 dependencies 主列。
+    # R1 跨语言契约面：**只剩 grpcio-tools 留在 dev**。它带 protoc（本机 libprotoc 35.1）与
+    # python 插件，是**构建期**工具，运行时镜像（deploy/Dockerfile.py-api:12 装
+    # backend/requirements.txt）不该为它多装 22M。
+    # grpcio 与 protobuf 已在上面的主依赖列（R3 的 `backend/ai/rpc/server.py` 真的 import 它们，
+    # 2026-10-16 挪的；两边口径必须一致，requirements.txt 里逐字写了为什么）。
     #   · `~=1.84.0` 而不是 `>=`：protoc 版本一变，生成物字节就变，R1 的逐字节漂移闸
     #     （scripts/gen_proto.py --check）会在别人没换工具链时假红。
-    "grpcio~=1.84.0",
     "grpcio-tools~=1.84.0",
-    "protobuf>=7.35.1",
 ]
 
 [tool.pytest.ini_options]

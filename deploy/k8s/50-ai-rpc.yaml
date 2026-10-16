@@ -1,0 +1,96 @@
+# R3 · AI 面 gRPC server（独立 Deployment，2026-10-16 定稿）。
+#
+# 为什么单开一个 Deployment 而不是挂在 py-api 同进程（决策点 D-R3-2 的否决记录）：
+# 同进程省一份清单，但把「HTTP 面的重启」与「AI 面的重启」绑成同一件事——py-api 今天任何一次
+# 发版都会掐断正在流式输出的对话，而 AI 面的 provider 抖动也不该让 /health 变红。
+# 拆开之后两者的探针、预算、扩缩各自独立，代价是这一份清单与一次内存核算（见下面 resources）。
+#
+# 镜像与 py-api **完全同一个**：改的只是 CMD。于是「装了什么」这条只有 Dockerfile.py-api 一个真相源，
+# 不会出现「AI 面的镜像少一个包」这种要到运行时才暴露的差异。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-rpc
+  namespace: closenai
+  labels:
+    app: ai-rpc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-rpc
+  template:
+    metadata:
+      labels:
+        app: ai-rpc
+    spec:
+      # 30s > server.py:269 的 `server.stop(grace=3)`：SIGTERM 之后先在 3s 内把正在流式的
+      # 对话收完，剩下的 27s 是给「进程就是不肯退」留的余量，不是给生成链留的。
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ai-rpc
+          image: ghcr.io/jamesfeng2009/closenai-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          # 同一个镜像、不同的入口：backend/ai/rpc/server.py 的 main()。
+          command: ["python", "-m", "backend.ai.rpc.server"]
+          ports:
+            - name: grpc
+              containerPort: 50051
+          env:
+            # main() 读的就是这一格（backend/ai/rpc/server.py:274），与 containerPort 同值，
+            # 写两遍而不是引用，是因为 k8s 的 env 不能引用 ports。
+            - name: CLOSEN_AI_RPC_PORT
+              value: "50051"
+          envFrom:
+            # 两个都要：provider 的 key/base_url 在 closenai-config，DB 口令在 closenai-runtime。
+            # ⚠️ 这一格不是走过场：StreamChat 走的是 `chat_service.rpc_chat_stream`，它自带
+            # SessionLocal（O0 边界闸不许 rpc 层持有会话），所以**这个进程必须连得上数据库**。
+            - configMapRef:
+                name: closenai-config
+            - secretRef:
+                name: closenai-runtime
+          # ⚠️ 探针口径已知不足，且**刻意留给 R7**：tcpSocket 只证明 50051 在 accept，
+          # 不证明 handler 能用（provider key 失效、依赖装坏、handler 起不来都能让 TCP 照绿）。
+          # 正解是 grpc.health.v1/Health 的 serving 检查——那是 R7「可观测与运维面」的活，
+          # 本批先把面接上，不发明半套健康协议。
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          # ⚠️ 下面是**估算，不是实测**：384Mi 取的是「同一份代码、少一套 FastAPI 与 HTTP 中间件」
+          # 的直觉，本机没有跑过真进程（本仓口径：估算值必须标出来，别让下一批当量测过的数用）。
+          # 回填方法（跑起来一次就有）：
+          #   kubectl -n closenai top pod -l app=ai-rpc
+          # 需要实测的原因还有一个：Go 侧熔断冷却取的是 py-api 的 periodSeconds: 5
+          # （aiclient/grpc.go:39-41 引用 40-py-api.yaml:38），本进程的 readiness 周期也是 5，
+          # 两边同刻重启时熔断窗口与实际不可用时长是否还吻合，只有真跑一次才知道。
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+# Go 侧的连接目标（R3b 接线时填进 config，别写死在代码里）：
+#   ai-rpc.closenai.svc.cluster.local:50051
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-rpc
+  namespace: closenai
+  labels:
+    app: ai-rpc
+spec:
+  selector:
+    app: ai-rpc
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: grpc

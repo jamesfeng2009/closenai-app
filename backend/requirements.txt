@@ -38,6 +38,17 @@ openai>=1.50.0
 # SSE 流式响应
 sse-starlette>=2.0.0
 
+# ── R3 gRPC server（2026-10-16 从 dev extra 挪进主依赖列）──────────────────
+# 挪动的原因是**这一列就是运行时镜像的装包清单**（deploy/Dockerfile.py-api:12 pip install 它），
+# 而 `backend/ai/rpc/server.py` 今天真的 import grpc 与 backend/gen 生成物：
+# 独立 Deployment（deploy/k8s/50-ai-rpc.yaml）用的就是这一个镜像，换 CMD 而已。
+#   · grpcio    —— server 与 client 面（backend/gen/*_pb2_grpc.py 直接 import grpc）
+#   · protobuf  —— 生成物的消息运行时
+#   · grpcio-tools **仍然不在这里**：它带 protoc 与 python 插件，是构建期工具，
+#     留在 pyproject 的 dev extra（装进镜像等于白加 22M；实测见下面 R1 那段）。
+grpcio>=1.84.0
+protobuf>=7.35.1
+
 # PDF 导出（P1-F04 社交分享）
 reportlab>=4.0.0
 # 分享卡引流二维码（M4 分享卡体系）：纯 Python，图像后端用已随 reportlab 在环的 Pillow
@@ -51,10 +62,9 @@ posthog>=3.0.0
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 
-# ── R1 跨语言契约面（2026-10-16）：grpcio / grpcio-tools / protobuf **不在这一列**
-# 这份文件是运行时镜像的装包清单（deploy/Dockerfile.py-api:11-12 直接 pip install 它）。
-# 今天 backend 没有任何模块 import 生成的 `backend/gen/*_pb2.py` ⇒ 装进来只是给镜像白加
-# 实测 40M(grpc) + 22M(grpc_tools) 的安装体积（wheel 下载量 12.3M + 6.0M，2026-10-16 实测）。
-# 它们登记在 pyproject.toml 的 dev extra（闸与 codegen 用），R3 的 gRPC server 落地那天
-# 才把 grpcio/protobuf 挪进本文件的主依赖列——那时它们是运行时依赖，不再是构建期工具。
+# ── R1 跨语言契约面（2026-10-16 登记，同日 R3 落地后本段只留 grpcio-tools 那半句）
+# 当年的判据是「今天 backend 没有任何模块 import 生成的 `backend/gen/*_pb2.py` ⇒ 装进来只是给
+# 镜像白加实测 40M(grpc) + 22M(grpc_tools) 的安装体积（wheel 下载量 12.3M + 6.0M，2026-10-16 实测）」。
+# R3 之后前半句已经不成立：`backend/ai/rpc/server.py` 真的 import grpc，所以 grpcio/protobuf
+# 挪到了上面主依赖列。仍然留下的只有 grpcio-tools——它依旧是构建期工具，不在运行时装包清单里。
 
