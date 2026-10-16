@@ -39,9 +39,9 @@
 | 桶 | 未做项（tasks.md 编号） | 跟踪器条目标题 |
 | --- | --- | --- |
 | ① 用户可见但不成立 | R6（三道门无生产者 + 现网回填，**这是①的正解**）、N8（前端改调新端点） | `R6 · 三道门接生产者 + 现网数据回填`、`N8 97 端点按域切流` |
-| ② AI 独立化 | O0、O3、O5、O6、R2–R5、R7、O7（`R0`/`R1` 2026-10-16 结案，`O0`/`R3` 同日结案并另立 `R3b · chat 切流`，见各自 ✅ 行） | `O0 · AI 独立目录归堆`、`O3 · Python 停止直写权威态`、`O5 · 派生渲染（PDF）`、`O6 · FastAPI HTTP 层退役`、`R0…R7`、`O7 · 双运行时运维面` |
+| ② AI 独立化 | O3、O5、O6、O7、R3b、R5、R7（`R0`/`R1` 2026-10-16 结案，`O0`/`R3` 同日结案并另立 `R3b · chat 切流`，`R2` 已结案，`R4` 同日结案＝出箱管道 + worker 接线，七条欠账改挂 R5/R7，见各自 ✅ 行） | `O0 · AI 独立目录归堆`、`O3 · Python 停止直写权威态`、`O5 · 派生渲染（PDF）`、`O6 · FastAPI HTTP 层退役`、`R0…R7`、`O7 · 双运行时运维面` |
 | ③ 上线/运维件 | N1b、K1–K6、E3、P2、Go 防爆破、vercel cron | `N1b · 共享 k3s 真实 apply`、`K1…K6`、`E3 · QStash → arq + Redis`、`P2 · IAP 的 Go JWS 验签 PoC`、`Go 登录接 Redis 防爆破`、`vercel.json 的 /api/v1/cron/journey` |
-| ④ 质量/内容欠账 | L 节遗留、A1b、D4、D5、E4，加三条**只存在于跟踪器**的登记项（测试隔离 flake / 名片 AIGC / 门限现网标定）；第四条「锚点漂移」2026-10-14 结案，见 N2 节 ✅ 行 | `L 节遗留 · 13 语言 reflect 两键的母语审校欠账`、`A1b · .trellis 文档面占星残留清理`、`pytest 跨文件共享 "u1" 库态的隔离缺口`、`名片/分享卡 PDF 的 AIGC 隐式标识`、`N4 门限的现网分布标定`、`D4 · PRD docx 同步`、`D5 · ASC 提审元数据`、`E4 · Expo SDK 51 → 53+`、`修 test_commitment 周配额那条既有失败` |
+| ④ 质量/内容欠账 | L 节遗留、A1b、D4、D5、E4，加三条**只存在于跟踪器**的登记项（测试隔离 flake / 名片 AIGC / 门限现网标定），再加 2026-10-16 登记的 `A5`／`A6`／`A7`（conviction 不进检索排序与衰减 / 分享渠道差异化与图片化名片 / 名片配色不按类型自动生成）；第四条「锚点漂移」2026-10-14 结案，见 N2 节 ✅ 行 | `L 节遗留 · 13 语言 reflect 两键的母语审校欠账`、`A1b · .trellis 文档面占星残留清理`、`pytest 跨文件共享 "u1" 库态的隔离缺口`、`名片/分享卡 PDF 的 AIGC 隐式标识`、`N4 门限的现网分布标定`、`D4 · PRD docx 同步`、`D5 · ASC 提审元数据`、`E4 · Expo SDK 51 → 53+`、`修 test_commitment 周配额那条既有失败` |
 
 - 已按单状态规则拆开的混态行（同日）：`A1`→`A1`[x]+`A1b`[ ]、`A2` 的实机部分移出 ✅ 行指向 `K6`、`E1` 去 ⚠️、`N1`→`N1a`[x]+`N1b`[ ]、快照「方向冲突」改「已结案」、`L2` 的复数缺口去 ⚠️（已由 L4 结案）、`O1`/`O2`→⛔（交付物由 `R1`/`R4`+`R5` 承担）、`O7` 去掉与 `R4`/`R7` 重复的子项。
 - 外部阻塞（不是代码）：`K1–K6` 需账号/域名/真机，`N1b` 需 apply 授权与镜像凭据，`P2` 需 sandbox 实机——这三类我没权限，只能备齐命令与判据。
@@ -62,7 +62,13 @@
     - ↳ **本轮取证手段自己的缺陷，留名**：变异脚本第一轮把「红」的判据统一写成 pytest 的 `\d+ failed` 格式，而 `go test` 的落款是 `FAIL\t<pkg>` 没有计数 ⇒ 5 条 Go 靶被误记成「未如预期」（它们的输出其实逐条是真红）。按 kind 分档（pytest 要计数、go 要 `^FAIL\t`）后复跑 11/11。**「受害测试没跑起来不能算绿」这条口径升级为：判据格式也必须按运行器分档**，否则换栈时同一类静默会换个方向再犯一次。
     - ↳ **覆盖代价如实登记**：夹具重录后，`share_url_inputs.app_store_url` 变成空串 ⇒ 「配了商店链」那一支不再被逐字回放覆盖，改由 `onboarding_test.go`（`testAppStoreURL`）与 `config_test.go` 的优先级断言守。这是本批改口径买来的**新**覆盖面缺口，不是既有缺口。
     - ↳ **仍欠一句用户决定（本轮不动）**：`site/public/r/index.html:105` 的 `APP_STORE_URL` 仍是占位串——落地页 CTA「Download on the App Store」点开是 404 商店页。API 侧已经不再发占位，但这处是静态页、没有 env 注入口，三种收法（隐藏 CTA／改指站点首页／等真 ID 一起改）是产品文案决定不是口径统一 ⇒ 见 K4。真 App Store ID 仍需用户提供。
-
+- 🆕 2026-10-16 R4 收尾时按用户点名的顺序回看 A 类，**确实没做的三条**在此登记（只登记、不顺手修；判据是当天重跑的 grep，不是抄旧文）：
+  - ↳ 编号说明：本文件 A 段实到 `A3`（`A1b` 是拆行），那句「依赖 A4 的 journey_events 表先建」里的 A4 后来落在 B1 的建表行（`:121`），A 段没有这一格 ⇒ 为不打动那条既有引用，本批三条从 **A5** 起编。
+  - [ ] **A5 · conviction 不进检索排序、也没有时间衰减**｜实测：`backend/repositories/memory_repository.py:216` 的排序键至今只有 `ORDER BY embedding <=> CAST(:q AS halfvec)` 一条；`grep -rniE -e decay -e recency -e half_life --include='*.py' backend`（排除 tests）＝**0 命中**｜后果：`conviction_score` 只被「重复表达加固」（`memory_service.py:30` 的 `DEDUP_SIMILARITY_THRESHOLD` 分支）和「渐变漂移检测候选」（`memory_repository.py:304-310`，`≥0.4` 且 current）两条内部流程消费，**用户侧检索拿不到它**——一条被反复确认过 0.9 的信念和一条 0.2 的临时猜测，只要向量距离相同就同位次；同时老记忆不因年龄降权，检索位靠向量相似度独裁｜归属：memories 域，且必须与 #24「N8 下一单元 · memories 两条纯读」同一张摸底表一起做——排序键一改，`testdata/n8_contract.json` 的逐字节回放当场翻脸，Python 与 Go 得同形改｜改法方向：`ORDER BY` 加 conviction 与按 `created_at` 的衰减项，但**权重是产品参数**（哪一路更重要、半衰期多长）需要先拍板，不宜由接线批次代拟
+  - [ ] **A6 · 分享渠道差异化 + 图片化名片**｜实测：`grep -rn "Share.share(" --include='*.tsx' --include='*.ts' frontend/src`＝**6 处**，逐处核 `url:` 键＝**0 处** ⇒ 全部走纯文本面板，没有按渠道（IG / WhatsApp / 微信 / 系统）分档的文案与形态｜后果：微信/WhatsApp 这类吃链接的渠道拿不到可点链接，Instagram  Story 那种吃图的渠道只拿到一段文字——U2 已把 PDF 落到 `cacheDirectory` 并调 `Sharing.shareAsync`（`pdfFiles.ts`/`pdfExport.ts`），但那是**导出**不是**分享卡**，两条路径不重合｜归属：share 域，与 U2 那条「④ U2-5 的渠道差异化/图片化名片照原案本批不做」是同一件事的正式登记（那里是偏离说明，这里是欠账本体）；另与 K 节的「分享卡系统分享面板真机取证」（K6）同一批看，渠道行为差异只能设备安装 prebuild 包后手工验
+  - [ ] **A7 · 名片配色不按类型自动生成**｜实测：`grep -rniE -e palette -e colorFor -e cardColor --include='*.ts' --include='*.tsx' frontend/src`＝**2 命中**，都在 `config/memoryRing.ts`（`:65 colorForValue`、`:119` 消费），而那处按**情绪热力数值**取色、与性格类型无关；名片本身在 `ShareCardScreen.tsx:199` 与 `:264` 两处渐变**写死 `Colors.gradCosmic`**，用户只能在 `variant` 列表里手挑（`:356/:357` 那两条样式键）｜后果：enneagram 九型在视觉上没有区分度——分享出去的卡对谁都长同一张脸，「这是 4 号的卡」这种一眼识别不成立｜归属：share/前端视觉，与 D5（ASC 提审元数据）、K6（分享面板真机取证）不同批；⚠️ 改法要连带的两面：① 类型→色板的映射属**品牌决定**，不是工程默认值；② 若走「自动生成」，配色对比度要重过无障碍闸（`Colors.textPrimary` 等前景键在深色渐变上的对比度随背景变），别把 A6/A7 做成一次回归
+  - ↳ 三条共同点：**都在原案范围内、都不是 R4 的把手能递到的位置**（R4 动的是 Go↔broker 的出箱管道，这三条动的是 Python 检索、前端分享面板、前端视觉），所以按「发现的缺陷不顺手修」留在 A 桶而不是并进 R 桶。
+  - ↳ 一条**不重复登记**：`id6740000000` 在 `backend/.env.example:88` 与 `site/public/r/index.html:105`（+ `site/dist/` 同处）仍是生效值这件事，本体归 U3-b 那条更正与 K4（要的是产品决定），`test_share_landing_fallback.py` 的占位扫描只覆盖 Python／Go 源、扫不到 Web 静态页——已在上述两处写过，此处仅指路。
 
 ---
 
@@ -1130,19 +1136,37 @@
   - [ ] N8 口径不变：Ingress 上该 path 的 backend 一刀切换、回滚＝改回 py-api、不发版不回滚数据；切流前 `CLOSEN_CUTOVER_*` 保持 0
   - 验收：切流灰度 0 时全量回归同基线不减；`/chat/stream` 的 SSE 字节与 Python 现网逐字节对案（夹具复用 `go-core/testdata/sse_event_golden.json`）；`scripts/mutate_r3b_gates.py` 至少打红「Go handler 里长出第二套配额判定」与「灰度键非 0 时 backend 没切」两条
   - ↳ 同期收本批登记的勘误③（`ClassifySafety` 的归属列）与勘误⑤（向量维度语义），因为它们都要改 `.proto` ＋ 两侧同批，属于同一次契约演进窗口
-- [ ] **R4 · RabbitMQ 拓扑 + Go 的 AMQP Publisher（补齐 N7 唯一缺的那层）**（3d）｜V3 14、17 ｜缺口实测：`outbox.go:57` 的 `Publisher` 今天只有 fake
-  - [ ] exchange/queue/binding/DLQ 全部按 14 篇落地：topic 路由（`14:62`）、显式 retry 队列而非无限 requeue（`14:126`）、NACK/requeue 与 reject→DLQ 分流（`14:111-115`）、**publisher confirms**（`14:163`：确认后才 `MarkOutboxPublished`，未确认则 outbox 仍是重试权威——这条正是 N7-10 的既有口径）
-  - [ ] `internal/messaging/amqp/` 实现 `Publisher`；`Worker.Run` 在 `cmd/go-api/main.go` 起，带独立 kill switch（沿 N9 的 `CLOSEN_*` 开关风格，灰度可控）
-  - [ ] **命令面与事件面同一条 outbox、不同 exchange**（R3 把三类草稿挪去 MQ 之后必须补上这条，否则「Go 下发任务」没有可靠投递通道）：`ai.*.requested` 是命令不是事件，**不进 `domain/delivery.go:37-46` 的十条路由**——那张表的进门判据逐字是「权威模型内容变了」（`delivery.go:31-36` 注释），命令不满足；默认形态＝在决策事务内 `EnqueueOutbox` 一条 `ai_*_requested` 行、路由到独立 task exchange，从而**复用** outbox 的租约/退避/死信与 confirm-后置 published（丢一条命令＝用户永远等不到那条洞察，不可接受）。追加的是新事件类型，不改十条既有语义 ⇒ additive
-  - [ ] prefetch 与并发消费分区（`14:150`）；指标（accepted/rejected/dlq/oldest_pending）与 tracing（message/correlation/causation，列已在 `OutboxRow`）
-  - [ ] **4c8G 内存实测**（§八 风险 2）：`go-api`+`python-worker`+`rabbitmq`+`redis` 四件事常驻实测，没做完不进 N8
-  - 验收：真 broker 集成测——发布途中 kill broker ⇒ outbox 仍 pending ⇒ 重启后重投且**不重复生效**（消费侧靠 inbox）；confirm 丢失不许置 published；DLQ 直入且禁 requeue。`scripts/mutate_r4_gates.py` 打红「无 confirm 也置 published」
+- [x] **R4 · RabbitMQ 拓扑 + Go 的 AMQP Publisher（补齐 N7 唯一缺的那层）**（3d）｜V3 14、17｜2026-10-16 结案（工作单 `R4管道工作单-2026-10-16.md`）｜起算缺口实测：`outbox.go:57` 的 `Publisher` 只有 fake ⇒ 今天 `outbox.Publisher` 的真实实现数＝**1**（`internal/messaging/amqp/publisher.go`）
+  - [x] **R4-① 拓扑**：exchange/queue/binding/DLX/显式 retry 阶梯全按 14 篇落表（topic 路由 `14:62`、显式 retry 队列非无限 requeue `14:126`、reject→DLQ 分流 `14:111-115`）。事实源做成**生成物**：`go run ./tools/eventscontract -write` 从 `amqp/topology.go` 的两张表生成 `contracts/events.md`（6316 字节），`amqp/contract_drift_test.go` 逐字节比对 ⇒ 改表忘重跑就 `go test ./...` 红。闸 13 例（`topology_test.go`）
+  - [x] **R4-② Publisher ＋ 真 broker**：`ConfirmChannel`＝`PublishWithDeferredConfirmWithContext`＋`DeferredConfirmation.WaitContext`（amqp091-go v1.10.0 实测 API），**只在 broker ack 后才回 nil**，nack→`ErrNegativeAck`、超时/断连→error 交 outbox 阶梯；两类失败分开：`ErrUnknownRoute`（表里没有，一条字节都不发）／`ErrNoConsumerBound`（十条事件路由故意不绑队列，逼 R5/R6 绑消费者而不是静默丢消息记成「已投递」）。闸 16 例（`publisher_test.go`）＋ **7 例真 broker 集成测**（`integration_broker_test.go`，`CLOSEN_AMQP_URL` 不给就逐字 skip「一条都没跑，别把它当绿」）
+    - ↳ 2026-10-16 本机实测（brew 的 RabbitMQ 占着 5672）：设上 `CLOSEN_AMQP_URL=amqp://guest:guest@127.0.0.1:5672/` ⇒ **6 PASS / 1 SKIP**，skip 的是 kill-broker 那条（还要 `CLOSEN_AMQP_CONTAINER`，本机是 brew 服务不是容器）⇒ **工作单验收的第一条「发布途中 kill broker ⇒ 重启后重投且不重复生效」今天没有本机实测数字**，不许写成已证；它归 R7 在真 pod 重启上跑（同欠账②）。跑出来的取证：拓扑重放在真 broker 上被 `PRECONDITION_FAILED - inequivalent arg 'x-message-ttl'` 拒（406），reject 那条进 **第一级 retry 队列**不回原队列，retry 阶梯 TTL 到期后**带着原 routing key 回到原队列**（`14:126` 的显式阶梯在对面进程的 broker 上成立）
+  - [x] **R4-③ 命令面**：`domain/commands.go` 给四类 `AITaskKind`（observation/pattern/insight/proactive），`RoutingKey()`＝`ai.<kind>.requested`、`MessageType()`＝`ai_<kind>_requested`；入队口 `Service.RequestAITask(ctx, st, req)` **由调用方给事务内 Store、不自开事务、不写 `personal_model_events`**（命令不是事件，进门判据 `delivery.go:31-36`）。判据落成三处可执行闸：domain 不相交闸（命令行∉十条事件键、`RoutingKeyFor(kind.MessageType())` 必 ok=false）＋ amqp 绑定闸（键串只有 `domain.AITaskKind` 一个生成点，且绝不绑进 `closenai.events`）＋ publisher 可投闸（四类各投中 `ExchangeAITasks`、通配键 `candidate.*` 拒投）。闸 8 例（`commands_test.go`）
+    - ↳ ⚠️ **今天 `RequestAITask` 的调用方实测仍为 0**（与 `Admit*` 同一类缺口，归 **R6**）⇒ R4 交付的是发射器不是管道；这条口径逐字写进 `contracts/events.md` 的口径头（「R4 只是发射器」「今天零调用者」「生产者（谁下发任务）是 R6」），并由 `contract_drift_test.go` 的 phrase 闸钉住，防止下一个人把 R5/R6 读成收尾
+  - [x] **R4-④ 进程接线**：新包 `internal/messaging/dispatch`＋`cmd/go-api/main.go` spawn。开关全 env-only（`CLOSEN_OUTBOX_WORKER`/`CLOSEN_AMQP_URL`/`CLOSEN_OUTBOX_POLL_SECONDS`/`CLOSEN_AMQP_CONFIRM_TIMEOUT_MS`/`CLOSEN_AMQP_DIAL_TIMEOUT_SECONDS`/`CLOSEN_OUTBOX_DRAIN_SECONDS`），**默认关**＝`Run` 打一句「未启动」直接返回，不拨号不声明拓扑不碰 DB。停机沿 17 §11：`dispatch` 只调 `RunOnce` 而**不复用 `outbox.Worker.Run`**（后者在 ctx 取消瞬间打断在途批次，`outbox.go:160-177` 实测），在途那一批用 `context.WithoutCancel` ＋ `DrainTimeout` 上限；`amqp091-go` 不自动重连 ⇒ 每轮判 `Alive()`，死了就重拨＋重声明。main 侧 `defer closeWorker(...)` 靠 defer 的后进先出现实「HTTP 先停、worker 再收尾、最后关池」，且**等待有预算**、超时只打日志不挂死退出路径
+    - ↳ 指标面＝`Runner.Stats()`（batches/claimed/accepted/rejected/dead_lettered/lost/unrecorded/dials/redials/claim_errors）＋每有活儿时一条日志；分类**沿用 `outbox.Result`** 不另发明。⚠️ 见下面欠账①：`oldest_pending` 没做
+  - [x] **R4-⑤ 变异自证**：`scripts/mutate_r4_gates.py` ＝ **7 红 / 0 未打红，4 绿 / 0 被误伤，0 异常**，收尾自己复核 amqp／outbox／dispatch／cmd 四包全绿，五个靶文件 `copy2 + filecmp` 逐字节复原（禁 `git checkout`、串行跑）。四条点名靶逐字对上工作单 §三：M1 摘掉 confirm 等待（nack 被当成功＝永久丢事件）／M2 命令键改绑进 `closenai.events`（污染进门判据）／M3 `RetryDelay` 退化成恒 0（毒消息变成对库对撞）／M4 `if !sw.Enabled` 摘成恒假（灰度 0 也去拨 broker）。另 M5 把收尾 ctx 换回父 ctx（17 §11 步 2 坏掉）／**M6 摘掉 `defer closeWorker` 的 `defer`**／M7 摘掉双投预算警告
+    - ↳ M6 是这一批最值得留痕的一条：**dispatch 包那 12 条闸全看不见调用点**——把 main.go 的 spawn 整段删掉它们一条不红。所以 `cmd/go-api/main_test.go` 里放了一条源码闸 `TestMainSpawnsTheWorker`（点名 `dispatch.LoadSwitch`/`dispatch.New(`/`worker.Run(workerCtx)`/`defer closeWorker(`），M6 就是打红它
+  - 验收 ✅（2026-10-16 实测）：`go vet ./...` 干净、`gofmt -l .` 空、`go test ./... -count=1` **12 个有测的包全 ok / 0 FAIL**；`-race` 口径下 amqp／dispatch／outbox／cmd 全绿。本批新增 Go 闸 **61 例**（topology 13＋publisher 16＋contract 2＋broker 7＋commands 8＋dispatch 12＋cmd 3）。**灰度 0 的进程行为不变**这条按两种口径判：后端全量 `pytest backend/tests`（点名 `GOROOT`/`GO_BIN`）＝ **880 collected / 868 passed / 1 failed / 11 skipped**，与 R3 结案时的基线**逐数一致**，唯一那条红仍是既有 `#62 test_commitment.py::test_weekly_quota_defers_third_follow_up` ⇒ 零新增失败
+  - ↳ **本批登记的欠账与勘误（只登记，不顺手修；带归属）**
+    - ① **指标面 `oldest_pending` 没做**（工作单 §三.4 逐字允许「池面缺就登记为指标面欠账而不是当场加 SQL 面」）：积压年龄要一条 `MIN(created_at) WHERE status='pending'` 级别的最小查询，而 `db/queries/canonical.sql` 今天没有这个动作 ⇒ **归 R5**（Python 开始消费之后积压才是可观测的）。另 **仓内没有任何 Prometheus／`/metrics` 基础设施**，`/health` 是冻结形状、`/healthz` 是 Go 专有探针且不在 `contracts/endpoints.md` 登记表 ⇒ 本批刻意**不新增任何 HTTP 端点**（接线不许改变现网任何响应），指标出口整体归 R7
+    - ② **部署面整条归 R7**：worker 的六个键**没进** `deploy/k8s/10-config.yaml`。根因不是忘了，是 `test_env_var_names_do_not_drift_across_languages` 只认 `config.go` 里的 `envString/envInt` 读取点，而这六个键读在 `dispatch.LoadSwitch` ⇒ 现在写进清单会让那条闸当场红。正解＝R7 出 rabbitmq StatefulSet 时一起收（要么把键面并进 `config.Load`，要么扩那条闸的 Go 侧读取点判据）。同时 R7 要连着判 `30-go-api.yaml` 的 `terminationGracePeriodSeconds` 是否覆盖得住 `SHUTDOWN_TIMEOUT_SECONDS(15) + DrainTimeout(默认 30)`——今天 worker 默认关，所以清单**一字未动**
+    - ③ **`prefetch` 与并发消费分区（`14:150`）本批没做**：那是**消费侧**参数，而 Go 今天零消费者 ⇒ 归 R5/R6 随消费者一起给，在这里写一个 `Qos(20)` 是没人能验的死数字
+    - ④ 🔴 本批自己发现并修掉的**两条测试面缺陷**（不属「发现的缺陷不顺手修」，因为它是我上一格写的代码）：(a) `dispatch_test.go` 的停机用例在 `waitFor` 条件里**先 `sess.mu.Lock()` 又调带锁的 `pubCallsCount()`** ⇒ `sync.Mutex` 不可重入，把自己锁死，`-race` 跑到 40s 超时才暴露；(b) 三处 fake 计数（`h.dials`、`fakeSession` 的 declares/closes/pubCalls、`errRepo`）被 Run 的 goroutine 写、被测试读，**没加锁** ⇒ 2 条 DATA RACE，红的是 fake 自己而不是断言。⇒ 写给后面几批的口径：**fake 的计数器一律带锁读**，否则 `-race` 会把「闸没判成」伪装成「代码有 bug」
+    - ⑤ **`contracts/rpc/ownership.md:182-183` 的依赖面实测已漂**（R0 落表当天的「go.mod 无 grpc、无 amqp／requirements 无 grpcio」在 R1/R2/R3/R4 之后整段不成立）⇒ **本轮已就地更正并写清是快照不是现状**（`go.mod:9-10` 实测 `amqp091-go v1.10.0`＋`grpc v1.84.0`，`requirements.txt:49-50` `grpcio>=1.84.0`＋`protobuf>=7.35.1`，`aio-pika`/`pika` 仍 **0 命中**⇒Python 不连 broker，消费面归 R5）。这条正是「手抄的契约一定会漂」的第二个实例，也是 R4-① 把 `contracts/events.md` 做成生成物的理由
+    - ⑥ **4c8G 内存实测仍未做**（D-R4-8：要真集群，共享 k3s 需另批授权）⇒ 继续挂 R7，且 R7 那格现在要一起量 `go-api`＋`python-worker`＋`rabbitmq`＋`redis` 四件事，其中 `go-api` 的 worker 打开后的增量**今天无量可依**（本机没有可跑的现网 outbox 行）
+    - ⑦ 本机取证环境两条留痕：5672 被 brew 的 RabbitMQ 占 ⇒ `docker run -p 5672` 起不来（要用容器得换端口映射或先 `brew services stop`）；broker 上有上一轮遗留的 `retry.30s.*`（TTL 30000），本轮那条「冲突参数被拒」的闸**正是拿它撞出 406**，所以那份残留是测试前提而不是脏数据
 - [ ] **R5 · Python ⇄ RabbitMQ（消费 Go 下发、回投 candidate）**（3d）｜V3 14、17、18 ｜缺口实测：这条队列今天**单向都不存在**
   - [ ] Python 消费 `ai.*.requested`（Go 下发任务），handler 只 decode → AI → encode → publish `*.candidate`；幂等键走 **message property 而非 routing key**（V3 14 §7）
   - [ ] Python **只发 candidate，不写权威表**（这是 O3 的物理落点；三处直写点改造，含 `memory_service.py:270 _detect_conflict` 从「立即新建+旧行 supersede」改为 candidate 回投）
   - [ ] Go 消费 inbound `*.candidate` → 路由进已有领域入口（`AdmitCandidate`/`AdmitEvidence`/`AdmitProactive`…），经 `ConsumeIdempotent` + `inbox_messages`（表和 SQL 都在，缺的是 consumer）
   - [ ] 畸形消息直入 DLQ、禁 requeue 循环
+  - [ ] **从 R4 挂过来两条**（2026-10-16 结案时登记，前提都是「消费者真的存在」，R4 期无法验）：
+    ① 指标面的 `oldest_pending`（积压年龄）——要一条 outbox 的最小时间查询，而 `db/queries/canonical.sql`
+    今天没有这个动作；R4 交付的只有 `dispatch.Stats()` 的累计计数面（batches/claimed/accepted/rejected/dlq/lost/unrecorded）。
+    ② `prefetch` 与并发消费分区（`14:150`）——那是**消费侧**参数，而 R4 期 Go 零消费者、Python 未连 broker，
+    在这一批写死一个 `Qos(n)` 就是一个没人能验证的数字
   - 验收：跨用户/重复投递/乱序三条集成测；重复消息第二次必须被 inbox 拒且**领域入口不被调用**（用带调用计数的 fake 断言，沿 N9 domain 测手法）；变异自证 `AND`⇒`OR` 级真实破坏
+  - ↳ R4 结案时留下的现成把手：`go-core/internal/messaging/amqp/integration_broker_test.go` 那 7 条是**对面 broker 真跑过**的（2026-10-16 本机 6 PASS／1 SKIP），Python 侧接上后可以直接拿同一套拓扑做跨语言对案，不必另起一份契约
 - [ ] **R6 · 把三道门接上生产者（§一 那三个缺口的正解）**（4d，依赖 R4+R5）｜缺口逐字：`tasks.md:553`、`:581`、`:600`①、`:600`②
   - [ ] `AdmitEvidence` 接线：Python 抽取产物经 candidate 回投后写 evidence，并**补 `evidence.accepted` 事件类型与路由**（N7 三面欠账①：`14:68` 列了这个 routing key 但 Go 没有对应事件；加事件＝改 N4 语义，所以必须在这一批一起判）
   - [ ] `AdmitProactive`/`RecheckProactive` 触发面：cron 从「Python 直发」改为「Go 门判定 + 下发 `ai.proactive_draft.requested`」，Python 只出草稿（现役 `cron_service.py:168-188/287/320` 的 inline + QStash 形态在此退役，与 E3 一并判，不留两套队列——D-7）
@@ -1151,6 +1175,8 @@
   - 验收（这条是**用户可见效果的 DoD**，不是「代码写完」）：N9 端点 `GET /api/v1/personal-model/insights/{id}/evidence` 在真库上返回**非空依据**并给出实测样本；`withdrawn_count` 在源失效传播后正确递增；主动消息经 Go 门后频次/疲劳指标可观测。仍受 kill switch 与灰度 0% 保护，切流前不改现网
 - [ ] **R7 · 双协议部署与运维面**（2d）｜V3 20、21 §Phase J，与 O7 合并执行不重复拆
   - [ ] k3s 清单加 `python-rpc` Service（ClusterIP，**不出 Ingress**：gRPC 只在集群内，对外仍只有 Go 的 HTTP/SSE）+ `rabbitmq` StatefulSet；mTLS/NetworkPolicy 与 `CLOSEN_*` 开关面
+    - ↳ **从 R4 挂过来三条**（2026-10-16 结案时登记）：① worker 的六个 env 键（`CLOSEN_OUTBOX_WORKER`/`CLOSEN_AMQP_URL`/`_POLL_SECONDS`/`CLOSEN_AMQP_CONFIRM_TIMEOUT_MS`/`_DIAL_TIMEOUT_SECONDS`/`CLOSEN_OUTBOX_DRAIN_SECONDS`）收进清单——今天收不进去，因为 `test_env_var_names_do_not_drift_across_languages` 只认 `config.go` 的 `envString/envInt` 读取点，而这些键读在 `dispatch.LoadSwitch`（见 R4 欠账②）；② `30-go-api.yaml` 的 `terminationGracePeriodSeconds` 必须覆盖 `SHUTDOWN_TIMEOUT_SECONDS(15) + CLOSEN_OUTBOX_DRAIN_SECONDS(默认 30)`，worker 一旦打开这就是新的收尾预算；③ **kill broker 后重投不重复生效**那条集成测（`integration_broker_test.go` 里唯一 SKIP 的 `(e)`）要 `CLOSEN_AMQP_CONTAINER`，本机 brew 起不来、真 pod 重启才有数字（R4 验收里唯一没本机取证的一条）
+    - ↳ 同批还有 gRPC 健康探针（`50-ai-rpc.yaml` 今天只有 `tcpSocket`，R3 勘误⑥）与 `oldest_pending` 之后的**指标出口**（仓内无 Prometheus／`/metrics`，R4 刻意不加 HTTP 端点）
   - [ ] DLQ replay 工具 + 契约兼容测进 CI（V3 03 §20 / 04 §22 指标逐条对上）
   - 验收：`kubectl apply` 前只出 manifests（本机无 kubeconfig、共享集群需显式授权——既有口径）；两运行时 + broker 起来后一条端到端 smoke：请求 → outbox → MQ → Python → candidate → inbox → Go 门 → 读端点非空
 
