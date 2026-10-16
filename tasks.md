@@ -39,7 +39,7 @@
 | 桶 | 未做项（tasks.md 编号） | 跟踪器条目标题 |
 | --- | --- | --- |
 | ① 用户可见但不成立 | R6（三道门无生产者 + 现网回填，**这是①的正解**）、N8（前端改调新端点） | `R6 · 三道门接生产者 + 现网数据回填`、`N8 97 端点按域切流` |
-| ② AI 独立化 | O3、O5、O6、O7、R3b、R5、R7（`R0`/`R1` 2026-10-16 结案，`O0`/`R3` 同日结案并另立 `R3b · chat 切流`，`R2` 已结案，`R4` 同日结案＝出箱管道 + worker 接线，七条欠账改挂 R5/R7，见各自 ✅ 行） | `O0 · AI 独立目录归堆`、`O3 · Python 停止直写权威态`、`O5 · 派生渲染（PDF）`、`O6 · FastAPI HTTP 层退役`、`R0…R7`、`O7 · 双运行时运维面` |
+| ② AI 独立化 | O3、O5、O6、O7、R3b、R7（`R0`/`R1` 2026-10-16 结案，`O0`/`R3` 同日结案并另立 `R3b · chat 切流`，`R2` 已结案，`R4` 同日结案＝出箱管道 + worker 接线，七条欠账改挂 R5/R7，见各自 ✅ 行；**`R5` 同日结案＝管道通了、流量仍是零**，其「三处直写点」与 `oldest_pending` 两条一起改挂 R6/R7，另立 `R5b` 三条连带账） | `O0 · AI 独立目录归堆`、`O3 · Python 停止直写权威态`、`O5 · 派生渲染（PDF）`、`O6 · FastAPI HTTP 层退役`、`R0…R7`、`R5b · 入站面三条连带账`、`O7 · 双运行时运维面` |
 | ③ 上线/运维件 | N1b、K1–K6、E3、P2、Go 防爆破、vercel cron | `N1b · 共享 k3s 真实 apply`、`K1…K6`、`E3 · QStash → arq + Redis`、`P2 · IAP 的 Go JWS 验签 PoC`、`Go 登录接 Redis 防爆破`、`vercel.json 的 /api/v1/cron/journey` |
 | ④ 质量/内容欠账 | L 节遗留、A1b、D4、D5、E4，加三条**只存在于跟踪器**的登记项（测试隔离 flake / 名片 AIGC / 门限现网标定），再加 2026-10-16 登记的 `A5`／`A6`／`A7`（conviction 不进检索排序与衰减 / 分享渠道差异化与图片化名片 / 名片配色不按类型自动生成）；第四条「锚点漂移」2026-10-14 结案，见 N2 节 ✅ 行 | `L 节遗留 · 13 语言 reflect 两键的母语审校欠账`、`A1b · .trellis 文档面占星残留清理`、`pytest 跨文件共享 "u1" 库态的隔离缺口`、`名片/分享卡 PDF 的 AIGC 隐式标识`、`N4 门限的现网分布标定`、`D4 · PRD docx 同步`、`D5 · ASC 提审元数据`、`E4 · Expo SDK 51 → 53+`、`修 test_commitment 周配额那条既有失败` |
 
@@ -1155,18 +1155,21 @@
     - ⑤ **`contracts/rpc/ownership.md:182-183` 的依赖面实测已漂**（R0 落表当天的「go.mod 无 grpc、无 amqp／requirements 无 grpcio」在 R1/R2/R3/R4 之后整段不成立）⇒ **本轮已就地更正并写清是快照不是现状**（`go.mod:9-10` 实测 `amqp091-go v1.10.0`＋`grpc v1.84.0`，`requirements.txt:49-50` `grpcio>=1.84.0`＋`protobuf>=7.35.1`，`aio-pika`/`pika` 仍 **0 命中**⇒Python 不连 broker，消费面归 R5）。这条正是「手抄的契约一定会漂」的第二个实例，也是 R4-① 把 `contracts/events.md` 做成生成物的理由
     - ⑥ **4c8G 内存实测仍未做**（D-R4-8：要真集群，共享 k3s 需另批授权）⇒ 继续挂 R7，且 R7 那格现在要一起量 `go-api`＋`python-worker`＋`rabbitmq`＋`redis` 四件事，其中 `go-api` 的 worker 打开后的增量**今天无量可依**（本机没有可跑的现网 outbox 行）
     - ⑦ 本机取证环境两条留痕：5672 被 brew 的 RabbitMQ 占 ⇒ `docker run -p 5672` 起不来（要用容器得换端口映射或先 `brew services stop`）；broker 上有上一轮遗留的 `retry.30s.*`（TTL 30000），本轮那条「冲突参数被拒」的闸**正是拿它撞出 406**，所以那份残留是测试前提而不是脏数据
-- [ ] **R5 · Python ⇄ RabbitMQ（消费 Go 下发、回投 candidate）**（3d）｜V3 14、17、18 ｜缺口实测：这条队列今天**单向都不存在**
-  - [ ] Python 消费 `ai.*.requested`（Go 下发任务），handler 只 decode → AI → encode → publish `*.candidate`；幂等键走 **message property 而非 routing key**（V3 14 §7）
-  - [ ] Python **只发 candidate，不写权威表**（这是 O3 的物理落点；三处直写点改造，含 `memory_service.py:270 _detect_conflict` 从「立即新建+旧行 supersede」改为 candidate 回投）
-  - [ ] Go 消费 inbound `*.candidate` → 路由进已有领域入口（`AdmitCandidate`/`AdmitEvidence`/`AdmitProactive`…），经 `ConsumeIdempotent` + `inbox_messages`（表和 SQL 都在，缺的是 consumer）
-  - [ ] 畸形消息直入 DLQ、禁 requeue 循环
-  - [ ] **从 R4 挂过来两条**（2026-10-16 结案时登记，前提都是「消费者真的存在」，R4 期无法验）：
-    ① 指标面的 `oldest_pending`（积压年龄）——要一条 outbox 的最小时间查询，而 `db/queries/canonical.sql`
-    今天没有这个动作；R4 交付的只有 `dispatch.Stats()` 的累计计数面（batches/claimed/accepted/rejected/dlq/lost/unrecorded）。
-    ② `prefetch` 与并发消费分区（`14:150`）——那是**消费侧**参数，而 R4 期 Go 零消费者、Python 未连 broker，
-    在这一批写死一个 `Qos(n)` 就是一个没人能验证的数字
-  - 验收：跨用户/重复投递/乱序三条集成测；重复消息第二次必须被 inbox 拒且**领域入口不被调用**（用带调用计数的 fake 断言，沿 N9 domain 测手法）；变异自证 `AND`⇒`OR` 级真实破坏
-  - ↳ R4 结案时留下的现成把手：`go-core/internal/messaging/amqp/integration_broker_test.go` 那 7 条是**对面 broker 真跑过**的（2026-10-16 本机 6 PASS／1 SKIP），Python 侧接上后可以直接拿同一套拓扑做跨语言对案，不必另起一份契约
+- [x] **R5 · Python ⇄ RabbitMQ（消费 Go 下发、回投 candidate）**（3d）｜V3 14、17、18 ｜缺口实测：这条队列今天**单向都不存在**｜✅ **2026-10-16 结案**（工作单 `R5管道工作单-2026-10-16.md`）｜**结案口径逐字：管道通了，流量仍是零**——两侧消费者与回投面都接上了真进程、真库、真 broker，但三个 kill switch 默认关且清单里不出现（见下 R7 欠账），现网一条消息也不会因此流动
+  - [x] **R5-① 依赖取证＋Python 消费面**：`backend/ai/mq/`（`topology`／`contract`／`pipeline`／`publisher`／`consumer`／`worker`／`config`）按 14/17/18 三篇落地。幂等键走 **message property（`message_id`／`correlation_id`）而非 routing key**；`candidate_message_id()`＝`"cand-" + sha256(命令 message_id)[:40]`（D-R5-5，无时间无随机）；handler 只有 decode → AI → encode → publish 这一条形状，业务分支全在 `pipeline` 之外。aio-pika 装包与 D-7 体积实测同批登记（`requirements.txt`）
+  - [ ] **Python 只发 candidate，不写权威表**——⚠️ **本批只交付「合法出口」这一半，三处直写点一处都没改**（按范围收口，不是遗漏）：`memory_service.py:270 _detect_conflict` 今天仍是「立即新建 + 旧行 supersede」的直写形态（调用点 `:227`），O3 的物理落点因此**没结案** ⇒ 归 **R6**（它和 `RequestAITask` 的零调用者是同一条：谁下发、谁回投要在同一批一起判，改一处写入形状而不接消费者＝把线上写面拆了没人接）
+  - [x] **R5-② Go 的 candidate 入站消费者**：新包 `internal/messaging/inbound/`（`Runner`／`LoadSwitch`／`Decode`／`Stats`）＋ `internal/messaging/amqp/consumer.go`（真会话）＋ `cmd/go-api/main.go:164 inbound.New(...)` 接线与 `closeInbound` 停机预算。三条领域入口按 D-R5-8 那张表分流（`Admit`／`AdmitEvidence`／`AdmitProactive`），载荷经 `protojson` 解进 `gen/`，永久拒绝走「主事务回滚＋事务外补 failed 留痕」那条分道，ACK 的唯一依据是 `ConsumeResult.Ack`
+    - ↳ 这是 `Admit*`/`ConsumeIdempotent` **第一次**有生产可达的调用方（`ownership.md` §6 那两行已就地更正）；但默认档是关的：`inbound.LoadSwitch` 的 `Enabled = isOn(CLOSEN_CANDIDATE_WORKER)` ⇒ 不给就不拨号、不声明、不认领、不碰库（闸 `TestKillSwitchOffTouchesNothing`，变异靶 M6 打的就是这个默认值）
+  - [x] **畸形消息直入 DLQ、禁 requeue 循环**：契约级非法（缺 `message_id`／键↔类型不同源／`content_type`／超字节／缺 `x-user-id`／版本不认识）一律 reject＋requeue=false，永不回到用途队列（Go 侧 `TestRejectedMessageGoesToFirstRetryTierNotBackToPurposeQueue`，Python 侧 `test_illegal_command_is_parked_in_final_dlq` 12 个参数含两条 `foreign_user_id`）
+  - [x] **R5-③ 真×真×真互操作闸**：`backend/tests/test_r5_interop_broker.py` **7 例全真**（真 Go publisher × 真 Python consumer × 真 Go inbound，真 broker＋真库＋`tools/r5interop` 真进程），本机 2026-10-16 实测 **7 passed**；前置缺失逐字 skip 且理由写清「一条都没跑，别把它当绿」，`is_red_pytest` 那边也把 skip 拒于红之外
+  - [x] **从 R4 挂过来两条**：② `prefetch` 两侧都给了有证人的默认值（Python `config.py` 默认 **1**，且 `prefetch=0` 在 AMQP 里是「不限」所以被 `_positive_int` 拦死；Go `inbound.DefaultPrefetch`，`worker.py:84 set_qos`）✅。① `oldest_pending`（积压年龄）**本批仍没做** ⇒ 改挂 **R6/R7**：它要一条 `MIN(created_at) WHERE status='pending'`，而 `db/queries/canonical.sql` 今天没有这个动作，本批不许为指标面扩 SQL 面（两处代码注释 `dispatch.go:129`、`inbound/inbound.go:249` 都还写着这条没做）
+  - 验收（实测计数）：跨用户／重复投递／乱序三条集成测 ✅（`test_illegal_command_is_parked_in_final_dlq` 的 `foreign_user_id` 两参数、`test_replay_is_absorbed_by_inbox`、`test_chain_outbox_to_canonical` 的三跳逐值）；「重复消息第二次领域入口不被调用」✅（`inbound_test.go:420 TestDuplicateMessageDoesNotCallDomainTwice` 用带调用计数的 fake ＋ 互操作闸用真 `ConsumeIdempotent` 外搭 recorder 各钉一次）；变异自证见下条，**不是** `AND`⇒`OR` 级象征性破坏而是 21 条各自有受害闸的真破坏
+  - ✅ **R5-⑤ 变异自证**：`scripts/mutate_r5_gates.py` ＝ **21 条红靶全部打红 / 4 条绿闸全部保持绿 / 0 误伤 / 0 异常**，收尾自己复核 `./internal/messaging/inbound/`＋`./cmd/go-api/`＋`test_ai_mq_contract.py`＋`test_ai_mq_consumer.py` **四项全绿**，25 个锚点各自命中一次（`--check`），靶文件 `copy2` 备份写回＋`filecmp(shallow=False)` 逐字节复原（禁 `git checkout`、串行跑）。分五族：Go 入站解码/进程面（M1-M13）／跨进程独有（M14-M15）／Python 消费面（P1-P6，逐条对上工作单 §R5-⑤ 点名的 M1-M7）／绿闸（G1-G4 证明闸不认注释与合法调参）。**三条实测学到的「打不红的坏法」已写进条目描述**：① 摘 `if !sw.Enabled` 会打成 120s 包超时 panic 而不是断言红 ⇒ 改打默认值那一格；② `id(locals())` 当盐是**空变异**（CPython 复用刚释放的字典地址，派生仍确定）⇒ 改 uuid4；③ 「差值退化成累计」在**每进程只结算一条消息**的工具里是**等价变异** ⇒ 改打「观测面恒报 0」并把证人换到整链那条
+  - ⚠️ **R5-⑤ 顺手量出的两处冗余/漂移（按「发现的缺陷不顺手修」只登记）**：① `candidate_decode.go:134` 那道 header 版本门在原表里**没有独立证人**——表里那几格只改 header、体内仍是夹具的 `"1"`，`checkBodyVersion`（`:169`）用同一个 reason 兜住，摘掉整道门包仍全绿；本批补了「两侧一起升到 2」那一格（`inbound_test.go:859` 区）当证人，**两道门的取舍本身归 R5b**。② `x-schema-version` 的**写侧**类型两形态并存（`amqp/publisher.go:130` 写 int vs `contract.py:446` 写 str），读侧已按对等处理，写侧统一归 R5b
+  - 🆕 **R5b · 入站面的三条连带账**（2026-10-16 立，开工前先读 `R5管道工作单-2026-10-16.md` §三之二）：① Go 的重投阶梯只到 **30s** 一层（`topology.go:188-193` 的 retry 队列按 R4 表建，入站面复用同一套 ⇒ 2m/10m 那两层对 candidate 不起作用，毒消息会比 V3 14 说的更早进 DLQ）；② `inbound.Runner` 的解码放在 `ConsumeIdempotent` 的事务**内**，而三个领域入口各自再开事务 ⇒ **一条在途消息最多占两条连接**，prefetch 调大就是按倍数吃池（这条注释在 `inbound.go:62`）；③ 上面那两处版本门/写侧类型的收口
+  - 🆕 **R7 欠账加一条**（2026-10-16 实测）：三个 worker 的 kill switch 键在 `deploy/` 里 **0 命中**（`grep -rn "CLOSEN_CANDIDATE_WORKER\|CLOSEN_MQ_WORKER\|CLOSEN_OUTBOX_WORKER" deploy` ＝ 空）⇒ R7 收清单时要一起进去，并按「默认关」验一次
+  - 🆕 **测试卫生缺陷（R4-② 那批留下的，2026-10-16 两次实测复现）**：`TestRejectedMessageGoesToFirstRetryTierNotBackToPurposeQueue` 会把一条被拒的消息留在 `retry.30s.ai.observation.extract`，那条队列的 **TTL 到点后按设计把它投回用途队列** ⇒ 于是**此后任意一次**跑同族的 `TestUnboundEventRouteWouldBeAcknowledgedAndLost`（它判的就是"用途队列必须是空的"）都会读成「被拒的发布还是留下了痕迹」。实测两遍：整包 fresh 跑 **13 包全 ok**，约十几分钟后单独重跑 `./internal/messaging/amqp/` 当场红（`integration_broker_test.go:257` 报 `ai.observation.extract 有 1 条`），`rabbitmqctl purge_queue ai.observation.extract` 清掉那 1 条后同包重跑全绿 ⇒ **是队列残留、不是代码残渣**，也不是产品缺陷（TTL 回投正是 14 篇要的阶梯形状）。本轮跑变异脚本时每轮先清 broker 才拿到可信计数。修法（那条测自己 purge 它inspect 的那两条队列，或把断言改成"只看自己那条 message_id"）归 **T 桶·测试基建**，本批不动
+  - ↳ R4 结案时留下的现成把手：`go-core/internal/messaging/amqp/integration_broker_test.go` 那 7 条是**对面 broker 真跑过**的（2026-10-16 本机 6 PASS／1 SKIP），R5 的跨语言对案直接复用了同一套拓扑，没有另起一份契约
 - [ ] **R6 · 把三道门接上生产者（§一 那三个缺口的正解）**（4d，依赖 R4+R5）｜缺口逐字：`tasks.md:553`、`:581`、`:600`①、`:600`②
   - [ ] `AdmitEvidence` 接线：Python 抽取产物经 candidate 回投后写 evidence，并**补 `evidence.accepted` 事件类型与路由**（N7 三面欠账①：`14:68` 列了这个 routing key 但 Go 没有对应事件；加事件＝改 N4 语义，所以必须在这一批一起判）
   - [ ] `AdmitProactive`/`RecheckProactive` 触发面：cron 从「Python 直发」改为「Go 门判定 + 下发 `ai.proactive_draft.requested`」，Python 只出草稿（现役 `cron_service.py:168-188/287/320` 的 inline + QStash 形态在此退役，与 E3 一并判，不留两套队列——D-7）
@@ -1211,7 +1214,7 @@ N0(契约冻结+改判登记) ─→ N1(Go 骨架·auth 跨语言互认) ─→ 
 N4(evidence 算分+insight 九关) / N5(proactive 资格门) / N6(outcome+版本化+删除传播) / N7(outbox-inbox) 依赖 N2-N3；N9(读路径回链)＝改判 L3
 O0(AI 独立目录+边界闸·不依赖任何批，随时可做) ｜ O4(生成留痕 ✅) O5(PDF 留 Python) ｜ O1/O2 已由 D-9 改判拆进 §R
 R0(通信面裁决) ─→ R1(.proto 源+双端 codegen；旧 O1，N2/N3 已定稿故今日解锁) ─→ { R2(Go gRPC client·D-8 fail-closed) ／ R3(Python gRPC server ✅2026-10-16) ─→ R3b(Go 接线·chat 切流) ／ R4(AMQP Publisher+拓扑·4c8G 实测) }
-                                          R4+R1 ─→ R5(candidate 回投+Go inbound consumer；旧 O2 的异步面、O3 的物理落点) ─→ R6(三道门接生产者+现网回填) ─→ R7(双协议部署·e2e smoke)
+                                          R4+R1 ─→ R5(candidate 回投+Go inbound consumer ✅2026-10-16；旧 O2 的异步面已通，O3 的物理落点仍差「三处直写点」⇒ 随 R6) ─→ R6(三道门接生产者+现网回填) ─→ R7(双协议部署·e2e smoke)
 gRPC 只承担**同步**面，首批按实测调用点收窄为三个方法（`Embed`/`ClassifySafety`/`StreamChat`）；V3 06 §6 允许的 rerank 与 capability check 本仓 0 调用点故不入表；状态转移、批量派生与 Go→Python 的**任务下发命令**刻意留 MQ（否则作废 N7 的 outbox/inbox）
 P2(IAP 的 Go 验签 PoC) 是 subscription 域切流前置；P5＝领域内核只在 Go 建一遍
 N/O 不阻塞提审主线（P1）；D-1…D-8 拍板前不动代码
