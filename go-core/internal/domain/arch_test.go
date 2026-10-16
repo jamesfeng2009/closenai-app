@@ -58,9 +58,17 @@ func TestDomainDoesNotDependOnTransportLayers(t *testing.T) {
 
 // transportImports 是「换 HTTP 框架、换消息队列、换持久化驱动就要动领域层」的那批包。
 // 领域层是纯决策层（07:183-186），这些一律不许出现在它的 import 里。
+//
+// ⚠️ R1 加 protobuf 进来时**只加不减**（contracts/rpc/ownership.md §5「不改这个闸」的读法＝
+// 不许为了放出生成物而放松它）：V3 07:8 逐字 "It must not depend on PostgreSQL, RabbitMQ,
+// Protobuf or an LLM."，Protobuf 本来就在黑名单上，只是 R1 之前仓里没有任何 protobuf 依赖，
+// 这一条是空转的。现在 go-core/gen 里有了 protobuf 生成物 ⇒ 不补这一行，07:8 的 Protobuf
+// 半句就永远测不到。生成物在 go-core/gen（不在 internal/ 下），谓词先按 pkg==domainPkg 过滤，
+// 所以这一行只约束领域层，不会误伤 codegen。
 var transportImports = []string{
 	"net/http", "net/rpc", "database/sql",
 	"google.golang.org/grpc",
+	"google.golang.org/protobuf",
 	"github.com/go-chi", "github.com/gin-gonic",
 	"github.com/rabbitmq", "github.com/redis",
 	"github.com/jackc",

@@ -1,0 +1,370 @@
+{
+  "note": "R1 跨语言契约夹具（2026-10-16 首建）。这一份是**期望值的唯一来源**：\n  · Go 侧 tools/protocross -mode emit 把它 protojson 解码成生成物再 proto.Marshal ⇒ 出箱字节；\n    Python 测试用生成的 *_pb2 解析那串字节，逐字段与这里比（V3 15 §12 第一条）。\n  · Python 侧 ParseDict 这条 JSON 再 SerializeToString ⇒ 出箱字节，交给\n    tools/protocross -mode check 反向解析并回吐 JSON＋字节（V3 15 §12 第二条）。\n值都取**非零**，这样「字段丢了」与「字段是零值」在断言里分得开。\n时间戳一律 UTC＋Z 后缀（V3 15 §9 `:132-138`：canonical UTC，只在展示/调度边界转本地）。",
+  "cases": [
+    {
+      "name": "envelope_command",
+      "message": "closenai.v1.Envelope",
+      "json": {
+        "messageId": "3f2b6c1a-8d4e-4f60-9a1b-2c3d4e5f6071",
+        "messageType": "ai.observation.requested",
+        "schemaVersion": "1",
+        "occurredAt": "2026-10-16T02:15:30Z",
+        "producer": "go-api",
+        "correlationId": "gen-run-7c1e",
+        "causationId": "evt-row-42",
+        "userId": "user-9a8b",
+        "personalModelId": "pm-1c2d",
+        "attempt": 2,
+        "payload": "AAECAw=="
+      }
+    },
+    {
+      "name": "envelope_event",
+      "message": "closenai.v1.EventEnvelope",
+      "json": {
+        "messageId": "evt-outbox-1001",
+        "messageType": "fact_admitted",
+        "schemaVersion": "1",
+        "occurredAt": "2026-10-16T02:15:31Z",
+        "producer": "go-api",
+        "correlationId": "gen-run-7c1e",
+        "causationId": "msg-in-55",
+        "userId": "user-9a8b",
+        "personalModelId": "pm-1c2d",
+        "attempt": 1,
+        "payload": "AAECAw==",
+        "aggregateType": "fact",
+        "aggregateId": "fact-3e4f"
+      }
+    },
+    {
+      "name": "ev_gate_outcome",
+      "message": "closenai.v1.GateOutcome",
+      "json": {
+        "schemaVersion": "1",
+        "status": "admitted",
+        "reason": "九关全过",
+        "detail": "combined=0.8120",
+        "checks": ["evidence", "fingerprint", "strength"],
+        "fingerprint": "fp-9d8c",
+        "evidenceCount": 3
+      }
+    },
+    {
+      "name": "ev_pattern_lifecycle",
+      "message": "closenai.v1.PatternLifecycleChanged",
+      "json": {
+        "schemaVersion": "1",
+        "from": "monitoring",
+        "to": "confirmed",
+        "action": "user_confirm",
+        "outcomeType": "pattern",
+        "confidence": 0.8123
+      }
+    },
+    {
+      "name": "ev_insight_status",
+      "message": "closenai.v1.InsightStatusChanged",
+      "json": {
+        "schemaVersion": "1",
+        "status": "retracted",
+        "reason": "evidence_withdrawn",
+        "claimType": "inference",
+        "combined": 0.4210
+      }
+    },
+    {
+      "name": "ev_outcome_recorded",
+      "message": "closenai.v1.OutcomeRecordedPayload",
+      "json": {
+        "schemaVersion": "1",
+        "outcomeType": "commitment",
+        "origin": "proactive",
+        "result": "done",
+        "targets": 2
+      }
+    },
+    {
+      "name": "ev_feedback_recorded",
+      "message": "closenai.v1.FeedbackRecordedPayload",
+      "json": {
+        "schemaVersion": "1",
+        "feedbackType": "helpful",
+        "targetType": "proactive",
+        "targetId": "pa-7f6e",
+        "changed": true,
+        "status": "delivered"
+      }
+    },
+    {
+      "name": "ev_evidence_withdrawn",
+      "message": "closenai.v1.EvidenceWithdrawnPayload",
+      "json": {
+        "schemaVersion": "1",
+        "invalidated": 4,
+        "monitored": 2,
+        "revalidationRequested": 1
+      }
+    },
+    {
+      "name": "cmd_task_requested",
+      "message": "closenai.v1.TaskRequested",
+      "json": {
+        "schemaVersion": "1",
+        "taskType": "TASK_TYPE_OBSERVATION_EXTRACT",
+        "sourceRecordIds": ["sr-1a2b", "sr-3c4d"],
+        "evidenceIds": ["ev-5e6f"],
+        "sources": [
+          {
+            "sourceTable": "growth_records",
+            "sourceId": "gr-7a8b",
+            "occurredAt": "2026-10-15T21:04:00Z"
+          },
+          {
+            "sourceTable": "mood_logs",
+            "sourceId": "ml-9c0d"
+          }
+        ],
+        "policyVersion": "2026-10-12",
+        "promptVersion": "observe-v3"
+      }
+    },
+    {
+      "name": "cand_fact",
+      "message": "closenai.v1.Candidate",
+      "json": {
+        "schemaVersion": "1",
+        "kind": "KIND_FACT",
+        "origin": "direct",
+        "subjectKey": "prefers",
+        "predicate": "quiet_hours",
+        "objectValue": "22:00-23:30",
+        "confidence": 0.6200,
+        "detectorVersion": "obs-v2",
+        "evidenceIds": ["ev-1122", "ev-3344"],
+        "generationRunId": "gen-run-7c1e",
+        "generationModel": "gemini-2.5-flash",
+        "generationVer": "2026-10-12",
+        "safety": { "status": "SAFETY_STATUS_OK" }
+      }
+    },
+    {
+      "name": "cand_pattern_window",
+      "message": "closenai.v1.Candidate",
+      "json": {
+        "schemaVersion": "1",
+        "kind": "KIND_PATTERN",
+        "patternType": "temporal",
+        "scope": "workday",
+        "description": "工作日晚间情绪回落",
+        "fingerprint": "fp-5a6b",
+        "confidence": 0.7700,
+        "evidenceIds": ["ev-5566", "ev-7788", "ev-9900"],
+        "windowFrom": "2026-08-01T00:00:00Z",
+        "windowTo": "2026-10-01T00:00:00Z",
+        "safety": {
+          "status": "SAFETY_STATUS_OK",
+          "categories": ["medical"]
+        }
+      }
+    },
+    {
+      "name": "cand_insight",
+      "message": "closenai.v1.Candidate",
+      "json": {
+        "schemaVersion": "1",
+        "kind": "KIND_INSIGHT",
+        "statement": "你在被具体追问时更愿意展开",
+        "claimType": "inference",
+        "confidence": 0.5100,
+        "evidenceIds": ["ev-1a1a"],
+        "patternIds": ["pt-2b2b", "pt-3c3c"],
+        "detectorVersion": "insight-v1",
+        "generationRunId": "gen-run-9z8y",
+        "safety": { "status": "SAFETY_STATUS_CRISIS" }
+      }
+    },
+    {
+      "name": "prop_evidence",
+      "message": "closenai.v1.EvidenceCandidate",
+      "json": {
+        "schemaVersion": "1",
+        "sourceKind": "SOURCE_KIND_USER_STATEMENT",
+        "source": {
+          "sourceTable": "growth_records",
+          "sourceId": "gr-4d5e",
+          "occurredAt": "2026-10-14T09:30:00Z"
+        },
+        "evidenceType": "direct",
+        "role": "contradicting",
+        "observation": "用户说自己讨厌被打断",
+        "excerpt": "别在我说话时插进来",
+        "metadataJson": "{\"channel\":\"chat\",\"turn\":7}",
+        "explicitness": "EXPLICITNESS_EXPLICIT",
+        "specificity": "SPECIFICITY_SPECIFIC",
+        "generationRunId": "gen-run-7c1e",
+        "proposedIndependentIds": ["ev-6f70", "ev-8192"]
+      }
+    },
+    {
+      "name": "draft_proactive",
+      "message": "closenai.v1.ProactiveDraft",
+      "json": {
+        "schemaVersion": "1",
+        "candidateId": "pc-3d4e",
+        "triggerType": "TRIGGER_TYPE_PATTERN_FOLLOWUP",
+        "triggerSource": "TRIGGER_SOURCE_PATTERN_RECURRENCE",
+        "message": "这周第三次出现晚间低落了，要不要看看是哪个时段？",
+        "confidence": 0.6800,
+        "evidenceIds": ["ev-aa11"],
+        "refIds": ["pt-bb22"],
+        "anchorRefType": "REF_TYPE_PATTERN",
+        "anchorRefId": "pt-bb22",
+        "scheduledAt": "2026-10-16T22:30:00Z",
+        "expiresAt": "2026-10-17T06:00:00Z",
+        "journeyEventId": "je-cc33",
+        "generationRunId": "gen-run-9z8y",
+        "generationModel": "gemini-2.5-flash-lite",
+        "generationVer": "2026-10-12",
+        "safety": {
+          "status": "SAFETY_STATUS_UNAVAILABLE",
+          "categories": ["self_harm"]
+        }
+      }
+    },
+    {
+      "name": "ai_outcome_record",
+      "message": "closenai.v1.OutcomeRecord",
+      "json": {
+        "schemaVersion": "1",
+        "outcomeType": "commitment",
+        "summary": "按时完成了睡前记录",
+        "evidenceIds": ["ev-dd44"],
+        "occurredAt": "2026-10-16T00:10:00Z"
+      }
+    },
+    {
+      "name": "rpc_embed_request",
+      "message": "closenai.v1.EmbedRequest",
+      "json": {
+        "schemaVersion": "1",
+        "texts": ["睡前一小时我不看工作消息", "quiet hours"],
+        "dimensions": 512,
+        "model": "text-embedding-3-small",
+        "userId": "user-9a8b",
+        "purpose": "memory_write",
+        "traceId": "trace-1f2e"
+      }
+    },
+    {
+      "name": "rpc_embed_request_default_dims",
+      "message": "closenai.v1.EmbedRequest",
+      "json": {
+        "schemaVersion": "1",
+        "texts": ["只有一条，且不给 dimensions"],
+        "userId": "user-9a8b",
+        "purpose": "query_vector"
+      }
+    },
+    {
+      "name": "rpc_embed_response",
+      "message": "closenai.v1.EmbedResponse",
+      "json": {
+        "schemaVersion": "1",
+        "vectors": [
+          { "values": [0.125, -0.5, 1.0, 0.0] },
+          { "values": [0.25, 0.75, -1.0, 3.5] }
+        ],
+        "dimensions": 4,
+        "model": "text-embedding-3-small"
+      }
+    },
+    {
+      "name": "rpc_text_input",
+      "message": "closenai.v1.TextInput",
+      "json": {
+        "schemaVersion": "1",
+        "text": "我想消失一段时间",
+        "language": "zh",
+        "scope": "assertion"
+      }
+    },
+    {
+      "name": "rpc_safety_result_crisis",
+      "message": "closenai.v1.SafetyResult",
+      "json": {
+        "schemaVersion": "1",
+        "safety": {
+          "status": "SAFETY_STATUS_CRISIS",
+          "categories": ["self_harm"]
+        },
+        "reason": "危机句式命中",
+        "matched": ["消失", "不想活"],
+        "adviceBlocked": true
+      }
+    },
+    {
+      "name": "rpc_safety_result_ok",
+      "message": "closenai.v1.SafetyResult",
+      "json": {
+        "schemaVersion": "1",
+        "safety": { "status": "SAFETY_STATUS_OK" },
+        "matched": []
+      }
+    },
+    {
+      "name": "rpc_stream_chat_request",
+      "message": "closenai.v1.StreamChatRequest",
+      "json": {
+        "schemaVersion": "1",
+        "userId": "user-9a8b",
+        "content": "最近一周总是晚上情绪低落",
+        "messageType": "text",
+        "language": "zh"
+      }
+    },
+    {
+      "name": "rpc_chat_chunk_token",
+      "message": "closenai.v1.ChatChunk",
+      "json": {
+        "schemaVersion": "1",
+        "content": "听起来",
+        "finish": "CHAT_FINISH_UNSPECIFIED"
+      }
+    },
+    {
+      "name": "rpc_chat_chunk_done",
+      "message": "closenai.v1.ChatChunk",
+      "json": {
+        "schemaVersion": "1",
+        "content": "",
+        "finish": "CHAT_FINISH_DONE",
+        "memories": [
+          { "id": "mem-1a2b", "content": "睡前一小时不看工作消息", "category": "preference" },
+          { "id": "mem-3c4d", "content": "周末上午容易烦躁", "category": "pattern" }
+        ]
+      }
+    },
+    {
+      "name": "rpc_chat_chunk_blocked",
+      "message": "closenai.v1.ChatChunk",
+      "json": {
+        "schemaVersion": "1",
+        "content": "我先陪你待一会儿。",
+        "finish": "CHAT_FINISH_BLOCKED",
+        "errorCode": 40301,
+        "errorMessage": "quota_exceeded"
+      }
+    },
+    {
+      "name": "rpc_chat_chunk_error",
+      "message": "closenai.v1.ChatChunk",
+      "json": {
+        "schemaVersion": "1",
+        "finish": "CHAT_FINISH_ERROR",
+        "errorCode": 500,
+        "errorMessage": "internal"
+      }
+    }
+  ]
+}
