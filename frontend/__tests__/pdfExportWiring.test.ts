@@ -17,9 +17,11 @@ import {
   MEMORY_CARD_PDF_FILE,
   YEAR_IN_REVIEW_PDF_FILE,
   reportPdfFile,
+  lifeArchivePdfFile,
   pdfFailureKey,
   CODE_RESOURCE_NOT_FOUND,
   CODE_MEMORY_NOT_FOUND,
+  CODE_ENTITLEMENT_REQUIRED,
 } from '../src/config/pdfFiles';
 import { arrayBufferToBase64 } from '../src/utils/base64';
 
@@ -32,6 +34,7 @@ const API = 'src/services/api.ts';
 const EXPORT_SVC = 'src/services/pdfExport.ts';
 const INSIGHTS = 'src/screens/InsightsScreen.tsx';
 const SHARE = 'src/screens/ShareCardScreen.tsx';
+const PAYWALL = 'src/screens/PaywallScreen.tsx';
 const ENDPOINTS_MD = 'contracts/endpoints.md';
 const ERRORS_PY = 'backend/core/errors.py';
 
@@ -79,21 +82,35 @@ describe('① 落盘文件名与 contracts/endpoints.md §七 逐字（U2-3）',
     }
   });
 
-  it('后端 share.py 里这三个文件名字面量确实在册（§七 是生成物，源头要能回溯）', () => {
+  it('Life Archive 是拼接名：三个档位逐个按 §七 模板代入再比（批1 G2 新增的第四出口）', () => {
+    const tpl = new Map(rows.map((r) => [r.path, r.name])).get('/share/life-archive/pdf');
+    expect(tpl).toBeDefined();
+    const scopes = /export type LifeArchiveScope = ([^;]+);/.exec(read('src/types/index.ts'));
+    expect(scopes).not.toBeNull();
+    const values = [...(scopes![1].matchAll(/'([^']+)'/g) as Iterable<RegExpMatchArray>)].map((m) => m[1]);
+    expect(values).toHaveLength(3);
+    for (const s of values) {
+      expect(lifeArchivePdfFile(s as any)).toBe(tpl!.replace('{scope}', s));
+    }
+  });
+
+  it('后端 share.py 里这四个文件名字面量确实在册（§七 是生成物，源头要能回溯）', () => {
     const router = readRepo('backend/routers/share.py');
     expect(router).toContain('filename="closenai_memory_card.pdf"');
     expect(router).toContain('filename="closenai_year_in_review.pdf"');
     expect(router).toContain('closenai_{period}_report.pdf');
+    expect(router).toContain('closenai_life_archive_{scope}.pdf');
   });
 });
 
-describe('② 三条封装在册、都真被屏调用，且都吃二进制出口', () => {
+describe('② 四条封装在册、都真被屏调用，且都吃二进制出口', () => {
   const api = read(API);
 
   const wrappers: [string, string][] = [
     ['getReportPdf', `/share/report/`],
     ['getYearInReviewPdf', '/share/year-in-review/pdf'],
     ['postMemoryCardPdf', '/share/memory-card'],
+    ['getLifeArchivePdf', '/share/life-archive/pdf'],
   ];
 
   it.each(wrappers)('%s：路径写在 request<ArrayBuffer> 的位子上（契约扫描器只认这个形态）', (name, frag) => {
@@ -105,11 +122,12 @@ describe('② 三条封装在册、都真被屏调用，且都吃二进制出口
     expect(body).toContain('binary: true');
   });
 
-  it('三个封装各有且只有一个调用点，且都在屏里（防「封装未接线」）', () => {
+  it('四个封装各有且只有一个调用点，且都在屏里（防「封装未接线」）', () => {
     const sites: [string, string][] = [
       ['getReportPdf', INSIGHTS],
       ['getYearInReviewPdf', INSIGHTS],
       ['postMemoryCardPdf', SHARE],
+      ['getLifeArchivePdf', PAYWALL],
     ];
     for (const [name, rel] of sites) {
       expect(countIn(read(rel), new RegExp(`await ${name}\\(`, 'g'))).toBe(1);
@@ -117,8 +135,8 @@ describe('② 三条封装在册、都真被屏调用，且都吃二进制出口
     }
   });
 
-  it('api.ts 里只有这三处用 binary，其余调用仍走信封解包', () => {
-    expect(countIn(api, /binary: true/g)).toBe(3);
+  it('api.ts 里只有这四处用 binary，其余调用仍走信封解包', () => {
+    expect(countIn(api, /binary: true/g)).toBe(4);
     expect(api).toContain('binary?: boolean');
   });
 
@@ -128,6 +146,14 @@ describe('② 三条封装在册、都真被屏调用，且都吃二进制出口
     expect(memory.slice(0, 600)).toContain('JSON.stringify({ memory_id: memoryId })');
     const report = api.slice(api.indexOf('export async function getReportPdf'));
     expect(report.slice(0, 400)).toContain('language=${langParam()}');
+  });
+
+  it('档案封装带 scope 与 regenerate 查询参（权益与缓存口径都在后端，参数丢了就退化成默认档）', () => {
+    const at = api.indexOf('export async function getLifeArchivePdf');
+    const body = api.slice(at, api.indexOf('\n}', at));
+    expect(body).toContain('scope=${scope}');
+    expect(body).toContain('language=${langParam()}');
+    expect(body).toContain('regenerate=${regenerate}');
   });
 });
 
@@ -165,30 +191,32 @@ describe('④ 失败码 → 文案键，与 backend/core/errors.py 同值（U2-4
     return Number(m![1]);
   }
 
-  it('40402 / 40403 两个常量与 Python 侧逐值相等', () => {
+  it('40402 / 40403 / 40304 三个常量与 Python 侧逐值相等', () => {
     expect(CODE_RESOURCE_NOT_FOUND).toBe(pyCode('RESOURCE_NOT_FOUND'));
     expect(CODE_MEMORY_NOT_FOUND).toBe(pyCode('MEMORY_NOT_FOUND'));
+    expect(CODE_ENTITLEMENT_REQUIRED).toBe(pyCode('ENTITLEMENT_REQUIRED'));
   });
 
-  it('两个码各映射到自己的文案键，其余一律 generic', () => {
+  it('三个码各映射到自己的文案键，其余一律 generic', () => {
     expect(pdfFailureKey(40402)).toBe('pdf.failed.noData');
     expect(pdfFailureKey(40403)).toBe('pdf.failed.memoryGone');
+    expect(pdfFailureKey(40304)).toBe('pdf.failed.entitlement');
     expect(pdfFailureKey(500)).toBe('pdf.failed.generic');
     expect(pdfFailureKey(undefined)).toBe('pdf.failed.generic');
     expect(pdfFailureKey(null)).toBe('pdf.failed.generic');
   });
 
-  it('40304（Life Archive 权益门）不单独成档：那三条端点本批没接线', () => {
-    expect(pdfFailureKey(40304)).toBe('pdf.failed.generic');
-    expect(read(API)).not.toContain('/share/life-archive/pdf');
+  it('首读卡仍不接线：只登记，不在本批顺手补（发现缺陷不顺手修）', () => {
     expect(read(API)).not.toContain('/share/first-read-card');
   });
 
   it('三个屏的失败出口不弹裸 error.message（PDF 那条一律走 pdfFailureKey）', () => {
     expect(read(INSIGHTS)).toContain('t(pdfFailureKey(');
     expect(read(SHARE)).toContain('t(pdfFailureKey(');
+    expect(read(PAYWALL)).toContain('t(pdfFailureKey(');
     expect(read(INSIGHTS)).toContain("t('pdf.unavailable')");
     expect(read(SHARE)).toContain("t('pdf.unavailable')");
+    expect(read(PAYWALL)).toContain("t('pdf.unavailable')");
   });
 });
 
@@ -236,11 +264,12 @@ function langTable(lang: string): any {
   return (resources as any)[lang].translation;
 }
 
-describe('⑦ 文案面：pdf.* 六键 × 15 语言齐，且屏里没有自造键', () => {
+describe('⑦ 文案面：pdf.* 七键 × 15 语言齐，且屏里没有自造键', () => {
   const langs = Object.keys(resources);
   const KEYS = [
     'pdf.export', 'pdf.exporting', 'pdf.unavailable',
-    'pdf.failed.noData', 'pdf.failed.memoryGone', 'pdf.failed.generic',
+    'pdf.failed.noData', 'pdf.failed.memoryGone', 'pdf.failed.entitlement',
+    'pdf.failed.generic',
   ];
 
   it('15 个语言都在册', () => {
@@ -257,28 +286,46 @@ describe('⑦ 文案面：pdf.* 六键 × 15 语言齐，且屏里没有自造�
 
   it('屏里用到的 pdf.* 字面量键都能在 en 表查到（动态键走 pdfFailureKey）', () => {
     const en = langTable('en');
-    for (const rel of [INSIGHTS, SHARE]) {
+    for (const rel of [INSIGHTS, SHARE, PAYWALL]) {
       for (const m of read(rel).matchAll(/t\(['"](pdf\.[a-zA-Z.]+)['"]/g)) {
         const parts = m[1].split('.');
         expect(parts.reduce<any>((acc, k) => (acc == null ? acc : acc[k]), en)).toBeTruthy();
       }
     }
-    for (const key of ['pdf.failed.noData', 'pdf.failed.memoryGone', 'pdf.failed.generic']) {
+    for (const key of KEYS) {
       const parts = key.split('.');
       expect(parts.reduce<any>((acc, k) => (acc == null ? acc : acc[k]), en)).toBeTruthy();
     }
   });
 
-  it('两个入口都各有📄按钮，忙态文案与空闲文案分开', () => {
+  it('三个入口都各有📄按钮，忙态文案与空闲文案分开', () => {
     const insights = read(INSIGHTS);
     expect(countIn(insights, /t\('pdf\.export'\)/g)).toBe(2);
     expect(countIn(insights, /t\('pdf\.exporting'\)/g)).toBe(2);
     const share = read(SHARE);
     expect(share).toContain("t('pdf.export')");
     expect(share).toContain("t('pdf.exporting')");
+    const paywall = read(PAYWALL);
+    expect(paywall).toContain("t('pdf.export')");
+    // 忙态用 ActivityIndicator 而非 exporting 文案：三档共用一个按钮位，逐档文案放不下
+    expect(paywall).toContain('{exporting ? (');
   });
 
-  it('防连点：忙位覆盖两个入口，PDF 与文本分享互斥', () => {
+  it('档案导出只长在已购那一支（未购位仍是购买按钮：付款通、货也要能领）', () => {
+    const paywall = read(PAYWALL);
+    const owned = paywall.indexOf('{owned ? (');
+    const buy = paywall.indexOf('onBuyArchive(scope, sku)');
+    const exportAt = paywall.indexOf('onExportArchivePdf(scope)');
+    expect(owned).toBeGreaterThan(-1);
+    expect(exportAt).toBeGreaterThan(owned);
+    expect(exportAt).toBeLessThan(buy);
+    expect(paywall).toContain('lifeArchivePdfFile(scope)');
+    expect(paywall).toContain('await exportPdf(bytes, lifeArchivePdfFile(scope));');
+    // 权益判定不留第二真源：屏里不许自己算 owned 之外再判一次 40304
+    expect(paywall).not.toMatch(/code === 40304/);
+  });
+
+  it('防连点：忙位覆盖三个入口，PDF 与文本分享互斥', () => {
     const insights = read(INSIGHTS);
     expect(insights).toContain("const [pdfBusy, setPdfBusy] = useState<'report' | 'year' | null>(null);");
     expect(insights).toContain('if (!reportPeriod || pdfBusy) return;');
@@ -286,6 +333,13 @@ describe('⑦ 文案面：pdf.* 六键 × 15 语言齐，且屏里没有自造�
     const share = read(SHARE);
     expect(share).toContain('if (!memory || pdfBusy || sharing) return;');
     expect(share).toContain('disabled={pdfBusy || sharing}');
+    // 导出与购买共用一个 anyBusy：付费流程进行中不许并发导档案
+    const paywall = read(PAYWALL);
+    expect(paywall).toContain(
+      'const anyBusy = busy || archiveBusyScope !== null || archivePdfScope !== null;',
+    );
+    expect(paywall).toContain('if (anyBusy || !isArchiveOwned(scope)) return;');
+    expect(paywall).toContain('setArchivePdfScope(null);');
   });
 });
 
