@@ -334,6 +334,11 @@ class UserProfileResponse(BaseModel):
     # ⇒ 前端 PATCH 写得进、读不出，设置界面无法显示当前档，重进页面就显示默认值。
     # 追加在末尾是为了不打动上面已有字段的序列化顺序（切流面两侧逐字比的是字节序）。
     push_frequency: Literal["daily", "important", "off"] = "daily"
+    # 推送总开关（批 2 D-G6）：cron_service.py:445/534/583/677/849/897 与 journey_service.py:339
+    # 七处早就在读这一列，但响应里从来没回显过 ⇒ 与上面 push_frequency 同一形状的病：
+    # PATCH 写得进、读不出，界面无法显示开关的真实位置，用户只能盲设。
+    # 同样追加在末尾，不打动上面已有字段的序列化顺序。
+    push_enabled: bool = False
 
 
 class AIConsentUpdate(BaseModel):
