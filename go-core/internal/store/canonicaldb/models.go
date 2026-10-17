@@ -92,6 +92,7 @@ type OutboxMessage struct {
 	LastError     pgtype.Text
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
+	TraceID       string
 }
 
 type Outcome struct {

@@ -32,7 +32,12 @@ from pydantic import ValidationError
 from backend.ai.llm import get_embedding_model, llm
 from backend.ai.safety import SAFETY_UNAVAILABLE, safety_service
 from backend.config import settings
-from backend.core.logging import set_trace_id, set_user_id, setup_logging
+from backend.core.logging import (
+    TRACE_SHAPE,
+    set_trace_id,
+    set_user_id,
+    setup_logging,
+)
 from backend.gen import closenai_ai_rpc_pb2 as ai_pb2
 from backend.gen import closenai_ai_rpc_pb2_grpc as ai_pb2_grpc
 from backend.gen import closenai_common_pb2 as common_pb2
@@ -48,6 +53,36 @@ DEFAULT_PORT = 50051
 # （`closenai_ai_rpc.proto:108-110` 逐字点出这个坑）。ClassifySafety 不需要兜底：
 # `check_text_tri` 内部固定写 "safety_service.check_text"，与 HTTP 面同一条 purpose 可对账。
 PURPOSE_FALLBACK_EMBED = "rpc.embed"
+
+# 批 T-E：TRACE_SHAPE 只许有一份定义，在 `core/logging.py`（R3 形状闸 test_r3_handler_shape
+# 明令 rpc 层不许自己 `import re`，消毒跟着渲染层走）。这里只添键名。
+METADATA_TRACE_KEY = "x-trace-id"
+
+
+def _apply_trace(context, request=None) -> None:
+    """入站 trace：metadata 优先于 EmbedRequest.trace_id，两者都要过消毒。
+
+    两条载体的分工（proto:113 的字段只管 Embed；批 T-E 的 metadata 覆盖三个方法、
+    且畸形请求也带得到）——都带且不一致时信 metadata，因为那是 Go 客户端拦截器
+    （aiclient/trace.go）从 ctx 逐字搬运的，字段值可能被调用方漏填或填旧。
+
+    不合形状的**整条丢弃、不编造**：本进程没有响应头可回（与 HTTP dispatch 的
+    「再生成一个新 uuid」不同），凭空造一个只会产出两边 grep 都不到的孤儿 trace；
+    而把原文记进日志就是注入面本身，所以警示行只带长度不带值。
+    """
+    raw = ""
+    for key, value in context.invocation_metadata() or ():
+        if key == METADATA_TRACE_KEY:
+            raw = value
+            break
+    if not raw and request is not None:
+        raw = getattr(request, "trace_id", "") or ""
+    if not raw:
+        return
+    if TRACE_SHAPE.fullmatch(raw):
+        set_trace_id(raw)
+    else:
+        logger.warning("丢弃畸形 trace（len=%d，原文不入日志）", len(raw))
 
 
 def _schema_error(schema_version: str) -> Optional[str]:
@@ -101,6 +136,8 @@ class ClosenAIService(ai_pb2_grpc.ClosenAIServicer):
         self._chat_stream = chat_stream or chat_service.rpc_chat_stream
 
     async def Embed(self, request, context):  # noqa: N802  名字由 proto 定
+        # 批 T-E：trace 在入口就恢复，schema 校验失败的 abort 日志也带得上同一条 trace
+        _apply_trace(context, request)
         bad = _schema_error(request.schema_version)
         if bad:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, bad)
@@ -120,8 +157,8 @@ class ClosenAIService(ai_pb2_grpc.ClosenAIServicer):
 
         if request.user_id:
             set_user_id(request.user_id)
-        if request.trace_id:
-            set_trace_id(request.trace_id)
+        # request.trace_id 不再在这里裸塞（批 T-C 台账欠的那格）：入口的 _apply_trace
+        # 已按 metadata 优先＋消毒处理过，走到这里的重复赋值只会绕过消毒。
         purpose = request.purpose or PURPOSE_FALLBACK_EMBED
         try:
             vectors = await self._embed(texts, dim=dim, purpose=purpose)
@@ -145,6 +182,9 @@ class ClosenAIService(ai_pb2_grpc.ClosenAIServicer):
         )
 
     async def ClassifySafety(self, request, context):  # noqa: N802
+        # TextInput 没有 trace_id 字段（proto:136-143）——这一面**只有** metadata 一条载体，
+        # 少了对字段兜底的余地，所以批 T-E 的两条挂点（Go 拦截器／这里）任何一侧退化都会在这里显形。
+        _apply_trace(context)
         bad = _schema_error(request.schema_version)
         if bad:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, bad)
@@ -189,6 +229,7 @@ class ClosenAIService(ai_pb2_grpc.ClosenAIServicer):
         )
 
     async def StreamChat(self, request, context):  # noqa: N802
+        _apply_trace(context)
         bad = _schema_error(request.schema_version)
         if bad:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, bad)

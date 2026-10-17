@@ -4,7 +4,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -26,11 +28,15 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/amqp"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/dispatch"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/inbound"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/obs"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/posthog"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
 
 func main() {
+	// 批 T-C：日志面先于一切装配装好——JSON handler 从 ctx 自动补 trace_id/user_id。
+	// log.Fatalf 仍走标准库（启动失败时 handler 里的 ctx 也没有 trace 可带，两者等价）。
+	obs.SetupStdout()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("go-api: config: %v", err)
@@ -39,7 +45,7 @@ func main() {
 		log.Fatalf("go-api: %v", err)
 	}
 	if cfg.JWTSecret == "" {
-		log.Printf("go-api: warning: JWT_SECRET empty, every bearer token will be rejected")
+		slog.Warn("go-api: JWT_SECRET empty, every bearer token will be rejected")
 	}
 
 	poolCfg, err := pgxpool.ParseConfig(dsn.Postgres(cfg.DatabaseURL))
@@ -162,7 +168,7 @@ func main() {
 		// 节拍用包内默认（`defaultCleanupEvery`），**不给键**——D-G12 刚踩过
 		// 「键存在但没人读＝假旋钮」，这里连假旋钮的机会都不留。
 		Cleanup: candidateDomain.CleanupDeliveryRecords,
-		Log:     func(format string, args ...any) { log.Printf("go-api: "+format, args...) },
+		Log:     logBridge,
 	})
 	if err != nil {
 		// 「开了但没给 broker 地址」拒绝启动，与上面的 cutover 同一条口径：
@@ -197,7 +203,7 @@ func main() {
 		// （domain/arch_test.go 拍的那条约束，这条接线是它第一次在**生产**里被走到）。
 		Domain: candidateDomain,
 		Switch: inboundSw,
-		Log:    func(format string, args ...any) { log.Printf("go-api: "+format, args...) },
+		Log:    logBridge,
 	})
 	if err != nil {
 		log.Fatalf("go-api: candidate worker: %v", err)
@@ -212,7 +218,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
-	log.Printf("go-api: listening on %s (environment=%s)", cfg.HTTPAddr, cfg.Environment)
+	slog.Info(fmt.Sprintf("go-api: listening on %s (environment=%s)", cfg.HTTPAddr, cfg.Environment))
 
 	select {
 	case err := <-errCh:
@@ -223,9 +229,17 @@ func main() {
 		drain, cancelDrain := context.WithTimeout(context.Background(), time.Duration(cfg.ShutdownTimeoutSeconds)*time.Second)
 		defer cancelDrain()
 		if err := srv.Shutdown(drain); err != nil {
-			log.Printf("go-api: shutdown: %v", err)
+			slog.Error(fmt.Sprintf("go-api: shutdown: %v", err))
 		}
 	}
+}
+
+// logBridge 是批 T-C 装配 deps.Log 的唯一桥：dispatch/inbound 的**生命周期**日志走回调，
+// 消息级日志自己调 slog.InfoContext，两条路最终都从 obs 的同一个 JSON handler 出去。
+// main_test.go 里两个 logger 直接复用这个函数——「与 main.go 逐字同一句话」
+// 从此不靠抄写维持。
+func logBridge(format string, args ...any) {
+	slog.Info("go-api: " + fmt.Sprintf(format, args...))
 }
 
 // closeWorker 停掉 outbox worker 并等它退出。
@@ -244,12 +258,12 @@ func closeWorker(r *dispatch.Runner, cancel context.CancelFunc, done chan error,
 	case err := <-done:
 		st := r.Stats()
 		if err != nil {
-			log.Printf("go-api: outbox worker 退出带回错误：%v（accepted=%d rejected=%d dlq=%d）",
+			logBridge("outbox worker 退出带回错误：%v（accepted=%d rejected=%d dlq=%d）",
 				err, st.Accepted, st.Rejected, st.DeadLettered)
 			return
 		}
 		if st.Batches > 0 {
-			log.Printf("go-api: outbox worker 已退出：batches=%d claimed=%d accepted=%d rejected=%d dlq=%d lost=%d unrecorded=%d dials=%d redials=%d",
+			logBridge("outbox worker 已退出：batches=%d claimed=%d accepted=%d rejected=%d dlq=%d lost=%d unrecorded=%d dials=%d redials=%d",
 				st.Batches, st.Claimed, st.Accepted, st.Rejected, st.DeadLettered,
 				st.Lost, st.Unrecorded, st.Dials, st.Redials)
 			return
@@ -258,10 +272,10 @@ func closeWorker(r *dispatch.Runner, cancel context.CancelFunc, done chan error,
 		// 另一个 goroutine 打的，它与任何读日志的时机之间没有同步——实测 300 轮里
 		// 抖动 1 次（闸在 main_test.go）。而运维在停机日志里要看到的是「这段接线存在、
 		// 但灰度 0 没动过任何东西」，这句话的主语本来就是这里。
-		log.Printf("go-api: outbox worker 未启动或零批次就退出了：batches=0 dials=%d（kill switch 关着时这就是预期形态）",
+		logBridge("outbox worker 未启动或零批次就退出了：batches=0 dials=%d（kill switch 关着时这就是预期形态）",
 			st.Dials)
 	case <-timer.C:
-		log.Printf("go-api: outbox worker 在 %v 内没退出 ⇒ 放弃等待，未确认的行按租约到期后重投", budget)
+		logBridge("outbox worker 在 %v 内没退出 ⇒ 放弃等待，未确认的行按租约到期后重投", budget)
 	}
 }
 
@@ -277,12 +291,12 @@ func closeInbound(r *inbound.Runner, cancel context.CancelFunc, done chan error,
 	case err := <-done:
 		st := r.Stats()
 		if err != nil {
-			log.Printf("go-api: candidate worker 退出带回错误：%v（processed=%d transient=%d rejected=%d）",
+			logBridge("candidate worker 退出带回错误：%v（processed=%d transient=%d rejected=%d）",
 				err, st.Processed, st.Transient, st.Rejected)
 			return
 		}
 		if st.Received > 0 {
-			log.Printf("go-api: candidate worker 已退出：received=%d processed=%d duplicate=%d rejected=%d "+
+			logBridge("candidate worker 已退出：received=%d processed=%d duplicate=%d rejected=%d "+
 				"transient=%d acks=%d nacks=%d settle_errs=%d dials=%d redials=%d",
 				st.Received, st.Processed, st.Duplicates, st.Rejected, st.Transient,
 				st.Acks, st.Nacks, st.SettleErrs, st.Dials, st.Redials)
@@ -290,9 +304,9 @@ func closeInbound(r *inbound.Runner, cancel context.CancelFunc, done chan error,
 		}
 		// 与 closeWorker 同一条理由：零消费时的这句话由退出路径自己说，不靠 Run 里那行
 		// 「未启动」——那行出自另一个 goroutine，与读日志的时机没有同步，是一条会抖动的闸。
-		log.Printf("go-api: candidate worker 未启动或零消费就退出了：received=0 dials=%d（kill switch 关着时这就是预期形态）",
+		logBridge("candidate worker 未启动或零消费就退出了：received=0 dials=%d（kill switch 关着时这就是预期形态）",
 			st.Dials)
 	case <-timer.C:
-		log.Printf("go-api: candidate worker 在 %v 内没退出 ⇒ 放弃等待，未确认的消息由 broker 重投", budget)
+		logBridge("candidate worker 在 %v 内没退出 ⇒ 放弃等待，未确认的消息由 broker 重投", budget)
 	}
 }

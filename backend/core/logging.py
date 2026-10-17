@@ -16,8 +16,16 @@
 """
 import contextvars
 import logging
+import re
 import sys
 from typing import Any
+
+# T-8 trace 值消毒形状（工作单 2026-10-17）。**只有一份定义**，三个读点：
+# HTTP dispatch（core/middleware.py）、gRPC 服务端（ai/rpc/server.py 的 _apply_trace，
+# 批 T-E——R3 形状闸 test_r3_handler_shape 明令 rpc 层不许自己 `import re`），
+# 以及对面 Go 的 httpapi.sanitizeTraceID（同一正则字面量，跨语言由测试钉住）。
+# 必须 fullmatch：Python 的 `$` 会放过结尾换行，`abc\n` 得拒（一条日志变两条）。
+TRACE_SHAPE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 # 请求上下文变量
 _trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")

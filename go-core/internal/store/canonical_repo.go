@@ -806,7 +806,7 @@ func (t *canonicalTx) EnqueueOutbox(ctx context.Context, row domain.OutboxRow) e
 		ID: row.ID, MessageID: row.MessageID, MessageType: row.MessageType,
 		SchemaVersion: int32(row.SchemaVersion), RoutingKey: row.RoutingKey,
 		UserID: row.UserID, CorrelationID: row.CorrelationID,
-		CausationID: row.CausationID, Payload: row.Payload,
+		CausationID: row.CausationID, TraceID: row.TraceID, Payload: row.Payload,
 	})
 	return wrap("insert outbox_messages", err)
 }
@@ -894,7 +894,7 @@ func (c *Canonical) ClaimOutboxBatch(ctx context.Context, batchLimit,
 			ID: row.ID, MessageID: row.MessageID, MessageType: row.MessageType,
 			SchemaVersion: int(row.SchemaVersion), RoutingKey: row.RoutingKey,
 			UserID: row.UserID, CorrelationID: row.CorrelationID,
-			CausationID: row.CausationID, Payload: row.Payload,
+			CausationID: row.CausationID, TraceID: row.TraceID, Payload: row.Payload,
 			AttemptCount: int(row.AttemptCount), LeaseExpiresAt: timeOf(row.AvailableAt),
 		})
 	}

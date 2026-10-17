@@ -44,8 +44,10 @@ type Envelope struct {
 	UserID        string
 	CorrelationID string
 	CausationID   string
-	Payload       string
-	AttemptCount  int
+	// TraceID 空串＝这一行产生于无 trace 的上下文；发布侧据此决定写不写 header。
+	TraceID      string
+	Payload      string
+	AttemptCount int
 }
 
 // Publisher 把一条消息交给 broker。
@@ -186,7 +188,7 @@ func EnvelopeOf(claim domain.OutboxClaim) Envelope {
 	return Envelope{MessageID: claim.MessageID, MessageType: claim.MessageType,
 		SchemaVersion: claim.SchemaVersion, RoutingKey: claim.RoutingKey,
 		UserID: claim.UserID, CorrelationID: claim.CorrelationID,
-		CausationID: claim.CausationID, Payload: claim.Payload,
+		CausationID: claim.CausationID, TraceID: claim.TraceID, Payload: claim.Payload,
 		AttemptCount: claim.AttemptCount}
 }
 

@@ -103,6 +103,7 @@ func (s *Service) RequestAITask(ctx context.Context, st Store, req AITaskRequest
 		UserID:        req.UserID,
 		CorrelationID: s.correlationForCommand(ctx, req),
 		CausationID:   causationFor(ctx),
+		TraceID:       TraceIDFrom(ctx),
 		Payload:       payload,
 	})
 }

@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +54,9 @@ const (
 	HeaderUserID        = "x-user-id"
 	HeaderCausationID   = "x-causation-id"
 	HeaderAttemptCount  = "x-attempt-count"
+	// HeaderTraceID 批 T-B 消费侧（与 amqp/publisher.go 同名同值，两侧不许漂移）：
+	// 缺头不拒——「没有 trace」是合法形态（后台 cron 起源的命令）。
+	HeaderTraceID = "x-trace-id"
 )
 
 // 进程参数默认值。都是**代码里的默认**，不是 env 键（见上面 EnvWorker 那条取舍）：
@@ -449,6 +453,9 @@ func (r *Runner) closeSession() {
 // 而那一侧的连接是它自己起的 broker 会话；把这条路径做成 Run 的私有细节，
 // 互操作闸就只能去复制一份消费循环了。
 func (r *Runner) Handle(ctx context.Context, d Delivery) (domain.ConsumeResult, error) {
+	// 批 T-B 消费侧恢复：候选携带的是触发那条命令的请求 trace，
+	// 注回 ctx 后 Admit 事务里 emit 的 follow-up outbox 行继续同链（G-B2 断言这一跳）。
+	ctx = domain.WithTraceID(ctx, d.HeaderString(HeaderTraceID))
 	msg, preErr := envelope(d)
 	if preErr != nil {
 		// 连幂等键都拿不到 ⇒ inbox 那条唯一键写不进去，留痕面根本不存在（18 §7）。
@@ -575,7 +582,7 @@ func (r *Runner) requestFollowUp(ctx context.Context, st domain.Store, d Deliver
 		return err
 	}
 	r.count(func(s *Stats) { s.FollowUpsEnqueued++ })
-	r.logf("candidate: %s 入库 ⇒ 已入队下一段命令 %s（来源 message_id=%s）",
+	r.logfC(ctx, "candidate: %s 入库 ⇒ 已入队下一段命令 %s（来源 message_id=%s）",
 		admitted, next.RoutingKey(), d.MessageID)
 	return nil
 }
@@ -602,11 +609,11 @@ func (r *Runner) logOutcome(d Delivery, res domain.ConsumeResult, err error) {
 		return
 	}
 	if err != nil {
-		r.logf("inbound: %s 消费失败 status=%s ack=%v message_id=%s：%v",
+		r.logfD(d, "inbound: %s 消费失败 status=%s ack=%v message_id=%s：%v",
 			d.RoutingKey, res.Status, res.Ack, d.MessageID, err)
 		return
 	}
-	r.logf("inbound: %s ⇒ %s（message_id=%s，ack=%v）%s",
+	r.logfD(d, "inbound: %s ⇒ %s（message_id=%s，ack=%v）%s",
 		d.RoutingKey, res.Status, d.MessageID, res.Ack, res.Detail)
 }
 
@@ -617,6 +624,18 @@ func (r *Runner) count(f func(*Stats)) {
 }
 
 func (r *Runner) logf(format string, args ...any) { r.deps.Log(format, args...) }
+
+// logfC 消息级日志（批 T-C）：ctx 里带着 Handle 入口恢复的 trace，
+// obs 的 handler 自动补 trace_id/user_id 字段；生命周期日志仍走 deps.Log 回调。
+func (r *Runner) logfC(ctx context.Context, format string, args ...any) {
+	slog.InfoContext(ctx, "go-api: "+fmt.Sprintf(format, args...))
+}
+
+// logfD 从 Delivery 的 trace 头起一个一次性 ctx 再打日志：
+// 消费结果（ack/拒/失败）发生在 Handle 的 ctx 之外，但同一批判据要求它们可 grep。
+func (r *Runner) logfD(d Delivery, format string, args ...any) {
+	r.logfC(domain.WithTraceID(context.Background(), d.HeaderString(HeaderTraceID)), format, args...)
+}
 
 // rejectCode 从 ConsumeIdempotent 带回的错误里取原始码面（PermanentRejection.Code）。
 func rejectCode(err error) string {

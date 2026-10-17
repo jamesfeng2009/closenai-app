@@ -54,7 +54,8 @@ func RoutingKeyFor(eventType string) (string, bool) {
 }
 
 // OutboxRow 是要写进 outbox_messages 的一行。字段面 = 18 §3 的十三列 + N7-1 的
-// 三列偏离（user_id 供 D-5 purge、correlation_id/causation_id 供 17 §6/§7 链路追踪）。
+// 三列偏离（user_id 供 D-5 purge、correlation_id/causation_id 供 17 §6/§7 链路追踪）
+// + 批 T-B 的第四列偏离 trace_id（异步段续链，工作单 T-2）。
 type OutboxRow struct {
 	ID string
 	// MessageID 是逻辑操作边界的稳定 ID（18 §10）：本项目取事件行 PK，
@@ -66,7 +67,9 @@ type OutboxRow struct {
 	UserID        string
 	CorrelationID string
 	CausationID   string
-	Payload       string
+	// TraceID 是产生这一行的请求 trace（空串＝后台上下文，无 trace 可续）。
+	TraceID string
+	Payload string
 }
 
 // OutboxClaim 是 worker 认领到的一条待投递消息（池面读投影，18 §5）。
@@ -80,6 +83,7 @@ type OutboxClaim struct {
 	UserID         string
 	CorrelationID  string
 	CausationID    string
+	TraceID        string
 	Payload        string
 	AttemptCount   int
 	LeaseExpiresAt time.Time
@@ -155,7 +159,7 @@ func (s *Service) emit(ctx context.Context, st Store, row EventRow) error {
 		ID: s.newID(), MessageID: row.ID, MessageType: row.EventType,
 		SchemaVersion: s.gate.Policy.Delivery.SchemaVersion, RoutingKey: routingKey,
 		UserID: row.UserID, CorrelationID: s.correlationFor(ctx, row),
-		CausationID: causationFor(ctx), Payload: payload,
+		CausationID: causationFor(ctx), TraceID: TraceIDFrom(ctx), Payload: payload,
 	})
 }
 

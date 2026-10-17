@@ -186,7 +186,12 @@ func (c *GRPC) client() (closenaiv1.ClosenAIClient, error) {
 // 用 grpc.NewClient 而不是 grpc.Dial：后者自 1.6x 起标 deprecated，而 NewClient 明确不在启动期连接，
 // 正好对上上面「AI 面配错不许让进程起不来」那条要求。
 func (c *GRPC) newConn() (*grpc.ClientConn, error) {
-	return grpc.NewClient(c.opts.Target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return grpc.NewClient(c.opts.Target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// 批 T-E：出站 metadata 带 x-trace-id（trace.go）。链上只有这一环，
+		// 于是「谁注入了 trace」这个问题在本包只有一个答案。
+		grpc.WithChainUnaryInterceptor(withTraceUnary),
+		grpc.WithChainStreamInterceptor(withTraceStream))
 }
 
 func (c *GRPC) Close() error {

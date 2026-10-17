@@ -683,9 +683,9 @@ LIMIT 1;
 -- name: InsertOutboxMessage :one
 INSERT INTO outbox_messages (
     id, message_id, message_type, schema_version, routing_key, user_id,
-    correlation_id, causation_id, payload, status, attempt_count, available_at
+    correlation_id, causation_id, trace_id, payload, status, attempt_count, available_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', 0, now()
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 0, now()
 )
 RETURNING id;
 
@@ -711,7 +711,7 @@ SET status = 'publishing',
 FROM picked
 WHERE o.id = picked.id
 RETURNING o.id, o.message_id, o.message_type, o.schema_version, o.routing_key,
-    o.user_id, o.correlation_id, o.causation_id, o.payload, o.status,
+    o.user_id, o.correlation_id, o.causation_id, o.trace_id, o.payload, o.status,
     o.attempt_count, o.available_at;
 
 -- 18 §6 + 14 §11：只有 broker 确认投递才置 published。`AND status='publishing'` 是租约守卫——

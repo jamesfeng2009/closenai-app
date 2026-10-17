@@ -39,6 +39,9 @@ const (
 	HeaderUserID        = "x-user-id"
 	HeaderCausationID   = "x-causation-id"
 	HeaderAttemptCount  = "x-attempt-count"
+	// HeaderTraceID 是批 T-B 的第五个归属/关联头（工作单 T-2/T-5）：
+	// **非空才写**——空串上头会把「无 trace」在对面读成一条真链路。
+	HeaderTraceID = "x-trace-id"
 )
 
 // 两类失败分开：
@@ -133,6 +136,10 @@ func (p *Publisher) Publish(ctx context.Context, msg outbox.Envelope) error {
 			HeaderAttemptCount:  msg.AttemptCount,
 		},
 		Body: []byte(msg.Payload),
+	}
+	// 空 trace 不占位（见 HeaderTraceID 注释）；变异 M-B2 打的正是这个条件。
+	if msg.TraceID != "" {
+		pub.Headers[HeaderTraceID] = msg.TraceID
 	}
 
 	// 每条一个独立预算：ctx 已由 worker 给到整体生命周期，这里收窄到单条确认，

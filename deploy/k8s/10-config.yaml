@@ -2,6 +2,15 @@
 # backend/config.py 读同一批名字，任一侧改名都会破坏互认（见 test_go_auth_interop.py）。
 # 敏感项（DATABASE_URL / JWT_SECRET / CRON_SECRET / provider keys）一律走 Secret
 # closenai-runtime，清单里不出现值——创建命令见本目录 README 段末尾的注释。
+#
+# ── 日志口径（批 T-F，2026-10-17）──────────────────────────────
+# 本 namespace 三个 Deployment（go-api／py-api／ai-rpc）的 stdout 是**唯一日志载体**：
+# Go 侧 slog JSON 行（internal/obs 注入 trace_id/user_id，缺值渲染 "-"），Python 侧
+# core/logging ContextFilter 文本行（trace_id=<值>，形状同一字面量）。
+# deploy/k8s/60-observability/ 的 Loki＋promtail 清单只认这两种形状做索引——
+# 形状字面量由 backend/tests/test_trace_observability_manifests.py 三方钉死。
+# 本 ConfigMap **不新增任何日志相关键**：「要不要收进 Loki」不是运行时开关，
+# 采集面属部署配置；应用（上刀）另行授权，本目录当前只是文件。
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -58,8 +58,9 @@ func (s *Session) Consume(ctx context.Context, queue string, prefetch int) (<-ch
 }
 
 // convert 把 amqp091 的交付搬进端口结构。幂等三件套（message_id/type/correlation_id）走
-// 标准属性（14 §5 的六项），user_id／causation／attempt 走 headers——**只有这两类**，
-// 因为 AMQP 没有 causation 这一格属性（见 publisher.go:35-42 的同一取舍）。
+// 标准属性（14 §5 的六项），user_id／causation／attempt／trace（最后一项是批 T-B 加的）
+// 走 headers——分派只有这两类，因为 AMQP 没有 causation／trace 这两格属性
+// （见 publisher.go:35-42 的同一取舍）。
 func convert(d amqp091.Delivery) inbound.Delivery {
 	return inbound.Delivery{
 		RoutingKey:    d.RoutingKey,

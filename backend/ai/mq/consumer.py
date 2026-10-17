@@ -37,6 +37,7 @@ from backend.ai.mq.contract import (
 from backend.ai.mq.pipeline import ACK, REQUEUE, Decision
 from backend.ai.mq.publisher import AioDeadLetterPublisher
 from backend.ai.mq.registry import Registry
+from backend.core.logging import set_trace_id
 
 #: 投递回调需要的消息面（aio_pika.AbstractIncomingMessage 逐字满足；测试用假对象）。
 #: 刻意不含 ``queue``——队列名由 worker 在订阅时显式传入：broker 给的消息属性里没有队列名，
@@ -181,6 +182,11 @@ class CommandConsumer:
             )
         except ContractError as exc:
             return Decision(pipeline.REJECT, exc.reason, exc.detail)
+        # 批 T-B 消费侧：把发布方带来的 trace 恢复进本消息处理的 contextvar——
+        # worker 进程装了 ContextFilter（批 T-A）后，这一跳起该消息的所有日志
+        # （含回投 candidate 的 publish 行）都带同一条链；缺头不动作（后台起源合法）。
+        if command.trace_id:
+            set_trace_id(command.trace_id)
         return await pipeline.run(
             command,
             registry=self._registry,

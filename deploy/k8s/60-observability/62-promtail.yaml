@@ -1,0 +1,153 @@
+# 批 T-F（⑦）· promtail：静态 scrape 三个 Deployment 的 stdout，trace_id 进索引标签。
+#
+# 与上刀无关（工作单口径：本批 DoD 到「文件入库＋评审可读」，apply ＝ T-9 另行授权）。
+#
+# 为什么是 static_configs＋__path__ 通配，而不是 kubernetes_sd_configs：
+# · 后者要 RBAC（get/list/watch pods），promtail 今天只需要**读节点上的日志文件**；
+#   为省三段 pipeline 去开一整套 API 权限，是不成比例的授权面。
+# · 静态通配把抓取范围写死成「closenai namespace 里这三个前缀的 Pod」——多一个 Deployment
+#   就得多改一处，这是**故意的**：采集面扩张必须在这份文件里显形，不能靠标签选择器自动扩。
+#
+# 两侧日志形状不同，pipeline 也就不同（这正是 T-C 立「逐字对齐」时留的钩子）：
+# · go-api＝slog JSON 行：`json` 阶段抽 trace_id/user_id/level，`labels` 阶段进索引；
+# · py-api／ai-rpc＝ContextFilter 文本行：`trace_id=<值>` 用 regex 抽，形状闸与
+#   `core/logging.py TRACE_SHAPE` 同一字面量（1-128 的 [A-Za-z0-9._-]），漂移就查不到。
+# 缺值渲染是 "-"（两侧同），所以 "-" 也会成为一个标签值——别把它当「有 trace」。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: closenai
+  labels:
+    app: promtail
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+    positions:
+      # emptyDir＝Pod 重启即重扫文件尾部之前的一小段；重复行由 Loki 的去重兜住。
+      # 要跨重启保位点就把这个路径换成 hostPath——那是运维决定，不是本批默认。
+      filename: /run/promtail/positions.yaml
+    clients:
+      - url: http://loki.closenai.svc.cluster.local:3100/loki/api/v1/push
+    scrape_configs:
+      # ── go-api：slog JSON ────────────────────────────────
+      - job_name: closenai-go-api
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: closenai
+              app: go-api
+              source: slog-json
+              host: closenai-k3s
+              __path__: /var/log/pods/closenai_go-api-*/*/*.log
+        pipeline_stages:
+          - json:
+              expressions:
+                trace_id: trace_id
+                user_id: user_id
+                level: level
+                msg: msg
+                time: time
+          - labels:
+              trace_id:
+              user_id:
+              level:
+          - timestamp:
+              source: time
+              format: RFC3339Nano
+      # ── py-api：ContextFilter 文本行 ─────────────────────
+      - job_name: closenai-py-api
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: closenai
+              app: py-api
+              source: python-text
+              host: closenai-k3s
+              __path__: /var/log/pods/closenai_py-api-*/*/*.log
+        pipeline_stages:
+          - regex:
+              expression: 'trace_id=(?P<trace_id>[A-Za-z0-9._-]{1,128})'
+          - labels:
+              trace_id:
+      # ── ai-rpc：同一 ContextFilter 形状，独立 job 独立通配 ─
+      - job_name: closenai-ai-rpc
+        static_configs:
+          - targets:
+              - localhost
+            labels:
+              job: closenai
+              app: ai-rpc
+              source: python-text
+              host: closenai-k3s
+              __path__: /var/log/pods/closenai_ai-rpc-*/*/*.log
+        pipeline_stages:
+          - regex:
+              expression: 'trace_id=(?P<trace_id>[A-Za-z0-9._-]{1,128})'
+          - labels:
+              trace_id:
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: closenai
+  labels:
+    app: promtail
+spec:
+  # DaemonSet 而不是 Deployment：读的是**节点上的** /var/log/pods，单节点下两者等价，
+  # 多节点时 Deployment 会漏采「不在同一节点上的 Pod」——形状先站对，别等出事再改判。
+  selector:
+    matchLabels:
+      app: promtail
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      containers:
+        - name: promtail
+          # 与 loki 同一发布线（tag 与 61-loki.yaml 的钉选同步改，别只挪一边）。
+          image: grafana/promtail:3.3.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+              readOnly: true
+            # 采集面只读：promtail 永远不该往节点日志目录写字（positions 在 emptyDir）。
+            - name: pods-logs
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: run
+              mountPath: /run/promtail
+      volumes:
+        - name: config
+          configMap:
+            name: promtail-config
+        - name: pods-logs
+          hostPath:
+            path: /var/log/pods
+            type: Directory
+        - name: run
+          emptyDir: {}

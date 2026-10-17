@@ -45,6 +45,9 @@ HEADER_SCHEMA_VERSION = "x-schema-version"
 HEADER_USER_ID = "x-user-id"
 HEADER_CAUSATION_ID = "x-causation-id"
 HEADER_ATTEMPT_COUNT = "x-attempt-count"
+# 批 T-B（工作单 T-5）：异步段续链的唯一载体；缺头是合法形态（后台 cron 起源），
+# 读侧宽松、写侧非空才占位（与 Go amqp/publisher.go 的 HeaderTraceID 同一取舍）。
+HEADER_TRACE_ID = "x-trace-id"
 
 #: 认识的 payload schema_version。与 Go 侧 ``domain`` 的 ``Delivery.SchemaVersion`` 同值；
 #: 不认识 ⇒ 永久拒绝（``14 §7``「拒收不支持的版本」），因为版本不认识的消息 requeue
@@ -128,6 +131,9 @@ class Command:
     attempt: int
     body: Mapping[str, Any]
     body_size: int
+    # ''＝命令没带 trace 头（批 T-B）；放在最末带默认值，既不动既有构造的逐字形状，
+    # 也不引入「默认值在非默认值前」的 dataclass 定义期错误。
+    trace_id: str = ""
 
     @property
     def task_kind(self) -> str:
@@ -303,6 +309,7 @@ def parse_command(
         attempt=attempt,
         body=parsed,
         body_size=len(body),
+        trace_id=_as_str(table.get(HEADER_TRACE_ID)).strip(),
     )
 
 
@@ -432,6 +439,17 @@ def encode_candidate(
     # message_type 的命名法与命令面同一条规则（点换下划线）：
     # `ai.pattern.requested`→`ai_pattern_requested`（commands.go:47），
     # `candidate.pattern`→`candidate_pattern`。
+    # 空 trace 不占位（与 Go publisher 同一条口径）：把「没有链路」印成一条空链路，
+    # 对面 grep 出来的是假证人。
+    headers: dict[str, Any] = {
+        HEADER_SCHEMA_VERSION: command.schema_version,
+        HEADER_USER_ID: command.user_id,
+        HEADER_CAUSATION_ID: command.message_id,
+        HEADER_ATTEMPT_COUNT: command.attempt,
+    }
+    if command.trace_id:
+        headers[HEADER_TRACE_ID] = command.trace_id
+
     return CandidateMessage(
         exchange=exchange,
         routing_key=f"candidate.{kind}",
@@ -441,10 +459,5 @@ def encode_candidate(
         body=raw,
         correlation_id=command.correlation_id or command.message_id,
         causation_id=command.message_id,
-        headers={
-            HEADER_SCHEMA_VERSION: command.schema_version,
-            HEADER_USER_ID: command.user_id,
-            HEADER_CAUSATION_ID: command.message_id,
-            HEADER_ATTEMPT_COUNT: command.attempt,
-        },
+        headers=headers,
     )

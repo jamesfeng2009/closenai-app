@@ -1,7 +1,7 @@
 -- Canonical schema baseline handed to the Go toolchain (D-7).
 -- Provenance: pg_dump of the PostgreSQL 16 database produced by `alembic upgrade head`
 --   command: docker exec closenai-pg-dev pg_dump -U postgres -d closenai --schema-only --no-owner --no-privileges -t public.outbox_messages
---   captured: 2026-10-13; alembic head revision d9b1f3a5c7e9
+--   captured: 2026-10-17; alembic head revision e7a2c4b6d8f1
 -- DDL ownership stays with backend/alembic until N2 defines the canonical tables;
 -- this file is the read-only snapshot sqlc/golang tooling generates against.
 -- Regenerate with scripts/export_pg_schema.py; do not hand-edit.
@@ -50,6 +50,7 @@ CREATE TABLE public.outbox_messages (
     last_error character varying(512),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    trace_id character varying(128) DEFAULT ''::character varying NOT NULL,
     CONSTRAINT outbox_messages_attempt_count_check CHECK ((attempt_count >= 0)),
     CONSTRAINT outbox_messages_schema_version_check CHECK ((schema_version >= 1))
 );

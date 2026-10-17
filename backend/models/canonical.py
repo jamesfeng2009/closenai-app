@@ -593,6 +593,8 @@ class OutboxMessage(Base):
     # ''＝无父消息：刻意不用 NULL（N7-1 偏离②/③）
     correlation_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     causation_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    # ''＝产生这一行的上下文没有 trace（后台 cron／存量行）——批 T-B，工作单 T-2
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

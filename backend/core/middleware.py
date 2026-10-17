@@ -20,6 +20,7 @@ from starlette.responses import Response
 from backend.core.auth import resolve_user_id_from_request
 from backend.core.errors import AppException, ErrorCode
 from backend.core.logging import (
+    TRACE_SHAPE,
     get_logger,
     set_trace_id,
     set_user_id,
@@ -32,13 +33,20 @@ logger = get_logger("closenai.middleware")
 TRACE_HEADER = "X-Trace-Id"
 
 
+def sanitize_trace_id(raw: str | None) -> str:
+    """合规值逐字放行，其余（缺失/超长/控制字符）一律返回空串，由调用方重生成。"""
+    if raw is not None and TRACE_SHAPE.fullmatch(raw):
+        return raw
+    return ""
+
+
 class TraceIdMiddleware(BaseHTTPMiddleware):
     """为每个请求生成/透传 trace_id，并设置进 contextvar。"""
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        trace_id = request.headers.get(TRACE_HEADER) or str(uuid.uuid4())
+        trace_id = sanitize_trace_id(request.headers.get(TRACE_HEADER)) or str(uuid.uuid4())
         set_trace_id(trace_id)
         # 在【外层 context】解析并设置 user_id，保证成功与异常路径日志都能透传
         set_user_id(resolve_user_id_from_request(request))

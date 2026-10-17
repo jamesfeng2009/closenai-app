@@ -34,6 +34,7 @@ from backend.ai.mq.publisher import (
     open_publishers,
 )
 from backend.ai.mq.registry import Registry
+from backend.core.logging import setup_logging
 
 log = logging.getLogger("backend.ai.mq.worker")
 
@@ -166,9 +167,9 @@ async def amain(sw: Switch, registry: Registry | None = None) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m backend.ai.mq.worker")
     parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+    # 与请求进程同一套根配置（含 ContextFilter）：本进程是独立入口，
+    # 不装的话 worker 日志里永远没有 trace_id 字段可 grep。
+    setup_logging()
     try:
         sw = load_switch()
     except SwitchError as exc:

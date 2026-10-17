@@ -73,6 +73,22 @@ export function scrubEvent(event: Event): Event {
 let started = false;
 
 /**
+ * 最近一次请求的 trace id（批 T-D）。**只存内存**：不落盘、不进 AsyncStorage/SecureStore，
+ * 进程一死就没了——它是「这次崩溃前最后一次服务端交互」的关联键，不是持久标识。
+ * 形状闸与服务端 T-8 消毒同一口径：不合形的值（含 CR/LF、超长）连内存都不进。
+ */
+let lastTrace: string | null = null;
+const TRACE_SHAPE = /^[A-Za-z0-9._-]{1,128}$/;
+
+export function noteLastTrace(traceId: string | null | undefined): void {
+  if (traceId && TRACE_SHAPE.test(traceId)) lastTrace = traceId;
+}
+
+export function getLastTrace(): string | null {
+  return lastTrace;
+}
+
+/**
  * 初始化崩溃监控。App 入口尽早调用（模块顶层、渲染之前）。
  * 未配置 DSN 时直接返回，不做任何事。
  */
@@ -90,12 +106,17 @@ export function startMonitoring(): void {
 }
 
 /**
- * 上报一条异常。tags 只放枚举型元信息（环节名、平台），
+ * 上报一条异常。tags 只放枚举型元信息（环节名、平台）与 trace id，
  * 不要放任何来自用户数据的字符串——那类值应当走 analytics 的行为白名单。
+ * trace_id 是随机不透明 id（用户数据不进入它），作用是让崩溃报告能指回服务端那行日志；
+ * ApiError 自带的那次请求采用值优先于「最近一次」。
  */
 export function reportError(error: unknown, tags?: Record<string, string | number | boolean>): void {
   if (!started) return;
-  Sentry.captureException(error, tags && Object.keys(tags).length > 0 ? { tags } : undefined);
+  const trace = (error as { traceId?: string } | null)?.traceId ?? getLastTrace();
+  const merged: Record<string, string | number | boolean> = { ...(tags ?? {}) };
+  if (trace) merged.trace_id = trace;
+  Sentry.captureException(error, Object.keys(merged).length > 0 ? { tags: merged } : undefined);
 }
 
 /** 立即把待发事件推出去（ErrorBoundary 兜底页展示后用，避免进程随后退出导致报告丢失）。 */

@@ -69,7 +69,7 @@ SET status = 'publishing',
 FROM picked
 WHERE o.id = picked.id
 RETURNING o.id, o.message_id, o.message_type, o.schema_version, o.routing_key,
-    o.user_id, o.correlation_id, o.causation_id, o.payload, o.status,
+    o.user_id, o.correlation_id, o.causation_id, o.trace_id, o.payload, o.status,
     o.attempt_count, o.available_at
 `
 
@@ -87,6 +87,7 @@ type ClaimOutboxBatchRow struct {
 	UserID        string
 	CorrelationID string
 	CausationID   string
+	TraceID       string
 	Payload       string
 	Status        string
 	AttemptCount  int32
@@ -115,6 +116,7 @@ func (q *Queries) ClaimOutboxBatch(ctx context.Context, arg ClaimOutboxBatchPara
 			&i.UserID,
 			&i.CorrelationID,
 			&i.CausationID,
+			&i.TraceID,
 			&i.Payload,
 			&i.Status,
 			&i.AttemptCount,
@@ -1033,9 +1035,9 @@ const insertOutboxMessage = `-- name: InsertOutboxMessage :one
 
 INSERT INTO outbox_messages (
     id, message_id, message_type, schema_version, routing_key, user_id,
-    correlation_id, causation_id, payload, status, attempt_count, available_at
+    correlation_id, causation_id, trace_id, payload, status, attempt_count, available_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', 0, now()
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 0, now()
 )
 RETURNING id
 `
@@ -1049,6 +1051,7 @@ type InsertOutboxMessageParams struct {
 	UserID        string
 	CorrelationID string
 	CausationID   string
+	TraceID       string
 	Payload       string
 }
 
@@ -1068,6 +1071,7 @@ func (q *Queries) InsertOutboxMessage(ctx context.Context, arg InsertOutboxMessa
 		arg.UserID,
 		arg.CorrelationID,
 		arg.CausationID,
+		arg.TraceID,
 		arg.Payload,
 	)
 	var id string

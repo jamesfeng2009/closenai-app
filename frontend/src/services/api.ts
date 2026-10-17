@@ -10,6 +10,8 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import i18n from '../i18n';
+import { newTraceId } from '../utils/traceId';
+import { noteLastTrace } from './monitoring';
 import { clearPendingReferral, peekPendingReferral } from './referral';
 import type {
   ChatStreamRequest, ChatHistoryItem, SSEEvent,
@@ -136,24 +138,41 @@ export function notifySessionReset(): void {
 
 export class ApiError extends Error {
   code: number;
-  constructor(code: number, message: string) {
+  /** 服务端本次采用的 trace（来自响应回显头）；网络没通时没有这个值。 */
+  traceId?: string;
+  constructor(code: number, message: string, traceId?: string) {
     super(message);
     this.code = code;
     this.name = 'ApiError';
+    this.traceId = traceId;
   }
 }
 
 // 动态请求头：Content-Type + 语言透传（X-Language）+ 鉴权（Authorization Bearer）
 // 后端按「X-Language header → users.language → en」优先级解析 LLM 回复语言
 function getHeaders(): Record<string, string> {
+  // 批 T-D：每请求一个新 trace id（生成形状保证能被服务端 T-8 消毒闸原样放行）。
+  // 落进 monitoring 的「最近一次」只为崩溃上报关联，只存内存。
+  const traceId = newTraceId();
+  noteLastTrace(traceId);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Language': (i18n.language || 'en').slice(0, 2),
+    'X-Trace-Id': traceId,
   };
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
   return headers;
+}
+
+/** 响应头里的采用值；拿不到（环境差异/头缺失）就当没有，不许造第二个真源。 */
+function responseTrace(res: Response): string | undefined {
+  try {
+    return res.headers.get('X-Trace-Id') ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface Envelope<T> {
@@ -229,9 +248,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     } else {
       await clearAuth();
       notifySessionReset();
-      throw new ApiError(40103, i18n.t('errors.sessionExpired'));
+      throw new ApiError(40103, i18n.t('errors.sessionExpired'), responseTrace(res));
     }
   }
+
+  // 回执里的采用值是「服务端到底认了哪个 trace」的唯一权威（我们发出去的可能被边缘层改写），
+  // 用它覆盖「最近一次」，崩溃上报与报障话术都指到同一个可 grep 的值。
+  noteLastTrace(responseTrace(res));
 
   let body: unknown = null;
   let pdfBytes: ArrayBuffer | null = null;
@@ -252,7 +275,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (isEnvelope(body) && body.code === 40401 && accessToken) {
     await clearAuth();
     notifySessionReset();
-    throw new ApiError(40401, i18n.t('errors.sessionExpired'));
+    throw new ApiError(40401, i18n.t('errors.sessionExpired'), responseTrace(res));
   }
 
   if (!res.ok) {
@@ -261,7 +284,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         ? body.message
         : i18n.t('errors.httpFailed', { status: res.status });
     const code = isEnvelope(body) ? body.code : res.status;
-    throw new ApiError(code, msg);
+    throw new ApiError(code, msg, responseTrace(res));
   }
 
   if (pdfBytes) {
@@ -270,7 +293,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (isEnvelope(body)) {
     if (body.code !== 200) {
-      throw new ApiError(body.code, body.message || i18n.t('errors.requestFailed'));
+      throw new ApiError(body.code, body.message || i18n.t('errors.requestFailed'), responseTrace(res));
     }
     return body.data as T;
   }
