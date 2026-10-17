@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Повторить попытку"
   },
   "memories": {
+    "add": "Новое воспоминание",
+    "addPlaceholder": "Что ClosenAI должен запомнить?",
+    "addSubmit": "Добавить воспоминание",
+    "checking": "Проверяю на дубликаты…",
+    "status": {
+      "current": "Актуальное",
+      "superseded": "Заменено",
+      "reverted": "Возвращено"
+    },
+    "conviction": "Убеждённость {{value}}%",
+    "changed": "Моё мнение изменилось",
+    "changedPlaceholder": "Что вы думаете теперь?",
+    "changedSubmit": "Записать это изменение",
+    "supersededAt": "Заменено {{date}}",
     "title": "Управление памятью",
     "empty": "Пока нет воспоминаний",
     "deleteTitle": "Удалить воспоминание",
@@ -259,6 +273,7 @@ const resource = {
     "subtitle": "Безлимитные диалоги и более глубокие инсайты",
     "currentPlan": "Текущий план",
     "expiresAt": "Истекает",
+    "staleStatusNote": "Последний отображённый статус (не актуальный)",
     "subscribe": "Подписаться",
     "restore": "Восстановить покупки",
     "unavailable": "Покупки в приложении не поддерживаются в этой среде. Используйте сборку для разработки.",
@@ -307,6 +322,8 @@ const resource = {
     "moodReminder": "Сегодня ещё не отмечено · Нажмите, чтобы выбрать эмодзи",
     "moodReminderTime": "3 секунды",
     "moodPanelTitle": "Как вы себя чувствуете сегодня?",
+    "moodNotePlaceholder": "Слово о сегодня (необязательно)",
+    "moodNoteLabel": "Необязательная заметка к сегодняшней отметке",
     "modeLabel": "✨ Режим рефлексии · Умный черновик",
     "aiTag": "Создано ИИ",
     "memoryRefs": "{{n}} ссылок на память {{arrow}}",
@@ -329,6 +346,9 @@ const resource = {
     "activeTime": "Время активного сообщения",
     "pushTimeTitle": "Выберите время активного сообщения",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Проактивные сообщения",
+    "pushEnabledOn": "Включено",
+    "pushEnabledOff": "Пауза",
     "pushFreq": "Частота сообщений",
     "pushFreqTitle": "Как часто нам писать тебе",
     "pushFreqOption": {

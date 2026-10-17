@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "다시 시도"
   },
   "memories": {
+    "add": "기억 추가",
+    "addPlaceholder": "ClosenAI가 무엇을 기억하길 원하나요?",
+    "addSubmit": "이 기억 저장",
+    "checking": "중복 확인 중…",
+    "status": {
+      "current": "현재",
+      "superseded": "대체됨",
+      "reverted": "회귀됨"
+    },
+    "conviction": "확신도 {{value}}%",
+    "changed": "생각이 바뀌었어요",
+    "changedPlaceholder": "지금은 어떻게 생각하나요?",
+    "changedSubmit": "이 변화 기록",
+    "supersededAt": "{{date}}에 대체됨",
     "title": "기억 관리",
     "empty": "아직 기억이 없습니다",
     "deleteTitle": "기억 삭제",
@@ -238,6 +252,7 @@ const resource = {
     "subtitle": "무제한 대화와 더 깊은 인사이트 잠금 해제",
     "currentPlan": "현재 플랜",
     "expiresAt": "만료일",
+    "staleStatusNote": "마지막으로 확인한 상태(최신 아님)",
     "subscribe": "지금 구독",
     "restore": "구매 복원",
     "unavailable": "이 환경에서는 인앱 구매가 지원되지 않습니다. 개발 빌드를 사용해 주세요.",
@@ -286,6 +301,8 @@ const resource = {
     "moodReminder": "오늘 아직 체크인하지 않았어요 · 이모지를 선택하세요",
     "moodReminderTime": "3초",
     "moodPanelTitle": "오늘 기분이 어떠세요?",
+    "moodNotePlaceholder": "오늘에 대한 한 문장 (선택)",
+    "moodNoteLabel": "오늘 체크인의 선택 메모",
     "modeLabel": "✨ 반성 모드 · 스마트 초안",
     "aiTag": "AI 생성",
     "memoryRefs": "기억 근거 {{n}}개 {{arrow}}",
@@ -308,6 +325,9 @@ const resource = {
     "activeTime": "능동 메시지 시간",
     "pushTimeTitle": "능동 메시지 시간 선택",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "능동적 메시지",
+    "pushEnabledOn": "켬",
+    "pushEnabledOff": "끔",
     "pushFreq": "메시지 주기",
     "pushFreqTitle": "얼마나 자주 보낼까요",
     "pushFreqOption": {

@@ -32,6 +32,8 @@ import {
   purchaseSubscription, restorePurchases,
 } from '../services/iap';
 import type { LifeArchiveSku } from '../services/iap';
+import { subscriptionStatusRepo } from '../services/db/subscriptionStatusRepository';
+import type { SubscriptionStatusRow } from '../services/db/subscriptionStatusRepository';
 import type {
   EntitlementsResult, LifeArchiveScope, SubscriptionStatus, UserTier,
 } from '../types';
@@ -39,6 +41,26 @@ import { useTranslation } from 'react-i18next';
 
 type PaidTier = 'pro' | 'pro_plus';
 type BillingPeriod = 'monthly' | 'yearly';
+
+/** 展示副本的固定行 id（仓储 getCurrent() 只认这一行）。 */
+const STATUS_ROW_ID = 'current';
+
+/**
+ * 服务端订阅状态 → 展示副本行（D-G10）。
+ * 这份副本**只为「上次看到的界面」**：`isPro`/`currentTier`/`isCurrentPlan`/`canPurchase`
+ * 一律读服务端 `status`，不读这里（仓储头注释 `subscriptionStatusRepository.ts:11-15` 的红线）。
+ */
+function statusToRow(s: SubscriptionStatus) {
+  const now = new Date().toISOString();
+  return {
+    id: STATUS_ROW_ID,
+    plan: s.tier,
+    expires_at: s.expires_at,
+    is_active: s.is_active ? 1 : 0,
+    cached_at: now,
+    updated_at: now,
+  };
+}
 
 /** 档位 × 周期 → SKU（与 App Store Connect 配置一致，同一订阅组支持升降级）。 */
 const SKU_MAP: Record<PaidTier, Record<BillingPeriod, string>> = {
@@ -77,6 +99,8 @@ type BadgeTone = 'current' | 'upgrade' | 'downgrade';
 export default function PaywallScreen() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<SubscriptionStatus | null>(null);
+  // 服务端不可达时的「上次看到的界面」（Tier 3 展示副本；纯展示，不参与任何权益判断）
+  const [staleStatus, setStaleStatus] = useState<SubscriptionStatusRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [products, setProducts] = useState<Subscription[]>([]);
@@ -105,9 +129,13 @@ export default function PaywallScreen() {
   const loadStatus = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      setStatus(await getSubscriptionStatus());
+      const s = await getSubscriptionStatus();
+      setStatus(s);
+      subscriptionStatusRepo.cache(statusToRow(s)).catch(() => {});
     } catch (e) {
       console.warn('Failed to load subscription:', e);
+      // 失败时读展示副本：界面不至于空白。注意这只喂显示，不喂 isPro/购买判断
+      setStaleStatus(await subscriptionStatusRepo.getCurrent().catch(() => null));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -183,6 +211,14 @@ export default function PaywallScreen() {
 
   const isPro = status?.is_active && status.tier !== 'free';
   const currentTier: UserTier = isPro && status ? status.tier : 'free';
+  // 展示卡的显示条件（D-G10）：服务端确实没数据，且副本记的是「上次看到付费生效中」。
+  // 这条只决定要不要多渲染一张标注为非实时的卡片，购买/权益链路一律不看它。
+  const showStaleStatus =
+    !status &&
+    !!staleStatus &&
+    staleStatus.is_active === 1 &&
+    !!staleStatus.plan &&
+    staleStatus.plan !== 'free';
 
   // 卡片角标语义（App Store 同订阅组规则，文案简化）：
   // 当前档位 →「当前」；更高档 →「升级」；更低档 →「降级」；免费用户不显示。
@@ -356,6 +392,22 @@ export default function PaywallScreen() {
               {t('paywall.expiresAt')}: {new Date(status.expires_at).toLocaleDateString()}
             </Text>
           )}
+        </View>
+      )}
+
+      {/* /iap/status 打不通时读展示副本（D-G10）：界面不至于空白，但明确标「非实时」。
+          副本没有 is_trial/product_id 列，所以这里只回档位与到期日，不复制试用角标。 */}
+      {showStaleStatus && staleStatus && (
+        <View style={styles.statusCard}>
+          <Text style={styles.statusText}>
+            {t('paywall.currentPlan')}: {TIER_DISPLAY[staleStatus.plan ?? 'free'] || staleStatus.plan}
+          </Text>
+          {!!staleStatus.expires_at && (
+            <Text style={styles.statusExpiry}>
+              {t('paywall.expiresAt')}: {new Date(staleStatus.expires_at).toLocaleDateString()}
+            </Text>
+          )}
+          <Text style={styles.staleNote}>{t('paywall.staleStatusNote')}</Text>
         </View>
       )}
 
@@ -629,6 +681,8 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusText: { fontSize: FontSize.title, fontWeight: '600', color: Colors.success },
   statusExpiry: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 4 },
+  // 非实时标注：比到期行更弱一级，它是「这条不是服务端算的」的自认，不是内容
+  staleNote: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.xs },
   trialBadge: {
     backgroundColor: 'rgba(255,215,0,0.15)', borderWidth: 1, borderColor: 'rgba(255,215,0,0.4)',
     borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 2,

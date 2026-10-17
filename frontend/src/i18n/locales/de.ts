@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Erneut versuchen"
   },
   "memories": {
+    "add": "Neue Erinnerung",
+    "addPlaceholder": "Was soll ClosenAI behalten?",
+    "addSubmit": "Erinnerung hinzufügen",
+    "checking": "Prüfe auf Duplikate…",
+    "status": {
+      "current": "Aktuell",
+      "superseded": "Ersetzt",
+      "reverted": "Zurückgesetzt"
+    },
+    "conviction": "Überzeugung {{value}} %",
+    "changed": "Meine Sicht hat sich geändert",
+    "changedPlaceholder": "Wie siehst du es jetzt?",
+    "changedSubmit": "Diese Änderung speichern",
+    "supersededAt": "Ersetzt am {{date}}",
     "title": "Erinnerungsverwaltung",
     "empty": "Noch keine Erinnerungen",
     "deleteTitle": "Erinnerung löschen",
@@ -245,6 +259,7 @@ const resource = {
     "subtitle": "Unbegrenzte Chats und tiefere Einblicke freischalten",
     "currentPlan": "Aktueller Plan",
     "expiresAt": "Läuft ab am",
+    "staleStatusNote": "Zuletzt angezeigter Status (nicht aktuell)",
     "subscribe": "Jetzt abonnieren",
     "restore": "Käufe wiederherstellen",
     "unavailable": "In-App-Käufe werden in dieser Umgebung nicht unterstützt. Bitte verwenden Sie einen Development-Build.",
@@ -293,6 +308,8 @@ const resource = {
     "moodReminder": "Heute noch nicht eingetragen · Tippen, um ein Emoji zu wählen",
     "moodReminderTime": "3 Sekunden",
     "moodPanelTitle": "Wie fühlst du dich heute?",
+    "moodNotePlaceholder": "Ein Satz zu heute (optional)",
+    "moodNoteLabel": "Optionale Notiz zum heutigen Check-in",
     "modeLabel": "✨ Reflexionsmodus · Intelligenter Entwurf",
     "aiTag": "Von KI erstellt",
     "memoryRefs": "{{n}} Memory-Belege {{arrow}}",
@@ -315,6 +332,9 @@ const resource = {
     "activeTime": "Zeit für aktive Nachricht",
     "pushTimeTitle": "Zeit für aktive Nachricht wählen",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Proaktive Nachrichten",
+    "pushEnabledOn": "Aktiv",
+    "pushEnabledOff": "Pausiert",
     "pushFreq": "Nachrichten-Häufigkeit",
     "pushFreqTitle": "Wie oft wir dich anschreiben sollen",
     "pushFreqOption": {

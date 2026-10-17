@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Volver a intentarlo"
   },
   "memories": {
+    "add": "Nueva memoria",
+    "addPlaceholder": "¿Qué quieres que ClosenAI recuerde?",
+    "addSubmit": "Añadir memoria",
+    "checking": "Comprobando si hay duplicados…",
+    "status": {
+      "current": "Actual",
+      "superseded": "Sustituida",
+      "reverted": "Revertida"
+    },
+    "conviction": "Convicción {{value}}%",
+    "changed": "Mi visión cambió",
+    "changedPlaceholder": "¿Qué piensas ahora?",
+    "changedSubmit": "Registrar este cambio",
+    "supersededAt": "Sustituida el {{date}}",
     "title": "Gestión de memoria",
     "empty": "Aún no hay recuerdos",
     "deleteTitle": "Eliminar recuerdo",
@@ -245,6 +259,7 @@ const resource = {
     "subtitle": "Desbloquea chat ilimitado e insights más profundos",
     "currentPlan": "Plan actual",
     "expiresAt": "Vence el",
+    "staleStatusNote": "Estado visto por última vez (no en tiempo real)",
     "subscribe": "Suscribirse ahora",
     "restore": "Restaurar compras",
     "unavailable": "La compra dentro de la app no es compatible con este entorno. Usa una versión de desarrollo.",
@@ -293,6 +308,8 @@ const resource = {
     "moodReminder": "Aún no has registrado hoy · Toca para elegir un emoji",
     "moodReminderTime": "3 segundos",
     "moodPanelTitle": "¿Cómo te sientes hoy?",
+    "moodNotePlaceholder": "Di una frase sobre hoy (opcional)",
+    "moodNoteLabel": "Nota opcional para el registro de hoy",
     "modeLabel": "✨ Modo reflexión · Borrador inteligente",
     "aiTag": "Generado por IA",
     "memoryRefs": "{{n}} referencias de memoria {{arrow}}",
@@ -315,6 +332,9 @@ const resource = {
     "activeTime": "Hora de mensaje activo",
     "pushTimeTitle": "Elige la hora del mensaje activo",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Mensajes proactivos",
+    "pushEnabledOn": "Activado",
+    "pushEnabledOff": "Pausado",
     "pushFreq": "Frecuencia de mensajes",
     "pushFreqTitle": "Con qué frecuencia te escribimos",
     "pushFreqOption": {

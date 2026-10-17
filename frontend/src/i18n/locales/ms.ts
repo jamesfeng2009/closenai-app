@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Cuba lagi"
   },
   "memories": {
+    "add": "Tambah ingatan",
+    "addPlaceholder": "Apa yang anda ingin ClosenAI ingat?",
+    "addSubmit": "Simpan ingatan",
+    "checking": "Menyemak pendua…",
+    "status": {
+      "current": "Semasa",
+      "superseded": "Digantikan",
+      "reverted": "Kembali"
+    },
+    "conviction": "Keyakinan {{value}}%",
+    "changed": "Pandangan saya berubah",
+    "changedPlaceholder": "Apa fikiran anda sekarang?",
+    "changedSubmit": "Rekod perubahan ini",
+    "supersededAt": "Digantikan pada {{date}}",
     "title": "Pengurusan Memori",
     "empty": "Belum ada memori",
     "deleteTitle": "Padam Memori",
@@ -238,6 +252,7 @@ const resource = {
     "subtitle": "Buka sembang tanpa had & wawasan lebih mendalam",
     "currentPlan": "Pelan semasa",
     "expiresAt": "Tamat pada",
+    "staleStatusNote": "Status terakhir yang dilihat (bukan data langsung)",
     "subscribe": "Langgan Sekarang",
     "restore": "Pulihkan Pembelian",
     "unavailable": "Pembelian dalam aplikasi tidak disokong dalam persekitaran ini. Sila gunakan binaan pembangunan.",
@@ -286,6 +301,8 @@ const resource = {
     "moodReminder": "Belum check-in hari ini · Ketik untuk pilih emoji",
     "moodReminderTime": "3 saat",
     "moodPanelTitle": "Bagaimana perasaan anda hari ini?",
+    "moodNotePlaceholder": "Satu ayat tentang hari ini (pilihan)",
+    "moodNoteLabel": "Nota pilihan untuk daftar masuk hari ini",
     "modeLabel": "✨ Mod Refleksi · Draf pintar",
     "aiTag": "Dijana oleh AI",
     "memoryRefs": "{{n}} rujukan memori {{arrow}}",
@@ -308,6 +325,9 @@ const resource = {
     "activeTime": "Masa Mesej Aktif",
     "pushTimeTitle": "Pilih Masa Mesej Aktif",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Mesej proaktif",
+    "pushEnabledOn": "Diaktifkan",
+    "pushEnabledOff": "Dijeda",
     "pushFreq": "Kekerapan Mesej",
     "pushFreqTitle": "Berapa kerap kami menghantar mesej",
     "pushFreqOption": {

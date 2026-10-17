@@ -107,6 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const rt = getRefreshToken();
     // 顺序：吊销 refresh → 清本机态
     // 推送 token 登出不注销（后端 APNs 410 自清；保留 token 使重新登录前也能收到主动消息）
+    // ⇒ DELETE /user/push-token（api.ts 的 clearPushToken）在这里是**有意不接**的，
+    //   不是漏接：接上就等于取消上面那句产品口径。判据钉在 __tests__/orphanEndpoints.test.ts。
     if (rt) {
       try {
         await logoutApi(rt);
@@ -120,6 +122,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const deleteMyAccount = useCallback(async () => {
     // 删除失败时原样上抛（保留 ApiError 的服务端文案），由调用方（ProfileScreen）兜底提示
+    // 注销侧不用先调 clearPushToken：后端 soft_delete_account 自己清了
+    // （user_service.py:425，取证见 backend/tests/test_account_deletion.py:71）
     await deleteAccount();
     await resetSessionFull();
     setUser(null);

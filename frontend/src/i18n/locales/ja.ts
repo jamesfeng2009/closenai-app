@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "もう一度試す"
   },
   "memories": {
+    "add": "記憶を追加",
+    "addPlaceholder": "ClosenAI に覚えておいてほしいことは？",
+    "addSubmit": "この記憶を追加",
+    "checking": "重複を確認中…",
+    "status": {
+      "current": "現在",
+      "superseded": "置き換え済み",
+      "reverted": "回帰済み"
+    },
+    "conviction": "確信度 {{value}}%",
+    "changed": "考えが変わった",
+    "changedPlaceholder": "今はどう考えていますか？",
+    "changedSubmit": "この変化を記録",
+    "supersededAt": "{{date}} に置き換え済み",
     "title": "記憶管理",
     "empty": "まだ記憶がありません",
     "deleteTitle": "記憶を削除",
@@ -238,6 +252,7 @@ const resource = {
     "subtitle": "無制限の会話とより深いインサイトをアンロック",
     "currentPlan": "現在のプラン",
     "expiresAt": "有効期限",
+    "staleStatusNote": "前回確認した状態（最新ではありません）",
     "subscribe": "今すぐ購読",
     "restore": "購入を復元",
     "unavailable": "この環境ではアプリ内課金がサポートされていません。開発ビルドをご利用ください。",
@@ -286,6 +301,8 @@ const resource = {
     "moodReminder": "今日はまだチェックインしていません · タップして絵文字を選択",
     "moodReminderTime": "3秒",
     "moodPanelTitle": "今日はどんな気分ですか？",
+    "moodNotePlaceholder": "今日について一言（任意）",
+    "moodNoteLabel": "本日のチェックインのメモ（任意）",
     "modeLabel": "✨ 振り返りモード · スマート下書き",
     "aiTag": "AI生成",
     "memoryRefs": "記憶の根拠 {{n}} 件 {{arrow}}",
@@ -308,6 +325,9 @@ const resource = {
     "activeTime": "アクティブメッセージ時間",
     "pushTimeTitle": "アクティブメッセージの時間を選ぶ",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "AI からのメッセージ",
+    "pushEnabledOn": "オン",
+    "pushEnabledOff": "オフ",
     "pushFreq": "メッセージの間隔",
     "pushFreqTitle": "どのくらいの頻度で届けるか",
     "pushFreqOption": {

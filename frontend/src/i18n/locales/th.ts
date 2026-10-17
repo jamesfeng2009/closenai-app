@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "ลองอีกครั้ง"
   },
   "memories": {
+    "add": "เพิ่มความทรงจำ",
+    "addPlaceholder": "ต้องการให้ ClosenAI จำอะไร?",
+    "addSubmit": "บันทึกความทรงจำนี้",
+    "checking": "กำลังตรวจสอบความซ้ำซ้อน…",
+    "status": {
+      "current": "ปัจจุบัน",
+      "superseded": "ถูกแทนที่แล้ว",
+      "reverted": "กลับไปแล้ว"
+    },
+    "conviction": "ความมั่นใจ {{value}}%",
+    "changed": "มุมมองของฉันเปลี่ยนไป",
+    "changedPlaceholder": "ตอนนี้คุณคิดอย่างไร?",
+    "changedSubmit": "บันทึกการเปลี่ยนแปลงนี้",
+    "supersededAt": "ถูกแทนที่เมื่อ {{date}}",
     "title": "จัดการความทรงจำ",
     "empty": "ยังไม่มีความทรงจำ",
     "deleteTitle": "ลบความทรงจำ",
@@ -238,6 +252,7 @@ const resource = {
     "subtitle": "ปลดล็อกการสนทนาไม่จำกัดและข้อมูลเชิงลึกที่ลึกซึ้งยิ่งขึ้น",
     "currentPlan": "แผนปัจจุบัน",
     "expiresAt": "หมดอายุเมื่อ",
+    "staleStatusNote": "สถานะที่เห็นล่าสุด (ไม่ใช่ข้อมูลสด)",
     "subscribe": "สมัครสมาชิกเลย",
     "restore": "กู้คืนการซื้อ",
     "unavailable": "สภาพแวดล้อมนี้ไม่รองรับการซื้อในแอป โปรดใช้เวอร์ชันพัฒนา (development build)",
@@ -286,6 +301,8 @@ const resource = {
     "moodReminder": "ยังไม่ได้เช็คอินวันนี้ · แตะเพื่อเลือกอิโมจิ",
     "moodReminderTime": "3 วินาที",
     "moodPanelTitle": "วันนี้รู้สึกอย่างไรบ้าง?",
+    "moodNotePlaceholder": "พูดสักคำว่าวันนี้เป็นอย่างไร (ไม่บังคับ)",
+    "moodNoteLabel": "บันทึกเพิ่มเติม (ไม่บังคับ) สำหรับการเช็คอินวันนี้",
     "modeLabel": "✨ โหมดสะท้อน · ร่างอัจฉริยะ",
     "aiTag": "สร้างโดย AI",
     "memoryRefs": "หลักฐานความจำ {{n}} รายการ {{arrow}}",
@@ -308,6 +325,9 @@ const resource = {
     "activeTime": "เวลาแจ้งข้อความ",
     "pushTimeTitle": "เลือกเวลาส่งข้อความเชิงรุก",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "ข้อความเชิงรุก",
+    "pushEnabledOn": "เปิดอยู่",
+    "pushEnabledOff": "ปิดอยู่",
     "pushFreq": "ความถี่ของข้อความ",
     "pushFreqTitle": "เราควรส่งหาคุณบ่อยแค่ไหน",
     "pushFreqOption": {

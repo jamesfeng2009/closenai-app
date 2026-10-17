@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Thử lại lần nữa"
   },
   "memories": {
+    "add": "Thêm ký ức",
+    "addPlaceholder": "Bạn muốn ClosenAI ghi nhớ điều gì?",
+    "addSubmit": "Thêm ký ức này",
+    "checking": "Đang kiểm tra trùng lặp…",
+    "status": {
+      "current": "Hiện tại",
+      "superseded": "Đã thay thế",
+      "reverted": "Đã quay lại"
+    },
+    "conviction": "Mức tin {{value}}%",
+    "changed": "Góc nhìn của tôi đã đổi",
+    "changedPlaceholder": "Bây giờ bạn nghĩ sao?",
+    "changedSubmit": "Ghi lại thay đổi này",
+    "supersededAt": "Đã thay thế vào {{date}}",
     "title": "Quản lý Ký ức",
     "empty": "Chưa có ký ức nào",
     "deleteTitle": "Xóa Ký ức",
@@ -238,6 +252,7 @@ const resource = {
     "subtitle": "Mở khóa trò chuyện không giới hạn & thông tin chi tiết sâu hơn",
     "currentPlan": "Gói hiện tại",
     "expiresAt": "Hết hạn vào",
+    "staleStatusNote": "Trạng thái thấy lần trước (không phải trực tiếp)",
     "subscribe": "Đăng ký Ngay",
     "restore": "Khôi phục Giao dịch Mua",
     "unavailable": "Mua trong ứng dụng không được hỗ trợ trong môi trường này. Vui lòng sử dụng bản dựng phát triển.",
@@ -286,6 +301,8 @@ const resource = {
     "moodReminder": "Hôm nay chưa check-in · Chạm để chọn biểu tượng cảm xúc",
     "moodReminderTime": "3 giây",
     "moodPanelTitle": "Hôm nay bạn cảm thấy thế nào?",
+    "moodNotePlaceholder": "Một câu về hôm nay (không bất buộc)",
+    "moodNoteLabel": "Ghi chú tùy chọn cho lần điểm danh hôm nay",
     "modeLabel": "✨ Chế độ Suy ngẫm · Bản nháp thông minh",
     "aiTag": "Do AI tạo",
     "memoryRefs": "{{n}} căn cứ ký ức {{arrow}}",
@@ -308,6 +325,9 @@ const resource = {
     "activeTime": "Thởi gian Tin nhắn Chủ động",
     "pushTimeTitle": "Chọn giờ gửi tin nhắn chủ động",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Tin nhắn chủ động",
+    "pushEnabledOn": "Đã bật",
+    "pushEnabledOff": "Đã tắt",
     "pushFreq": "Tần suất tin nhắn",
     "pushFreqTitle": "Chúng tôi nên nhắn cho bạn thường xuyên thế nào",
     "pushFreqOption": {

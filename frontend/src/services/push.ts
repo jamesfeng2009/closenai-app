@@ -110,14 +110,24 @@ function extractPushData(notification: Notifications.Notification): ProactivePus
   return { ...base, title: alert?.title ?? '', body: alert?.body ?? '' };
 }
 
+/**
+ * 这条推送属不属于消息中心（带 message_id 的主动消息 / 里程碑）。
+ * 落库与「点开后跳哪」共用同一判据：跳过去必须有东西可看——只有真落进 ai_messages 的那些
+ * 才把用户带到消息中心，别的推送（未登录、系统/营销类、缺 id）点了不跳转，比跳进空列表诚实。
+ */
+function isMessageCenterPush(data: ProactivePushData): boolean {
+  const { type, message_id: messageId } = data;
+  return !!messageId && (type === 'proactive' || type === 'milestone');
+}
+
 /** 推送落库：带 message_id 的主动消息/里程碑推送写入本地 ai_messages（消息中心离线可见）。 */
 function persistProactivePush(data: ProactivePushData, receivedAt?: string): void {
   if (!isLoggedIn()) return;
-  const { type, message_id: messageId, title, body } = data;
-  if (!messageId || (type !== 'proactive' && type !== 'milestone')) return;
+  if (!isMessageCenterPush(data)) return;
+  const { message_id: messageId, title, body } = data;
   try {
     // 推送 body 是包装文案，非消息全文；后续 /chat/history 同步按同 id 覆盖为全文
-    aiMessagesRepo.upsertFromPush(messageId, title ?? '', body ?? '', receivedAt).catch(() => {});
+    aiMessagesRepo.upsertFromPush(messageId!, title ?? '', body ?? '', receivedAt).catch(() => {});
   } catch {
     // 落库失败不影响推送主流程
   }
@@ -128,22 +138,39 @@ function persistProactivePush(data: ProactivePushData, receivedAt?: string): voi
  * - 前台收到 / 后台点击通知：监听器实时落库
  * - 冷启动由通知拉起：getLastNotificationResponseAsync 兜底（监听器注册前已错过事件）
  * 全量历史仍以 /chat/history 同步为准（ReflectScreen 聚焦时拉取覆盖）。
+ *
+ * `onTap`（D-G7）：用户**点开**通知时的回调，由入口（frontend/App.tsx）传导航动作。
+ * 服务层不 import 导航容器——反向依赖入口文件会长出第二个导航真源。
+ * 只有两支「点击」会回调：后台 response 与冷启动兜底；
+ * `addNotificationReceivedListener` 是 App 在前台收到，不是用户点击，正在用时被弹走界面是反的。
+ * 顺序固定为**先落库、后回调**，且回调异常一律吞掉：导航失败不能把消息弄丢。
  * 返回 cleanup（App.tsx 卸载时移除）。
  */
-export function subscribeProactiveMessageSync(): () => void {
+export function subscribeProactiveMessageSync(
+  onTap?: (data: ProactivePushData) => void,
+): () => void {
+  const onOpen = (notification: Notifications.Notification): void => {
+    const data = extractPushData(notification);
+    persistProactivePush(data);
+    if (!onTap || !isLoggedIn() || !isMessageCenterPush(data)) return;
+    try {
+      onTap(data);
+    } catch {
+      // 静默：navRef 未 ready / 路由名不存在都不该影响已经落库的消息
+    }
+  };
+
   try {
     const subs = [
       Notifications.addNotificationReceivedListener((n) =>
         persistProactivePush(extractPushData(n)),
       ),
-      Notifications.addNotificationResponseReceivedListener((resp) =>
-        persistProactivePush(extractPushData(resp.notification)),
-      ),
+      Notifications.addNotificationResponseReceivedListener((resp) => onOpen(resp.notification)),
     ];
     // 冷启动兜底：App 未运行时点开通知，上面两个监听器注册前事件已发生
     Notifications.getLastNotificationResponseAsync()
       .then((resp) => {
-        if (resp?.notification) persistProactivePush(extractPushData(resp.notification));
+        if (resp?.notification) onOpen(resp.notification);
       })
       .catch(() => {});
     return () => subs.forEach((s) => s.remove());

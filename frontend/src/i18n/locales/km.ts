@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "ព្យាយាមម្តងទៀត"
   },
   "memories": {
+    "add": "បន្ថែមការចងចាំ",
+    "addPlaceholder": "តើអ្នកចង់ឱ្យ ClosenAI ចងចាំអ្វី?",
+    "addSubmit": "បន្ថែមការចងចាំនេះ",
+    "checking": "កំពុងត្រួតពិនិត្យភាពស្ទួន…",
+    "status": {
+      "current": "បច្ចុប្បន្ន",
+      "superseded": "ត្រូវបានជំនួស",
+      "reverted": "ត្រូវបានត្រឡប់"
+    },
+    "conviction": "ទំនុកចិត្ត {{value}}%",
+    "changed": "ការយល់ឃើញរបស់ខ្ញុំបានផ្លាស់ប្តូរ",
+    "changedPlaceholder": "បច្ចុប្បន្នអ្នកគិតយ៉ាងណា?",
+    "changedSubmit": "កត់ត្រាការផ្លាស់ប្តូរនេះ",
+    "supersededAt": "ត្រូវបានជំនួសនៅ {{date}}",
     "title": "ការគ្រប់គ្រងអនុស្សាវរីយ៍",
     "empty": "មិនទាន់មានអនុស្សាវរីយ៍នៅឡើយទេ",
     "deleteTitle": "លុបអនុស្សាវរីយ៍",
@@ -238,6 +252,7 @@ const resource = {
     "subtitle": "ដោះសោការសន្ទនាគ្មានដែនកំណត់ និងការយល់ដឹងកាន់តែស៊ីជម្រៅ",
     "currentPlan": "ផែនការបច្ចុប្បន្ន",
     "expiresAt": "ផុតកំណត់នៅ",
+    "staleStatusNote": "ស្ថានភាពដែលបានឃើញចុងក្រោយ (មិនមែនជាបច្ចុប្បន្ន)",
     "subscribe": "ជាវឥឡូវនេះ",
     "restore": "ស្តារការទិញឡើងវិញ",
     "unavailable": "ការទិញក្នុងកម្មវិធីមិនត្រូវបានគាំទ្រនៅក្នុងបរិយាកាសនេះទេ។ សូមប្រើប្រាស់កំណែអភិវឌ្ឍន៍ (development build)។",
@@ -286,6 +301,8 @@ const resource = {
     "moodReminder": "មិនទាន់បានកត់ត្រាអារម្មណ៍ថ្ងៃនេះទេ · ចុចដើម្បីជ្រើសរើសអ៊ីម៉ូជី",
     "moodReminderTime": "3 វិនាទី",
     "moodPanelTitle": "ថ្ងៃនេះអ្នកមានអារម្មណ៍យ៉ាងម៉េចដែរ?",
+    "moodNotePlaceholder": "មួយប្រយោគអំពីថ្ងៃនេះ (មិនចាំបាច់)",
+    "moodNoteLabel": "ការចំណាំជម្រើសសម្រាប់ការចូលថ្ងៃនេះ",
     "modeLabel": "✨ របៀបឆ្លុះបញ្ចាំង · សេចក្តីព្រាងឆ្លាតវៃ",
     "aiTag": "បង្កើតដោយ AI",
     "memoryRefs": "ភស្តុតាងការចងចាំ {{n}} {{arrow}}",
@@ -308,6 +325,9 @@ const resource = {
     "activeTime": "ពេលវេលាផ្ញើសារសកម្ម",
     "pushTimeTitle": "ជ្រើសរើសពេលវេលាផ្ញើសារសកម្ម",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "សារសកម្ម",
+    "pushEnabledOn": "បានបើក",
+    "pushEnabledOff": "បានបិទ",
     "pushFreq": "ប្រេកង់សារ",
     "pushFreqTitle": "តើយើងគួរផ្ញើសារប៉ុន្មានដង",
     "pushFreqOption": {

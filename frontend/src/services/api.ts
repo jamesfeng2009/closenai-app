@@ -21,7 +21,6 @@ import type {
   AssessmentState, AssessmentAnswerResult, ComboReport,
   EnneagramState, EnneagramAnswerResult,
   UserProfile, UserSettings,
-  DailyDiscovery,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
   ShareLink, YearInReviewCard,
   OnThisDayResponse,
@@ -619,14 +618,53 @@ export async function listMemories(limit: number = 50): Promise<Memory[]> {
   return request<Memory[]>(`/memories?limit=${limit}`);
 }
 
-export async function deleteMemory(memoryId: string): Promise<void> {
-  await request<{ deleted: boolean }>(`/memories/${memoryId}`, { method: 'DELETE' });
+/**
+ * 用户手记一条记忆。
+ *
+ * 这不是一个瞬时写：后端先向量化，再按相似度分档（≥0.85 判为同一信念的重复表达，
+ * **不新建**只加固旧条；0.75<s<0.85 走一次 lite LLM 矛盾检测，见
+ * backend/services/memory_service.py:211-225）。所以调用方必须给中间态，
+ * 且提交后要回读列表——本地插一条会与「没新建」那条分支必然分叉。
+ */
+export async function createMemory(input: {
+  content: string;
+  category: Memory['category'];
+}): Promise<Memory> {
+  return request<Memory>('/memories', {
+    method: 'POST',
+    // source/conviction 不传：那是模型口径（记忆来源与信念强度），不是让用户替检索层打分
+    body: JSON.stringify({ content: input.content, category: input.category }),
+  });
 }
 
-// ═══ Discovery (P0-F10) ═══
+export async function getMemory(memoryId: string): Promise<Memory> {
+  return request<Memory>(`/memories/${memoryId}`);
+}
 
-export async function getDailyDiscovery(): Promise<DailyDiscovery> {
-  return request<DailyDiscovery>('/discovery/daily');
+/**
+ * 记录一次信念演变：旧行转 superseded，`new_content` 成为新的 current
+ * （backend/services/memory_service.py:493-505）。
+ *
+ * `newContent` 必须由调用方保证非空：缺省时后端沿用原内容新建一行，
+ * 产出的是一条同文字重复记忆而不是演变。
+ */
+export async function versionMemory(input: {
+  memoryId: string;
+  newContent: string;
+  transitionType?: 'gradual' | 'sudden' | 'revert';
+}): Promise<{ memory_id: string }> {
+  return request<{ memory_id: string }>('/memories/version', {
+    method: 'POST',
+    body: JSON.stringify({
+      memory_id: input.memoryId,
+      transition_type: input.transitionType ?? 'sudden',
+      new_content: input.newContent,
+    }),
+  });
+}
+
+export async function deleteMemory(memoryId: string): Promise<void> {
+  await request<{ deleted: boolean }>(`/memories/${memoryId}`, { method: 'DELETE' });
 }
 
 // ═══ Share (P1-F04) ═══

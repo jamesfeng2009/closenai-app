@@ -99,22 +99,22 @@
 
 | # | 方法 | 路径 | 响应形态 | 鉴权 | 前端调用 | openapi 响应码 | 请求体模型(字段·必填) | 其余参数 | handler |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | POST | `/api/v1/analytics/batch` | JSON 信封 | auth | frontend/src/services/api.ts:810 | 200+422 | `AnalyticsBatchRequest`: events* | - | `backend/routers/analytics.py:29` `analytics_batch` |
-| 2 | POST | `/api/v1/auth/apple` | JSON 信封 | anon | frontend/src/services/api.ts:940 | 200+422 | `AppleLoginRequest`: auth_code, identity_token*, language, ref | - | `backend/routers/auth.py:96` `apple_login` |
-| 3 | POST | `/api/v1/auth/change-password` | JSON 信封 | auth | frontend/src/services/api.ts:983 | 200+422 | `ChangePasswordRequest`: new_password*, old_password* | - | `backend/routers/auth.py:161` `change_password` |
-| 4 | POST | `/api/v1/auth/forgot-password` | JSON 信封 | anon | frontend/src/services/api.ts:963 | 200+422 | `ForgotPasswordRequest`: email*, language | - | `backend/routers/auth.py:128` `forgot_password` |
-| 5 | POST | `/api/v1/auth/login` | JSON 信封 | anon | frontend/src/services/api.ts:900 | 200+422 | `LoginRequest`: identifier*, password* | - | `backend/routers/auth.py:64` `login` |
-| 6 | POST | `/api/v1/auth/login-code` | JSON 信封 | anon | frontend/src/services/api.ts:926 | 200+422 | `LoginCodeRequest`: code*, email*, language, ref | - | `backend/routers/auth.py:84` `login_code` |
-| 7 | POST | `/api/v1/auth/logout` | JSON 信封 | anon | frontend/src/services/api.ts:955 | 200+422 | `RefreshRequest`: refresh_token* | - | `backend/routers/auth.py:118` `logout` |
-| 8 | GET | `/api/v1/auth/me` | JSON 信封 | auth | frontend/src/services/api.ts:999 | 200 | - | - | `backend/routers/auth.py:151` `me` |
+| 1 | POST | `/api/v1/analytics/batch` | JSON 信封 | auth | frontend/src/services/api.ts:866 | 200+422 | `AnalyticsBatchRequest`: events* | - | `backend/routers/analytics.py:29` `analytics_batch` |
+| 2 | POST | `/api/v1/auth/apple` | JSON 信封 | anon | frontend/src/services/api.ts:996 | 200+422 | `AppleLoginRequest`: auth_code, identity_token*, language, ref | - | `backend/routers/auth.py:96` `apple_login` |
+| 3 | POST | `/api/v1/auth/change-password` | JSON 信封 | auth | frontend/src/services/api.ts:1039 | 200+422 | `ChangePasswordRequest`: new_password*, old_password* | - | `backend/routers/auth.py:161` `change_password` |
+| 4 | POST | `/api/v1/auth/forgot-password` | JSON 信封 | anon | frontend/src/services/api.ts:1019 | 200+422 | `ForgotPasswordRequest`: email*, language | - | `backend/routers/auth.py:128` `forgot_password` |
+| 5 | POST | `/api/v1/auth/login` | JSON 信封 | anon | frontend/src/services/api.ts:956 | 200+422 | `LoginRequest`: identifier*, password* | - | `backend/routers/auth.py:64` `login` |
+| 6 | POST | `/api/v1/auth/login-code` | JSON 信封 | anon | frontend/src/services/api.ts:982 | 200+422 | `LoginCodeRequest`: code*, email*, language, ref | - | `backend/routers/auth.py:84` `login_code` |
+| 7 | POST | `/api/v1/auth/logout` | JSON 信封 | anon | frontend/src/services/api.ts:1011 | 200+422 | `RefreshRequest`: refresh_token* | - | `backend/routers/auth.py:118` `logout` |
+| 8 | GET | `/api/v1/auth/me` | JSON 信封 | auth | frontend/src/services/api.ts:1055 | 200 | - | - | `backend/routers/auth.py:151` `me` |
 | 9 | POST | `/api/v1/auth/refresh` | JSON 信封 | anon | — | 200+422 | `RefreshRequest`: refresh_token* | - | `backend/routers/auth.py:108` `refresh` |
-| 10 | POST | `/api/v1/auth/register` | JSON 信封 | anon | frontend/src/services/api.ts:883 | 200+422 | `RegisterRequest`: email*, language, password*, ref, username* | - | `backend/routers/auth.py:50` `register` |
-| 11 | POST | `/api/v1/auth/reset-password` | JSON 信封 | anon | frontend/src/services/api.ts:975 | 200+422 | `ResetPasswordRequest`: code*, email*, new_password* | - | `backend/routers/auth.py:138` `reset_password` |
-| 12 | POST | `/api/v1/auth/send-code` | JSON 信封 | anon | frontend/src/services/api.ts:914 | 200+422 | `SendCodeRequest`: email*, language, purpose* | - | `backend/routers/auth.py:74` `send_code` |
-| 13 | PATCH | `/api/v1/auth/username` | JSON 信封 | auth | frontend/src/services/api.ts:991 | 200+422 | `UpdateUsernameRequest`: username* | - | `backend/routers/auth.py:174` `update_username` |
-| 14 | POST | `/api/v1/bedtime/step` | JSON 信封 | auth | frontend/src/services/api.ts:783 | 200+422 | `BedtimeStepRequest`: step*, text | - | `backend/routers/bedtime.py:42` `bedtime_step` |
-| 15 | GET | `/api/v1/bedtime/today` | JSON 信封 | auth | frontend/src/services/api.ts:771 | 200 | - | - | `backend/routers/bedtime.py:31` `bedtime_today` |
-| 16 | GET | `/api/v1/chat/history` | JSON 信封 | auth | frontend/src/services/api.ts:404 | 200+422 | - | limit(query) | `backend/routers/chat.py:149` `chat_history` |
+| 10 | POST | `/api/v1/auth/register` | JSON 信封 | anon | frontend/src/services/api.ts:939 | 200+422 | `RegisterRequest`: email*, language, password*, ref, username* | - | `backend/routers/auth.py:50` `register` |
+| 11 | POST | `/api/v1/auth/reset-password` | JSON 信封 | anon | frontend/src/services/api.ts:1031 | 200+422 | `ResetPasswordRequest`: code*, email*, new_password* | - | `backend/routers/auth.py:138` `reset_password` |
+| 12 | POST | `/api/v1/auth/send-code` | JSON 信封 | anon | frontend/src/services/api.ts:970 | 200+422 | `SendCodeRequest`: email*, language, purpose* | - | `backend/routers/auth.py:74` `send_code` |
+| 13 | PATCH | `/api/v1/auth/username` | JSON 信封 | auth | frontend/src/services/api.ts:1047 | 200+422 | `UpdateUsernameRequest`: username* | - | `backend/routers/auth.py:174` `update_username` |
+| 14 | POST | `/api/v1/bedtime/step` | JSON 信封 | auth | frontend/src/services/api.ts:839 | 200+422 | `BedtimeStepRequest`: step*, text | - | `backend/routers/bedtime.py:42` `bedtime_step` |
+| 15 | GET | `/api/v1/bedtime/today` | JSON 信封 | auth | frontend/src/services/api.ts:827 | 200 | - | - | `backend/routers/bedtime.py:31` `bedtime_today` |
+| 16 | GET | `/api/v1/chat/history` | JSON 信封 | auth | frontend/src/services/api.ts:403 | 200+422 | - | limit(query) | `backend/routers/chat.py:149` `chat_history` |
 | 17 | POST | `/api/v1/chat/stream` | SSE 流式 | auth | — | 200+422 | `ChatStreamRequest`: content*, message_type | - | `backend/routers/chat.py:54` `stream_chat` |
 | 18 | GET | `/api/v1/cron/bedtime` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:158` `bedtime_reminder` |
 | 19 | GET | `/api/v1/cron/care-push` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:205` `care_push` |
@@ -132,70 +132,70 @@
 | 31 | GET | `/api/v1/cron/trial-reminder` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:190` `trial_reminder` |
 | 32 | GET | `/api/v1/cron/weekly-drift` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:246` `weekly_drift` |
 | 33 | GET | `/api/v1/cron/weekly-insight` | JSON 信封 | anon | — | 200 | - | - | `backend/routers/cron.py:234` `weekly_insight` |
-| 34 | GET | `/api/v1/curriculum/week` | JSON 信封 | auth | frontend/src/services/api.ts:755 | 200 | - | - | `backend/routers/curriculum.py:31` `curriculum_week` |
-| 35 | POST | `/api/v1/curriculum/{event_id}/read` | JSON 信封 | auth | frontend/src/services/api.ts:760 | 200+422 | - | event_id(path) | `backend/routers/curriculum.py:43` `curriculum_read` |
-| 36 | GET | `/api/v1/discovery/daily` | JSON 信封 | auth | frontend/src/services/api.ts:629（封装未接线） | 200 | - | - | `backend/routers/discovery.py:26` `daily` |
-| 37 | GET | `/api/v1/growth/badges` | JSON 信封 | auth | frontend/src/services/api.ts:470 | 200 | - | - | `backend/routers/growth.py:109` `badges` |
-| 38 | GET | `/api/v1/growth/dashboard` | JSON 信封 | auth | frontend/src/services/api.ts:428 | 200 | - | - | `backend/routers/growth.py:36` `dashboard` |
-| 39 | GET | `/api/v1/growth/insights` | JSON 信封 | auth | frontend/src/services/api.ts:432 | 200 | - | - | `backend/routers/growth.py:52` `insights` |
-| 40 | GET | `/api/v1/growth/level` | JSON 信封 | auth | frontend/src/services/api.ts:465 | 200 | - | - | `backend/routers/growth.py:99` `level_detail` |
+| 34 | GET | `/api/v1/curriculum/week` | JSON 信封 | auth | frontend/src/services/api.ts:811 | 200 | - | - | `backend/routers/curriculum.py:31` `curriculum_week` |
+| 35 | POST | `/api/v1/curriculum/{event_id}/read` | JSON 信封 | auth | frontend/src/services/api.ts:816 | 200+422 | - | event_id(path) | `backend/routers/curriculum.py:43` `curriculum_read` |
+| 36 | GET | `/api/v1/discovery/daily` | JSON 信封 | auth | — | 200 | - | - | `backend/routers/discovery.py:26` `daily` |
+| 37 | GET | `/api/v1/growth/badges` | JSON 信封 | auth | frontend/src/services/api.ts:469 | 200 | - | - | `backend/routers/growth.py:109` `badges` |
+| 38 | GET | `/api/v1/growth/dashboard` | JSON 信封 | auth | frontend/src/services/api.ts:427 | 200 | - | - | `backend/routers/growth.py:36` `dashboard` |
+| 39 | GET | `/api/v1/growth/insights` | JSON 信封 | auth | frontend/src/services/api.ts:431 | 200 | - | - | `backend/routers/growth.py:52` `insights` |
+| 40 | GET | `/api/v1/growth/level` | JSON 信封 | auth | frontend/src/services/api.ts:464 | 200 | - | - | `backend/routers/growth.py:99` `level_detail` |
 | 41 | GET | `/api/v1/growth/memory-card` | JSON 信封 | auth | — | 200+422 | - | days_ago(query) | `backend/routers/growth.py:171` `memory_card` |
-| 42 | GET | `/api/v1/growth/patterns` | JSON 信封 | auth | frontend/src/services/api.ts:793 | 200 | - | - | `backend/routers/growth.py:132` `patterns` |
-| 43 | GET | `/api/v1/growth/records` | JSON 信封 | auth | frontend/src/services/api.ts:448 | 200+422 | - | tag(query), days(query), limit(query) | `backend/routers/growth.py:144` `records` |
-| 44 | GET | `/api/v1/growth/relationship-timeline` | JSON 信封 | auth | frontend/src/services/api.ts:475 | 200+422 | - | limit(query) | `backend/routers/growth.py:87` `relationship_timeline` |
+| 42 | GET | `/api/v1/growth/patterns` | JSON 信封 | auth | frontend/src/services/api.ts:849 | 200 | - | - | `backend/routers/growth.py:132` `patterns` |
+| 43 | GET | `/api/v1/growth/records` | JSON 信封 | auth | frontend/src/services/api.ts:447 | 200+422 | - | tag(query), days(query), limit(query) | `backend/routers/growth.py:144` `records` |
+| 44 | GET | `/api/v1/growth/relationship-timeline` | JSON 信封 | auth | frontend/src/services/api.ts:474 | 200+422 | - | limit(query) | `backend/routers/growth.py:87` `relationship_timeline` |
 | 45 | GET | `/api/v1/growth/reports/{period}` | JSON 信封 | auth | — | 200+422 | - | period(path) | `backend/routers/growth.py:120` `report` |
-| 46 | GET | `/api/v1/growth/timeline` | JSON 信封 | auth | frontend/src/services/api.ts:436 | 200+422 | - | days(query) | `backend/routers/growth.py:63` `timeline` |
-| 47 | GET | `/api/v1/growth/timeline/day` | JSON 信封 | auth | frontend/src/services/api.ts:480 | 200+422 | - | day(query) | `backend/routers/growth.py:75` `timeline_day` |
-| 48 | GET | `/api/v1/growth/topics` | JSON 信封 | auth | frontend/src/services/api.ts:458 | 200+422 | - | days(query) | `backend/routers/growth.py:158` `topics` |
-| 49 | GET | `/api/v1/iap/entitlements` | JSON 信封 | auth | frontend/src/services/api.ts:840 | 200 | - | - | `backend/routers/subscription.py:55` `life_archive_entitlements` |
+| 46 | GET | `/api/v1/growth/timeline` | JSON 信封 | auth | frontend/src/services/api.ts:435 | 200+422 | - | days(query) | `backend/routers/growth.py:63` `timeline` |
+| 47 | GET | `/api/v1/growth/timeline/day` | JSON 信封 | auth | frontend/src/services/api.ts:479 | 200+422 | - | day(query) | `backend/routers/growth.py:75` `timeline_day` |
+| 48 | GET | `/api/v1/growth/topics` | JSON 信封 | auth | frontend/src/services/api.ts:457 | 200+422 | - | days(query) | `backend/routers/growth.py:158` `topics` |
+| 49 | GET | `/api/v1/iap/entitlements` | JSON 信封 | auth | frontend/src/services/api.ts:896 | 200 | - | - | `backend/routers/subscription.py:55` `life_archive_entitlements` |
 | 50 | POST | `/api/v1/iap/notifications` | JSON 信封 | anon | — | 200 | （无声明模型，按 handler 读取） | - | `backend/routers/subscription.py:76` `app_store_notifications` |
-| 51 | GET | `/api/v1/iap/status` | JSON 信封 | auth | frontend/src/services/api.ts:819 | 200 | - | - | `backend/routers/subscription.py:65` `subscription_status` |
-| 52 | POST | `/api/v1/iap/verify` | JSON 信封 | auth | frontend/src/services/api.ts:829 | 200+422 | `ReceiptVerifyRequest`: is_sandbox, product_id*, receipt_data* | - | `backend/routers/subscription.py:31` `verify_receipt` |
-| 53 | GET | `/api/v1/journey/events` | JSON 信封 | auth | frontend/src/services/api.ts:734 | 200 | - | - | `backend/routers/journey.py:30` `list_journey_events` |
-| 54 | POST | `/api/v1/journey/events/acknowledge` | JSON 信封 | auth | frontend/src/services/api.ts:739 | 200+422 | `JourneyAckRequest`: event_id* | - | `backend/routers/journey.py:39` `acknowledge_journey_event` |
-| 55 | GET | `/api/v1/memories` | JSON 信封 | auth | frontend/src/services/api.ts:619 | 200+422 | - | limit(query), category(query) | `backend/routers/memories.py:33` `list_memories` |
+| 51 | GET | `/api/v1/iap/status` | JSON 信封 | auth | frontend/src/services/api.ts:875 | 200 | - | - | `backend/routers/subscription.py:65` `subscription_status` |
+| 52 | POST | `/api/v1/iap/verify` | JSON 信封 | auth | frontend/src/services/api.ts:885 | 200+422 | `ReceiptVerifyRequest`: is_sandbox, product_id*, receipt_data* | - | `backend/routers/subscription.py:31` `verify_receipt` |
+| 53 | GET | `/api/v1/journey/events` | JSON 信封 | auth | frontend/src/services/api.ts:790 | 200 | - | - | `backend/routers/journey.py:30` `list_journey_events` |
+| 54 | POST | `/api/v1/journey/events/acknowledge` | JSON 信封 | auth | frontend/src/services/api.ts:795 | 200+422 | `JourneyAckRequest`: event_id* | - | `backend/routers/journey.py:39` `acknowledge_journey_event` |
+| 55 | GET | `/api/v1/memories` | JSON 信封 | auth | frontend/src/services/api.ts:618<br>frontend/src/services/api.ts:633 | 200+422 | - | limit(query), category(query) | `backend/routers/memories.py:33` `list_memories` |
 | 56 | POST | `/api/v1/memories` | JSON 信封 | auth | — | 200+422 | `MemoryCreate`: category, content*, conviction, metadata, source | - | `backend/routers/memories.py:59` `create_memory` |
-| 57 | POST | `/api/v1/memories/search` | JSON 信封 | auth | frontend/src/services/api.ts:623 | 200+422 | `MemorySearchRequest`: include_superseded, limit, query* | - | `backend/routers/memories.py:80` `search_memories` |
-| 58 | POST | `/api/v1/memories/version` | JSON 信封 | auth | — | 200+422 | `MemoryVersionRequest`: emotion_context, memory_id*, new_content, reason, transition_type* | - | `backend/routers/memories.py:100` `version_memory` |
+| 57 | POST | `/api/v1/memories/search` | JSON 信封 | auth | frontend/src/services/api.ts:641<br>frontend/src/services/api.ts:667 | 200+422 | `MemorySearchRequest`: include_superseded, limit, query* | - | `backend/routers/memories.py:80` `search_memories` |
+| 58 | POST | `/api/v1/memories/version` | JSON 信封 | auth | frontend/src/services/api.ts:656 | 200+422 | `MemoryVersionRequest`: emotion_context, memory_id*, new_content, reason, transition_type* | - | `backend/routers/memories.py:100` `version_memory` |
 | 59 | DELETE | `/api/v1/memories/{memory_id}` | JSON 信封 | auth | — | 200+422 | - | memory_id(path) | `backend/routers/memories.py:122` `delete_memory` |
 | 60 | GET | `/api/v1/memories/{memory_id}` | JSON 信封 | auth | — | 200+422 | - | memory_id(path) | `backend/routers/memories.py:45` `get_memory` |
-| 61 | POST | `/api/v1/mood/checkin` | JSON 信封 | auth | frontend/src/services/api.ts:410 | 200+422 | `MoodCheckinRequest`: emoji*, note | - | `backend/routers/mood.py:27` `checkin` |
-| 62 | GET | `/api/v1/mood/history` | JSON 信封 | auth | frontend/src/services/api.ts:422 | 200 | - | - | `backend/routers/mood.py:57` `history` |
-| 63 | GET | `/api/v1/mood/trend` | JSON 信封 | auth | frontend/src/services/api.ts:417（封装未接线） | 200+422 | - | days(query) | `backend/routers/mood.py:67` `trend` |
-| 64 | GET | `/api/v1/onboarding/first-read` | JSON 信封 | auth | frontend/src/services/api.ts:715<br>frontend/src/services/api.ts:727 | 200 | - | - | `backend/routers/onboarding.py:46` `get_first_read` |
+| 61 | POST | `/api/v1/mood/checkin` | JSON 信封 | auth | frontend/src/services/api.ts:409 | 200+422 | `MoodCheckinRequest`: emoji*, note | - | `backend/routers/mood.py:27` `checkin` |
+| 62 | GET | `/api/v1/mood/history` | JSON 信封 | auth | frontend/src/services/api.ts:421 | 200 | - | - | `backend/routers/mood.py:57` `history` |
+| 63 | GET | `/api/v1/mood/trend` | JSON 信封 | auth | frontend/src/services/api.ts:416 | 200+422 | - | days(query) | `backend/routers/mood.py:67` `trend` |
+| 64 | GET | `/api/v1/onboarding/first-read` | JSON 信封 | auth | frontend/src/services/api.ts:771<br>frontend/src/services/api.ts:783 | 200 | - | - | `backend/routers/onboarding.py:46` `get_first_read` |
 | 65 | POST | `/api/v1/onboarding/first-read` | JSON 信封 | auth | — | 200+422 | `FirstReadRequest`: answers, language, persona_type | - | `backend/routers/onboarding.py:32` `create_first_read` |
-| 66 | GET | `/api/v1/personality/assessment` | JSON 信封 | auth | frontend/src/services/api.ts:518 | 200 | - | - | `backend/routers/personality.py:70` `get_assessment` |
-| 67 | POST | `/api/v1/personality/assessment/answer` | JSON 信封 | auth | frontend/src/services/api.ts:530 | 200+422 | `AssessmentAnswerRequest`: answer, option | - | `backend/routers/personality.py:90` `answer_assessment` |
-| 68 | POST | `/api/v1/personality/assessment/start` | JSON 信封 | auth | frontend/src/services/api.ts:523 | 200 | - | - | `backend/routers/personality.py:80` `start_assessment` |
-| 69 | POST | `/api/v1/personality/combo-report` | JSON 信封 | auth | frontend/src/services/api.ts:538 | 200 | - | - | `backend/routers/personality.py:101` `combo_report` |
-| 70 | GET | `/api/v1/personality/enneagram` | JSON 信封 | auth | frontend/src/services/api.ts:545 | 200 | - | - | `backend/routers/personality.py:115` `get_enneagram` |
-| 71 | POST | `/api/v1/personality/enneagram/answer` | JSON 信封 | auth | frontend/src/services/api.ts:557 | 200+422 | `AssessmentAnswerRequest`: answer, option | - | `backend/routers/personality.py:135` `answer_enneagram` |
-| 72 | POST | `/api/v1/personality/enneagram/start` | JSON 信封 | auth | frontend/src/services/api.ts:550 | 200 | - | - | `backend/routers/personality.py:125` `start_enneagram` |
-| 73 | GET | `/api/v1/personality/profile` | JSON 信封 | auth | frontend/src/services/api.ts:509 | 200 | - | - | `backend/routers/personality.py:38` `get_profile` |
-| 74 | POST | `/api/v1/personality/refresh` | JSON 信封 | auth | frontend/src/services/api.ts:513 | 200 | - | - | `backend/routers/personality.py:53` `refresh` |
-| 75 | GET | `/api/v1/reflections` | JSON 信封 | auth | frontend/src/services/api.ts:496<br>frontend/src/services/api.ts:503 | 200+422 | - | limit(query) | `backend/routers/reflection.py:62` `list_reflections` |
+| 66 | GET | `/api/v1/personality/assessment` | JSON 信封 | auth | frontend/src/services/api.ts:517 | 200 | - | - | `backend/routers/personality.py:70` `get_assessment` |
+| 67 | POST | `/api/v1/personality/assessment/answer` | JSON 信封 | auth | frontend/src/services/api.ts:529 | 200+422 | `AssessmentAnswerRequest`: answer, option | - | `backend/routers/personality.py:90` `answer_assessment` |
+| 68 | POST | `/api/v1/personality/assessment/start` | JSON 信封 | auth | frontend/src/services/api.ts:522 | 200 | - | - | `backend/routers/personality.py:80` `start_assessment` |
+| 69 | POST | `/api/v1/personality/combo-report` | JSON 信封 | auth | frontend/src/services/api.ts:537 | 200 | - | - | `backend/routers/personality.py:101` `combo_report` |
+| 70 | GET | `/api/v1/personality/enneagram` | JSON 信封 | auth | frontend/src/services/api.ts:544 | 200 | - | - | `backend/routers/personality.py:115` `get_enneagram` |
+| 71 | POST | `/api/v1/personality/enneagram/answer` | JSON 信封 | auth | frontend/src/services/api.ts:556 | 200+422 | `AssessmentAnswerRequest`: answer, option | - | `backend/routers/personality.py:135` `answer_enneagram` |
+| 72 | POST | `/api/v1/personality/enneagram/start` | JSON 信封 | auth | frontend/src/services/api.ts:549 | 200 | - | - | `backend/routers/personality.py:125` `start_enneagram` |
+| 73 | GET | `/api/v1/personality/profile` | JSON 信封 | auth | frontend/src/services/api.ts:508 | 200 | - | - | `backend/routers/personality.py:38` `get_profile` |
+| 74 | POST | `/api/v1/personality/refresh` | JSON 信封 | auth | frontend/src/services/api.ts:512 | 200 | - | - | `backend/routers/personality.py:53` `refresh` |
+| 75 | GET | `/api/v1/reflections` | JSON 信封 | auth | frontend/src/services/api.ts:495<br>frontend/src/services/api.ts:502 | 200+422 | - | limit(query) | `backend/routers/reflection.py:62` `list_reflections` |
 | 76 | POST | `/api/v1/reflections` | JSON 信封 | auth | — | 200+422 | `ReflectionCreate`: content*, related_memory_ids | - | `backend/routers/reflection.py:49` `save_reflection` |
-| 77 | POST | `/api/v1/reflections/generate` | JSON 信封 | auth | frontend/src/services/api.ts:486 | 200+422 | `ReflectionGenerateRequest`: context | - | `backend/routers/reflection.py:31` `generate_draft` |
+| 77 | POST | `/api/v1/reflections/generate` | JSON 信封 | auth | frontend/src/services/api.ts:485 | 200+422 | `ReflectionGenerateRequest`: context | - | `backend/routers/reflection.py:31` `generate_draft` |
 | 78 | POST | `/api/v1/share/first-read-card` | PDF 二进制 | auth | — | 200 | - | - | `backend/routers/share.py:73` `first_read_card_pdf` |
-| 79 | POST | `/api/v1/share/life-archive` | JSON 信封 | auth | frontend/src/services/api.ts:854（封装未接线） | 200+422 | `LifeArchiveExportRequest`: language, regenerate, scope | - | `backend/routers/share.py:214` `life_archive` |
+| 79 | POST | `/api/v1/share/life-archive` | JSON 信封 | auth | frontend/src/services/api.ts:910（封装未接线） | 200+422 | `LifeArchiveExportRequest`: language, regenerate, scope | - | `backend/routers/share.py:214` `life_archive` |
 | 80 | GET | `/api/v1/share/life-archive/pdf` | PDF 二进制 | auth | — | 200+422 | - | scope(query), language(query), regenerate(query) | `backend/routers/share.py:234` `life_archive_pdf` |
-| 81 | GET | `/api/v1/share/link` | JSON 信封 | auth | frontend/src/services/api.ts:694 | 200 | - | - | `backend/routers/share.py:159` `share_link` |
-| 82 | POST | `/api/v1/share/memory-card` | PDF 二进制 | auth | frontend/src/services/api.ts:680 | 200+422 | `MemoryCardRequest`: memory_id* | - | `backend/routers/share.py:91` `memory_card_pdf` |
-| 83 | GET | `/api/v1/share/on-this-day` | JSON 信封 | auth | frontend/src/services/api.ts:705 | 200 | - | - | `backend/routers/share.py:110` `on_this_day` |
-| 84 | GET | `/api/v1/share/personality-card` | JSON 信封 | auth | frontend/src/services/api.ts:641 | 200+422 | - | language(query), variant(query) | `backend/routers/share.py:61` `personality_card` |
-| 85 | GET | `/api/v1/share/report/{period}` | JSON 信封 | auth | frontend/src/services/api.ts:646 | 200+422 | - | period(path), language(query) | `backend/routers/share.py:184` `report_json` |
-| 86 | GET | `/api/v1/share/report/{period}/pdf` | PDF 二进制 | auth | frontend/src/services/api.ts:669 | 200+422 | - | period(path), language(query) | `backend/routers/share.py:196` `report_pdf` |
+| 81 | GET | `/api/v1/share/link` | JSON 信封 | auth | frontend/src/services/api.ts:750 | 200 | - | - | `backend/routers/share.py:159` `share_link` |
+| 82 | POST | `/api/v1/share/memory-card` | PDF 二进制 | auth | frontend/src/services/api.ts:718 | 200+422 | `MemoryCardRequest`: memory_id* | - | `backend/routers/share.py:91` `memory_card_pdf` |
+| 83 | GET | `/api/v1/share/on-this-day` | JSON 信封 | auth | frontend/src/services/api.ts:761 | 200 | - | - | `backend/routers/share.py:110` `on_this_day` |
+| 84 | GET | `/api/v1/share/personality-card` | JSON 信封 | auth | frontend/src/services/api.ts:679 | 200+422 | - | language(query), variant(query) | `backend/routers/share.py:61` `personality_card` |
+| 85 | GET | `/api/v1/share/report/{period}` | JSON 信封 | auth | frontend/src/services/api.ts:684 | 200+422 | - | period(path), language(query) | `backend/routers/share.py:184` `report_json` |
+| 86 | GET | `/api/v1/share/report/{period}/pdf` | PDF 二进制 | auth | frontend/src/services/api.ts:707 | 200+422 | - | period(path), language(query) | `backend/routers/share.py:196` `report_pdf` |
 | 87 | GET | `/api/v1/share/resolve/{code}` | JSON 信封 | anon | — | 200+422 | - | code(path) | `backend/routers/share.py:169` `resolve_share_code` |
-| 88 | GET | `/api/v1/share/year-in-review` | JSON 信封 | auth | frontend/src/services/api.ts:658 | 200+422 | - | year(query), language(query) | `backend/routers/share.py:124` `year_in_review` |
-| 89 | GET | `/api/v1/share/year-in-review/pdf` | PDF 二进制 | auth | frontend/src/services/api.ts:675 | 200+422 | - | year(query), language(query) | `backend/routers/share.py:139` `year_in_review_pdf` |
-| 90 | DELETE | `/api/v1/user/account` | JSON 信封 | auth | frontend/src/services/api.ts:590 | 200 | - | - | `backend/routers/user.py:117` `delete_account` |
-| 91 | GET | `/api/v1/user/ai-consent` | JSON 信封 | auth | frontend/src/services/api.ts:595 | 200 | - | - | `backend/routers/user.py:56` `get_ai_consent` |
+| 88 | GET | `/api/v1/share/year-in-review` | JSON 信封 | auth | frontend/src/services/api.ts:696 | 200+422 | - | year(query), language(query) | `backend/routers/share.py:124` `year_in_review` |
+| 89 | GET | `/api/v1/share/year-in-review/pdf` | PDF 二进制 | auth | frontend/src/services/api.ts:713 | 200+422 | - | year(query), language(query) | `backend/routers/share.py:139` `year_in_review_pdf` |
+| 90 | DELETE | `/api/v1/user/account` | JSON 信封 | auth | frontend/src/services/api.ts:589 | 200 | - | - | `backend/routers/user.py:117` `delete_account` |
+| 91 | GET | `/api/v1/user/ai-consent` | JSON 信封 | auth | frontend/src/services/api.ts:594 | 200 | - | - | `backend/routers/user.py:56` `get_ai_consent` |
 | 92 | POST | `/api/v1/user/ai-consent` | JSON 信封 | auth | — | 200+422 | `AIConsentUpdate`: consent* | - | `backend/routers/user.py:67` `set_ai_consent` |
 | 93 | POST | `/api/v1/user/analytics-consent` | JSON 信封 | auth | — | 200+422 | `AIConsentUpdate`: consent* | - | `backend/routers/user.py:79` `set_analytics_consent` |
-| 94 | GET | `/api/v1/user/profile` | JSON 信封 | auth | frontend/src/services/api.ts:566 | 200 | - | - | `backend/routers/user.py:35` `get_profile` |
-| 95 | DELETE | `/api/v1/user/push-token` | JSON 信封 | auth | frontend/src/services/api.ts:577<br>frontend/src/services/api.ts:585（封装未接线） | 200 | - | - | `backend/routers/user.py:106` `clear_push_token` |
+| 94 | GET | `/api/v1/user/profile` | JSON 信封 | auth | frontend/src/services/api.ts:565 | 200 | - | - | `backend/routers/user.py:35` `get_profile` |
+| 95 | DELETE | `/api/v1/user/push-token` | JSON 信封 | auth | frontend/src/services/api.ts:576<br>frontend/src/services/api.ts:584（封装未接线） | 200 | - | - | `backend/routers/user.py:106` `clear_push_token` |
 | 96 | POST | `/api/v1/user/push-token` | JSON 信封 | auth | — | 200+422 | `PushTokenRequest`: platform*, token* | - | `backend/routers/user.py:94` `register_push_token` |
-| 97 | PATCH | `/api/v1/user/settings` | JSON 信封 | auth | frontend/src/services/api.ts:570 | 200+422 | `UserSettingsUpdate`: chat_style, conversation_style, enneagram_type, language, mbti_type, name, push_enabled, push_frequency, push_time, timezone | - | `backend/routers/user.py:45` `update_settings` |
+| 97 | PATCH | `/api/v1/user/settings` | JSON 信封 | auth | frontend/src/services/api.ts:569 | 200+422 | `UserSettingsUpdate`: chat_style, conversation_style, enneagram_type, language, mbti_type, name, push_enabled, push_frequency, push_time, timezone | - | `backend/routers/user.py:45` `update_settings` |
 | 98 | GET | `/health` | JSON 信封 | anon | — | 200 | - | - | `backend/main.py:170` `health_check` |
 
 ## 六、SSE 契约（唯一一条流式端点）
@@ -249,7 +249,7 @@ Go 侧接管后必须保持文件名逐字一致（分享/归档链路按文件�
 
 - 扫法：`request<T>('/path')` 与 `${API_BASE}/path` 两类调用点（前端只有 api.ts 一处出口发请求，
   `services/api.ts:201` 统一 `fetch`、`:296` SSE 走 XHR，其余 service 均转调 api.ts）。
-- 结果：**98 个端点里 64 个有前端调用点，其中 60 个的封装确实被屏/hook 接线**。
+- 结果：**98 个端点里 64 个有前端调用点，其中 62 个的封装确实被屏/hook 接线**。
   「前端调用」列带 `（封装未接线）` 的 = api.ts 里有函数但全仓无人调用
   ⇒ 改这些端点的响应不会立刻炸 App，Go 切流可排在后；无标记的才是 P1 硬约束面。
 - 悬空检查（前端调了但登记表里没有的路径）：

@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Try again"
   },
   "memories": {
+    "add": "Add a memory",
+    "addPlaceholder": "What do you want ClosenAI to remember?",
+    "addSubmit": "Add this memory",
+    "checking": "Checking for duplicates…",
+    "status": {
+      "current": "Current",
+      "superseded": "Superseded",
+      "reverted": "Reverted"
+    },
+    "conviction": "Conviction {{value}}%",
+    "changed": "My view changed",
+    "changedPlaceholder": "What do you think now?",
+    "changedSubmit": "Record this change",
+    "supersededAt": "Superseded on {{date}}",
     "title": "Memory Management",
     "empty": "No memories yet",
     "deleteTitle": "Delete Memory",
@@ -245,6 +259,7 @@ const resource = {
     "subtitle": "Unlock unlimited chat & deeper insights",
     "currentPlan": "Current plan",
     "expiresAt": "Expires at",
+    "staleStatusNote": "Last seen status (not live)",
     "subscribe": "Subscribe Now",
     "restore": "Restore Purchases",
     "unavailable": "In-app purchase is not supported in this environment. Please use a development build.",
@@ -293,6 +308,8 @@ const resource = {
     "moodReminder": "Haven't checked in today · Tap to pick an emoji",
     "moodReminderTime": "3 seconds",
     "moodPanelTitle": "How are you feeling today?",
+    "moodNotePlaceholder": "Say a word about today (optional)",
+    "moodNoteLabel": "Optional note for today’s check-in",
     "modeLabel": "✨ Reflection Mode · Smart draft",
     "aiTag": "AI-generated",
     "memoryRefs": "{{n}} memory references {{arrow}}",
@@ -315,6 +332,9 @@ const resource = {
     "activeTime": "Active Message Time",
     "pushTimeTitle": "Choose Active Message Time",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Proactive Messages",
+    "pushEnabledOn": "Enabled",
+    "pushEnabledOff": "Paused",
     "pushFreq": "Message Frequency",
     "pushFreqTitle": "Choose How Often We Check In",
     "pushFreqOption": {

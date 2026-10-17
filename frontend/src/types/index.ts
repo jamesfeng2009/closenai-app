@@ -385,6 +385,8 @@ export interface UserProfile {
   primary_framework?: PrimaryFramework | null; // 主要性格框架（P0-F05）
   // 推送频率（U3-a）：后端 PATCH 后仍走 get_profile 回显，所以读的路径与写的路径同一个类型
   push_frequency?: PushFrequency | null;
+  // 推送总开关（D-G6）：后端七处闸按这列决定投不投主动消息，响应里此前一直没回显
+  push_enabled?: boolean | null;
 }
 
 /**
@@ -404,15 +406,6 @@ export interface UserSettings {
   mbti_type?: string;
   conversation_style?: ConversationStyle;
   primary_framework?: PrimaryFramework;
-}
-
-// ═══ Discovery ═══
-
-export interface DailyDiscovery {
-  has_discovery: boolean;
-  content: string | null;
-  comparison_type: string | null;
-  generated_at: string;
 }
 
 // ═══ Onboarding 性格初读卡 (P1-B01 / 架构方案 §二 M1) ═══

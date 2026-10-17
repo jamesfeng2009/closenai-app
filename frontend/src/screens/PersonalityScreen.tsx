@@ -29,6 +29,7 @@ import {
 import type { AssessmentState, ComboReport, EnneagramState, PersonalityProfile } from '../types';
 import { personalityAssessmentRepo } from '../services/db/personalityAssessmentRepository';
 import { personalityProfileRepo } from '../services/db/personalityProfileRepository';
+import { comboReportRepo } from '../services/db/comboReportRepository';
 import { track } from '../services/analytics';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
@@ -83,6 +84,30 @@ function profileStateToRow(p: PersonalityProfile) {
     created_at: p.created_at,
     updated_at: new Date().toISOString(),
   };
+}
+
+/**
+ * 组合报告 → 本地缓存行（Tier 2 只读缓存，服务端为准）。
+ * `period` 取生成月：后端本来就按用户本地月一份（personality_service.py:471），
+ * 写进列里是为了让这张表读得出「这份是哪个月的」，而不是又造一个周期概念。
+ */
+function comboStateToRow(c: ComboReport) {
+  return {
+    id: 'current',
+    period: c.generated_at.slice(0, 7),
+    report: JSON.stringify(c),
+    generated_at: c.generated_at,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/** 缓存行读回报告；report 坏了返回 null（首屏不能红在一条本地 JSON 上）。 */
+function comboRowToState(row: { report: string }): ComboReport | null {
+  try {
+    return JSON.parse(row.report) as ComboReport;
+  } catch {
+    return null;
+  }
 }
 
 /** 阶段下标解析：优先后端 stage 字符串，其次 cold_start_stage，最后按进度推算。 */
@@ -140,10 +165,11 @@ export default function PersonalityScreen() {
   const loadInitial = useCallback(async () => {
     // 首屏秒开：先读本地画像缓存 + 两项评估进度（Tier 2 展示缓存 + Tier 1 离线续答）
     setLoading(true);
-    const [cachedProfile, cachedAssessment, cachedEnneagram] = await Promise.all([
+    const [cachedProfile, cachedAssessment, cachedEnneagram, cachedCombo] = await Promise.all([
       personalityProfileRepo.getLatest().catch(() => null),
       personalityAssessmentRepo.getCurrent().catch(() => null),
       personalityAssessmentRepo.getCurrent(ENNEAGRAM_ROW_ID).catch(() => null),
+      comboReportRepo.getLatest().catch(() => null),
     ]);
     if (cachedProfile) setProfile(profileRowToState(cachedProfile));
     if (cachedAssessment && cachedAssessment.status !== 'not_started') {
@@ -163,6 +189,9 @@ export default function PersonalityScreen() {
         result: null,
       });
     }
+    // 上次生成过的组合报告先渲染（Tier 2 只读缓存）：这条要 POST 才拿得到、且是 Pro 付费算力，
+    // 首屏不能自动打，所以离线/弱网时缓存就是唯一的正文来源。
+    if (cachedCombo) setCombo(comboRowToState(cachedCombo));
     setLoading(false);
 
     // 游客态不请求远端（避免 401 噪声），仅展示本地缓存
@@ -421,7 +450,10 @@ export default function PersonalityScreen() {
     if (!requireAuth() || comboLoading) return;
     try {
       setComboLoading(true);
-      setCombo(await generateComboReport());
+      const report = await generateComboReport();
+      setCombo(report);
+      // 服务端结果落一份只读缓存（Tier 2：远端为准，缓存只为下次进屏有正文可读）
+      comboReportRepo.cache(comboStateToRow(report)).catch(() => {});
     } catch (e) {
       // 组合报告为 Pro 权益（40302）：引导跳转 Paywall
       if (e instanceof ApiError && e.code === 40302) {

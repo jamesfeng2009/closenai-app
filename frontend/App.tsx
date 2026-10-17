@@ -115,7 +115,9 @@ function AppRoot() {
   const [onboarded, setOnboarded] = useState(false);
 
   // 页面埋点（H2）：导航就绪与状态变化各检一次，落到本地队列由 flushAnalytics 批量上送
-  const navRef = useNavigationContainerRef();
+  // 带 RootStackParamList 泛型：泛型留空时 navigate 的参数是 never（埋点只用 isReady/getRootState 时看不出来，
+  // D-G7 要点开通知跳 Messages 才暴露）
+  const navRef = useNavigationContainerRef<RootStackParamList>();
   const lastScreenRef = useRef<string | null>(null);
   const emitScreenView = useCallback(() => {
     if (!navRef.isReady()) return;
@@ -199,7 +201,16 @@ function AppRoot() {
     // APNs/FCM device token 轮换时重新上报后端（游客态在 push.ts 内守卫）
     const pushTokenCleanup = subscribePushTokenChanges();
     // 主动消息推送落库（前台收到/点击通知/冷启动拉起三时机），消息中心离线可见
-    const proactiveSyncCleanup = subscribeProactiveMessageSync();
+    // D-G7：点开通知（后台 response + 冷启动两支）顺手跳到消息中心。导航真源留在这里，
+    // push.ts 只回调不 import 导航容器；未 ready 或路由抛错一律静默——落库先于跳转，消息不会丢。
+    const proactiveSyncCleanup = subscribeProactiveMessageSync(() => {
+      if (!navRef.isReady()) return;
+      try {
+        navRef.navigate('Messages');
+      } catch {
+        // 静默：导航失败只意味着用户停在原页面，推送本身已经落库
+      }
+    });
 
     return () => {
       coldStart.cancel();

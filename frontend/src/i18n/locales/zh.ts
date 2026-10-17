@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "重试"
   },
   "memories": {
+    "add": "记一条",
+    "addPlaceholder": "想让 ClosenAI 记住什么？",
+    "addSubmit": "记下这条",
+    "checking": "正在检查是否重复…",
+    "status": {
+      "current": "当前",
+      "superseded": "已被取代",
+      "reverted": "已回归"
+    },
+    "conviction": "确信度 {{value}}%",
+    "changed": "想法变了",
+    "changedPlaceholder": "现在你怎么想？",
+    "changedSubmit": "记录这次演变",
+    "supersededAt": "{{date}} 被取代",
     "title": "记忆管理",
     "empty": "暂无记忆",
     "deleteTitle": "删除记忆",
@@ -238,6 +252,7 @@ const resource = {
     "subtitle": "解锁无限对话与深度洞察",
     "currentPlan": "当前方案",
     "expiresAt": "到期时间",
+    "staleStatusNote": "上次看到的状态（非实时）",
     "subscribe": "立即订阅",
     "restore": "恢复购买",
     "unavailable": "当前环境不支持应用内购买，请使用开发构建版本",
@@ -286,6 +301,8 @@ const resource = {
     "moodReminder": "今天还没签到 · 点这里选个表情",
     "moodReminderTime": "3 秒完成",
     "moodPanelTitle": "今天心情怎么样？",
+    "moodNotePlaceholder": "想说点什么？（可选）",
+    "moodNoteLabel": "今天签到的可选备注",
     "modeLabel": "✨ Reflection Mode · 智能草稿",
     "aiTag": "AI 生成",
     "memoryRefs": "{{n}} 条记忆依据 {{arrow}}",
@@ -308,6 +325,9 @@ const resource = {
     "activeTime": "主动消息时间",
     "pushTimeTitle": "选择主动消息时间",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "主动消息推送",
+    "pushEnabledOn": "已开启",
+    "pushEnabledOff": "已关闭",
     "pushFreq": "主动消息频率",
     "pushFreqTitle": "选择我们多久打扰你一次",
     "pushFreqOption": {

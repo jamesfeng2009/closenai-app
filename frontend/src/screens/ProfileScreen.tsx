@@ -64,6 +64,8 @@ export default function ProfileScreen({
   // 「已删除」与「已停止上报」是两句不同的话，说错了就是向用户虚假承诺
   const [analyticsNote, setAnalyticsNote] = useState<string | null>(null);
   const [analyticsBusy, setAnalyticsBusy] = useState(false);
+  // 推送总开关（D-G6）：写一次 PATCH，busy 期间不许连点（否则两次翻转谁后到谁赢）
+  const [pushBusy, setPushBusy] = useState(false);
 
   // Tab 常驻不卸载：每次聚焦都刷新（仅登录态；游客跳过请求避免 401 噪声）
   useFocusEffect(
@@ -163,6 +165,24 @@ export default function ProfileScreen({
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), msg);
+    }
+  };
+
+  // 推送总开关：与频率各管一件事（开关＝要不要，频率＝要什么），所以关掉开关时频率条目照旧可改。
+  // 读的是 profile.push_enabled（后端 PATCH 后走 get_profile 回读），不是本地 state——
+  // 这条缺陷的正题就是「写得进读不出」，用本地 state 会把同一个洞换个地方再挖一次。
+  const onTogglePushEnabled = async (next: boolean) => {
+    if (!requireAuth()) return;
+    if (pushBusy) return;
+    try {
+      setPushBusy(true);
+      const updated = await updateUserSettings({ push_enabled: next });
+      setProfile(updated);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    } finally {
+      setPushBusy(false);
     }
   };
 
@@ -320,6 +340,21 @@ export default function ProfileScreen({
           <Text style={styles.settingLabel}>{t('profile.activeTime')}</Text>
           <Text style={styles.settingValue}>{profile?.push_time || '09:00'}</Text>
           <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+        {/* 推送总开关（D-G6）：后端七处闸（cron_service 六处＋journey_service:339）早就在读这列，
+            缺的只是界面上那一下。文案只宣称主动消息，不宣称「所有通知」。 */}
+        <TouchableOpacity
+          style={[styles.settingItem, pushBusy && styles.settingItemDisabled]}
+          disabled={pushBusy}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: !!profile?.push_enabled }}
+          onPress={() => onTogglePushEnabled(!profile?.push_enabled)}
+        >
+          <Text style={styles.settingIcon}>🔕</Text>
+          <Text style={styles.settingLabel}>{t('profile.pushEnabled')}</Text>
+          <Text style={profile?.push_enabled ? styles.settingValueGreen : styles.settingValueSmall}>
+            {profile?.push_enabled ? t('profile.pushEnabledOn') : t('profile.pushEnabledOff')}
+          </Text>
         </TouchableOpacity>
         {/* 推送频率（U3-a）：后端三档早已在 cron_service 判档，此前只有时间没有频率入口 */}
         <TouchableOpacity

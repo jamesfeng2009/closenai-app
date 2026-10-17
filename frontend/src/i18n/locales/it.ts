@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Riprova"
   },
   "memories": {
+    "add": "Nuovo ricordo",
+    "addPlaceholder": "Cosa vuoi che ClosenAI ricordi?",
+    "addSubmit": "Aggiungi ricordo",
+    "checking": "Controllo dei duplicati…",
+    "status": {
+      "current": "Attuale",
+      "superseded": "Sostituito",
+      "reverted": "Ripristinato"
+    },
+    "conviction": "Convinzione {{value}}%",
+    "changed": "Il mio parere è cambiato",
+    "changedPlaceholder": "Cosa pensi adesso?",
+    "changedSubmit": "Registra questo cambiamento",
+    "supersededAt": "Sostituito il {{date}}",
     "title": "Gestione memoria",
     "empty": "Nessun ricordo per ora",
     "deleteTitle": "Elimina ricordo",
@@ -245,6 +259,7 @@ const resource = {
     "subtitle": "Sblocca chat illimitate e insight più approfonditi",
     "currentPlan": "Piano attuale",
     "expiresAt": "Scade il",
+    "staleStatusNote": "Stato visto l'ultima volta (non in tempo reale)",
     "subscribe": "Abbonati ora",
     "restore": "Ripristina acquisti",
     "unavailable": "Gli acquisti in-app non sono supportati in questo ambiente. Usa una build di sviluppo.",
@@ -293,6 +308,8 @@ const resource = {
     "moodReminder": "Non ancora registrato oggi · Tocca per scegliere un emoji",
     "moodReminderTime": "3 secondi",
     "moodPanelTitle": "Come ti senti oggi?",
+    "moodNotePlaceholder": "Una frase su oggi (facoltativo)",
+    "moodNoteLabel": "Nota facoltativa per il check-in di oggi",
     "modeLabel": "✨ Modalità riflessione · Bozza intelligente",
     "aiTag": "Generato dall'IA",
     "memoryRefs": "{{n}} riferimenti di memoria {{arrow}}",
@@ -315,6 +332,9 @@ const resource = {
     "activeTime": "Ora messaggio attivo",
     "pushTimeTitle": "Scegli l'ora del messaggio attivo",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Messaggi proattivi",
+    "pushEnabledOn": "Attivo",
+    "pushEnabledOff": "In pausa",
     "pushFreq": "Frequenza dei messaggi",
     "pushFreqTitle": "Quanto spesso ti scriviamo",
     "pushFreqOption": {

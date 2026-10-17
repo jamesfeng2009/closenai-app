@@ -15,12 +15,12 @@ import {
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getWeeklyInsight, getPatternDiscovery, getShareReport, getYearInReview, getTimeline,
-  getUserProfile, getReportPdf, getYearInReviewPdf, ApiError,
+  getUserProfile, getReportPdf, getYearInReviewPdf, getMoodTrend, ApiError,
 } from '../services/api';
 import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
 import { reportPdfFile, YEAR_IN_REVIEW_PDF_FILE, pdfFailureKey } from '../config/pdfFiles';
 import type {
-  GrowthTimeline, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
+  GrowthTimeline, MoodTrendData, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
 } from '../types';
 import { trackFunnelShare } from '../services/funnel';
 import { memoriesWithinDays } from '../services/evidence';
@@ -46,6 +46,11 @@ const PRO_PERIODS: SharePeriod[] = ['monthly', 'quarterly', 'yearly'];
 const HEAT_DEFAULT_DAYS = 90;
 const HEAT_FULL_DAYS = 365;
 
+// 趋势摘要窗口（D-G9）：与这张卡的折线同窗（7 天），不跟热力图的 90/365 切换。
+// 为什么不拿 /mood/trend 换掉折线的数据源：它的 labels 是 "%m-%d" 不带年份
+// （mood_service.py:334），与 90 天/整年热力图切换会错位，且同一屏会长出第二个时间真源。
+const TREND_DAYS = 7;
+
 /** 按日期升序取最近 N 天（后端窗口顺序不做假设，本地排序保证折线/矩阵方向） */
 const recentDays = (days: { date: string; value: number }[], n: number): ChartDay[] =>
   [...days].sort((a, b) => a.date.localeCompare(b.date)).slice(-n);
@@ -58,6 +63,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [weeklyRefs, setWeeklyRefs] = useState<MemoryRef[]>([]);
   const [refsOpen, setRefsOpen] = useState(false);
   const [timeline, setTimeline] = useState<GrowthTimeline | null>(null);
+  // 后端算好的趋势一句话（high/mid/low 三档，按 X-Language 返回本地化文案）
+  const [trend, setTrend] = useState<MoodTrendData | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [pattern, setPattern] = useState<string | null>(null);
@@ -72,7 +79,7 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   // PDF 导出（U2）：两个入口共用一个忙位，防「点了周报又点年报」并发写同名文件
   const [pdfBusy, setPdfBusy] = useState<'report' | 'year' | null>(null);
 
-  // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
+  // 首屏并行加载 4 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
   // 游客态跳过请求（接口均需登录，游客必 401），展示空态
   // 周报是本页主数据源：它的失败要单独记（不能和「本周还没有周报」共用一句文案）
   const [weeklyFailed, setWeeklyFailed] = useState(false);
@@ -85,18 +92,20 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     try {
       setLoading(true);
       let wFailed = false;
-      const [w, tl, p] = await Promise.all([
+      const [w, tl, p, tr] = await Promise.all([
         getWeeklyInsight().catch(() => {
           wFailed = true;
           return null;
         }),
         getTimeline(365).catch(() => null),
         getUserProfile().catch(() => null),
+        getMoodTrend(TREND_DAYS).catch(() => null),
       ]);
       setWeeklyFailed(wFailed);
       setWeekly(w);
       setTimeline(tl);
       setProfile(p);
+      setTrend(tr);
       // #34 期间级依据：周报正文在才聚合当期记忆；取不到就不显示这一栏
       setRefsOpen(false);
       setWeeklyRefs(
@@ -429,6 +438,12 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
           <InsightBlurGate locked={!isPro} onPressUnlock={() => navigation.navigate('Paywall')}>
             {/* 近 7 天折线（X=日期，Y=情绪值；未签到断线不插值） */}
             <MoodLineChart days={recentDays(timeline.days, 7)} width={340} height={56} />
+            {/* 趋势一句话（D-G9）：文案由后端按 X-Language 生成（mood_service.py:349-352 三档），
+                前端不重算平均值——否则同一屏会有第二个「这段情绪算高还是低」的真源。
+                放在模糊门之内：免费/Pro 的分界不因这条而变。 */}
+            {!!trend?.summary && (
+              <Text style={styles.trendSummary}>{trend.summary}</Text>
+            )}
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <HeatGrid days={recentDays(timeline.days, heatFull ? HEAT_FULL_DAYS : HEAT_DEFAULT_DAYS)} />
             </ScrollView>
@@ -517,4 +532,8 @@ const styles = StyleSheet.create({
   // TouchableOpacity 的 disabled 自己不改观感，忙态得压暗，否则看不出两个入口互斥
   pdfBtnDisabled: { opacity: 0.45 },
   heatToggle: { fontSize: FontSize.sm, color: Colors.gold400, opacity: 0.85 },
+  trendSummary: {
+    fontSize: FontSize.md, color: Colors.textSecondary,
+    marginTop: Spacing.xs, marginBottom: Spacing.sm, lineHeight: LineHeight.caption,
+  },
 });

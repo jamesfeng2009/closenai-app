@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Tentar novamente"
   },
   "memories": {
+    "add": "Nova memória",
+    "addPlaceholder": "O que você quer que o ClosenAI lembre?",
+    "addSubmit": "Adicionar memória",
+    "checking": "Verificando duplicatas…",
+    "status": {
+      "current": "Atual",
+      "superseded": "Substituída",
+      "reverted": "Revertida"
+    },
+    "conviction": "Convicção {{value}}%",
+    "changed": "Minha visão mudou",
+    "changedPlaceholder": "O que você pensa agora?",
+    "changedSubmit": "Registrar esta mudança",
+    "supersededAt": "Substituída em {{date}}",
     "title": "Gerenciamento de memória",
     "empty": "Ainda não há memórias",
     "deleteTitle": "Excluir memória",
@@ -245,6 +259,7 @@ const resource = {
     "subtitle": "Desbloqueie conversas ilimitadas e insights mais profundos",
     "currentPlan": "Plano atual",
     "expiresAt": "Expira em",
+    "staleStatusNote": "Status visto pela última vez (não em tempo real)",
     "subscribe": "Assinar agora",
     "restore": "Restaurar compras",
     "unavailable": "A compra no app não é compatível com este ambiente. Use uma build de desenvolvimento.",
@@ -293,6 +308,8 @@ const resource = {
     "moodReminder": "Ainda não registrou hoje · Toque para escolher um emoji",
     "moodReminderTime": "3 segundos",
     "moodPanelTitle": "Como você está se sentindo hoje?",
+    "moodNotePlaceholder": "Diga uma frase sobre hoje (opcional)",
+    "moodNoteLabel": "Nota opcional para o registro de hoje",
     "modeLabel": "✨ Modo reflexão · Rascunho inteligente",
     "aiTag": "Gerado por IA",
     "memoryRefs": "{{n}} referências de memória {{arrow}}",
@@ -315,6 +332,9 @@ const resource = {
     "activeTime": "Hora da mensagem ativa",
     "pushTimeTitle": "Escolha o horário da mensagem ativa",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Mensagens proativas",
+    "pushEnabledOn": "Ativo",
+    "pushEnabledOff": "Pausado",
     "pushFreq": "Frequência das mensagens",
     "pushFreqTitle": "Com que frequência enviamos mensagens",
     "pushFreqOption": {

@@ -38,6 +38,20 @@ const resource = {
     "crashRetry": "Réessayer"
   },
   "memories": {
+    "add": "Nouveau souvenir",
+    "addPlaceholder": "Que voulez-vous que ClosenAI retienne ?",
+    "addSubmit": "Ajouter le souvenir",
+    "checking": "Vérification des doublons…",
+    "status": {
+      "current": "Actuel",
+      "superseded": "Remplacé",
+      "reverted": "Réverti"
+    },
+    "conviction": "Conviction {{value}} %",
+    "changed": "Mon avis a changé",
+    "changedPlaceholder": "Que pensez-vous maintenant ?",
+    "changedSubmit": "Enregistrer ce changement",
+    "supersededAt": "Remplacé le {{date}}",
     "title": "Gestion de la mémoire",
     "empty": "Aucun souvenir pour le moment",
     "deleteTitle": "Supprimer le souvenir",
@@ -245,6 +259,7 @@ const resource = {
     "subtitle": "Débloquez des discussions illimitées et des aperçus plus approfondis",
     "currentPlan": "Offre actuelle",
     "expiresAt": "Expire le",
+    "staleStatusNote": "État vu la dernière fois (non actualisé)",
     "subscribe": "S'abonner maintenant",
     "restore": "Restaurer les achats",
     "unavailable": "Les achats intégrés ne sont pas pris en charge dans cet environnement. Veuillez utiliser une version de développement.",
@@ -293,6 +308,8 @@ const resource = {
     "moodReminder": "Pas encore enregistré aujourd'hui · Touchez pour choisir un emoji",
     "moodReminderTime": "3 secondes",
     "moodPanelTitle": "Comment vous sentez-vous aujourd'hui ?",
+    "moodNotePlaceholder": "Une phrase sur aujourd’hui (facultatif)",
+    "moodNoteLabel": "Note facultative pour la saisie du jour",
     "modeLabel": "✨ Mode réflexion · Brouillon intelligent",
     "aiTag": "Généré par IA",
     "memoryRefs": "{{n}} références mémoire {{arrow}}",
@@ -315,6 +332,9 @@ const resource = {
     "activeTime": "Heure du message actif",
     "pushTimeTitle": "Choisissez l'heure du message actif",
     "hourOption": "{{hour}}:00",
+    "pushEnabled": "Messages proactifs",
+    "pushEnabledOn": "Activé",
+    "pushEnabledOff": "En pause",
     "pushFreq": "Fréquence des messages",
     "pushFreqTitle": "À quelle fréquence nous t'écrivons",
     "pushFreqOption": {

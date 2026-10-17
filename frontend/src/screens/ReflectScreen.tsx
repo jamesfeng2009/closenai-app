@@ -56,6 +56,9 @@ interface Message {
 type RefsExpanded = Record<string, boolean>;
 
 const MOOD_EMOJIS: MoodEmoji[] = ['😊', '😌', '😰', '😢', '😡', '😴'];
+// 签到附一句话的长度上限：与后端 MoodCheckinRequest.note 的 max_length（schemas.py:87）同值。
+// 另设一个更小的数＝长出第二真源，界面上会被后端打回「too long」而不是这里先拦住。
+const MOOD_NOTE_MAX_LENGTH = 1000;
 
 /** 合并本地与远端消息：按 id 去重，远端覆盖本地（同 id 以远端为准）。 */
 function mergeMessages(remote: Message[], local: Message[]): Message[] {
@@ -78,6 +81,8 @@ export default function ReflectScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [showMoodPanel, setShowMoodPanel] = useState(false);
+  // 签到附一句话（D-G8）：只服务这一个弹层，签到成功即清空，不留成常驻草稿
+  const [moodNote, setMoodNote] = useState('');
   const [moodCheckedIn, setMoodCheckedIn] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -318,8 +323,10 @@ export default function ReflectScreen() {
 
   const quickMoodCheckin = async (emoji: MoodEmoji) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
+    // 附一句话（D-G8）：trim 后为空 ⇒ 传 undefined，不给库里写空串（口径同睡前复盘 step1「可空=跳过」）
+    const note = moodNote.trim() || undefined;
     try {
-      const result = await moodCheckin(emoji);
+      const result = await moodCheckin(emoji, note);
       setMessages((prev) => [
         ...prev,
         { id: `mood-${Date.now()}`, role: 'ai', content: result.ai_interpretation },
@@ -330,15 +337,17 @@ export default function ReflectScreen() {
       ]);
       setMoodCheckedIn(true);
       setShowMoodPanel(false);
+      setMoodNote('');
       setStreak(result.streak_updated);
       // 本地签到记录落库（Tier 1 用户原创；热力图离线可用）
+      // note 写用户实际输入的那句（服务端响应里没有 note 字段，回读不了，只能用手上的值）
       moodCheckinRepo
         .save({
           id: result.id,
           date: toLocalDate(result.created_at),
           emoji: result.mood_emoji,
           intensity: 0.5,
-          note: null,
+          note: note ?? null,
           ai_interpretation: result.deep_interpretation
             ? `${result.ai_interpretation}\n\n${result.deep_interpretation}`
             : result.ai_interpretation,
@@ -449,6 +458,17 @@ export default function ReflectScreen() {
       {showMoodPanel && (
         <View style={styles.moodPanel}>
           <Text style={styles.moodPanelTitle}>{t('reflect.moodPanelTitle')}</Text>
+          {/* 附一句话（D-G8）：可选，点了表情才随签到一起上送；HomeScreen 的一键签到不加输入框 */}
+          <TextInput
+            style={styles.moodNoteInput}
+            value={moodNote}
+            onChangeText={setMoodNote}
+            placeholder={t('reflect.moodNotePlaceholder')}
+            placeholderTextColor={Colors.textTertiary}
+            multiline
+            maxLength={MOOD_NOTE_MAX_LENGTH}
+            accessibilityLabel={t('reflect.moodNoteLabel')}
+          />
           <View style={styles.moodPanelRow}>
             {MOOD_EMOJIS.map((emoji) => (
               <TouchableOpacity
@@ -589,6 +609,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(99,102,241,0.04)', borderBottomWidth: 1, borderBottomColor: 'rgba(99,102,241,0.1)',
   },
   moodPanelTitle: { fontSize: FontSize.md, color: Colors.textTertiary, marginBottom: 8 },
+  moodNoteInput: {
+    minHeight: 44, maxHeight: 88, textAlignVertical: 'top',
+    backgroundColor: Colors.bgTertiary, borderRadius: BorderRadius.lg,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8,
+    fontSize: FontSize.title, color: Colors.textPrimary, lineHeight: LineHeight.body,
+  },
   moodPanelRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   moodQuickBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   moodQuickEmoji: { fontSize: 24 },
