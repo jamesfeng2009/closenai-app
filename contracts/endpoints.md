@@ -40,6 +40,15 @@
 - `language` 由 `Depends(get_request_language)` 从查询参/`Accept-Language` 推导，**不属于响应契约**。
 - 这两个是 FastAPI 依赖，不体现在 openapi 的 `security` 字段里（`grep -c security contracts/openapi.json` = 0），
   Go 侧需按本表「鉴权」列实现，不能只读 openapi。
+- **JWT 算法基线只有 `HS256`；`JWT_ALGORITHM` 这个键在 Go 侧是校验位、在 Python 侧是真旋钮**（D-G13 登记）。
+  Go：`go-core/internal/config/config.go` 读 env 后只与字面量比对，签发与校验在
+  `go-core/internal/auth/token.go` 硬编码 HS256 且**从不读该字段** ⇒ 把它改成 RS256 的后果是
+  「go-api 拒绝启动」，不是「换了算法」。Python：`backend/core/auth.py` 四处读 `settings.jwt_algorithm`
+  ⇒ 同一个键确实能只改一侧的签发。因此部署里这个键只能是 `HS256`（`deploy/k8s/10-config.yaml` 钉死），
+  真要换算法必须**两侧同批**改签发与校验并重录 `backend/tests/test_go_auth_interop.py` 的基线夹具；
+  不许在 Go 的签发处插一条「读这个键」的分支（那只会把校验位变成没人验的旋钮）。
+  闸：`go-core/internal/config/jwt_algorithm_gate_test.go`、`go-core/internal/auth/token_alg_gate_test.go`、
+  `backend/tests/test_jwt_algorithm_baseline.py`。
 
 ## 四、业务错误码全集（Go 侧必须逐值复现）
 
