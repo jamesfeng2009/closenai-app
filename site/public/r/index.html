@@ -11,7 +11,8 @@
 
   访问者是「从别人的分享卡点进来、且此刻没有装 App」的人——已装 App 的点击由
   iOS Universal Links 直接接管（site/.well-known/apple-app-site-association 的
-  /r/* 规则），根本不会走到这个页面。所以这里的职责只有一件事：把下载按钮给出去。
+  /r/* 规则），根本不会走到这个页面。所以这里的职责是把人交给站点：上架前落到首页
+  （首页下载区按构建期注入的商店链决定给不给按钮），并让法务两页在这一跳就可及。
 
   ⚠️ 本页拿不到归因。推荐码在点进 App Store 那一跳就丢了（Apple 不向第三方 App
   透传任意 URL 参数），因此从落地页装量的新用户不会带上 referred_by_code。
@@ -81,6 +82,9 @@
   a.cta:active { background: var(--gold500); }
   .foot { margin-top: 20px; font-size: 12px; line-height: 1.6; color: var(--textSecondary); }
   .foot a { color: var(--accent500); }
+  .legal { margin-top: 14px; font-size: 12px; line-height: 1.9; }
+  .legal a { color: var(--textSecondary); text-decoration: none; margin-right: 12px; }
+  .legal a:hover { color: var(--gold500); }
 </style>
 </head>
 <body>
@@ -94,15 +98,24 @@
     <span class="code" id="code"></span>
   </div>
 
-  <a class="cta" id="download" href="#" rel="noopener">App Store</a>
+  <a class="cta" id="download" href="https://closenai.app/" rel="noopener">ClosenAI</a>
 
   <p class="foot" id="foot"></p>
+  <p class="legal">
+    <a href="https://closenai.app/privacy">隐私政策 · Privacy</a>
+    <a href="https://closenai.app/zh/privacy">中文</a>
+    <a href="https://closenai.app/terms">条款 · Terms</a>
+    <a href="https://closenai.app/zh/terms">中文</a>
+  </p>
 </main>
 
 <script>
-  // 上线前替换为提审后的真实链接（backend/config.py 的 app_store_url 同一值；
-  // 当前占位 id 见 D5「ASC 提审元数据」）。刻意只留这一处，避免两处漂移。
-  var APP_STORE_URL = 'https://apps.apple.com/app/closenai/id6740000000';
+  // 这里**不写**商店链：静态文件读不到构建期环境变量，而没上架时手上没有真的数字 ID。
+  // 写死占位（id6740000000 那一串）的后果是分享文案里带着一条 404 发出去，
+  // 断在「已经发给别人」那一步，事后修不回来。所以上架前这一跳落到站点首页，
+  // 由首页的下载区按 PUBLIC_APP_STORE_URL 决定给不给按钮（site/src/config/links.ts）。
+  // 上架后的收口动作：把本文件的 href 与文案一并交给构建期注入，见 tasks.md K4。
+  var SITE_HOME = 'https://closenai.app/';
 
   // 落地页可能从任何语言/平台的分享卡被打开，只按浏览器语言给中英两套文案。
   var ZH = (navigator.language || 'en').toLowerCase().indexOf('zh') === 0;
@@ -111,15 +124,15 @@
       title: '它记得你说过的每一句。',
       sub: 'ClosenAI 把你的记录、你的说法、你的变化按时间攒起来，让你看见自己是怎么变的。',
       quoted: '有人把 Ta 的一张卡片分享给了你。',
-      cta: '在 App Store 下载',
-      foot: '已装 ClosenAI？再点一次那条链接会直接打开 App。',
+      cta: '先看看 ClosenAI',
+      foot: 'iOS 应用上架 App Store 后即可下载。已装 ClosenAI？再点一次那条链接会直接打开 App。',
     },
     en: {
       title: 'It remembers every word you said.',
       sub: 'ClosenAI keeps your entries, your own phrasing, and your changes over time — so you can see how you shifted.',
       quoted: 'Someone shared one of their cards with you.',
-      cta: 'Download on the App Store',
-      foot: 'Already have ClosenAI? Tapping the same link again opens the app.',
+      cta: 'See ClosenAI',
+      foot: 'Available on the App Store once the iOS app ships. Already have ClosenAI? Tapping the same link again opens the app.',
     },
   }[ZH ? 'zh' : 'en'];
 
@@ -128,7 +141,7 @@
   document.getElementById('sub').textContent = T.sub;
   document.getElementById('quoted').textContent = T.quoted;
   document.getElementById('download').textContent = T.cta;
-  document.getElementById('download').href = APP_STORE_URL;
+  document.getElementById('download').href = SITE_HOME;
   document.getElementById('foot').textContent = T.foot;
 
   // 码只用于「这张卡来自谁」的人眼可读提示；本页不做任何归因上报（见头注释）。

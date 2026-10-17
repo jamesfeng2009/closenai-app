@@ -6,54 +6,86 @@
 import type { Lang } from '../i18n';
 import { T } from '../i18n';
 
-interface Props { lang: Lang }
+interface Props {
+  lang: Lang;
+  /** 非落地页（法务页）自己给标题与描述；不给则沿用落地页的 t.meta。 */
+  title?: string;
+  description?: string;
+  /** 非落地页的规范路径（如 /privacy、/zh/privacy）。落地页按语言取 / 与 /zh/。 */
+  path?: string;
+}
 const { lang } = Astro.props;
 const t = T[lang];
 
 const SITE = 'https://closenai.app';
-const PATH = lang === 'zh' ? '/zh/' : '/';
+const PATH = Astro.props.path ?? (lang === 'zh' ? '/zh/' : '/');
 const CANONICAL = SITE + PATH;
+// hreflang 的互指由路径自己算，不写死成 '/'：法务页的中英对映是 /privacy ↔ /zh/privacy，
+// 指向落地页会让两种语言互相否认自己。
+const ZH_PREFIX = /^\/zh(\/|$)/;
+const IS_ZH_PATH = ZH_PREFIX.test(PATH);
+const EN_PATH = IS_ZH_PATH ? (PATH.replace(ZH_PREFIX, '/') || '/') : PATH;
+const ZH_PATH = IS_ZH_PATH ? PATH : (PATH === '/' ? '/zh' : `/zh${PATH}`);
+const IS_LANDING = PATH === '/' || PATH === '/zh';
 const OG_LOCALE = lang === 'zh' ? 'zh_CN' : 'en_US';
 const ALT_LOCALE = lang === 'zh' ? 'en_US' : 'zh_CN';
+const PAGE_TITLE = Astro.props.title ?? t.meta.title;
+const PAGE_DESCRIPTION = Astro.props.description ?? t.meta.description;
+
+const graph: Record<string, unknown>[] = [
+  {
+    '@type': 'Organization',
+    '@id': `${SITE}/#org`,
+    name: 'ClosenAI',
+    url: `${SITE}/`,
+    logo: `${SITE}/favicon.svg`,
+  },
+  {
+    '@type': 'WebSite',
+    '@id': `${SITE}/#site`,
+    url: `${SITE}/`,
+    name: 'ClosenAI',
+    publisher: { '@id': `${SITE}/#org` },
+    inLanguage: lang === 'zh' ? 'zh-CN' : 'en',
+  },
+];
+// 落地页带 App 与 FAQ 结构化数据；法务页只声明自己是 WebPage——
+// FAQPage 抄到每一页会变成「每个页面都在回答同一批问题」，那是垃圾信号。
+if (IS_LANDING) {
+  graph.push({
+    '@type': 'MobileApplication',
+    name: 'ClosenAI',
+    operatingSystem: 'iOS',
+    applicationCategory: 'LifestyleApplication',
+    description: t.meta.description,
+    url: `${SITE}/`,
+    publisher: { '@id': `${SITE}/#org` },
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    inLanguage: lang === 'zh' ? 'zh-CN' : 'en',
+  });
+  graph.push({
+    '@type': 'FAQPage',
+    mainEntity: t.faq.items.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: { '@type': 'Answer', text: item.a },
+    })),
+  });
+} else {
+  graph.push({
+    '@type': 'WebPage',
+    name: PAGE_TITLE,
+    url: CANONICAL,
+    description: PAGE_DESCRIPTION,
+    isPartOf: { '@id': `${SITE}/#site` },
+    publisher: { '@id': `${SITE}/#org` },
+    inLanguage: lang === 'zh' ? 'zh-CN' : 'en',
+  });
+}
 
 const jsonLd = {
   '@context': 'https://schema.org',
-  '@graph': [
-    {
-      '@type': 'Organization',
-      '@id': `${SITE}/#org`,
-      name: 'ClosenAI',
-      url: `${SITE}/`,
-      logo: `${SITE}/favicon.svg`,
-    },
-    {
-      '@type': 'WebSite',
-      '@id': `${SITE}/#site`,
-      url: `${SITE}/`,
-      name: 'ClosenAI',
-      publisher: { '@id': `${SITE}/#org` },
-      inLanguage: lang === 'zh' ? 'zh-CN' : 'en',
-    },
-    {
-      '@type': 'MobileApplication',
-      name: 'ClosenAI',
-      operatingSystem: 'iOS',
-      applicationCategory: 'LifestyleApplication',
-      description: t.meta.description,
-      url: `${SITE}/`,
-      publisher: { '@id': `${SITE}/#org` },
-      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-      inLanguage: lang === 'zh' ? 'zh-CN' : 'en',
-    },
-    {
-      '@type': 'FAQPage',
-      mainEntity: t.faq.items.map((item) => ({
-        '@type': 'Question',
-        name: item.q,
-        acceptedAnswer: { '@type': 'Answer', text: item.a },
-      })),
-    },
-  ],
+  '@graph': graph,
 };
 ---
 
@@ -62,23 +94,23 @@ const jsonLd = {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>{t.meta.title}</title>
-    <meta name="description" content={t.meta.description} />
+    <title>{PAGE_TITLE}</title>
+    <meta name="description" content={PAGE_DESCRIPTION} />
     <link rel="canonical" href={CANONICAL} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="alternate" hreflang="en" href={`${SITE}/`} />
-    <link rel="alternate" hreflang="zh" href={`${SITE}/zh/`} />
-    <link rel="alternate" hreflang="x-default" href={`${SITE}/`} />
-    <meta property="og:type" content="website" />
+    <link rel="alternate" hreflang="en" href={`${SITE}${EN_PATH}`} />
+    <link rel="alternate" hreflang="zh" href={`${SITE}${ZH_PATH}`} />
+    <link rel="alternate" hreflang="x-default" href={`${SITE}${EN_PATH}`} />
+    <meta property="og:type" content={IS_LANDING ? 'website' : 'article'} />
     <meta property="og:site_name" content="ClosenAI" />
-    <meta property="og:title" content={t.meta.title} />
-    <meta property="og:description" content={t.meta.description} />
+    <meta property="og:title" content={PAGE_TITLE} />
+    <meta property="og:description" content={PAGE_DESCRIPTION} />
     <meta property="og:url" content={CANONICAL} />
     <meta property="og:locale" content={OG_LOCALE} />
     <meta property="og:locale:alternate" content={ALT_LOCALE} />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content={t.meta.title} />
-    <meta name="twitter:description" content={t.meta.description} />
+    <meta name="twitter:title" content={PAGE_TITLE} />
+    <meta name="twitter:description" content={PAGE_DESCRIPTION} />
     <meta name="theme-color" content="#050508" />
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </head>
@@ -245,6 +277,12 @@ const jsonLd = {
 
   .final{text-align:center;padding:110px 0 96px;position:relative}
   .final h2{font-size:clamp(32px,4vw,48px)}
+  /* 上架前下载区没有可点的东西：渲染成一行说明，而不是 href="#" 的空按钮 */
+  .final .soon{font-size:15.5px;color:var(--text-sub);border:1px dashed var(--gold-line);
+    border-radius:999px;padding:13px 26px;background:var(--gold-soft)}
+  .priv-more{margin-top:24px;font-size:14.5px}
+  .priv-more a{color:var(--gold);text-decoration:none;border-bottom:1px solid var(--gold-line)}
+  .priv-more a:hover{color:#F2C968}
   footer{border-top:1px solid var(--border);padding:34px 0;color:var(--text-faint);font-size:13px}
   .foot-in{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:center}
   .foot-links a{color:var(--text-sub);text-decoration:none;margin-left:22px}

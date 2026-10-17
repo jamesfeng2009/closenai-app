@@ -1,0 +1,10 @@
+---
+/** 隐私政策（zh）：与 /privacy 同一份内容，中英互指由 hreflang 表达。 */
+import Base from '../../layouts/Base.astro';
+import Legal from '../../components/Legal.astro';
+import { LEGAL } from '../../legal';
+---
+
+<Base lang="zh" path="/zh/privacy" title={LEGAL.zh.privacy.title} description={LEGAL.zh.privacy.description}>
+  <Legal lang="zh" kind="privacy" />
+</Base>

@@ -1,0 +1,10 @@
+---
+/** 服务条款（zh）：与 /terms 同一份内容。 */
+import Base from '../../layouts/Base.astro';
+import Legal from '../../components/Legal.astro';
+import { LEGAL } from '../../legal';
+---
+
+<Base lang="zh" path="/zh/terms" title={LEGAL.zh.terms.title} description={LEGAL.zh.terms.description}>
+  <Legal lang="zh" kind="terms" />
+</Base>

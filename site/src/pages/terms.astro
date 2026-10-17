@@ -1,0 +1,10 @@
+---
+/** 服务条款（en）。App 内两条常驻法务入口之一，见 frontend/src/config/links.ts:8。 */
+import Base from '../layouts/Base.astro';
+import Legal from '../components/Legal.astro';
+import { LEGAL } from '../legal';
+---
+
+<Base lang="en" path="/terms" title={LEGAL.en.terms.title} description={LEGAL.en.terms.description}>
+  <Legal lang="en" kind="terms" />
+</Base>

@@ -1,0 +1,88 @@
+---
+/**
+ * 法务页正文外壳（G3）。中英两份由 legal.ts 供数据，构建期注入成完整静态 HTML。
+ *
+ * 这一页的存在本身就是被两条断链逼出来的：App 内的「隐私政策 / 用户协议」按钮
+ * 指到 closenai.app/privacy 与 /terms（frontend/src/config/links.ts:7-8），
+ * 而站点侧只有落地页——提审要的那两条 URL 当时是 404。
+ * 页脚与下载区都不许再留 `href="#"`（闸：backend/tests/test_legal_pages.py）。
+ */
+import type { Lang } from '../i18n';
+import { T } from '../i18n';
+import { LEGAL, LEGAL_UPDATED, type LegalKind } from '../legal';
+import { homePath, MAILTO, privacyPath, termsPath } from '../config/links';
+
+interface Props { lang: Lang; kind: LegalKind }
+const { lang, kind } = Astro.props;
+const t = T[lang];
+const doc = LEGAL[lang][kind];
+const otherLang: Lang = lang === 'zh' ? 'en' : 'zh';
+const otherPath = kind === 'privacy' ? privacyPath(otherLang) : termsPath(otherLang);
+const otherLabel = lang === 'zh' ? 'EN' : '中文';
+const kicker = kind === 'privacy' ? (lang === 'zh' ? '隐私政策' : 'Privacy Policy') : (lang === 'zh' ? '服务条款' : 'Terms of Service');
+---
+
+<nav>
+  <div class="nav-in">
+    <a class="logo" href={homePath(lang)}><span class="logo-dot"></span>ClosenAI</a>
+    <div class="nav-right">
+      <a class="lang-link" href={otherPath} hreflang={otherLang}>{otherLabel}</a>
+      <a class="btn-store" href={`${privacyPath(lang)}`}>{lang === 'zh' ? '隐私' : 'Privacy'}</a>
+      <a class="btn-store" href={`${termsPath(lang)}`}>{lang === 'zh' ? '条款' : 'Terms'}</a>
+    </div>
+  </div>
+</nav>
+
+<main class="legal">
+  <span class="kicker">{kicker}</span>
+  <h1 set:html={lang === 'zh' ? `ClosenAI <em>隐私与服务</em>` : `ClosenAI <em>Privacy &amp; Terms</em>`} />
+  <p class="lead">{doc.title}</p>
+  <p class="intro">{doc.intro}</p>
+  <p class="updated">
+    {lang === 'zh' ? '最后更新' : 'Last updated'}: {LEGAL_UPDATED}
+  </p>
+
+  {doc.sections.map((s, i) => (
+    <section class="sec">
+      <h2><span class="no">{String(i + 1).padStart(2, '0')}</span>{s.h}</h2>
+      {s.ps?.map((p) => <p>{p}</p>)}
+      {s.ul && (
+        <ul>
+          {s.ul.map((li) => <li>{li}</li>)}
+        </ul>
+      )}
+    </section>
+  ))}
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <div>© 2026 ClosenAI · {t.foot.tag}</div>
+    <div class="foot-links">
+      <a href={privacyPath(lang)}>{t.foot.privacy}</a>
+      <a href={termsPath(lang)}>{t.foot.terms}</a>
+      <a href={MAILTO}>{t.foot.contact}</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .legal { max-width: 780px; margin: 0 auto; padding: 150px 28px 40px; }
+  .legal h1 { margin-top: 18px; }
+  .legal h1 :global(em) { font-style: italic; color: var(--gold); }
+  .lead { color: var(--text-faint); font-size: 13px; font-family: var(--font-mono); margin-top: -8px; }
+  .intro { color: var(--text-sub); font-size: 17px; margin-top: 22px; }
+  .updated {
+    margin-top: 26px; font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em;
+    color: var(--gold); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    padding: 12px 0;
+  }
+  .sec { margin-top: 44px; }
+  .sec h2 { font-size: 23px; margin-bottom: 14px; display: flex; gap: 12px; align-items: baseline; }
+  .sec h2 .no { font-family: var(--font-mono); font-size: 12px; color: var(--gold); letter-spacing: .12em; flex: none; }
+  .sec p { color: var(--text-sub); font-size: 15.5px; margin-top: 12px; }
+  .sec ul { margin-top: 12px; padding-left: 20px; }
+  .sec li { color: var(--text-sub); font-size: 15px; margin-top: 9px; }
+  .sec li::marker { color: var(--gold-line); }
+  @media (max-width: 560px) { .legal { padding: 120px 20px 32px; } }
+</style>

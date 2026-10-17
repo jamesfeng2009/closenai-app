@@ -57,6 +57,7 @@ export const T = {
       kicker: 'Privacy',
       h2: 'Intimate by design, private by default',
       sub: 'A companion that remembers must first be trusted to remember. The controls are yours, in plain language.',
+      policyLink: 'Read the full privacy policy',
       items: [
         { h: 'Export anything', p: 'Memories, reports, share cards — export as files whenever you want. No lock-in.', icon: 'export' },
         { h: 'Delete for real', p: 'Delete a single memory or the whole account — deletion means deletion, not "deactivated".', icon: 'trash' },
@@ -74,7 +75,7 @@ export const T = {
         { q: 'How much does it cost?', a: 'Free to start, with daily conversations and the core memory features. Pro unlocks deeper reports, longer windows and the full archive export — cancel anytime.' },
       ],
     },
-    fin: { kicker: 'Start tonight', h2: 'Say something worth remembering.', cta: 'Download on the App Store', note: 'Requires iOS 15+ · Free to start' },
+    fin: { kicker: 'Start tonight', h2: 'Say something worth remembering.', cta: 'Download on the App Store', note: 'Requires iOS 15+ · Free to start', unreleased: 'The iOS app is not on the App Store yet — this becomes a real download button the day it is.' },
     foot: { tag: 'It remembers everything you tell it', privacy: 'Privacy Policy', terms: 'Terms of Service', contact: 'Contact' },
     mock: {
       ai1: 'How did the interview go? You were nervous about it last week.',
@@ -141,6 +142,7 @@ export const T = {
       kicker: '隐私',
       h2: '因亲密而生，以隐私为本',
       sub: '一个会记住你的伙伴，首先要配得上「被信任地记住」。控制权都在你手里，说人话的那种。',
+      policyLink: '阅读完整隐私政策',
       items: [
         { h: '随时导出', p: '记忆、报告、分享卡——想导出就导出成文件。不锁定。', icon: 'export' },
         { h: '真的删除', p: '删除一条记忆，或注销整个账号——删除就是删除，不是「停用」。', icon: 'trash' },
@@ -158,7 +160,7 @@ export const T = {
         { q: '要花多少钱？', a: '免费开始，含每日对话与核心记忆功能。Pro 解锁更深的报告、更长的时间窗与完整档案导出——随时可取消。' },
       ],
     },
-    fin: { kicker: '从今晚开始', h2: '说一句值得被记住的话。', cta: '在 App Store 下载', note: '需要 iOS 15 或更高版本 · 免费开始' },
+    fin: { kicker: '从今晚开始', h2: '说一句值得被记住的话。', cta: '在 App Store 下载', note: '需要 iOS 15 或更高版本 · 免费开始', unreleased: 'iOS 应用还没有上架 App Store——上架那天，这里会变成一个真的下载按钮。' },
     foot: { tag: '它记得你告诉过它的每一句话', privacy: '隐私政策', terms: '服务条款', contact: '联系我们' },
     mock: {
       ai1: '面试怎么样？你上周还为它紧张来着。',

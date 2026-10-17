@@ -5,3 +5,12 @@
 # 也让 Apple 对 AASA 路径规则的判定多一层不确定性。
 /r       /r/index.html  200
 /r/*     /r/index.html  200
+
+# 法务页的无扩展名形态（G3）。App 内两条常驻入口写的是 https://closenai.app/privacy
+# 与 /terms（frontend/src/config/links.ts:7-8），而 Astro 目录式构建产出的是
+# privacy/index.html。这里显式 200 重写，而不是赌 Pages 的 pretty-URL 推断——
+# 「App 里点隐私政策」是一条不能靠默认行为成立的跳：它打不开就是提审阻塞项。
+/privacy      /privacy/index.html  200
+/terms        /terms/index.html    200
+/zh/privacy   /zh/privacy/index.html  200
+/zh/terms     /zh/terms/index.html    200

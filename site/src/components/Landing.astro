@@ -5,12 +5,17 @@
  */
 import type { Lang } from '../i18n';
 import { T } from '../i18n';
+import { APP_STORE_URL, homePath, MAILTO, privacyPath, termsPath } from '../config/links';
 
 interface Props { lang: Lang }
 const { lang } = Astro.props;
 const t = T[lang];
 const other = lang === 'zh' ? '/' : '/zh/';
 const otherLabel = lang === 'zh' ? 'EN' : '中文';
+// 上架前没有真的 App Store 链接：这时下载区渲染成**说明**而不是按钮。
+// 宁可不给按钮，也不给一条拼出来的占位商店链——后者会跟着分享文案发出去，
+// 收到的人点开是 404，断在「已经发给别人」那一步（闸见 backend/tests/test_share_landing_fallback.py）。
+const storeReady = APP_STORE_URL !== '';
 
 const ICONS: Record<string, string> = {
   brain: '<path d="M12 3a6 6 0 0 0-9.33 8.87A6.86 6.86 0 0 0 8 21h8a6.86 6.86 0 0 0 5.33-9.13A6 6 0 0 0 12 3"/><path d="M12 3v18"/>',
@@ -32,7 +37,7 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
 <Fragment set:html={`<!-- trust icons: brain / shield / arrow -->`} />
 <nav>
   <div class="nav-in">
-    <a class="logo" href={lang === 'zh' ? '/zh/' : '/'}><span class="logo-dot"></span>ClosenAI</a>
+    <a class="logo" href={homePath(lang)}><span class="logo-dot"></span>ClosenAI</a>
     <div class="nav-links">
       <a href="#features">{t.nav.features}</a>
       <a href="#memory">{t.nav.memory}</a>
@@ -153,6 +158,8 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
         </div>
       ))}
     </div>
+    <!-- 摘要卡片说的是「能导出/能删」，可用户与 Apple 审的都要看全文；这里给一条实链。 -->
+    <p class="priv-more reveal"><a href={privacyPath(lang)}>{t.pri.policyLink}</a></p>
   </div>
 </section>
 
@@ -178,7 +185,9 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
     <span class="kicker">{t.fin.kicker}</span>
     <h2>{t.fin.h2}</h2>
     <div class="cta-row" style="justify-content:center;margin-top:34px">
-      <a class="btn-primary" href="#" rel="noopener"><Fragment set:html={icon('download')} /><span>{t.fin.cta}</span></a>
+      {storeReady
+        ? <a class="btn-primary" href={APP_STORE_URL} rel="noopener"><Fragment set:html={icon('download')} /><span>{t.fin.cta}</span></a>
+        : <p class="soon">{t.fin.unreleased}</p>}
     </div>
     <p class="hero-note">{t.fin.note}</p>
   </div>
@@ -188,10 +197,9 @@ const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
   <div class="wrap foot-in">
     <div>© 2026 ClosenAI · {t.foot.tag}</div>
     <div class="foot-links">
-      <!-- 上架后替换为真实法务页链接 -->
-      <a href="#">{t.foot.privacy}</a>
-      <a href="#">{t.foot.terms}</a>
-      <a href="mailto:support@closenai.app">{t.foot.contact}</a>
+      <a href={privacyPath(lang)}>{t.foot.privacy}</a>
+      <a href={termsPath(lang)}>{t.foot.terms}</a>
+      <a href={MAILTO}>{t.foot.contact}</a>
     </div>
   </div>
 </footer>
