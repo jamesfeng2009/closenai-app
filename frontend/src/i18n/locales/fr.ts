@@ -164,7 +164,6 @@ const resource = {
     "reflectionsEmpty": "Les réflexions enregistrées s'afficheront ici",
     "personCard": "Carte de personnalité",
     "personCardDesc": "Générer une carte à partager",
-    "comingSoon": "Bientôt disponible"
   },
   "growthRecords": {
     "title": "Mes notes d'évolution",
@@ -188,6 +187,7 @@ const resource = {
     "failed": {
       "noData": "Rien à exporter pour l’instant : cette période ne contient aucun enregistrement.",
       "memoryGone": "Ce souvenir n’est plus disponible, la carte ne peut pas être exportée.",
+      "entitlement": "Vous n'avez pas encore le droit d'exporter cet archive : achetez-le ou utilisez votre crédit mensuel Pro.",
       "generic": "Échec de l’exportation. Réessayez plus tard."
     }
   },
@@ -247,7 +247,6 @@ const resource = {
     "expiresAt": "Expire le",
     "subscribe": "S'abonner maintenant",
     "restore": "Restaurer les achats",
-    "comingSoon": "Le flux d'achat arrive bientôt",
     "unavailable": "Les achats intégrés ne sont pas pris en charge dans cet environnement. Veuillez utiliser une version de développement.",
     "processing": "Traitement en cours…",
     "purchaseSuccess": "Abonnement activé",

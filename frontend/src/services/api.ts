@@ -659,10 +659,10 @@ export async function getYearInReview(year?: number): Promise<YearInReviewCard> 
 }
 
 // ── PDF 导出（U2 · P0-F07 §6）──────────────────────────────────────────
-// 三条都是 PDF 二进制出口：排版全在后端（share_service.py + reportlab 中文 CID 字体），
+// 四条都是 PDF 二进制出口：排版全在后端（share_service.py + reportlab 中文 CID 字体），
 // 前端只拿字节。鉴权靠 request 里那条统一的 Authorization，所以不走 Linking.openURL
 // ——浏览器/系统打开 URL 带不上 Bearer，必然 401。
-// 失败码（40402 / 40403 / 其它）由 pdfFailureKey 映射文案，文件名见 config/pdfFiles.ts。
+// 失败码（40304 / 40402 / 40403 / 其它）由 pdfFailureKey 映射文案，文件名见 config/pdfFiles.ts。
 
 /** 周期报告 PDF（Pro 周期仍由后端 40302 把关）。 */
 export async function getReportPdf(period: SharePeriod): Promise<ArrayBuffer> {
@@ -682,6 +682,24 @@ export async function postMemoryCardPdf(memoryId: string): Promise<ArrayBuffer> 
     body: JSON.stringify({ memory_id: memoryId }),
     binary: true,
   });
+}
+
+/**
+ * Life Archive PDF（M6 买断权益的「货」）。
+ *
+ * 权益判定全在后端（一次性买断，或订阅期内每月 1 次免费生成），App 不自己判：
+ * 无权益回 40304 → `pdf.failed.entitlement`，界面上靠 Paywall 的导出按钮可见性兜住。
+ * 同档位（订阅口径为同档位同自然月）命中后端缓存直接复用，`regenerate` 才重排。
+ * 落盘名按 §七 模板拼接，见 `config/pdfFiles.ts` 的 `lifeArchivePdfFile`。
+ */
+export async function getLifeArchivePdf(
+  scope: LifeArchiveScope,
+  regenerate = false,
+): Promise<ArrayBuffer> {
+  return request<ArrayBuffer>(
+    `/share/life-archive/pdf?scope=${scope}&language=${langParam()}&regenerate=${regenerate}`,
+    { binary: true },
+  );
 }
 
 /**

@@ -160,7 +160,6 @@ const resource = {
     "reflectionsEmpty": "Refleksi yang disimpan akan dipaparkan di sini",
     "personCard": "Kad Personaliti",
     "personCardDesc": "Hasilkan kad untuk dikongsi",
-    "comingSoon": "Akan datang"
   },
   "growthRecords": {
     "title": "Rekod pertumbuhan saya",
@@ -184,6 +183,7 @@ const resource = {
     "failed": {
       "noData": "Tiada apa untuk dieksport lagi — tempoh ini tiada rekod.",
       "memoryGone": "Kenangan ini sudah tiada, kad tidak dapat dieksport.",
+      "entitlement": "Anda belum ada hak eksport untuk arkib ini — beli dahulu atau guna kuota bulanan Pro anda.",
       "generic": "Eksport gagal. Cuba lagi kemudian."
     }
   },
@@ -240,7 +240,6 @@ const resource = {
     "expiresAt": "Tamat pada",
     "subscribe": "Langgan Sekarang",
     "restore": "Pulihkan Pembelian",
-    "comingSoon": "Aliran pembelian akan datang",
     "unavailable": "Pembelian dalam aplikasi tidak disokong dalam persekitaran ini. Sila gunakan binaan pembangunan.",
     "processing": "Memproses…",
     "purchaseSuccess": "Langganan diaktifkan",

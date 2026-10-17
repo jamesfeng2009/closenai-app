@@ -160,7 +160,6 @@ const resource = {
     "reflectionsEmpty": "保存的反思会显示在这里",
     "personCard": "性格名片",
     "personCardDesc": "生成分享卡片",
-    "comingSoon": "敬请期待"
   },
   "growthRecords": {
     "title": "成长记录",
@@ -184,6 +183,7 @@ const resource = {
     "failed": {
       "noData": "现在还没有可导出的内容——这段时间没有记录。",
       "memoryGone": "这条记忆已经不在了，卡片无法导出。",
+      "entitlement": "这份档案还没有导出权益——可以先买断，或用掉本月的 Pro 免费次数。",
       "generic": "导出失败，请稍后再试。"
     }
   },
@@ -240,7 +240,6 @@ const resource = {
     "expiresAt": "到期时间",
     "subscribe": "立即订阅",
     "restore": "恢复购买",
-    "comingSoon": "购买流程即将上线，敬请期待",
     "unavailable": "当前环境不支持应用内购买，请使用开发构建版本",
     "processing": "处理中…",
     "purchaseSuccess": "订阅成功，权益已生效",

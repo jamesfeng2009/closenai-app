@@ -160,7 +160,6 @@ const resource = {
     "reflectionsEmpty": "Refleksi yang disimpan akan muncul di sini",
     "personCard": "Kartu Kepribadian",
     "personCardDesc": "Buat kartu untuk dibagikan",
-    "comingSoon": "Segera hadir"
   },
   "growthRecords": {
     "title": "Catatan pertumbuhanku",
@@ -184,6 +183,7 @@ const resource = {
     "failed": {
       "noData": "Belum ada yang bisa diekspor — periode ini tidak punya catatan.",
       "memoryGone": "Memoeri ini sudah tidak tersedia, kartu tidak bisa diekspor.",
+      "entitlement": "Belum ada hak ekspor untuk arsip ini — beli terlebih dulu atau pakai kuota bulanan Pro.",
       "generic": "Ekspor gagal. Coba lagi nanti."
     }
   },
@@ -240,7 +240,6 @@ const resource = {
     "expiresAt": "Berakhir pada",
     "subscribe": "Berlangganan Sekarang",
     "restore": "Pulihkan Pembelian",
-    "comingSoon": "Alur pembelian segera hadir",
     "unavailable": "Pembelian dalam aplikasi tidak didukung di lingkungan ini. Silakan gunakan build pengembangan.",
     "processing": "Memproses…",
     "purchaseSuccess": "Langganan diaktifkan",

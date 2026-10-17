@@ -164,7 +164,6 @@ const resource = {
     "reflectionsEmpty": "Le riflessioni salvate appariranno qui",
     "personCard": "Carta di personalità",
     "personCardDesc": "Genera una carta da condividere",
-    "comingSoon": "Prossimamente"
   },
   "growthRecords": {
     "title": "Il mio percorso",
@@ -188,6 +187,7 @@ const resource = {
     "failed": {
       "noData": "Ancora nulla da esportare: questo periodo non ha record.",
       "memoryGone": "Questo ricordo non è più disponibile, la carta non può essere esportata.",
+      "entitlement": "Non hai ancora il diritto di esportare questo archivio: acquistalo o usa il tuo credito mensile Pro.",
       "generic": "Esportazione non riuscita. Riprova più tardi."
     }
   },
@@ -247,7 +247,6 @@ const resource = {
     "expiresAt": "Scade il",
     "subscribe": "Abbonati ora",
     "restore": "Ripristina acquisti",
-    "comingSoon": "Flusso di acquisto in arrivo",
     "unavailable": "Gli acquisti in-app non sono supportati in questo ambiente. Usa una build di sviluppo.",
     "processing": "Elaborazione in corso…",
     "purchaseSuccess": "Abbonamento attivato",

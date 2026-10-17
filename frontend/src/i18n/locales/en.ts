@@ -164,7 +164,6 @@ const resource = {
     "reflectionsEmpty": "Saved reflections will appear here",
     "personCard": "Personality Card",
     "personCardDesc": "Generate a shareable card",
-    "comingSoon": "Coming soon"
   },
   "growthRecords": {
     "title": "Growth Records",
@@ -188,6 +187,7 @@ const resource = {
     "failed": {
       "noData": "Nothing to export yet — this period has no records.",
       "memoryGone": "This memory is no longer available, so the card can't be exported.",
+      "entitlement": "You don't have export rights for this archive yet — buy it, or use your monthly Pro credit.",
       "generic": "Export failed. Please try again later."
     }
   },
@@ -247,7 +247,6 @@ const resource = {
     "expiresAt": "Expires at",
     "subscribe": "Subscribe Now",
     "restore": "Restore Purchases",
-    "comingSoon": "Purchase flow coming soon",
     "unavailable": "In-app purchase is not supported in this environment. Please use a development build.",
     "processing": "Processing…",
     "purchaseSuccess": "Subscription activated",

@@ -160,7 +160,6 @@ const resource = {
     "reflectionsEmpty": "저장한 반성이 여기에 표시됩니다",
     "personCard": "성격 명함",
     "personCardDesc": "공유용 카드 생성",
-    "comingSoon": "곧 제공 예정"
   },
   "growthRecords": {
     "title": "성장 기록",
@@ -184,6 +183,7 @@ const resource = {
     "failed": {
       "noData": "아직 내보낼 내용이 없습니다 — 이 기간의 기록이 없습니다.",
       "memoryGone": "이 기억은 더 이상 없어 카드를 내보낼 수 없습니다.",
+      "entitlement": "이 아카이브는 아직 내보내기 권한이 없습니다 — 구매하거나 이번 달 Pro 무료 횟수를 사용해 주세요.",
       "generic": "내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요."
     }
   },
@@ -240,7 +240,6 @@ const resource = {
     "expiresAt": "만료일",
     "subscribe": "지금 구독",
     "restore": "구매 복원",
-    "comingSoon": "구매 기능이 곧 제공됩니다",
     "unavailable": "이 환경에서는 인앱 구매가 지원되지 않습니다. 개발 빌드를 사용해 주세요.",
     "processing": "처리 중…",
     "purchaseSuccess": "구독이 활성화되었습니다",

@@ -160,7 +160,6 @@ const resource = {
     "reflectionsEmpty": "保存した振り返りがここに表示されます",
     "personCard": "性格カード",
     "personCardDesc": "共有用カードを生成",
-    "comingSoon": "近日公開"
   },
   "growthRecords": {
     "title": "成長の記録",
@@ -184,6 +183,7 @@ const resource = {
     "failed": {
       "noData": "まだ書き出すものがありません — この期間の記録はありません。",
       "memoryGone": "このメモリーはもう存在しないため、カードを書き出せません。",
+      "entitlement": "このアーカイブの書き出し権がありません——購入するか、今月の Pro 無料枠をご利用ください。",
       "generic": "書き出せませんでした。あとでもう一度お試しください。"
     }
   },
@@ -240,7 +240,6 @@ const resource = {
     "expiresAt": "有効期限",
     "subscribe": "今すぐ購読",
     "restore": "購入を復元",
-    "comingSoon": "購入機能は近日公開予定",
     "unavailable": "この環境ではアプリ内課金がサポートされていません。開発ビルドをご利用ください。",
     "processing": "処理中…",
     "purchaseSuccess": "サブスクリプションが有効になりました",

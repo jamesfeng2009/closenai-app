@@ -23,7 +23,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme/colors';
 import { ARCHIVE_SCOPES, isScopeOwned } from '../config/archive';
 import { PRIVACY_POLICY_URL, TERMS_URL } from '../config/links';
-import { getEntitlements, getSubscriptionStatus, ApiError } from '../services/api';
+import { lifeArchivePdfFile, pdfFailureKey } from '../config/pdfFiles';
+import { getEntitlements, getLifeArchivePdf, getSubscriptionStatus, ApiError } from '../services/api';
+import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
 import { parseIntroTrialOffer } from '../services/introOffer';
 import {
   getLifeArchiveProducts, getProducts, initIAP, isUserCancelled, purchaseLifeArchive,
@@ -89,6 +91,8 @@ export default function PaywallScreen() {
   const [archiveProducts, setArchiveProducts] = useState<Product[]>([]);
   const [entitlements, setEntitlements] = useState<EntitlementsResult | null>(null);
   const [archiveBusyScope, setArchiveBusyScope] = useState<LifeArchiveScope | null>(null);
+  // 已购档位的 PDF 导出（批1 G2）：与购买链路共用忙语义，避免一边导出一边成交互盖状态。
+  const [archivePdfScope, setArchivePdfScope] = useState<LifeArchiveScope | null>(null);
 
   useEffect(() => {
     loadStatus();
@@ -198,8 +202,9 @@ export default function PaywallScreen() {
   const showTrialIntro = currentTier === 'free' && introDays !== null;
   // 已订阅且选中的正是当前生效 SKU：按钮置为"当前方案"并禁用（重复购买无意义）。
   const isCurrentPlan = !!status?.is_active && status.product_id === selectedSku;
-  // 订阅与档案买断共用 busy 语义：任一流程进行中时两条链路都禁用，避免并发交易互相覆盖 listener。
-  const anyBusy = busy || archiveBusyScope !== null;
+  // 订阅、档案买断与档案导出共用 busy 语义：任一流程进行中时三条链路都禁用，
+  // 避免并发交易互相覆盖 listener，也避免同一次付费里导出两份档案。
+  const anyBusy = busy || archiveBusyScope !== null || archivePdfScope !== null;
   // 价格缺失（该 SKU 拉价失败）时禁用购买，防止无价格购买（App Store 合规）。
   const canPurchase = !anyBusy && !!selectedPrice && !iapUnavailable && !isCurrentPlan;
 
@@ -257,6 +262,28 @@ export default function PaywallScreen() {
       }
     } finally {
       setArchiveBusyScope(null);
+    }
+  };
+
+  /** PDF 失败正文：设备不能分享单独一句，其余按后端码分档，不弹裸 error.message。 */
+  const pdfFailureText = (e: unknown): string =>
+    e instanceof PdfUnavailableError
+      ? t('pdf.unavailable')
+      : t(pdfFailureKey(e instanceof ApiError ? e.code : undefined));
+
+  // 已购档位导出 PDF（批1 G2）。权益判定不放在这里：按钮只对 owned 出现，
+  // 真无权益（权益刚被退款回收、订阅月度额度用尽）由后端 40304 把关，文案分档到
+  // pdf.failed.entitlement——App 自己判一遍就是第二个真源。
+  const onExportArchivePdf = async (scope: LifeArchiveScope) => {
+    if (anyBusy || !isArchiveOwned(scope)) return;
+    setArchivePdfScope(scope);
+    try {
+      const bytes = await getLifeArchivePdf(scope);
+      await exportPdf(bytes, lifeArchivePdfFile(scope));
+    } catch (e) {
+      Alert.alert(t('common.error'), pdfFailureText(e));
+    } finally {
+      setArchivePdfScope(null);
     }
   };
 
@@ -512,6 +539,7 @@ export default function PaywallScreen() {
           const price = archivePrice(sku);
           const owned = isArchiveOwned(scope);
           const rowBusy = archiveBusyScope === scope;
+          const exporting = archivePdfScope === scope;
           // 已拥有（含更高档向下兼容）时不给重复购买入口；价格缺失时禁用，防无价格购买。
           const disabled = owned || rowBusy || anyBusy || iapUnavailable || !price;
           return (
@@ -523,8 +551,21 @@ export default function PaywallScreen() {
                 )}
               </View>
               {owned ? (
-                <View style={styles.archiveOwnedBadge}>
-                  <Text style={styles.archiveOwnedText}>{t('paywall.archiveOwned')}</Text>
+                <View style={styles.archiveOwnedActions}>
+                  <View style={styles.archiveOwnedBadge}>
+                    <Text style={styles.archiveOwnedText}>{t('paywall.archiveOwned')}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.archiveExportBtn, anyBusy && styles.archiveExportBtnDisabled]}
+                    onPress={() => onExportArchivePdf(scope)}
+                    disabled={anyBusy}
+                  >
+                    {exporting ? (
+                      <ActivityIndicator color={Colors.bgPrimary} />
+                    ) : (
+                      <Text style={styles.archiveExportText}>{t('pdf.export')}</Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
               ) : (
                 <TouchableOpacity
@@ -732,6 +773,14 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 2,
   },
   archiveOwnedText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.success },
+  archiveOwnedActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // 导出按钮刻意做成描边（不抢金色购买 CTA）：已购用户回到这页要买的是下一档，不是再买一次。
+  archiveExportBtn: {
+    borderWidth: 1, borderColor: Colors.gold400, borderRadius: BorderRadius.md,
+    paddingHorizontal: 12, paddingVertical: 6, minWidth: 76, alignItems: 'center',
+  },
+  archiveExportBtnDisabled: { opacity: 0.45 },
+  archiveExportText: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.gold400 },
   archiveHint: {
     fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.md, lineHeight: 18,
   },

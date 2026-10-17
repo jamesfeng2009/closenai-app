@@ -164,7 +164,6 @@ const resource = {
     "reflectionsEmpty": "Gespeicherte Reflexionen erscheinen hier",
     "personCard": "Persönlichkeitskarte",
     "personCardDesc": "Karte zum Teilen erstellen",
-    "comingSoon": "Demnächst"
   },
   "growthRecords": {
     "title": "Meine Entwicklung",
@@ -188,6 +187,7 @@ const resource = {
     "failed": {
       "noData": "Noch nichts zum Exportieren – dieser Zeitraum hat keine Einträge.",
       "memoryGone": "Diese Erinnerung ist nicht mehr verfügbar – die Karte lässt sich nicht exportieren.",
+      "entitlement": "Noch kein Exportrecht für dieses Archiv – bitte freischalten oder das monatliche Pro-Kontingent nutzen.",
       "generic": "Export fehlgeschlagen. Bitte später erneut versuchen."
     }
   },
@@ -247,7 +247,6 @@ const resource = {
     "expiresAt": "Läuft ab am",
     "subscribe": "Jetzt abonnieren",
     "restore": "Käufe wiederherstellen",
-    "comingSoon": "Kaufvorgang folgt in Kürze",
     "unavailable": "In-App-Käufe werden in dieser Umgebung nicht unterstützt. Bitte verwenden Sie einen Development-Build.",
     "processing": "Wird verarbeitet…",
     "purchaseSuccess": "Abonnement aktiviert",

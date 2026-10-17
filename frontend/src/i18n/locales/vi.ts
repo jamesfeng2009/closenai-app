@@ -160,7 +160,6 @@ const resource = {
     "reflectionsEmpty": "Bản Suy ngẫm đã lưu sẽ hiển thị ở đây",
     "personCard": "Thẻ Tính cách",
     "personCardDesc": "Tạo thẻ có thể chia sẻ",
-    "comingSoon": "Sắp ra mắt"
   },
   "growthRecords": {
     "title": "Nhật ký trưởng thành",
@@ -184,6 +183,7 @@ const resource = {
     "failed": {
       "noData": "Chưa có gì để xuất — khoảng thời gian này chưa có bản ghi.",
       "memoryGone": "Ký ức này không còn nữa nên không xuất thẻ được.",
+      "entitlement": "Bạn chưa có quyền xuất kho lưu trữ này — hãy mua hoặc dùng suất miễn phí hằng tháng của Pro.",
       "generic": "Xuất thất bại. Hãy thử lại sau."
     }
   },
@@ -240,7 +240,6 @@ const resource = {
     "expiresAt": "Hết hạn vào",
     "subscribe": "Đăng ký Ngay",
     "restore": "Khôi phục Giao dịch Mua",
-    "comingSoon": "Quy trình mua hàng sắp ra mắt",
     "unavailable": "Mua trong ứng dụng không được hỗ trợ trong môi trường này. Vui lòng sử dụng bản dựng phát triển.",
     "processing": "Đang xử lý…",
     "purchaseSuccess": "Đã kích hoạt đăng ký",
