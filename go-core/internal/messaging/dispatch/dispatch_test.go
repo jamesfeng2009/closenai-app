@@ -189,8 +189,11 @@ type harness struct {
 
 // newHarness 先把 fake 与 runner 装好但**不起循环**，
 // 这样用例可以在 Run 起来之前就把 onClaim 这类把手接到 cancel 上。
+//
+// 尾部的 opts 是给「要往 Deps 里多塞一根把手」的用例开的（D-G14-① 的清理钩子与
+// 假时钟就走这里）：可变参数 ⇒ 既有二十来条调用点一个字都不用改。
 func newHarness(t *testing.T, sw Switch, repo outbox.Repository, sess *fakeSession,
-	dialErr error, logf func(string, ...any)) *harness {
+	dialErr error, logf func(string, ...any), opts ...func(*Deps)) *harness {
 	t.Helper()
 	h := &harness{sess: sess, sw: sw, done: make(chan error, 1), policy: domain.DefaultDeliveryPolicy()}
 	dial := func(context.Context, string, time.Duration) (Session, error) {
@@ -212,7 +215,11 @@ func newHarness(t *testing.T, sw Switch, repo outbox.Repository, sess *fakeSessi
 			h.logs = append(h.logs, fmt.Sprintf(format, args...))
 		}
 	}
-	r, err := New(Deps{Dial: dial, Repo: repo, Policy: h.policy, Switch: sw, Log: logf})
+	deps := Deps{Dial: dial, Repo: repo, Policy: h.policy, Switch: sw, Log: logf}
+	for _, opt := range opts {
+		opt(&deps)
+	}
+	r, err := New(deps)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

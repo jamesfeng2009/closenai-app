@@ -188,7 +188,7 @@ func (b *blockingInboundSession) Close() error {
 	return nil
 }
 
-// noopDomain 只为让 `inbound.New` 的装配期校验过关：这四条在退出路径的用例里
+// noopDomain 只为让 `inbound.New` 的装配期校验过关：这几条在退出路径的用例里
 // 一次都不该被调用（真被调用了就是「开关关着却消费了」，由 inbound 包自己的用例判）。
 type noopDomain struct{}
 
@@ -207,6 +207,11 @@ func (noopDomain) AdmitEvidence(context.Context, domain.EvidenceCandidate) (doma
 
 func (noopDomain) AdmitProactive(context.Context, domain.ProactiveCandidate) (domain.ProactiveResult, error) {
 	return domain.ProactiveResult{}, errors.New("main_test: 退出路径不该写 canonical")
+}
+
+// D-G14-② 之后这条也在接口上：命令若在这几条用例里被入队，就是「开关关着却写了两张表」。
+func (noopDomain) RequestAITask(context.Context, domain.Store, domain.AITaskRequest) error {
+	return errors.New("main_test: 退出路径不该入队命令")
 }
 
 // TestMainSpawnsTheCandidateWorker 是 R5-② 的调用点闸。

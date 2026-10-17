@@ -67,9 +67,12 @@ type fakeDomain struct {
 	admits     []domain.Candidate
 	evidences  []domain.EvidenceCandidate
 	proactive  []domain.ProactiveCandidate
+	tasks      []domain.AITaskRequest
+	taskStores []domain.Store
 	admitErr   error
 	evidenceEr error
 	proactErr  error
+	taskErr    error
 	fnCalls    int
 	// 在事务**里**取的 ctx 快照：Handle 之后会 cancel 收尾 ctx，事后再问 Err()
 	// 问到的永远是 canceled，判不了「停机有没有打断在途那一条」。
@@ -118,7 +121,7 @@ func (f *fakeDomain) ConsumeIdempotent(ctx context.Context, msg domain.InboundMe
 		hold()
 	}
 
-	err := fn(ctx, nil)
+	err := fn(ctx, fakeInboxStore{})
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -154,6 +157,21 @@ func (f *fakeDomain) AdmitProactive(_ context.Context, c domain.ProactiveCandida
 	defer f.mu.Unlock()
 	f.proactive = append(f.proactive, c)
 	return domain.ProactiveResult{}, f.proactErr
+}
+
+// fakeInboxStore 只当**身份标记**用：它内嵌一个永远为 nil 的 domain.Store，
+// 满足接口但不实现任何方法——谁把它当真 Store 调用就当场 panic。
+// 于是「命令写进了 inbox 这一笔事务」有了一条可判的形式：
+// 传进来的必须**正是**这个对象，既不是 nil（没事务）也不是别的（第二笔事务）。
+type fakeInboxStore struct{ domain.Store }
+
+// RequestAITask 记录 D-G14-② 那条链发出去的命令，以及它拿到的 Store 身份。
+func (f *fakeDomain) RequestAITask(_ context.Context, st domain.Store, req domain.AITaskRequest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tasks = append(f.tasks, req)
+	f.taskStores = append(f.taskStores, st)
+	return f.taskErr
 }
 
 func (f *fakeDomain) counts() (fn, admits, evidences, proactives int) {

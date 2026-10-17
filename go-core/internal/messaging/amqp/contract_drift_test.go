@@ -78,14 +78,25 @@ func TestContractStatesTheUnboundEventSideInPlainWords(t *testing.T) {
 		"R4 只是发射器",
 		"没有消费者队列",
 		"ErrNoConsumerBound",
-		"生产者（谁下发任务）是 R6",
-		// R4-③ 之后最容易误读的一格：入队口有了，但现网没人调 ⇒ 别写成「命令面已通」。
-		"今天零调用者",
+		"生产者（谁下发任务）这件事本身仍是 R6",
+		// D-G14-② 之后这一格的口径换了：调用点**有了**，但零流量这件事仍然成立。
+		// 两句都要钉住——只钉「有调用点」会被人读成「命令面已通」，
+		// 只钉「零流量」又会让人以为还得去找调用方（那是 R6 的事，已经不用做了）。
+		"第一个生产调用点",
+		"流量仍是零",
+		"handler_unregistered",
 		// 键串的契约源在 domain，不在本文件：读文档的人据此知道改哪儿。
 		"domain.AITaskKind.RoutingKey()",
 	} {
 		if !strings.Contains(doc, phrase) {
 			t.Errorf("契约文档里没写 %q ⇒ 这份文档会被读成「异步面已通」", phrase)
+		}
+	}
+	// 反向：旧口径不许悄悄留在文档里。「今天零调用者」在 D-G14-② 之后是假话，
+	// 而假话比缺话更难发现——它会一直绿着骗人。
+	for _, stale := range []string{"今天零调用者", "生产者（谁下发任务）是 R6。"} {
+		if strings.Contains(doc, stale) {
+			t.Errorf("文档里还留着旧口径 %q ⇒ 批 3 之后的事实是「有调用点、无流量」", stale)
 		}
 	}
 }
