@@ -81,6 +81,14 @@ const (
 	// 这正是 D-8 要把今天的 fail-open（safety_service.py:360 的 docstring ＋ :393-395 的实现）
 	// 反过来那条的落点。
 	SafetyStatus_SAFETY_STATUS_UNAVAILABLE SafetyStatus = 3
+	// 批 4 · D-G17 新增：additive 且号位 4 此前未用（V3 15 §8 允许，号位永不复用）。
+	// 为什么必须有第四态：Python 的四个命中面里只有 crisis_intercept 真的是危机，
+	// banned/overreach/model 这三类「非危机的违规内容」今天只能落 CRISIS 或 OK——
+	// 落 CRISIS 会让 Go 把它读成危机信号（domain 的第 6 关与主动触达第 5 关的措辞、
+	// Categories 都会说成「危机」），落 OK 是放行，两侧都不对。
+	// 口径：UNSAFE **必须拦**（与 CRISIS 同样 reject），但**不进危机链路**——
+	// 危机链路的要件是「用户处在危险中」，那不是黑名单命中能推出来的东西。
+	SafetyStatus_SAFETY_STATUS_UNSAFE SafetyStatus = 4
 )
 
 // Enum value maps for SafetyStatus.
@@ -90,12 +98,14 @@ var (
 		1: "SAFETY_STATUS_OK",
 		2: "SAFETY_STATUS_CRISIS",
 		3: "SAFETY_STATUS_UNAVAILABLE",
+		4: "SAFETY_STATUS_UNSAFE",
 	}
 	SafetyStatus_value = map[string]int32{
 		"SAFETY_STATUS_UNSPECIFIED": 0,
 		"SAFETY_STATUS_OK":          1,
 		"SAFETY_STATUS_CRISIS":      2,
 		"SAFETY_STATUS_UNAVAILABLE": 3,
+		"SAFETY_STATUS_UNSAFE":      4,
 	}
 )
 
@@ -420,12 +430,13 @@ const file_closenai_common_proto_rawDesc = "" +
 	"\x11personal_model_id\x18\t \x01(\tR\x0fpersonalModelId\x12\x18\n" +
 	"\aattempt\x18\n" +
 	" \x01(\rR\aattempt\x12\x18\n" +
-	"\apayload\x18\v \x01(\fR\apayloadJ\x04\b\f\x10\rR\x06origin*|\n" +
+	"\apayload\x18\v \x01(\fR\apayloadJ\x04\b\f\x10\rR\x06origin*\x96\x01\n" +
 	"\fSafetyStatus\x12\x1d\n" +
 	"\x19SAFETY_STATUS_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10SAFETY_STATUS_OK\x10\x01\x12\x18\n" +
 	"\x14SAFETY_STATUS_CRISIS\x10\x02\x12\x1d\n" +
-	"\x19SAFETY_STATUS_UNAVAILABLE\x10\x03BJZHgithub.com/jamesfeng2009/closenai-app/go-core/gen/closenai/v1;closenaiv1b\x06proto3"
+	"\x19SAFETY_STATUS_UNAVAILABLE\x10\x03\x12\x18\n" +
+	"\x14SAFETY_STATUS_UNSAFE\x10\x04BJZHgithub.com/jamesfeng2009/closenai-app/go-core/gen/closenai/v1;closenaiv1b\x06proto3"
 
 var (
 	file_closenai_common_proto_rawDescOnce sync.Once

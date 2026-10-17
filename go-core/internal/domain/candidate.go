@@ -17,13 +17,19 @@ const (
 	KindInsight Kind = "insight"
 )
 
-// SafetyStatus 是 Go 侧安全判定的三态。D-8 把危机判定与最终措辞归 Go，
+// SafetyStatus 是 Go 侧安全判定的四态。D-8 把危机判定与最终措辞归 Go，
 // 并要求跨进程后 fail-closed：unavailable 不等于放行。
 type SafetyStatus string
 
 const (
-	SafetyOK          SafetyStatus = "ok"
-	SafetyCrisis      SafetyStatus = "crisis"
+	SafetyOK SafetyStatus = "ok"
+	// SafetyCrisis 只留给「用户处在危险中」那一格——危机会走安全流程，
+	// 把黑名单命中也说成危机，等于凭空给一条不存在的危险信号（D-G17 的根因）。
+	SafetyCrisis SafetyStatus = "crisis"
+	// SafetyUnsafe 是非危机的违规内容（banned/overreach/model 三个命中面）：
+	// **必拦**，但不进危机链路。2026-10-17 批 4 加，proto 同名值见
+	// contracts/proto/closenai_common.proto:100。
+	SafetyUnsafe      SafetyStatus = "unsafe"
 	SafetyUnavailable SafetyStatus = "unavailable"
 )
 

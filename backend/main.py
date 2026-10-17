@@ -169,7 +169,14 @@ app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
 
 @app.get("/health")
 async def health_check():
-    """健康检查端点（Vercel Cron 每 5 分钟保热）。"""
+    """健康检查端点（供外部探活/手动调用）。
+
+    2026-10-17 复核：这一句原文自称由 Vercel Cron 按分钟定时保热，但 `vercel.json` 的 crons
+    里**没有**本路径（12 条排程全是 `/api/v1/cron/*`），`settings.health_check_interval`
+    也没有消费方。今天真的在调它的是 k3s 的存活/就绪探针（`deploy/k8s/40-py-api.yaml:32-41`）。
+    排程口径归 `tests/test_cron_schedule_coverage.py` 看住，无消费方的键按 tasks.md 的 T 桶
+    「只登记不顺手删」——别在这里写成「已定时」。
+    """
     from backend.core.response import success
 
     return success({

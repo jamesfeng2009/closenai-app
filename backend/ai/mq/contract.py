@@ -417,7 +417,7 @@ def encode_candidate(
         raise ContractError(
             REASON_MISSING_SAFETY,
             f"candidate.{kind} 的 safety.status 缺失或 UNSPECIFIED；"
-            "没问题要显式写 SAFETY_STATUS_OK（contracts/proto/closenai_common.proto:84-93）",
+            "没问题要显式写 SAFETY_STATUS_OK（contracts/proto/closenai_common.proto:84-101）",
         )
 
     serialised = json.dumps(body, ensure_ascii=False, separators=(",", ":"), sort_keys=True)

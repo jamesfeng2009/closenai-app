@@ -1,11 +1,19 @@
 """
 定时任务路由 (P0-F01/P0-F03/P0-F07/P1-F01)。
 
-通过 Vercel Cron 每小时 GET 触发，QStash 分块分发。
+调度面（2026-10-17 逐条数 `vercel.json`；原文一句「全部每小时触发」带过，那是不实口径）：
+    12 条排程里只有 7 条是整点每小时（daily-message / journey / mood-reminder / bedtime /
+    curriculum / care-push / purge-deleted-users）；另 5 条按日或按周——daily-insight
+    `0 15 * * *`、trial-reminder `0 12 * * *`、cleanup-tokens `0 3 * * *`、
+    weekly-insight `0 0 * * 0`、weekly-drift `0 2 * * 0`。
+    Vercel Cron 只发 GET，所以三条 POST（process-user / follow-up / purge-user）
+    由 QStash 回调触发，本来就不在排程表里；分块分发也在这条回调链上，不是 cron 表达式做的。
+    逐条对账由 `backend/tests/test_cron_schedule_coverage.py` 负责（含端点 docstring 的节律宣称）。
 
-端点：
+端点（16 条，与上面 `@router.*` 装饰器同日点数一致；原文漏了 curriculum）：
     GET  /api/v1/cron/daily-message   — 主动消息生成（按时区分组）
     GET  /api/v1/cron/journey         — 第一周剧本 D0–D7 到期事件投递（P1-B02）
+    GET  /api/v1/cron/curriculum      — Growth Curriculum 周规划预生成（PRD §5.17）
     POST /api/v1/cron/process-user    — QStash 回调：单用户主动消息处理（验签）
     GET  /api/v1/cron/mood-reminder   — 签到轻提醒（偏好时间后 2 小时未签到则推送）
     GET  /api/v1/cron/bedtime         — 睡前复盘提醒（PRD §5.16 S1，本地 22:00–23:30 窗口）

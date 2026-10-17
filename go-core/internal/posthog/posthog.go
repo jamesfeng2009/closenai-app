@@ -1,8 +1,12 @@
 // Package posthog 是 Go 侧的分析事件中继，只服务 N8 批 1 的 /analytics/batch。
 //
 // 与 Python 侧的对齐口径（backend/services/analytics_service.py::_relay_to_posthog）：
-//   - 未配置 API key ⇒ 整条链路 no-op，绝不因为分析平台缺席而让业务请求失败；
-//   - 发送失败只记日志，不向上抛——事件计数照常累加（Python 那侧 capture 入队即算成功）。
+//   - 未配置 API key ⇒ 一条都不发，并如实回报「这条没送出去」；
+//   - 发送失败只记日志，不向上抛业务错——但 error 要交给调用方计数。
+//
+// D-G18（2026-10-17）改的就是「nil 意味着什么」：nil 现在**只**表示 capture 端点收下了
+// 这条事件。未配 key 从前也回 nil，于是 handler 把一批根本没出门的事件算成 relayed，
+// 而那份计数是整条链路上唯一能说真话的一格（Python 同批改，见 analytics_service.py）。
 //
 // 差异登记（tasks.md N8 批 1 的 ⚠️ 行）：posthog-python 是「入队 + 后台线程发送」，
 // 这里是 httpapi handler 用一组 goroutine 并发发送、整体 3s 上限。
@@ -13,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +27,10 @@ import (
 
 // TimeoutSeconds 是单批发送的总时限；调用方负责并发，本包只保证每个请求自己会到点。
 const Timeout = 3 * time.Second
+
+// ErrNotConfigured 明确表示「没有收件箱，所以这条没出门」。
+// 调用方必须把它当成失败来计数，不能当成「本地已入队、以后会送」。
+var ErrNotConfigured = errors.New("posthog: 未配置 API key，事件未发送")
 
 type Client struct {
 	apiKey     string
@@ -42,7 +51,7 @@ func New(apiKey, host string) *Client {
 	}
 }
 
-// Configured 报告有没有 key——handler 与测试都用它决定要不要真的发。
+// Configured 报告有没有 key；没 key 就没有收件箱，Capture 因此回 ErrNotConfigured。
 func (c *Client) Configured() bool { return c != nil && c.apiKey != "" }
 
 // Event 是 capture 端点的一载荷。Properties 存**已编码的 JSON 字节**而不是 any：
@@ -56,10 +65,12 @@ type Event struct {
 	APIKey     string                     `json:"api_key"`
 }
 
-// Capture 发送一条已匿名化的事件。ctx 由调用方带超时，失败返回 error 供上层记日志。
+// Capture 发送一条已匿名化的事件。ctx 由调用方带超时。
+// 返回值进 relayed/dropped 计数：**nil ＝ 这条真的到了 capture 端点**，
+// 未配置（ErrNotConfigured）与发送失败都算没送出去。
 func (c *Client) Capture(ctx context.Context, ev Event) error {
 	if !c.Configured() {
-		return nil
+		return ErrNotConfigured
 	}
 	// api_key 由客户端持有、调用方不填（与 posthog-python 的 project_api_key 同构）。
 	ev.APIKey = c.apiKey

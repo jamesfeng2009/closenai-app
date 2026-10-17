@@ -564,6 +564,8 @@ func toDomainSafetyStatus(s closenaiv1.SafetyStatus) (domain.SafetyStatus, bool)
 		return domain.SafetyOK, true
 	case closenaiv1.SafetyStatus_SAFETY_STATUS_CRISIS:
 		return domain.SafetyCrisis, true
+	case closenaiv1.SafetyStatus_SAFETY_STATUS_UNSAFE:
+		return domain.SafetyUnsafe, true
 	case closenaiv1.SafetyStatus_SAFETY_STATUS_UNAVAILABLE:
 		return domain.SafetyUnavailable, true
 	default:

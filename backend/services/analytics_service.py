@@ -11,7 +11,8 @@
 
 红线：
 - 仅行为元数据，禁止携带任何敏感内容（反思文本 / 记忆 / 对话原文 / 情绪具体值）
-- posthog 未安装 / 未配置（API key 为空）时服务内 no-op，不影响主流程
+- posthog 未安装 / 未配置（API key 为空）时服务内 no-op，不影响主流程；
+  但 no-op 不等于送出去了 —— 这批一律计入 dropped，见 relay_batch
 - 注销（purge_user）必须连带抹除 PostHog 侧数据：见 erase_person_data
 """
 import logging
@@ -78,18 +79,23 @@ def _relay_to_posthog(
     event: str,
     properties: dict,
     occurred_at,
-) -> None:
-    """把单条匿名事件中继到 PostHog（未安装 / 未配置时 no-op）。
+) -> bool:
+    """把单条匿名事件中继到 PostHog；**返回这条到底送出去了没有**。
 
     独立成函数便于测试注入桩（测试环境不安装 posthog，直接替换本函数断言调用）。
+
+    为什么必须是返回值而不是 no-op（D-G18，2026-10-17）：返回值是 `relay_batch` 计数的唯一
+    依据，而那个计数在整条链路上是**只有后端能说真话的一格**——未装/未配 key 时静默 return
+    又照原样 `relayed += 1`，等于对下游宣称「这批已经落到分析平台了」，而实际一条都没出门。
+    口径与 `erase_person_data:122-124` 一致：没做的事要如实回报，不伪装成成功。
     """
     try:
         import posthog
-    except Exception:  # noqa: BLE001  posthog 未安装 → no-op
-        logger.debug("posthog 未安装，跳过中继")
-        return
+    except Exception:  # noqa: BLE001  posthog 未安装 → 没送出去
+        logger.debug("posthog 未安装，事件中继未发生")
+        return False
     if not settings.posthog_api_key:
-        return
+        return False
     posthog.project_api_key = settings.posthog_api_key
     posthog.host = settings.posthog_host
     try:
@@ -99,8 +105,10 @@ def _relay_to_posthog(
             properties=properties,
             timestamp=occurred_at,
         )
-    except Exception as exc:  # noqa: BLE001  中继失败不阻塞主流程
+    except Exception as exc:  # noqa: BLE001  中继失败不阻塞主流程，但不算送出去
         logger.warning("posthog 中继失败: %s", exc)
+        return False
+    return True
 
 
 async def erase_person_data(distinct_id: str) -> dict:
@@ -153,11 +161,16 @@ class AnalyticsService:
     async def relay_batch(
         self, db: AsyncSession, user_id: str, events: list
     ) -> dict:
-        """中继一批前端离线事件。
+        """中继一批前端离线事件，返回 {"relayed": n, "dropped": m}。
 
         校验用户 analytics_consent（未同意 / 用户不存在 → 整批丢弃）；
         匿名化后按 occurred_at 真实时间上报 PostHog。
-        返回 {"relayed": n, "dropped": m}。
+
+        **计数只认真正送出去的那几条**（D-G18）：`relayed + dropped == len(events)`，
+        未同意与「中继没发生」都落 `dropped`。为什么这一格不许含糊：它是整条链路上
+        只有后端能说真话的地方——前端 `analytics.ts:103-106` 拿到 200 就 markSynced +
+        cleanupSynced，压根没读 dropped（已登记的缺陷，本批不改前端），所以这里的数字
+        一旦说谎，两侧就再没有任何地方留着「这批其实没落到分析平台」这件事。
         """
         user = await user_repository.get_user(db, user_id)
         if not user or not user.analytics_consent:
@@ -165,9 +178,9 @@ class AnalyticsService:
         relayed = 0
         for ev in events:
             props = _anonymize(ev.properties)
-            _relay_to_posthog(user_id, ev.event, props, ev.occurred_at)
-            relayed += 1
-        return {"relayed": relayed, "dropped": 0}
+            if _relay_to_posthog(user_id, ev.event, props, ev.occurred_at):
+                relayed += 1
+        return {"relayed": relayed, "dropped": len(events) - relayed}
 
 
 analytics_service = AnalyticsService()

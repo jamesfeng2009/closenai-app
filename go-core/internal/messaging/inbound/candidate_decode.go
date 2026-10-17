@@ -360,7 +360,7 @@ func toSafety(s *closenaiv1.Safety) *domain.Safety {
 	return &domain.Safety{Status: status, Categories: s.GetCategories()}
 }
 
-// 枚举值名的前缀（`closenai_ai.proto:52-116`／`closenai_common.proto:84-93`）。
+// 枚举值名的前缀（`closenai_ai.proto:52-116`／`closenai_common.proto:84-101`）。
 //
 // proto 的值名是「前缀＋域内值」的大写下划线形态（`SOURCE_KIND_USER_STATEMENT`），
 // `domain` 那侧是小写下划线（`user_statement`）；两边逐字对齐过（对比
@@ -408,6 +408,8 @@ func mappedSafetyStatus(s closenaiv1.SafetyStatus) (domain.SafetyStatus, bool) {
 		return domain.SafetyOK, true
 	case domain.SafetyCrisis:
 		return domain.SafetyCrisis, true
+	case domain.SafetyUnsafe:
+		return domain.SafetyUnsafe, true
 	case domain.SafetyUnavailable:
 		return domain.SafetyUnavailable, true
 	default:

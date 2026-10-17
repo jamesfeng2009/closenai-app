@@ -131,6 +131,10 @@
         {
           "name": "SAFETY_STATUS_UNAVAILABLE",
           "number": 3
+        },
+        {
+          "name": "SAFETY_STATUS_UNSAFE",
+          "number": 4
         }
       ]
     },

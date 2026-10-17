@@ -90,6 +90,14 @@ enum SafetyStatus {
   // 这正是 D-8 要把今天的 fail-open（safety_service.py:360 的 docstring ＋ :393-395 的实现）
   // 反过来那条的落点。
   SAFETY_STATUS_UNAVAILABLE = 3;
+  // 批 4 · D-G17 新增：additive 且号位 4 此前未用（V3 15 §8 允许，号位永不复用）。
+  // 为什么必须有第四态：Python 的四个命中面里只有 crisis_intercept 真的是危机，
+  // banned/overreach/model 这三类「非危机的违规内容」今天只能落 CRISIS 或 OK——
+  // 落 CRISIS 会让 Go 把它读成危机信号（domain 的第 6 关与主动触达第 5 关的措辞、
+  // Categories 都会说成「危机」），落 OK 是放行，两侧都不对。
+  // 口径：UNSAFE **必须拦**（与 CRISIS 同样 reject），但**不进危机链路**——
+  // 危机链路的要件是「用户处在危险中」，那不是黑名单命中能推出来的东西。
+  SAFETY_STATUS_UNSAFE = 4;
 }
 
 // Envelope 逐字抄 V3 15:41-53（十一字段、字段号 1-11 顺序一致）。

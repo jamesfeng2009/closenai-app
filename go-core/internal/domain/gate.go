@@ -400,6 +400,14 @@ func (g Gate) checkSafety(c *Candidate) (RejectReason, string) {
 		return ReasonSafetyBlocked, fmt.Sprintf(
 			"危机信号 %v 退出常规管道（03 §14 Safety）", c.Safety.Categories)
 	}
+	if c.Safety.Status == SafetyUnsafe {
+		// D-G17（批 4）：拦是拦，但措辞不能说成危机。三态时代这一格挤在 crisis 里，
+		// 于是「黑名单命中」在 reject reason 上被读成「用户处在危险中」——
+		// 前者只需拦下，后者会牵出安全流程（04 §21 的触达让位）。
+		// 码复用 safety_blocked：reason 值集是两侧对账面，加新码要连 Python 的规范一起动。
+		return ReasonSafetyBlocked, fmt.Sprintf(
+			"违规内容 %v 拦下（非危机，不进危机链路，D-G17）", c.Safety.Categories)
+	}
 	if c.Safety.Status != SafetyOK {
 		return ReasonSafetyUnavailable, fmt.Sprintf("未知安全态 %q", c.Safety.Status)
 	}

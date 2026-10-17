@@ -304,13 +304,19 @@ func (g ProactiveGate) checkProactiveSafety(c *ProactiveCandidate) (RejectReason
 		return ReasonSafetyUnavailable, "安全判定不可用，不得放行主动触达（04:391 安全优先）", true
 	case SafetyCrisis:
 		return ReasonSafetyBlocked, fmt.Sprintf(
-			"命中危机/安全信号 %v：主动触达管线让位给安全流程（04 §21）",
+			"命中危机信号 %v：主动触达管线让位给安全流程（04 §21）",
+			c.Safety.Categories), true
+	case SafetyUnsafe:
+		// D-G17：这条也是拦下，但**不让位给安全流程**——主动触达对用户说一句
+		// 「你还好吗」的前提是判定为危机，而 unsafe 只是「内容违规」。
+		return ReasonSafetyBlocked, fmt.Sprintf(
+			"命中违规内容 %v：主动触达不发（拦下，非危机，不进安全流程，D-G17）",
 			c.Safety.Categories), true
 	case SafetyOK:
 		return "", "", false
 	default:
 		return ReasonSafetyUnavailable,
-			fmt.Sprintf("安全状态 %q 不是三态之一，按 fail-closed 拦下", c.Safety.Status), true
+			fmt.Sprintf("安全状态 %q 不是四态之一，按 fail-closed 拦下", c.Safety.Status), true
 	}
 }
 

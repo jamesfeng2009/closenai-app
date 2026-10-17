@@ -100,7 +100,21 @@ os.environ["DATABASE_URL"] = psycopg_url(RAW_TEST_URL)
 import psycopg  # noqa: E402
 from backend.core.time_utils import local_day_start_utc, safe_zoneinfo  # noqa: E402
 from backend.main import app  # noqa: E402
+from backend.services import analytics_service as analytics_module  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+# D-G18（2026-10-17）把 `_relay_to_posthog` 的返回值变成了 relayed/dropped 的唯一依据：
+# 本机没装 posthog、POSTHOG_API_KEY 也是空串（实测），所以不装假件的话，录制环境会把
+# **每一条** 200 体都录成 `{"relayed":0,"dropped":N}`——夹具从此只剩「一批都没送出」这一支，
+# 「PostHog 收下了这批时怎么计数」那条链再没有字节证人。
+# 这里显式装成功假件，把录制口径钉在「全送出去了」那一支；Go 回放侧的 n8RecordingRelay
+# （Capture 恒返回 nil）是同一个假设，两侧才可比。
+# 「没送出去就不许算成功」那一支不在夹具里，由 backend/tests/test_analytics_service.py 与
+# go-core/internal/httpapi/analytics_relay_count_test.go 各自把门；
+# 假件被撤掉（⇒ 整组 relayed 归零）由 test_n8_batch1_contract.py 立刻发现。
+analytics_module._relay_to_posthog = (
+    lambda distinct_id, event, properties, occurred_at: True
+)
 
 # ── 播种面 ────────────────────────────────────────────────────────────────────
 # ANCHOR＝本轮录制**冻结**的当下。

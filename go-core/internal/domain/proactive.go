@@ -206,7 +206,6 @@ type ProactiveCandidate struct {
 	AnchorRefType RefType
 	AnchorRefID   string
 
-	// DayNo 供 milestone/剧本类引用现网 journey 的 day_no（04 §3 的 Goal due 类比）。
 	ScheduledAt    time.Time
 	HasScheduledAt bool
 	ExpiresAt      time.Time

@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/apierr"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
@@ -65,8 +66,10 @@ func (s *Server) handleAnalyticsBatch(w http.ResponseWriter, r *http.Request) {
 		WriteSuccess(w, batchResult{Relayed: 0, Dropped: len(events)}, rc.traceID, rc.userID)
 		return
 	}
-	s.relayEvents(r, userID, events)
-	WriteSuccess(w, batchResult{Relayed: len(events), Dropped: 0}, rc.traceID, rc.userID)
+	relayed := s.relayEvents(r, userID, events)
+	// 计数只认真正送出去的那几条（D-G18）：relayed + dropped == len(events)。
+	WriteSuccess(w, batchResult{Relayed: relayed, Dropped: len(events) - relayed},
+		rc.traceID, rc.userID)
 }
 
 // batchResult 的键序即 Python 返回 dict 的键序（relayed 先、dropped 后）。
@@ -75,16 +78,22 @@ type batchResult struct {
 	Dropped int `json:"dropped"`
 }
 
-// relayEvents 并发外发并等总时限到点。计数与 Python 一样**不看发送结果**：
-// posthog-python 是入队即算成功，这里失败也只记日志（红线：不因分析平台抖动让业务请求失败）。
-func (s *Server) relayEvents(r *http.Request, userID string, events []analyticsEvent) {
+// relayEvents 并发外发并等总时限到点，返回**真的送出去了几条**。
+//
+// 「计数看发送结果」是 D-G18（2026-10-17）改的口径，从前这里无条件把整批算成 relayed：
+// Relay 为 nil（＝没有中继通道，Python 那侧对应 posthog 没装或没配 key）与 Capture 报错
+// 都是「一条没出门」，却回 200 宣称这批已经落到分析平台。
+// 红线没动——外发失败只记日志，绝不因分析平台抖动让业务请求失败；改的只是「没做的事
+// 不许算成已中继」。与 backend/services/analytics_service.py::relay_batch 同批同形。
+func (s *Server) relayEvents(r *http.Request, userID string, events []analyticsEvent) int {
 	if s.batch1.Relay == nil || len(events) == 0 {
-		return
+		return 0
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), posthog.Timeout)
 	defer cancel()
 
 	var wg sync.WaitGroup
+	var relayed atomic.Int64
 	for _, ev := range events {
 		payload := posthog.Event{
 			Event:      ev.name,
@@ -97,10 +106,13 @@ func (s *Server) relayEvents(r *http.Request, userID string, events []analyticsE
 			defer wg.Done()
 			if err := s.batch1.Relay.Capture(ctx, payload); err != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "analytics: posthog relay failed: %v\n", err)
+				return
 			}
+			relayed.Add(1)
 		}()
 	}
 	wg.Wait()
+	return int(relayed.Load())
 }
 
 // anonymizeProperties 先按白名单+空值过滤，再把留下的值转成**原文字节**送出去：

@@ -26,7 +26,8 @@ type MoodReader interface {
 	MoodCheckins(ctx context.Context, userID string, since time.Time) ([]domain.Checkin, error)
 }
 
-// Relay 把一条已匿名化的事件送出去；返回的 error 只用于记日志，不影响 relayed 计数。
+// Relay 把一条已匿名化的事件送出去。返回值**就是** relayed 计数的依据（D-G18）：
+// nil＝这条真的到了 capture 端点，error（含未配 key）＝这条没出门、落 dropped。
 type Relay interface {
 	Capture(ctx context.Context, ev posthog.Event) error
 }

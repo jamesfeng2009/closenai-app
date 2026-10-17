@@ -441,8 +441,10 @@ type SafetyResult struct {
 	// 复用 closenai_common.proto 的 `Safety`（形状取自 `go-core/internal/domain/candidate.go:33-36`
 	// 的 `Status SafetyStatus + Categories []string`，nil 视为判定缺失 → fail-closed）。
 	// 这样 RPC 返回能直接塞进 Candidate.Safety / ProactiveDraft.Safety，无需二次映射。
-	// ⚠️ 本仓真实判定是三态（ok|crisis|unavailable），而 `check_text` 今天只回一个 bool
-	// （`:356` 返回类型 `-> bool`，True=安全）⇒ 三态是 R2/R3 要补的面，不是现状。
+	// ⚠️ 跨进程面的真实判定是四态（ok|crisis|unsafe|unavailable，见
+	// `closenai_common.proto:84-101`；其中 unsafe 是 2026-10-17 批 4 · D-G17 补的第四态），
+	// 而 `check_text` 只回一个 bool（`:356` 返回类型 `-> bool`，True=安全）
+	// ⇒ 三态由 R2/R3 补成 `check_text_tri`，第四态由 D-G17 补；`check_text` 的 bool 面未动。
 	Safety *Safety `protobuf:"bytes,2,opt,name=safety,proto3" json:"safety,omitempty"`
 	// 命中面：banned | overreach | crisis | model | ""（未命中）。
 	// 逐个对应实测分支：黑名单 `:364-367`（`banned_hit:325-335`）、越界句式 `:368-372`

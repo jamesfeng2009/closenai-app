@@ -167,10 +167,14 @@ class ClosenAIService(ai_pb2_grpc.ClosenAIServicer):
         status = {
             "ok": common_pb2.SAFETY_STATUS_OK,
             "crisis": common_pb2.SAFETY_STATUS_CRISIS,
+            # D-G17（批 4）：非危机的违规面（banned/overreach/model）从 crisis 挪到 unsafe，
+            # 这样 Go 侧拦下它时不必把它说成「危机信号」。少这一格的后果不是放行——
+            # 落到下面的 None 分支会变成 unavailable，把「拦下内容」说成「判定缺失」。
+            "unsafe": common_pb2.SAFETY_STATUS_UNSAFE,
             "unavailable": common_pb2.SAFETY_STATUS_UNAVAILABLE,
         }.get(verdict["status"])
         if status is None:
-            # 三态之外的值不能猜成 OK：Go 侧读到的必须是「判定缺失」（D-8）。
+            # 四态之外的值不能猜成 OK：Go 侧读到的必须是「判定缺失」（D-8）。
             logger.error("ClassifySafety 返回了契约外的状态 %r", verdict.get("status"))
             status = common_pb2.SAFETY_STATUS_UNAVAILABLE
             verdict = {**verdict, "status": SAFETY_UNAVAILABLE}

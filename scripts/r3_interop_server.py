@@ -118,7 +118,7 @@ class _BadService(ai_pb2_grpc.ClosenAIServicer):
         )
 
     async def ClassifySafety(self, request, context):  # noqa: N802
-        # 三态之外的枚举值：Go 不许按 proto3「容忍未知值」把它读成 OK（grpc.go:547-551）
+        # 四态之外的枚举值：Go 不许按 proto3「容忍未知值」把它读成 OK（grpc.go:547-551）
         return ai_pb2.SafetyResult(
             schema_version=SCHEMA_VERSION,
             safety=common_pb2.Safety(status=common_pb2.SAFETY_STATUS_UNSPECIFIED),
