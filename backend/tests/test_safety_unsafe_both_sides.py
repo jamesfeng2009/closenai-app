@@ -136,7 +136,14 @@ def test_generated_python_enum_is_in_sync_with_source():
 
 
 class _NoAbort:
-    """合法输入不该走到 `context.abort`；走到就抛，让测红而不是静默返回默认消息。"""
+    """合法输入不该走到 `context.abort`；走到就抛，让测红而不是静默返回默认消息。
+
+    `invocation_metadata` 是批 T-E 在 ClassifySafety 入口新增的读点（真 context 必有），
+    夹具不实现它就会 AttributeError——红会伪装成「映射面坏了」，先补上「没带头」这一格。
+    """
+
+    def invocation_metadata(self):
+        return ()
 
     async def abort(self, code, detail):
         raise AssertionError(f"合法判定被 abort：{code} {detail}")

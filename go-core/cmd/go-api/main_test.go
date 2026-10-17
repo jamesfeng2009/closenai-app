@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,23 +58,28 @@ func (r *countingRepo) MarkOutboxDeadLettered(context.Context, string, string) (
 	return true, nil
 }
 
-// logToBuffer 把全局 log 暂时接进缓冲区，返回取内容的闭包。
+// logToBuffer 把全局 log 与全局 slog 暂时接进缓冲区，返回取内容的闭包。
+// 批 T-C 之后退出路径的话出自 slog（JSON 行），log 那一路只剩 Fatalf 之类还有标准库输出，
+// 两路都收进同一个 buf：断言用的子串在 JSON 的 "msg" 里原样可见，判据不必改。
 func logToBuffer(t *testing.T, f func()) string {
 	t.Helper()
 	var buf bytes.Buffer
 	orig := log.Writer()
+	origSlog := slog.Default()
 	log.SetOutput(&buf)
-	defer log.SetOutput(orig)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer func() {
+		log.SetOutput(orig)
+		slog.SetDefault(origSlog)
+	}()
 	f()
 	return buf.String()
 }
 
-// loggerAdapter 与 main.go 里那一份逐字同一句话：dispatch 不 import log，
-// 是装配点把 deps.Log 接到 log.Printf 上的。用例走同一条路，否则它会绿在
+// loggerAdapter 与 main.go 逐字同路：批 T-C 之后这就是同一个函数，
+// 「抄写漂移」那种假绿形态被结构排除了。用例走同一条路，否则它会绿在
 // 「日志压根没出境」那种假形态上。
-func loggerAdapter() func(string, ...any) {
-	return func(format string, args ...any) { log.Printf("go-api: "+format, args...) }
-}
+func loggerAdapter() func(string, ...any) { return logBridge }
 
 // TestMainSpawnsTheWorker 是调用点闸：接线段被删掉时 dispatch 的十三条全绿，
 // 所以这条只能盯源码。它点名的四个符号各对应一种「接了但接错」的形态。
@@ -321,9 +327,7 @@ func TestCloseInboundGivesUpOnBudget(t *testing.T) {
 	}
 }
 
-func inboundLogger() func(string, ...any) {
-	return func(format string, args ...any) { log.Printf("go-api: "+format, args...) }
-}
+func inboundLogger() func(string, ...any) { return logBridge }
 
 func onInboundSwitch() inbound.Switch {
 	sw := inbound.LoadSwitch(func(k string) string {

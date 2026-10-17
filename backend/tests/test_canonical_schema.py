@@ -48,12 +48,18 @@ N7_MIGRATION_PATH = (
     ROOT / "backend" / "alembic" / "versions"
     / "d9b1f3a5c7e9_add_outbox_messages.py"
 )
+TRACE_MIGRATION_PATH = (
+    ROOT / "backend" / "alembic" / "versions"
+    / "e7a2c4b6d8f1_add_outbox_trace_id.py"
+)
 QUERIES_PATH = ROOT / "go-core" / "db" / "queries" / "canonical.sql"
 GO_DIR = ROOT / "go-core"
 
 N2_REVISION = "c8a2e4b6d0f2"
 N2_PARENT = "b7d9e1f3a5c8"
 N7_REVISION = "d9b1f3a5c7e9"
+# 批 T-B（工作单 T-2）：outbox_messages.trace_id 列，链上新单头
+TRACE_REVISION = "e7a2c4b6d8f1"
 
 # N2 的 21 张新表（ai_generation_runs 属 O4 已交付，N2 沿用同一份 DDL，不在此列）
 N2_TABLES = (
@@ -194,7 +200,11 @@ def test_migration_graph_is_single_head_with_n7_on_top():
 
     script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
     heads = script.get_heads()
-    assert heads == [N7_REVISION], f"alembic head = {heads}，N7 之后须是单头 {N7_REVISION}"
+    assert heads == [TRACE_REVISION], (
+        f"alembic head = {heads}，批 T-B 之后须是单头 {TRACE_REVISION}"
+    )
+    trace_down = script.get_revision(TRACE_REVISION).down_revision
+    assert trace_down == N7_REVISION, f"trace 件挂在 {trace_down}，应为 N7 的 {N7_REVISION}"
     n7_down = script.get_revision(N7_REVISION).down_revision
     assert n7_down == N2_REVISION, f"N7 迁移挂在 {n7_down}，应为 N2 的 {N2_REVISION}"
     down = script.get_revision(N2_REVISION).down_revision
@@ -434,7 +444,7 @@ def test_live_db_has_no_enum_or_jsonb_or_new_fk():
 
 
 def test_alembic_roundtrip_on_empty_database():
-    """N2/N7 验收的「alembic upgrade/downgrade 隔离库实测」（两件迁移逐级回退）。
+    """N2/N7/trace 验收的「alembic upgrade/downgrade 隔离库实测」（三件迁移逐级回退）。
 
     指向一个**空的**库（库里连 alembic_version 都没有），用独立 env 变量避免误打
     共享库：
@@ -475,14 +485,30 @@ def test_alembic_roundtrip_on_empty_database():
         engine.dispose()
         return names, head
 
+    def has_trace_col() -> bool:
+        from sqlalchemy import inspect as sa_inspect
+
+        engine = create_engine(sync_url)
+        try:
+            cols = {c["name"] for c in sa_inspect(engine).get_columns("outbox_messages")}
+        finally:
+            engine.dispose()
+        return "trace_id" in cols
+
     alembic("upgrade", "head")
     after_up, head = tables_and_head()
-    assert head == N7_REVISION, f"upgrade 后 head = {head}，应为 {N7_REVISION}"
+    assert head == TRACE_REVISION, f"upgrade 后 head = {head}，应为 {TRACE_REVISION}"
     assert set(CANONICAL_TABLES) <= after_up, (
         f"缺表 {set(CANONICAL_TABLES) - after_up}")
+    assert has_trace_col(), "upgrade 后 outbox_messages 应带 trace_id（批 T-B 的正向证人）"
 
-    # 逐级回退：先退 N7 件（只该走 outbox_messages），再退 N2 件（21 张全走）。
-    # 一次性 downgrade -1 只够证明最新那件是完整的，两件都得各自证明。
+    # 逐级回退：先退 trace 件（只该走一列），再退 N7 件（表整个走），最后退 N2 件（21 张全走）。
+    alembic("downgrade", "-1")
+    after_down_t, head = tables_and_head()
+    assert head == N7_REVISION, f"退 trace 件后 head = {head}，应回到 {N7_REVISION}"
+    assert "outbox_messages" in after_down_t, "退一列不该带走整张投递表"
+    assert not has_trace_col(), "downgrade 后 trace_id 列仍在，回退件不完整"
+
     alembic("downgrade", "-1")
     after_down1, head = tables_and_head()
     assert head == N2_REVISION, f"退一件后 head = {head}，应回到 {N2_REVISION}"

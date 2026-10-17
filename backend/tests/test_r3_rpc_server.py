@@ -72,11 +72,12 @@ async def _call_error(coro) -> grpc.RpcError:
     pytest.fail("畸形输入被服务端接了（本该 INVALID_ARGUMENT）")
 
 
-async def _collect_stream(stub, request) -> Tuple[List[Any], Optional[grpc.RpcError]]:
+async def _collect_stream(stub, request, metadata=None) -> Tuple[List[Any], Optional[grpc.RpcError]]:
+    """跑一条流并收块。`metadata` 是批 T-E 加的透传入参（G-E2 要带 x-trace-id 调流面）。"""
     chunks: List[Any] = []
     error: Optional[grpc.RpcError] = None
     try:
-        async for chunk in stub.StreamChat(request):
+        async for chunk in stub.StreamChat(request, metadata=metadata):
             chunks.append(chunk)
     except grpc.RpcError as exc:
         error = exc
