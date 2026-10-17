@@ -1814,7 +1814,7 @@
     },
     "/api/v1/cron/health": {
       "get": {
-        "description": "保热端点（Vercel Cron 每 5 分钟调用）。",
+        "description": "保热端点（供外部探活/手动调用）。\n\n调度清单（vercel.json）并未排程本路径，`settings.health_check_interval`\n也没有消费方——这两条口径由 tests/test_cron_schedule_coverage.py 与\ntasks.md 的 T 桶看住，别在这里写成「已定时」。",
         "operationId": "health_api_v1_cron_health_get",
         "responses": {
           "200": {

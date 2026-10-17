@@ -334,5 +334,10 @@ async def cleanup_tokens(
 
 @router.get("/cron/health")
 async def health():
-    """保热端点（Vercel Cron 每 5 分钟调用）。"""
+    """保热端点（供外部探活/手动调用）。
+
+    调度清单（vercel.json）并未排程本路径，`settings.health_check_interval`
+    也没有消费方——这两条口径由 tests/test_cron_schedule_coverage.py 与
+    tasks.md 的 T 桶看住，别在这里写成「已定时」。
+    """
     return success({"status": "ok", "warmed": True})

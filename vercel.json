@@ -12,6 +12,10 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/v1/cron/journey",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/v1/cron/mood-reminder",
       "schedule": "0 * * * *"
     },
