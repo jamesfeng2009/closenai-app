@@ -323,7 +323,34 @@ def test_chain_outbox_to_canonical(chain, engine):
     assert len(settled) == 1, f"这条候选在 Go 侧结算了 {len(settled)} 次：{con['settled']}"
     assert settled[0]["status"] == "processed", settled[0]
     assert settled[0]["ack"] is True and settled[0]["admits"] == 1, settled[0]
-    assert con["admissions"] == {"Admit": 1}, f"进的不是 Admit 那扇门：{con['admissions']}"
+    assert con["admissions"] == {"Admit": 1, "RequestAITask": 1}, (
+        f"候选进门与请下一段（D-G14-②）在这条消息上各只许引起一次领域调用：{con['admissions']}"
+    )
+    # 批 3 D-G14-② 在真链上的形状：进门一次＋请下一段一次，两件事各归各的计数
+    # （`follow_ups` 单列的理由写在 `settled` 的注释里：混进 admits 就等于让
+    # 「第二次投递不许有领域写」那句验收的计数语义随接线漂移）。
+    assert settled[0]["follow_ups"] == 1, f"这条候选入库后没有请下一段：{settled[0]}"
+
+    # 第 3.5 跳（批 3 D-G14-②）：那条「请下一段」的命令**真的躺在 outbox 表里**。
+    # 为什么这一格要在跨进程闸上判、而不是只靠 Go 侧那条 fake 域用例：fake 看得见
+    # 「Runner 调了 RequestAITask」，看不见**这条命令行与 inbox 行是不是同一笔 COMMIT**——
+    # `RequestAITask` 刻意不自开事务（`commands.go:81-89`），只有真库答得了。
+    # 用户后果：链断在第一跳时 pattern 进了权威表、却永远不会有人来算 insight，
+    # 而两侧单测全绿。
+    follow_up = _rows(
+        engine,
+        "SELECT message_id, routing_key, message_type, payload FROM outbox_messages "
+        "WHERE user_id = :u AND routing_key = 'ai.insight.requested'",
+        {"u": user},
+    )
+    assert len(follow_up) == 1, f"候选入库后请下一段只该入队一条：{follow_up}"
+    assert follow_up[0]["message_type"] == "ai_insight_requested", follow_up
+    follow_body = json.loads(follow_up[0]["payload"])
+    assert follow_body["sourceMessageId"] == cid, follow_body
+    assert follow_body["sourceKind"] == "pattern", follow_body
+    assert follow_body["taskType"] == "TASK_TYPE_INSIGHT_DRAFT", follow_body
+    # 命令体里不许有任何归属键（D-G14 的第四格：归属只由 `x-user-id` 头说话）
+    assert not any(k.lower().replace("_", "") == "userid" for k in follow_body), follow_body
 
     # 第 4 跳：权威表真的落了行，且落的是**对面**写来的内容（不是本地夹具）。
     inbox = _rows(
@@ -461,6 +488,11 @@ def test_replay_is_absorbed_by_inbox(amqp_url, engine, go_tool):
         assert settled[0]["status"] == "duplicate", settled[0]
         assert settled[0]["ack"] is True, "重复也必须 ACK：不 ACK 就是让毒消息上阶梯"
         assert settled[0]["admits"] == 0, f"第二次投递又调用了领域入口：{settled[0]}"
+        # D-G14-② 的另一半：判成 duplicate 那一轮**连命令都不许再入队**。
+        # 这条不是重复上一条——上一条判的是「没再进门」，而请下一段是**投递**不是进门，
+        # 少这一格就没人拦「重复消费把同一段任务再请一遍」（id 相同会撞 outbox 的 UNIQUE，
+        # 但撞键是 COMMIT 那一刻的错，不是这里要的语义）。
+        assert settled[0]["follow_ups"] == 0, f"重复投递又请了一次下一段：{settled[0]}"
         assert second["admissions"] == {}, f"整轮都没该有领域调用：{second['admissions']}"
         assert second["inbound_stats"]["duplicates"] >= 1
         assert second["inbound_stats"]["processed"] == 0

@@ -320,6 +320,14 @@ def test_cutover_keys_without_ingress_path_stay_unrouted():
            仍落 py-api——D-10 的实质不是「GET 不切」，是「整条 path 不切」；
         4. Go 侧该域的每一个 **GET** 已在 server.go 带方法注册：前三格全绿也可能是
            实现被删（键、值、path 都没变），这一条把那个退路显形。
+        5. **本文件盯不到的一格，靠 Go 侧那条闸补**：键进了 ConfigMap 不等于进了
+           `cmd/go-api/main.go` 传给 `cutover.New` 的 gate map，而 `cutover.go:91` 对
+           查不到的域判 `if !ok || pct >= 100 { return true }`——「没登记」和「100%」同形。
+           `CLOSEN_CUTOVER_MEMORIES` 就是这样一条死开关（D-G12，批 6 交付的漏项）：
+           上面四格全绿，下一刀真把 path 放上 Ingress 时 Go 会无视百分比全量自答、
+           键调回 0 也回滚不了。对账面在
+           `go-core/cmd/go-api/gate_map_coverage_test.go`（双向：声明⇒接线、接线⇒声明）。
+           改这一档的人**两面都要跑**，只跑本文件会漏。
     """
     cm = _one("ConfigMap", "closenai-config")
     entries = _ingress_entries()

@@ -117,11 +117,17 @@ type report struct {
 // `Admits` 是**这一条消息**引起的领域入口调用次数。tasks.md 的 R5 验收逐字要求
 // 「重复消息第二次领域入口不被调用」，而聚合计数分不清是哪条消息触发的——
 // 只有把它挂到 message_id 上，那条验收才在这条真链上可判。
+//
+// `FollowUps` 单列（D-G14-②）：那条「候选入库后请下一段」的 `RequestAITask` 也在同一笔
+// 事务里，但它**不是**「这条消息又进门了一次」。把它混进 Admits 会让上面那句验收
+// 的计数语义随接线漂移——接了门就多 1、摘了门就少 1，而 duplicate 那格的判据
+// 本来是「第二次投递一次领域写都不许有」，两套语义挤一个计数器迟早读错。
 type settled struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
 	Ack       bool   `json:"ack"`
 	Admits    int    `json:"admits"`
+	FollowUps int    `json:"follow_ups"`
 	Detail    string `json:"detail,omitempty"`
 	Err       string `json:"err,omitempty"`
 }
@@ -384,14 +390,16 @@ var _ inbound.Domain = (*recorder)(nil)
 
 func (r *recorder) ConsumeIdempotent(ctx context.Context, msg domain.InboundMessage,
 	fn func(context.Context, domain.Store) error) (domain.ConsumeResult, error) {
-	before := r.admitCount()
+	beforeAdmit, beforeFollow := r.admitCount(), r.followUpCount()
 	res, err := r.inner.ConsumeIdempotent(ctx, msg, fn)
-	after := r.admitCount()
+	afterAdmit, afterFollow := r.admitCount(), r.followUpCount()
 	r.mu.Lock()
 	// 每条领域入口各算一次：三类候选的进门判据不同（D-R5-8），但「这条消息有没有引起
-	// 领域写」在验收里是同一件事，所以这里合并成一个 admits 计数。
+	// 领域写」在验收里是同一件事，所以这里合并成一个 admits 计数；
+	// 命令入队（D-G14-②）另走 follow_ups，理由见 settled 的注释。
 	r.seen = append(r.seen, settled{MessageID: msg.MessageID, Status: string(res.Status),
-		Ack: res.Ack, Admits: after - before, Detail: res.Detail, Err: errText(err)})
+		Ack: res.Ack, Admits: afterAdmit - beforeAdmit,
+		FollowUps: afterFollow - beforeFollow, Detail: res.Detail, Err: errText(err)})
 	r.mu.Unlock()
 	return res, err
 }
@@ -411,6 +419,14 @@ func (r *recorder) AdmitProactive(ctx context.Context, c domain.ProactiveCandida
 	return r.inner.AdmitProactive(ctx, c)
 }
 
+// RequestAITask 同样逐字转交：候选入库后那条「请下一段」的命令（D-G14-②）
+// 走的必须是真 Service 的真事务，否则这台驱动器测的就不是生产形状。
+func (r *recorder) RequestAITask(ctx context.Context, st domain.Store,
+	req domain.AITaskRequest) error {
+	r.bump("RequestAITask")
+	return r.inner.RequestAITask(ctx, st, req)
+}
+
 func (r *recorder) bump(name string) {
 	r.mu.Lock()
 	if r.calls == nil {
@@ -420,12 +436,27 @@ func (r *recorder) bump(name string) {
 	r.mu.Unlock()
 }
 
+// admitCount 数「候选进门」那三个领域入口的累计调用（不含命令入队）。
+//
+// 名字列表与 `inbound.Domain` 接口对齐：`var _ inbound.Domain = (*recorder)(nil)` 那道编译期闸
+// 保证方法名不会漂；这里按**点名**累加而不是「除 RequestAITask 外全算」，是因为将来接进
+// 接口的第四种进门方法必须先在这里署一次名才算数——否则它会静默改变 admits 的含义，
+// 而 `admits == 1` 那句验收读起来仍然像是对的。
 func (r *recorder) admitCount() int {
+	return r.countNames("Admit", "AdmitEvidence", "AdmitProactive")
+}
+
+// followUpCount 数 D-G14-② 那条「候选入库后请下一段」的命令入队次数。
+func (r *recorder) followUpCount() int {
+	return r.countNames("RequestAITask")
+}
+
+func (r *recorder) countNames(names ...string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	total := 0
-	for _, n := range r.calls {
-		total += n
+	for _, n := range names {
+		total += r.calls[n]
 	}
 	return total
 }
