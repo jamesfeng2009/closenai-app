@@ -562,3 +562,41 @@ func containsStr(hay []string, needle string) bool {
 	}
 	return false
 }
+
+// TestSafetyStatusDecodeCoversFourStates 是 D-G17 在客户端那侧的落点：proto 的四个合法状态
+// 各自翻译成对应的 Go 值，且 **unsafe 不许翻成 crisis**。
+//
+// 为什么 domain 那侧已经对过值集，这里还要再测一遍：`toDomainSafetyStatus` 是 grpc 字节进
+// Go 之后的第一道翻译，漏一个 case 就走 default ⇒ 违规内容以「判定缺失」的身份被拦下。
+// 拦是对的，身份是错的——而两道 gate 的措辞与指标面就按这个身份计数。
+//
+// want 一律写字面量而不是 `domain.SafetyXxx`：写常量等于让被测那侧自己证明自己没写错，
+// 字面量才指得回 `contracts/proto/closenai_common.proto:84-101`。
+func TestSafetyStatusDecodeCoversFourStates(t *testing.T) {
+	cases := []struct {
+		name string
+		got  closenaiv1.SafetyStatus
+		want domain.SafetyStatus
+	}{
+		{"OK", closenaiv1.SafetyStatus_SAFETY_STATUS_OK, "ok"},
+		{"CRISIS", closenaiv1.SafetyStatus_SAFETY_STATUS_CRISIS, "crisis"},
+		{"UNSAFE", closenaiv1.SafetyStatus_SAFETY_STATUS_UNSAFE, "unsafe"},
+		{"UNAVAILABLE", closenaiv1.SafetyStatus_SAFETY_STATUS_UNAVAILABLE, "unavailable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &stub{safetyFn: safety(tc.got)}
+			target := startStub(t, s)
+			c := newTestClient(target, noSleep)
+			defer c.Close()
+
+			dec, err := c.ClassifySafety(context.Background(), TextInput{Text: "x"})
+			if err != nil {
+				t.Fatalf("四个合法状态都不该带 err：%v", err)
+			}
+			if dec.Safety.Status != tc.want {
+				t.Errorf("status got=%q want=%q", dec.Safety.Status, tc.want)
+			}
+		})
+	}
+}

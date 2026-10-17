@@ -13,7 +13,7 @@
 
 变异靶（`scripts/mutate_r3_gates.py` 的 R 组）：把 `INVALID_ARGUMENT` 改成 `INTERNAL`
 （畸形输入于是变成可重试，R2 的 permanent/transient 分形被打穿）、把未知 scope 默默按 chat 跑、
-把三态外的值猜成 OK、把 `str(ValidationError)` 原样回出去——这里各打红一条。
+把四态外的值猜成 OK、把 `str(ValidationError)` 原样回出去——这里各打红一条。
 """
 from __future__ import annotations
 
@@ -303,6 +303,15 @@ async def test_classify_forwards_text_and_language():
         ),
         (
             {
+                # 批 4 · D-G17：非危机的违规面（banned/overreach/model）从此有第四态可落，
+                # 不许再借 crisis 表达「拦下」——借用的后果是 Go 把黑名单命中读成危机信号。
+                "status": "unsafe", "reason": "banned", "matched": ["治疗"],
+                "categories": [], "advice_blocked": True,
+            },
+            common_pb2.SAFETY_STATUS_UNSAFE,
+        ),
+        (
+            {
                 "status": "unavailable", "reason": "model", "matched": [],
                 "categories": [], "advice_blocked": False,
             },
@@ -310,7 +319,7 @@ async def test_classify_forwards_text_and_language():
         ),
     ],
 )
-async def test_classify_maps_three_states(verdict, expected):
+async def test_classify_maps_four_states(verdict, expected):
     async def _fixed(text, language, *, scope="chat"):
         return verdict
 
@@ -327,7 +336,7 @@ async def test_classify_maps_three_states(verdict, expected):
 
 
 async def test_classify_out_of_contract_status_is_unavailable_not_ok():
-    """D-8 的最后一道：三态外的值不能猜成安全。"""
+    """D-8 的最后一道：四态外的值不能猜成安全，也不能猜成「拦下的内容」。"""
 
     async def _weird(text, language, *, scope="chat"):
         return {

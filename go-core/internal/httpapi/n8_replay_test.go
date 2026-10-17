@@ -177,6 +177,11 @@ func (f n8ForbiddenBatch6) MemoryByID(_ context.Context, memoryID,
 
 // n8RecordingRelay 记下发出去的事件，但**绝不联网**（测试里不许打 posthog）。
 //
+// 恒回 nil 不是偷懒，是这一组的**前提**：夹具录制侧装的是同一个「每条都送出去了」的
+// 成功假件（scripts/gen_n8_contract_goldens.py 顶部），所以这里的 nil 必须与那支同形，
+// 逐字节比才在比同一件事。D-G18 之后 nil 的含义收窄成「capture 端点真的收下了」，
+// 想测「送不出去 ⇒ 落 dropped」那一支请用 analytics_relay_count_test.go 的假件。
+//
 // mutex 不是装饰：relayEvents 是并发派发的，没有锁时这里追加的是竞争写，
 // 同一份夹具跑两次能得到 116 和 119 两个数——「外发条数＝响应声称的条数」这条
 // 断言就成了随机闸门（实测 -run TestN8 交替红绿）。
@@ -649,7 +654,11 @@ func TestN8SeededContractBytes(t *testing.T) {
 	if replayed == 0 {
 		t.Fatal("seeded 组为空：分组键 group 漂移了")
 	}
-	// Python 侧是入队即算成功，所以外发条数必须等于录制体里 relayed 的总和。
+	// 录制侧的成功假件（见 n8RecordingRelay 的注释）意味着「每条都送出去了」，
+	// 所以外发条数必须等于录制体里 relayed 的总和。这条锚点在 D-G18 之后才真正咬得住：
+	// 计数改成跟随 Capture 结果之前，这里比的是两个恒等式（len(events) 与 len(events)），
+	// 撤掉假件、录制体整批变 `relayed:0` 也照样绿；现在 Python 侧的同一判据在
+	// test_n8_batch1_contract.py::test_fixture_analytics_counts_add_up_on_the_success_face。
 	if got := relay.count(); got != wantRelayed {
 		t.Errorf("外发事件 %d 条，与录制体 relayed 合计 %d 不符", got, wantRelayed)
 	}

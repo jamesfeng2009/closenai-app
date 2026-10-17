@@ -15,6 +15,8 @@ Python 的 CI 里看不到。本文件把它提前一格搬到 Python 侧，改�
 - events max_length=100      ← models/schemas.py:689  ↔  httpapi/analytics_batch.go::maxAnalyticsEvents
 - 7/14 天窗口                ← discovery_service.py:47-49 ↔ httpapi/discovery_daily.go::discoveryWeek*
 - posthog_host 默认值         ← config.py:160          ↔  config/config.go 的 envString 默认
+- relayed/dropped 互补         ← analytics_service.py::relay_batch ↔ httpapi/analytics_batch.go::relayEvents
+  （计数口径由 D-G18 统一为「只认真正送出去的那几条」，夹具只钉成功面那支）
 """
 
 from __future__ import annotations
@@ -207,3 +209,44 @@ def test_fixture_seed_users_cover_the_decisions_they_prove():
     borderline = [d for days in per_user.values() for d in days
                   if min(abs(d - 7), abs(d - 14)) < 1.5]
     assert not borderline, f"这些行贴着窗口边界，回放时刻一变就会翻边：{sorted(borderline)}"
+
+
+def test_fixture_analytics_counts_add_up_on_the_success_face():
+    """夹具的 analytics 200 体必须「relayed + dropped ＝ 请求里的事件条数」，
+    且已同意的那批走的是**中继成功**这一支（D-G18，2026-10-17）。
+
+    期望值不来自被测代码，而来自夹具自己的**请求原文**与**种子用户的 consent 列**：
+    - 互补式按 `request_raw` 现数事件条数，所以任何一侧把 dropped 写成固定 0、
+      或把没送出去的算进 relayed，都会在这里红，而不是等 Go 的回放红成字节差。
+    - 「已同意 ⇒ relayed ＝ 全部」钉的是录制脚本装的那个成功假件
+      （`scripts/gen_n8_contract_goldens.py` 顶部）。本机没装 posthog、key 也是空串，
+      假件一撤就整批录成 `relayed:0`——那支「没送出去不许算成功」的闸在
+      test_analytics_service.py 与 Go 的单测里，夹具要证的是**成功面还有没有字节证人**。
+    """
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    consent_on = {
+        u["id"] for u in fixture["seed"]["users"]
+        if u["analytics_consent"] and u.get("status", "active") == "active"
+    }
+    cases = [c for c in fixture["cases"]
+             if c["group"] == "seeded" and c["path"].startswith("/api/v1/analytics/batch")]
+    assert cases, "夹具里没有 analytics 的 200 面：这一整节会在空跑"
+
+    relayed_total = 0
+    for case in cases:
+        body = json.loads(case["response_text"])
+        assert body["code"] == 200, case["name"]
+        data = body["data"]
+        events = json.loads(case["request_raw"])["events"]
+        assert data["relayed"] + data["dropped"] == len(events), (
+            f"{case['name']}：请求 {len(events)} 条，响应给 {data}——两格不互补，"
+            "说明计数与事件条数脱钩了"
+        )
+        if body["user_id"] in consent_on:
+            assert data["relayed"] == len(events), (
+                f"{case['name']}：{body['user_id']} 已同意却只算出 {data['relayed']} 条，"
+                "录制侧的成功假件不在了 ⇒ 夹具整组退化成「一条都没送出」，"
+                "中继成功那一支失去逐字证人"
+            )
+        relayed_total += data["relayed"]
+    assert relayed_total > 0, "analytics 的 200 面里一条 relayed 都没有：成功支没被录过"

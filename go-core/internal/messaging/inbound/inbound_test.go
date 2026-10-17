@@ -1032,6 +1032,43 @@ func TestDecodeMapsPatternCandidate(t *testing.T) {
 	}
 }
 
+// TestDecodeUnsafeSafetyIsItsOwnState 是 D-G17 的入站面：`SAFETY_STATUS_UNSAFE` 落成 domain 的
+// 第四态，既不塌成 crisis 也不塌成「判定缺失」（nil）。
+//
+// 并进 crisis ⇒ 领域门把黑名单命中说成危机信号；变成 nil ⇒ 同一批内容改成以「安全判定跑挂了」
+// 的身份被拦。两种都拦得住，但两道 gate 的措辞与指标面按身份计数，身份错了就是失真。
+// want 写字面量而不是 `domain.SafetyUnsafe`，指回 contracts/proto/closenai_common.proto:100。
+func TestDecodeUnsafeSafetyIsItsOwnState(t *testing.T) {
+	d := delivery(nil, func(d *Delivery) {
+		d.Body = []byte(`{
+		  "schemaVersion":"1","kind":"KIND_PATTERN","patternType":"evening_rumination",
+		  "scope":"daily","description":"晚上反刍","fingerprint":"fp-17","confidence":0.7,
+		  "safety":{"status":"SAFETY_STATUS_UNSAFE","categories":["治疗措辞"]}
+		}`)
+	})
+	call, rej := Decode(d, DefaultMaxBodyBytes)
+	if rej != nil {
+		t.Fatalf("合法载荷被拒：%+v", rej)
+	}
+	dm := newFakeDomain()
+	if err := call(context.Background(), dm); err != nil {
+		t.Fatalf("Admit: %v", err)
+	}
+	if len(dm.admits) != 1 {
+		t.Fatalf("Admit 跑了 %d 次", len(dm.admits))
+	}
+	c := dm.admits[0]
+	if c.Safety == nil {
+		t.Fatal("UNSAFE 被读成判定缺失（nil）⇒ 第四态在入站侧没落地")
+	}
+	if c.Safety.Status != "unsafe" {
+		t.Errorf("status got=%q want=%q", c.Safety.Status, "unsafe")
+	}
+	if strings.Join(c.Safety.Categories, ",") != "治疗措辞" {
+		t.Errorf("Categories 没搬对：%v", c.Safety.Categories)
+	}
+}
+
 func TestDecodeWindowNeedsBothEnds(t *testing.T) {
 	// proto3 的 0 值陷阱（closenai_ai.proto:221-224）：只有 from 没有 to ＝没有窗口，
 	// 而不是「窗口右端是 epoch」。

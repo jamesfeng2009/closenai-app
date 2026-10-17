@@ -1,9 +1,14 @@
-"""R3-① · `check_text_tri()` 的三态判定闸（D-8 在 Python 侧的落点）。
+"""R3-① · `check_text_tri()` 的四态判定闸（D-8 在 Python 侧的落点）。
 
 为什么这批要新写一个函数而不是改 `check_text`：`check_text` 的 fail-open 是 HTTP 面的既有
 口径（`backend/ai/safety.py:393-395`，用户发送路径零阻塞），现网 5+ 个调用点靠它。
 跨进程后的消费方换成 Go 领域门，「超时＝放行」会变成「拿不到判定就当安全」——
-所以三态走新方法，旧方法一个字节不动。本文件同时钉住两侧：**新面必须拦、旧面必须不变**。
+所以四态走新方法，旧方法一个字节不动。本文件同时钉住两侧：**新面必须拦、旧面必须不变**。
+
+四态是 2026-10-17（批 4 · D-G17）补的：原三态里 banned/overreach/model 只能落 crisis，
+Go 侧读起来就成了「用户处在危险中」。本文件那三条命中面用例因此改成断 `unsafe`，
+而 crisis 那条（`test_crisis_beats_banned_and_carries_categories`）一个字没动——
+**它才是这次改判的正证**：真危机仍走危机，被挪走的只是非危机的违规面。
 
 变异靶（`scripts/mutate_r3_gates.py` 的 M 组）：把 `unavailable` 改成 `ok`、
 把不可解析当 SAFE、或者顺手把 `check_text` 也改成 fail-closed，这里各打红一次。
@@ -19,6 +24,7 @@ from backend.ai.safety import (
     SAFETY_CRISIS,
     SAFETY_OK,
     SAFETY_UNAVAILABLE,
+    SAFETY_UNSAFE,
     SafetyService,
     safety_service,
 )
@@ -38,7 +44,7 @@ async def _complete_returning(value):
     return _fake
 
 
-# ── 三态本体 ─────────────────────────────────────────────
+# ── 四态本体 ─────────────────────────────────────────────
 
 
 async def test_blank_text_is_ok(monkeypatch):
@@ -87,10 +93,15 @@ async def test_unparsable_verdict_is_unavailable(monkeypatch):
     assert out["status"] == SAFETY_UNAVAILABLE
 
 
-async def test_model_unsafe_is_crisis_with_reason(monkeypatch):
+async def test_model_unsafe_is_unsafe_with_reason(monkeypatch):
+    """模型判 UNSAFE 是「内容违规」，不是「用户处在危险中」⇒ 落 unsafe（批 4 · D-G17）。
+
+    三态时代这一格挤在 crisis 里，Go 侧的 reject 措辞会把它说成危机信号；
+    reason 仍是 "model"，消费方按面降级的判据没变。
+    """
     monkeypatch.setattr(llm, "complete", await _complete_returning("UNSAFE"))
     out = await safety_service.check_text_tri("一句正常的话", "en")
-    assert out["status"] == SAFETY_CRISIS
+    assert out["status"] == SAFETY_UNSAFE
     assert out["reason"] == "model"
 
 
@@ -103,8 +114,12 @@ async def test_model_safe_is_ok(monkeypatch):
     }
 
 
-async def test_banned_term_is_crisis_reason_banned(monkeypatch):
-    """黑名单命中不调模型（与 check_text 同序），但面要带出来供消费方按面降级。"""
+async def test_banned_term_is_unsafe_reason_banned(monkeypatch):
+    """黑名单命中不调模型（与 check_text 同序），但面要带出来供消费方按面降级。
+
+    D-G17：它是「内容违规」不是「危机」——落 unsafe 后 Go 仍必拦（第 6 关），
+    只是不再被说成危机信号。
+    """
     called = []
 
     async def _spy(*a, **k):
@@ -113,7 +128,7 @@ async def test_banned_term_is_crisis_reason_banned(monkeypatch):
 
     monkeypatch.setattr(llm, "complete", _spy)
     out = await safety_service.check_text_tri("建议接受心理治疗", "zh")
-    assert out["status"] == SAFETY_CRISIS
+    assert out["status"] == SAFETY_UNSAFE
     assert out["reason"] == "banned"
     assert out["matched"] == ["治疗"]
     assert called == []
@@ -137,13 +152,16 @@ async def test_relationship_violence_blocks_advice(monkeypatch):
 
 
 async def test_overreach_only_checked_in_assertion_scope(monkeypatch):
-    """scope 面沿用 :368 的判据：对话流不判越界（否则「因为他没回你」这类复述全被拦）。"""
+    """scope 面沿用 :368 的判据：对话流不判越界（否则「因为他没回你」这类复述全被拦）。
+
+    命中的那一格按 D-G17 落 unsafe（推理越界是内容问题，不是危险信号）。
+    """
     text = "因为他没回你，所以你注定焦虑"
     monkeypatch.setattr(llm, "complete", await _complete_returning("SAFE"))
     chat = await safety_service.check_text_tri(text, "zh", scope="chat")
     assert chat["status"] == SAFETY_OK
     assertion = await safety_service.check_text_tri(text, "zh", scope="assertion")
-    assert assertion["status"] == SAFETY_CRISIS
+    assert assertion["status"] == SAFETY_UNSAFE
     assert assertion["reason"] == "overreach"
 
 

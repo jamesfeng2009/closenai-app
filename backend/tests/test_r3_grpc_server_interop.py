@@ -339,7 +339,7 @@ def test_embed_count_mismatch_is_permanent_not_retried(go_bin):
 
 
 def test_unknown_safety_status_is_unavailable_not_ok(go_bin):
-    """三态之外的枚举值不许按 proto3 的「容忍未知值」读成 OK。"""
+    """四态之外的枚举值不许按 proto3 的「容忍未知值」读成 OK。"""
     got = _run(go_bin, "malformed", ["safety_out_of_contract_status"])[
         "safety_out_of_contract_status"
     ]

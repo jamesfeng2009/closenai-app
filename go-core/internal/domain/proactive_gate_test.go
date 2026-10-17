@@ -215,7 +215,13 @@ var proacGateCases = []proacGateCase{
 		mutate: func(c *ProactiveCandidate, _ *ProactiveInputs) {
 			c.Safety = &Safety{Status: SafetyCrisis, Categories: []string{"self_harm"}}
 		}},
-	{name: "安全状态不是三态之一", reason: ReasonSafetyUnavailable, action: ActionProactiveReject,
+	// D-G17（批 4）：非危机的违规面有自己的第四态，同样拦下，但措辞不能说成危机。
+	{name: "命中违规内容即停触达但不算危机", reason: ReasonSafetyBlocked, action: ActionProactiveReject,
+		reject: true,
+		mutate: func(c *ProactiveCandidate, _ *ProactiveInputs) {
+			c.Safety = &Safety{Status: SafetyUnsafe, Categories: []string{"治疗"}}
+		}},
+	{name: "安全状态不是四态之一", reason: ReasonSafetyUnavailable, action: ActionProactiveReject,
 		reject: true,
 		mutate: func(c *ProactiveCandidate, _ *ProactiveInputs) {
 			c.Safety = &Safety{Status: SafetyStatus("unknown")}

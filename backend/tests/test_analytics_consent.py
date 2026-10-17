@@ -140,9 +140,12 @@ async def test_batch_after_revoke_is_dropped(app, db, make_user, monkeypatch):
     await _request(app, "POST", "/api/v1/user/analytics-consent", {"consent": False})
 
     relayed = []
+    # 桩回 True＝「这条真送出去了」：D-G18 之后返回值就是计数依据。这里断的是
+    # 「撤回后一条都不该走到中继」，所以桩压根不会被调用——把它写成成功，
+    # 是为了让这条闸不会因为「撤回前/撤回后」两种计数口径而假绿。
     monkeypatch.setattr(
         analytics_module, "_relay_to_posthog",
-        lambda *a, **k: relayed.append(a),
+        lambda *a, **k: relayed.append(a) or True,
     )
     resp = await _request(app, "POST", "/api/v1/analytics/batch", {
         "events": [
