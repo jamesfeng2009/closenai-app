@@ -82,6 +82,12 @@ func main() {
 		// /api/v1/reflections 的 GET 与 POST 共用一个 path，而两个 POST 仍归 py-api）。
 		"mood":        cfg.CutoverMood,
 		"reflections": cfg.CutoverReflections,
+		// D-G12（批 3）：memories 这条键早就在 config 里声明了，却没进这张 map——
+		// 而它与 reflections 同为 PATHLESS（Ingress 没有入口 path），所以今天没有流量
+		// 走到这一格，缺格一直是**静默**的。缺格的语义是 `!ok ⇒ 当成 100% 自答`，
+		// 于是下一刀把 path 放进 Ingress 时 Go 会无视百分比全量自答、键调回 0 也回滚不了。
+		// 补格＝把「拨了不响的假旋钮」变成「今天 0%，真能回滚」。
+		"memories": cfg.CutoverMemories,
 	})
 	if err != nil {
 		log.Fatalf("go-api: cutover: %v", err)
@@ -126,6 +132,14 @@ func main() {
 	//
 	// 键与配置面分开走 env-only 是有意的：这六个键 Python 侧一个都没有，
 	// 放进 config 会让那份「跨语言变量名单」多出一批只有 Go 认得的字段。
+
+	// 领域写入口单独建变量：`:64` 的 `service` 是 auth 面，与 canonical 的
+	// `domain.Service` 只是名字直觉上的巧合——共用一个变量名会让人读成「消费者拿到了 auth」。
+	//
+	// 它登记在两个 worker **之前**，是因为 D-G14-① 之后出箱那条也要用它：
+	// 投递记录的保留期清理只有一个真源，就是 `Service.CleanupDeliveryRecords`
+	// （`domain/delivery.go:393`，N7-11 拍的「唯一清理入口」）。
+	candidateDomain := domain.NewService(canonical, domain.DefaultPolicy())
 	sws := dispatch.LoadSwitch(os.Getenv)
 	worker, err := dispatch.New(dispatch.Deps{
 		// 一层薄闭包：Go 不会把 `func … (*amqp.Session, error)` 当成
@@ -140,7 +154,15 @@ func main() {
 		Repo:   canonical,
 		Policy: domain.DefaultDeliveryPolicy(),
 		Switch: sws,
-		Log:    func(format string, args ...any) { log.Printf("go-api: "+format, args...) },
+		// D-G14-①：把 `CleanupDeliveryRecords` 从「实现了但零调用方」接进既有周期面。
+		// 挂这个循环而不是新起一个 goroutine 或 env 键是有讲究的：要删的那两类行
+		// （outbox published / inbox processed）**只有这个 worker 在跑才会产生**，
+		// 于是「清理工与生产者同生命周期」＝worker 关着时既不产行也不删行，
+		// kill switch 那条「现网行为一字不变」的证据仍然成立。
+		// 节拍用包内默认（`defaultCleanupEvery`），**不给键**——D-G12 刚踩过
+		// 「键存在但没人读＝假旋钮」，这里连假旋钮的机会都不留。
+		Cleanup: candidateDomain.CleanupDeliveryRecords,
+		Log:     func(format string, args ...any) { log.Printf("go-api: "+format, args...) },
 	})
 	if err != nil {
 		// 「开了但没给 broker 地址」拒绝启动，与上面的 cutover 同一条口径：
@@ -163,9 +185,6 @@ func main() {
 	// 停机顺序靠 defer 的后进先出：这条登记在 closeWorker **之后**，因此**先**执行——
 	// 正好是「入站把在途的候选收完（它会产生新的 outbox 行），出箱再把那批发完」。
 	inboundSw := inbound.LoadSwitch(os.Getenv)
-	// 领域写入口单独建变量：`:64` 的 `service` 是 auth 面，与 canonical 的
-	// `domain.Service` 只是名字直觉上的巧合——共用一个变量名会让人读成「消费者拿到了 auth」。
-	candidateDomain := domain.NewService(canonical, domain.DefaultPolicy())
 	candidates, err := inbound.New(inbound.Deps{
 		Dial: func(c context.Context, url string, timeout time.Duration) (inbound.Session, error) {
 			sess, err := amqp.Dial(c, url, timeout)

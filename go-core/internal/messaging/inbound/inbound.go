@@ -226,7 +226,8 @@ type Session interface {
 // DialFunc 建立会话。拨号本身带超时，所以签名里必须有 ctx。
 type DialFunc func(ctx context.Context, url string, dialTimeout time.Duration) (Session, error)
 
-// Domain 是本包需要的领域面：一个幂等消费入口＋三个候选入口（D-R5-8 的三条绑定）。
+// Domain 是本包需要的领域面：一个幂等消费入口＋三个候选入口（D-R5-8 的三条绑定）
+// ＋一条命令下发口（D-G14-②：候选入库后请对面算下一段）。
 //
 // `*domain.Service` 逐字满足它；单测用带调用计数的 fake，于是
 // 「重复消息第二次领域入口不被调用」这条验收（tasks.md R5 逐字要求）才是可判的，
@@ -237,6 +238,10 @@ type Domain interface {
 	Admit(ctx context.Context, c domain.Candidate) (domain.Result, error)
 	AdmitEvidence(ctx context.Context, c domain.EvidenceCandidate) (domain.EvidenceResult, error)
 	AdmitProactive(ctx context.Context, c domain.ProactiveCandidate) (domain.ProactiveResult, error)
+	// RequestAITask 必须拿 **inbox 这一笔事务的 Store**：命令与「这条消息我消费过了」
+	// 同一条 COMMIT 才是 outbox 模式（18 §2）。自开事务会变成「候选收下了、命令丢了」
+	// 那种补不回来的分叉——与 `commands.go:81-89` 拒不自开事务同一条理由。
+	RequestAITask(ctx context.Context, st domain.Store, req domain.AITaskRequest) error
 }
 
 // 编译期闸：装配处（cmd/go-api/main.go）给的就是 `*domain.Service`，它一改方法签名这里先红，
@@ -259,6 +264,12 @@ type Stats struct {
 	SettleErrs int
 	Dials      int
 	Redials    int
+	// FollowUpsEnqueued／FollowUpSkipped 是 D-G14-② 那条链的计数器：
+	// 一条候选入库之后请没请下一段，必须是**可数的**——否则「链有没有在跑」
+	// 又变回一句口头话，而本批改判的起因正是「在册没人调」这件事没人看得见。
+	FollowUpsEnqueued int
+	FollowUpSkipped   int
+	FollowUpErrors    int
 	// RejectsByReason 按 `domain.PermanentRejection.Code` 计数——毒消息排查第一眼要看的就是这一格。
 	RejectsByReason map[string]int
 }
@@ -455,20 +466,27 @@ func (r *Runner) Handle(ctx context.Context, d Delivery) (domain.ConsumeResult, 
 		return domain.ConsumeResult{Status: domain.ConsumeRejected, Ack: false, Detail: preErr.Detail}, *preErr
 	}
 
-	fn := func(inner context.Context, _ domain.Store) error {
+	fn := func(inner context.Context, st domain.Store) error {
 		// 解码放在事务**内**：契约级非法要变成 `domain.PermanentRejection`，
 		// 才会走 delivery.go:341-362 那条「主事务回滚＋事务外补 failed 留痕」的分道。
-		// 事务参数用不上：三个领域入口自己开事务（这件事的连带风险登记在
-		// DefaultPrefetch 那段与 tasks.md 的 R5b）。
+		// 三个领域入口仍各自开事务（这件事的连带风险登记在
+		// DefaultPrefetch 那段与 tasks.md 的 R5b）；`st` 只有下面那条命令用得上。
 		call, decErr := Decode(d, r.deps.Switch.MaxBodyBytes)
 		if decErr != nil {
 			// 解引用**不是**风格问题：`classifyFailure` 用 `errors.As(cause, &PermanentRejection{})`
 			// 认这条路（delivery.go:344-345），而指针 `*PermanentRejection` 对值类型不可赋值。
-			// 传指针＝契约级非法被读成瞬态 ⇒ 毒消息在阶梯上无限重投、永远不进留痕面，
+			// 传指针＝契约级非法被读成瞬态 ⇒ 毒消息在阶梯上无限撞、永远不进留痕面，
 			// 正是本文件上面那条分道要防的反面。闸在 TestDecodeRejectionReachesTheDomainClassifier。
 			return *decErr
 		}
-		return call(inner, r.deps.Domain)
+		if err := call(inner, r.deps.Domain); err != nil {
+			return err
+		}
+		// D-G14-②：候选进门之后，由这里请对面算下一段。放在 `call` 之后而不是之前——
+		// 领域入口报错（瞬态）时链不许往前推，否则一次重投就多请一次，
+		// 而命令 id 只由来源候选派生，第二次投进来的 id 与第一条**相同**，
+		// 会被 outbox 的 UNIQUE(message_id) 撞掉 ⇒ 表现是「链有时不生效」而不是「链重复」。
+		return r.requestFollowUp(inner, st, d)
 	}
 	res, err := r.deps.Domain.ConsumeIdempotent(ctx, msg, fn)
 	switch res.Status {
@@ -500,6 +518,66 @@ func (r *Runner) Handle(ctx context.Context, d Delivery) (domain.ConsumeResult, 
 	}
 	r.count(func(s *Stats) { s.Nacks++ })
 	return res, err
+}
+
+// admittedKind 把「进门的那条路由键」读回「刚入库的候选是哪种」。
+//
+// 用 `CandidateKinds` 而不是再建一张表：那张表已经是「键 ⇒ 体内 kind」的唯一登记
+// （`Decode` 用它判 routing key 与 kind 同义），第二张表迟早和它漂。
+// evidence／proactive 不在 `CandidateKinds` 里（它们没有 kind 字段），
+// 于是这里天然回 false——它们各自的触发面在领域那一侧，不在这条链上。
+func admittedKind(routingKey string) (domain.Kind, bool) {
+	protoKind, ok := CandidateKinds[routingKey]
+	if !ok {
+		return "", false
+	}
+	return mappedKind(protoKind)
+}
+
+// requestFollowUp 是一条候选进门之后唯一会往下推的一步（D-G14-②）。
+//
+// 三种「不推」分得很清楚，因为它们在排查时是三个问题：
+//   - 这一种候选没有下一段（insight／evidence／proactive）⇒ `FollowUpSkipped`，正常；
+//   - 链表有边但入队失败 ⇒ 把错误传出去 ⇒ inbox 事务回滚、不 ACK、走阶梯重投。
+//     **不能**在这里吞掉：吞了就变成「候选收下了、下一段永远没请求」，
+//     而这正是 R4/R5 一直拒绝的那种静默丢失。
+//
+// `st` 是 `ConsumeIdempotent` 给的那笔 inbox 事务，命令行就写在这里。
+// ⚠️ 连带后果（登记，不粉饰）：三个领域入口各自再开事务（R5b ②），所以「候选行」与
+// 「inbox 行＋命令行」是两笔 COMMIT。候选已提交而本事务回滚 ⇒ 重投时 inbox 不判重，
+// 命令会随第二次消费重新入队，id 与第一次相同 ⇒ 撞 outbox 的 UNIQUE 而**再次失败**。
+// 这一格真正收口要等 R5b 把领域入口改成复用调用方 Store；在那之前这条链的
+// 判据面只能证到「命令与 inbox 同事务」。
+func (r *Runner) requestFollowUp(ctx context.Context, st domain.Store, d Delivery) error {
+	admitted, ok := admittedKind(d.RoutingKey)
+	if !ok {
+		r.count(func(s *Stats) { s.FollowUpSkipped++ })
+		return nil
+	}
+	next, ok := domain.NextAITaskForKind(admitted)
+	if !ok {
+		r.count(func(s *Stats) { s.FollowUpSkipped++ })
+		return nil
+	}
+	body, err := domain.TaskRequestBody(next, admitted, d.MessageID)
+	if err != nil {
+		r.count(func(s *Stats) { s.FollowUpErrors++ })
+		return err
+	}
+	req := domain.AITaskRequest{
+		Kind:        next,
+		UserID:      strings.TrimSpace(d.HeaderString(HeaderUserID)),
+		OperationID: domain.DeriveTaskOperationID(next, d.MessageID),
+		Payload:     body,
+	}
+	if err := r.deps.Domain.RequestAITask(ctx, st, req); err != nil {
+		r.count(func(s *Stats) { s.FollowUpErrors++ })
+		return err
+	}
+	r.count(func(s *Stats) { s.FollowUpsEnqueued++ })
+	r.logf("candidate: %s 入库 ⇒ 已入队下一段命令 %s（来源 message_id=%s）",
+		admitted, next.RoutingKey(), d.MessageID)
+	return nil
 }
 
 // envelope 抽出幂等三件套。只有 message_id 缺失是在这里判的——它是唯一键的一半，

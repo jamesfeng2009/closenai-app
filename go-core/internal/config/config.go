@@ -13,10 +13,15 @@ import (
 )
 
 type Config struct {
-	AppName                string
-	Environment            string
-	DatabaseURL            string
-	JWTSecret              string
+	AppName     string
+	Environment string
+	DatabaseURL string
+	JWTSecret   string
+	// JWTAlgorithm 是**校验位、不是旋钮**（D-G13 的登记口径）：跨语言基线就是 HS256，
+	// 签发处 internal/auth/token.go 硬编码 SigningMethodHS256、**从不读这个字段**。
+	// 所以把它改成 RS256 的后果是「Go 拒绝启动」，而不是「换了算法」。
+	// 真要换算法必须两侧同批改签发与校验，并在 contracts 里重录基线——
+	// 不要给这个键插一根没人用的分支：那只会多出一条「拨了不响的假旋钮」。
 	JWTAlgorithm           string
 	JWTAccessExpireMinutes int
 	JWTRefreshExpireDays   int

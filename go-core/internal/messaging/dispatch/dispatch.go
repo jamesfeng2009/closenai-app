@@ -48,6 +48,10 @@ const (
 	defaultConfirmTimeout = 5 * time.Second
 	defaultDialTimeout    = 10 * time.Second
 	defaultDrainTimeout   = 30 * time.Second
+	// defaultCleanupEvery 是保留期清理的节拍（D-G14-①）。它是**包内默认**，不是 env 键：
+	// 一个没人能验的旋钮比没有旋钮更坏（本批改判的起因 D-G12 就是这种形状），
+	// 而这条只需要「进程活着就按节拍清一次」。要覆盖走 Deps.CleanupEvery 字段。
+	defaultCleanupEvery = 6 * time.Hour
 )
 
 // Switch 是「这个进程要不要跑 worker」与它的三个时间参数。
@@ -140,6 +144,12 @@ type Stats struct {
 	Dials        int
 	Redials      int
 	ClaimErrors  int
+	// 保留期清理那一格（D-G14-①）：清了几次、各搬走多少行、失败几次。
+	// 没有这一格，「清理有没有在跑」又只能靠读代码确认。
+	Cleanups          int
+	CleanupErrors     int
+	OutboxRowsDeleted int64
+	InboxRowsDeleted  int64
 }
 
 // Deps 是装配面。Log 是缝隙：本包不 import log，一个投递编排不该绑死日志实现
@@ -150,6 +160,14 @@ type Deps struct {
 	Policy domain.DeliveryPolicy
 	Switch Switch
 	Log    func(format string, args ...any)
+	// Cleanup 是投递记录的保留期清理入口。**必须是 `domain.Service.CleanupDeliveryRecords`**
+	// （18 §13 说它是唯一清理入口，本包不许再写一条 DELETE）。nil ⇒ 这个 worker 不做清理，
+	// 「挂了这个钩子但没给实现」因此不会变成静默的半接线。
+	Cleanup func(ctx context.Context) (domain.DeliveryCleanupResult, error)
+	// CleanupEvery 覆盖 defaultCleanupEvery；<=0 一律按默认，不解释成「每轮都清」。
+	CleanupEvery time.Duration
+	// Now 是时间缝隙（与 domain.Service.now 同一取向）：节拍用例不许真的等 6 小时。
+	Now func() time.Time
 }
 
 // Runner 串起 Session 与 outbox.Worker。可并发读 Stats（HTTP 侧或日志协程），写只在 Run 里。
@@ -162,6 +180,9 @@ type Runner struct {
 	// 所以一并放锁内，省掉「谁 owns session」的口头约定。
 	session Session
 	worker  *outbox.Worker
+	// nextCleanup 也只在 Run 这一个 goroutine 里读写（与 session 同一归属），
+	// 放锁内是为了和 Stats() 的读侧保持一致，不是为了跨 goroutine。
+	nextCleanup time.Time
 }
 
 func New(deps Deps) (*Runner, error) {
@@ -227,6 +248,14 @@ func (r *Runner) Run(ctx context.Context) error {
 		res, err := worker.RunOnce(drain)
 		cancel()
 		r.record(res, err)
+		// D-G14-①：投递记录的保留期清理挂在**这个**周期面上，不是新起一个循环。
+		// 归属是这张表的形状决定的：`CleanupDeliveryRecords` 只删 outbox 的 published
+		// 与 inbox 的 processed（domain/delivery.go:389-391），而这两类行只有 worker 在跑
+		// 才会产生 ⇒ 把它挂到别处（比如 HTTP 侧或新定时器）才是「清了但没人知道该谁清」。
+		// 失败只记日志、不改投递：清不动历史行不该让一条待投事件停在原地。
+		if cerr := r.maybeCleanup(ctx); cerr != nil {
+			r.logf("outbox: 保留期清理没做成：%v ⇒ %v 后再试（不影响投递循环）", cerr, r.cleanupEvery())
+		}
 		if res.Claimed == 0 && !sleep(ctx, sw.Poll) {
 			return nil
 		}
@@ -295,6 +324,64 @@ func (r *Runner) record(res outbox.Result, err error) {
 			res.Claimed, res.Published, res.Retried, res.DeadLetted, res.Lost, res.Unrecorded,
 			snap.Accepted, snap.DeadLettered)
 	}
+}
+
+// cleanupEvery 是节拍的唯一读法：非正数一律回默认。
+// 把 `CleanupEvery: 0`（装配处忘了填）读成「每轮都清」是让 DELETE 变成撞库的那条路。
+func (r *Runner) cleanupEvery() time.Duration {
+	if r.deps.CleanupEvery > 0 {
+		return r.deps.CleanupEvery
+	}
+	return defaultCleanupEvery
+}
+
+func (r *Runner) now() time.Time {
+	if r.deps.Now != nil {
+		return r.deps.Now()
+	}
+	return time.Now()
+}
+
+// maybeCleanup 到点就跑一次保留期清理，没到点就什么都不做（D-G14-①）。
+//
+// 三格判定各管一种失效：
+//   - `Cleanup == nil` ⇒ 这个进程没接清理钩子，连时间戳都不动（不制造「看起来在清」的痕迹）；
+//   - 第一次（nextCleanup 零值）立刻清：进程重启不该把历史行再攒 6 小时；
+//   - **不管成败都把 nextCleanup 往前推**：清理失败通常是库抖动，
+//     原地每轮重试会让一个 DELETE 语句变成对撞；真到需要立刻重清那天，
+//     正确做法是重启进程或调那个字段，而不是在这里发明第三条阶梯。
+//
+// 计数在锁内写、日志在锁外打（与 record 同一形状：logf 不许持有锁）。
+func (r *Runner) maybeCleanup(ctx context.Context) error {
+	if r.deps.Cleanup == nil {
+		return nil
+	}
+	now := r.now()
+	r.mu.Lock()
+	due := r.nextCleanup.IsZero() || !now.Before(r.nextCleanup)
+	r.mu.Unlock()
+	if !due {
+		return nil
+	}
+
+	res, err := r.deps.Cleanup(ctx)
+	r.mu.Lock()
+	r.stat.Cleanups++
+	if err != nil {
+		r.stat.CleanupErrors++
+	}
+	r.stat.OutboxRowsDeleted += res.OutboxDeleted
+	r.stat.InboxRowsDeleted += res.InboxDeleted
+	r.nextCleanup = now.Add(r.cleanupEvery())
+	r.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	r.logf("outbox: 保留期清理 ⇒ 搬走 published=%d processed=%d（截止 %s / %s），下一次 %v 后",
+		res.OutboxDeleted, res.InboxDeleted,
+		res.OutboxBefore.UTC().Format(time.RFC3339), res.InboxBefore.UTC().Format(time.RFC3339),
+		r.cleanupEvery())
+	return nil
 }
 
 func (r *Runner) count(f func(*Stats)) {

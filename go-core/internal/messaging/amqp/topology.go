@@ -373,9 +373,14 @@ func Document() string {
 	b.WriteString("## 读这份文档之前必须先知道的一条\n\n")
 	b.WriteString("**R4 只是发射器。**十条领域事件在 R4 期只有 exchange、**没有消费者队列**，\n" +
 		"publisher 对它们一律回 `ErrNoConsumerBound`；命令面（`ai.*.requested`）的队列已声明、\n" +
-		"入队口 `domain.Service.RequestAITask` 已就绪但**今天零调用者**；消费者与 candidate 回投已由 R5" +
-		"接通（2026-10-16 结案：两侧消费者都在、互操作闸真跑过，但三个 kill switch 默认关 ⇒ **流量仍是零**），\n" +
-		"生产者（谁下发任务）是 R6。\n" +
+		"入队口 `domain.Service.RequestAITask` 于 2026-10-17（批 3 · D-G14-②）拿到**第一个生产调用点**：\n" +
+		"`internal/messaging/inbound` 在候选入库的同一笔 inbox 事务里请下一段（fact→pattern、pattern→insight）。\n" +
+		"消费者与 candidate 回投已由 R5" +
+		"接通（2026-10-16 结案：两侧消费者都在、互操作闸真跑过），\n" +
+		"但**流量仍是零**，两个原因各自独立：\n" +
+		"① 三个 kill switch 默认关 ⇒ 那个调用点在现网一次都跑不到；\n" +
+		"② Python 侧的 handler 注册表仍为空（`backend/ai/mq/registry.py`）⇒ 真投出来的命令会被\n" +
+		"`handler_unregistered` 打进死信。生产者（谁下发任务）这件事本身仍是 R6。\n" +
 		"「异步面通了」的判据是 R6 之后一条洞察能跨进程走完全程，不是本表把 exchange 声明出来。\n\n" +
 		"⚠️ 下面四个命令键串**不是在本文件生成的**，来自 `domain.AITaskKind.RoutingKey()`\n" +
 		"（R4-③ 定的契约源）：入队侧写的键与投递侧声明的键必须是同一个串，改键只能改 domain。\n\n")
