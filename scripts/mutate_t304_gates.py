@@ -100,7 +100,9 @@ GUEST_GUARD = (
 )
 TOGGLE_CALL = "    if (!detailById[item.id]) await fetchDetail(item.id);\n"
 WEEKLY_EVIDENCE = "        w?.content ? await memoriesWithinDays(7, w.period).catch(() => []) : []\n"
-EN_DISMISSED = '      "dismissed": "Dismissed",\n'
+# 2026-10-20 T3-05 起，`insights.fbResult` 逐字复用了 status 的措辞（同一档两个表都有字面相同的值），
+# 所以靶改指 status 里独占的 `acknowledged`：删掉它照样打掉「键集 == Go 返回集合」这条判据，且锚点命中一次。
+EN_STATUS_ACK = '      "acknowledged": "Acknowledged",\n'
 EN_CLAIM_HEAD = '      "observation": "Observation",\n'
 KM_EMPTY = (
     '"canonicalEmpty": "មិនទាន់មានអ្វីនិយាយទេ។ '
@@ -243,10 +245,10 @@ MUTATIONS: list[tuple] = [
     ),
     # ── 4. 徽章/标签词表跟着 Go ＋ 15 语言总闸 ──
     (
-        "I1", "en 的 `insights.status` 少了 `dismissed` ⇒ 一条被用户忽略过的洞察，屏上徽章位置"
-              "渲染出裸键名 `insights.status.dismissed`（i18next 对缺失的插值键不回退成英文句子，"
+        "I1", "en 的 `insights.status` 少了 `acknowledged` ⇒ 一条已被用户读过的洞察，屏上徽章位置"
+              "渲染出裸键名 `insights.status.acknowledged`（i18next 对缺失的插值键不回退成英文句子，"
               "直接吐键名），而这正是 Go 的返回集合里真有的一档",
-        [(EN, EN_DISMISSED, "")],
+        [(EN, EN_STATUS_ACK, "")],
         GATE, f"{D4} › 状态徽章键 == 这一面真能返回的状态集合（N9 三态 ∪ 用户表态三态）",
     ),
     (
