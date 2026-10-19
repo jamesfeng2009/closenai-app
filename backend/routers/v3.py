@@ -1,4 +1,4 @@
-"""洞察面与目标/行动面的 BFF 代理（T3-03／T4-02，ADR-001/002）。
+"""洞察面与目标/行动/结果面的 BFF 代理（T3-03／T4-02／T4-03，ADR-001/002）。
 
 端点（对外）→ 内部面：
     GET   /api/v1/insights                    → GET   /internal/v3/insights
@@ -10,6 +10,7 @@
     POST  /api/v1/goals/{goal_id}/actions     → POST  /internal/v3/goals/{id}/actions
     GET   /api/v1/actions                     → GET   /internal/v3/actions
     PATCH /api/v1/actions/{action_id}         → PATCH /internal/v3/actions/{id}
+    POST  /api/v1/actions/{action_id}/outcomes → POST  /internal/v3/actions/{id}/outcomes
 
 这一层刻意薄到只剩三件事：认证（`get_current_user`）、拼目标路径、把 `data` 装回信封。
 查询参数一律声明成 `str | None` 并原样转发——包括 `limit=abc` 这种明显不合法的值：
@@ -17,9 +18,10 @@
 客户端拿到两种形状而前端只认一种。注册前缀沿用仓内约定（`main.py` 统一带
 `prefix="/api/v1"`），与工单 §怎么做.1 的 `APIRouter(prefix=...)` 写法不同，见结案行登记。
 
-请求体一律不收 Pydantic 模型（九条端点同一条口径，见 `_json_body`）：目标面的
-`action` 动词、`title` 长度、`target_at` 格式在 Go 各有判据与错误码，这里一旦建模，
-「BFF 先 422」就会把 Go 那 400/409 的分界抹平，而这条分界是工单 §验收 的全部内容。
+请求体一律不收 Pydantic 模型（十条端点同一条口径，见 `_json_body`）：目标面的
+`action` 动词、`title` 长度、`target_at` 格式、结果面的 `outcome_type` 九类与 `result` 六值
+在 Go 各有判据与错误码，这里一旦建模，「BFF 先 422」就会把 Go 那 400/409 的分界抹平，
+而这条分界是工单 §验收 的全部内容。
 """
 from fastapi import APIRouter, Depends, Request
 
@@ -39,7 +41,7 @@ router = APIRouter(route_class=CommitBeforeResponseRoute)
 async def _json_body(request: Request) -> dict:
     """读原始 JSON 体，不合形就 400——**不**在这里解释字段。
 
-    九条端点共用这一个构造点：如果四条 POST/PATCH 各写一遍 `await request.json()`，
+    十条端点共用这一个构造点：如果四条 POST/PATCH 各写一遍 `await request.json()`，
     就有人会给其中一条加上「先取 user_id」的便利，而 ADR-002 那一格（身份只从
     header 进来）恰好是靠「body 里的 user_id 一路带到 Go 才被 DisallowUnknownFields 挡掉」
     证出来的。BFF 提前拆包等于替 Go 把这条判据吞掉。
@@ -130,4 +132,18 @@ async def transition_action(action_id: str, request: Request,
     body = await _json_body(request)
     data = await v3_proxy.patch_json(v3_proxy.action_detail_path(action_id), user_id,
                                      body=body)
+    return success(data)
+
+
+# ── T4-03：行动结果面 ─────────────────────────────────────────────────────────
+
+@router.post("/actions/{action_id}/outcomes")
+async def record_action_outcome(action_id: str, request: Request,
+                                user_id: str = Depends(get_current_user)) -> dict:
+    # 与九条同口径：**不收 Pydantic 模型**。outcome_type 的九类、result 的六值、
+    # 同日幂等与「这种 type 不许挂在行动上」全在 Go 的 domain，这里一旦建模，
+    # 工单 §验收 要的「非法 outcome_type 400」就会在 BFF 先变成 422。
+    body = await _json_body(request)
+    data = await v3_proxy.post_json(v3_proxy.action_outcome_path(action_id), user_id,
+                                    body=body)
     return success(data)

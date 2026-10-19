@@ -61,8 +61,10 @@ CASE_PLAN: Dict[str, str] = {
     "goal_write_echoes_header_and_body": "新建/转移：身份来自 header、正文来自 body 的那一跳",
     "goal_skip_is_409_across_two_hops": "§验收逐字「非法转移 409」＋「未知动词 400」跨两跳",
     "goal_body_identity_rejected_and_foreign_sees_nothing": "目标面 body 身份被拒＋陌生身份 404/空列表",
+    "outcome_write_echoes_path_header_and_body": "结果面：action_id 从 path、身份从 header、"
+                                                  "正文从 body；origin 自报被拒；陌生身份 404",
     "wrong_service_token_403": "凭据不符的 403 原样透传（401 才是错的那格）",
-    "stopped_server_gives_503_envelope": "§验收逐字：Go 停掉 ⇒ 503 且五键信封（九条端点里抽四条）",
+    "stopped_server_gives_503_envelope": "§验收逐字：Go 停掉 ⇒ 503 且五键信封（十条端点里抽五条）",
 }
 
 _RAN: Set[str] = set()
@@ -392,7 +394,49 @@ async def test_goal_body_identity_rejected_and_foreign_sees_nothing(wired):
     _mark("goal_body_identity_rejected_and_foreign_sees_nothing")
 
 
-# ── 5. 门禁与停机 ─────────────────────────────────────────────────────────────
+# ── 5. 结果面（T4-03）：三格跨进程判据 ────────────────────────────────────────
+
+async def test_outcome_write_echoes_path_header_and_body(wired):
+    """Go 的夹具把**真正收到的那一格**原样吐回 detail，所以这是唯一能证明
+    「action_id 来自 path、身份来自 header、正文来自 body」跨了两跳的位置。
+
+    BFF 自己拆包、自己补 origin，本进程的桩测照样全绿；而 `origin` 决定的是
+    「这条算不算模型相信的事」（O-5 的 ++版本判据），一旦由 BFF 代填，
+    客户端就间接拿到了那支笔——这一格只有跨进程才看得见。
+    """
+    body = (await _call(make_app(), "POST", "/api/v1/actions/a-e2e/outcomes",
+                        json={"outcome_type": "commitment_completed", "result": "better",
+                              "note": "这周真的去了三次",
+                              "occurred_at": "2026-10-11T02:03:04Z",
+                              "operation_id": "op-1"})).json()
+    assert body["code"] == 200, body
+    data = body["data"]
+    assert data["outcome_id"] == "o-e2e" and data["action_id"] == "a-e2e", data
+    assert data["status"] == "recorded" and data["changed"] is True, data
+    assert data["operation_id"] == "op-1", "operation_id 没活着回来 ⇒ 客户端对不上自己那次点击"
+    assert "action=a-e2e" in data["detail"] and 'note="这周真的去了三次"' in data["detail"], data
+    assert "type=commitment_completed" in data["detail"] and "result=better" in data["detail"], data
+    assert "occurred=true" in data["detail"], data
+
+    # 未知键一律拒：origin 与 user_id 都不在这条端点的字段表里（§怎么做.1 逐字四格）。
+    for bad in ({"outcome_type": "commitment_completed", "origin": "llm_inference"},
+                {"outcome_type": "commitment_completed", "user_id": "victim"}):
+        resp = await _call(make_app(), "POST", "/api/v1/actions/a-e2e/outcomes", json=bad)
+        assert resp.status_code == 400, f"{bad} → {resp.text}"
+        assert resp.json()["code"] == int(ErrorCode.INVALID_PARAMS)
+
+    # §验收 前两格：非法 outcome_type 400、跨用户 404（夹具按 ErrInvalid* 哨兵回）。
+    bad_type = await _call(make_app(), "POST", "/api/v1/actions/a-e2e/outcomes",
+                           json={"outcome_type": "astrology_reading"})
+    assert bad_type.status_code == 400, bad_type.text
+    off = await _call(make_app(), "POST", "/api/v1/actions/a-e2e/outcomes",
+                      json={"outcome_type": "commitment_completed"}, user="u-intruder")
+    assert off.status_code == 404, off.text
+    assert off.json()["code"] == int(ErrorCode.RESOURCE_NOT_FOUND)
+    _mark("outcome_write_echoes_path_header_and_body")
+
+
+# ── 6. 门禁与停机 ─────────────────────────────────────────────────────────────
 
 async def test_wrong_service_token_403(wired, monkeypatch):
     monkeypatch.setattr(settings, "go_service_token", WRONG_TOKEN, raising=False)
@@ -428,6 +472,11 @@ async def test_stopped_server_gives_503_envelope(go_binary, monkeypatch):
     assert (await _call(app, "GET", "/api/v1/goals")).status_code == 503
     assert (await _call(app, "PATCH", "/api/v1/goals/g-e2e",
                         json={"action": "cancel"})).status_code == 503
+    # T4-03 的结果面也一样：用户按下「记下了」却看到一次成功加一句空话，
+    # 比一次 503 更难归因（这一条挂在停机清单里才有证人）。
+    assert (await _call(app, "POST", "/api/v1/actions/a-e2e/outcomes",
+                        json={"outcome_type": "commitment_completed",
+                              "result": "better"})).status_code == 503
     _mark("stopped_server_gives_503_envelope")
 
 
@@ -436,7 +485,7 @@ async def test_stopped_server_gives_503_envelope(go_binary, monkeypatch):
 def test_every_cross_process_case_ran():
     # 这一条是本文件的「不算绿」证人：夹具被改名、用例被 skip、断言被注释掉，
     # 都会让 _RAN 少一格，而逐条用例自己永远是绿的。
-    # 但它的依赖是 go 工具链：本机没有可编译的 go 时，其余 14 条全在 skip，
+    # 但它的依赖是 go 工具链：本机没有可编译的 go 时，其余用例全在 skip，
     # 这一条若照样红，红的就是「这台机器没有 go」而不是「判据没跑到」——
     # 那是把环境记成缺陷。所以这里同样 skip，并在理由里把少跑几条写明。
     if not any(Path(candidate).exists() for candidate in _go_candidates()):

@@ -48,6 +48,10 @@ PATH_GOAL_DETAIL = "/internal/v3/goals/"
 PATH_GOAL_ACTIONS = "/internal/v3/goals/{}/actions"
 PATH_ACTION_LIST = "/internal/v3/actions"
 PATH_ACTION_DETAIL = "/internal/v3/actions/"
+# T4-03：行动结果面。`{}` 占位的是 **action_id**（只从 path 来，与 Go 侧
+# `/actions/{id}/outcomes` 同一格判据）；这一条刻意不复用 PATH_ACTION_DETAIL，
+# 否则「拼错了后缀」在 BFF 侧看不出来，而 Go 那边只会回一个形状陌生的 404。
+PATH_ACTION_OUTCOME = "/internal/v3/actions/{}/outcomes"
 
 # 列表面转发的 query 键。其余一律不带 ⇒ 客户端不能经这一层往内部面塞身份或筛选条件
 # （Go 只认 X-User-Id，但"塞了也没用"和"根本进不去"是两种可审计的强度）。
@@ -77,6 +81,10 @@ def goal_actions_path(goal_id: str) -> str:
 
 def action_detail_path(action_id: str) -> str:
     return PATH_ACTION_DETAIL + quote(action_id, safe="")
+
+
+def action_outcome_path(action_id: str) -> str:
+    return PATH_ACTION_OUTCOME.format(quote(action_id, safe=""))
 
 
 def _client_factory(timeout: float) -> httpx.AsyncClient:

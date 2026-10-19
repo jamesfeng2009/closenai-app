@@ -77,12 +77,12 @@ def test_proxy_reads_only_its_own_two_config_keys():
 
 
 def test_identity_enters_only_from_the_auth_dependency():
-    # ADR-002 的 Python 侧落点。九条 handler 各要一次 Depends(get_current_user)：
+    # ADR-002 的 Python 侧落点。十条 handler 各要一次 Depends(get_current_user)：
     # 少一次＝那一条端点没有身份入口（要么匿名要么从 body 取）。
-    # 3→9 是 T4-02（目标/行动六条）接线那一批改的；这一格的数量必须由工单驱动，
-    # 不能由「凑个绿的数字」驱动——每加一条端点都要同批改这一行。
-    assert ROUTER_SRC.count("Depends(get_current_user)") == 9, \
-        "身份入口数量变了 ⇒ 逐条核对九个 handler"
+    # 3→9 是 T4-02（目标/行动六条）接线那一批改的，9→10 是 T4-03（行动结果一条）；
+    # 这一格的数量必须由工单驱动，不能由「凑个绿的数字」驱动——每加一条端点都要同批改这一行。
+    assert ROUTER_SRC.count("Depends(get_current_user)") == 10, \
+        "身份入口数量变了 ⇒ 逐条核对十个 handler"
     for pattern, why in [
         (r"""body\s*(?:\[|\.get\(\s*["'])user_id""", "从请求体里取 user_id ⇒ ADR-002 反面"),
         (r"""params\s*(?:\[|\.get\(\s*["'])user_id""", "从 query 里取 user_id ⇒ 同上"),
@@ -99,7 +99,8 @@ def test_forward_surface_is_registered_on_the_client_prefix():
     assert len(registered) == 1, \
         "main.py 没有把 v3 面挂到 /api/v1 ⇒ 客户端看不见，而闸会因为空文件全绿"
     for constant in ["/internal/v3/insights", '/internal/v3/insights/"', "{}", "feedback",
-                    "/internal/v3/goals", "/internal/v3/actions"]:
+                    "/internal/v3/goals", "/internal/v3/actions",
+                    "/internal/v3/actions/{}/outcomes"]:
         assert constant in PROXY_SRC, f"内部 path 常量缺 {constant!r} ⇒ 转发目标被改掉"
     assert "X-Service-Token" in PROXY_SRC and "X-User-Id" in PROXY_SRC, \
         "两个头名逐字是 ADR-002 的字面契约"
@@ -124,8 +125,8 @@ def test_the_two_forwarding_keys_default_to_empty_in_config():
             f"config.py 的 {key} 默认值不是空串 ⇒ 缺配置不再在拨号之前失败"
 
 
-def test_forwarded_surface_has_nine_handlers_and_no_extra_verbs():
-    """正向证人：`routers/v3.py` 恰好九个 handler，且动词只用 GET/POST/PATCH。
+def test_forwarded_surface_has_ten_handlers_and_no_extra_verbs():
+    """正向证人：`routers/v3.py` 恰好十个 handler，且动词只用 GET/POST/PATCH。
 
     为什么单独一条而不是靠上面那条 `Depends` 计数：`Depends` 数的是身份入口，
     有人新加一条**没有身份入口**的端点时那条闸会变红，但这一格还看得见「少了一条」
@@ -134,15 +135,16 @@ def test_forwarded_surface_has_nine_handlers_and_no_extra_verbs():
     前端能调，而内部面回 404，那是最难归因的一种死线。
     """
     decorators = re.findall(r"^@router\.(get|post|patch|put|delete)\(", ROUTER_SRC, re.M)
-    assert len(decorators) == 9, f"handler 数量 = {len(decorators)}，期望 9（洞察 3＋目标 4＋行动 2）"
+    assert len(decorators) == 10, (
+        f"handler 数量 = {len(decorators)}，期望 10（洞察 3＋目标 4＋行动 2＋结果 1）")
     assert set(decorators) <= {"get", "post", "patch"}, \
         f"出现了内部面没有的动词 {sorted(set(decorators) - {'get', 'post', 'patch'})}"
 
 
 def test_client_contract_exposes_the_forwarded_paths_and_no_internal():
-    """这一面的对外形状：九条端点（八条路径）都在，且**没有任何** `/internal` 路径。
+    """这一面的对外形状：十条端点（九条路径）都在，且**没有任何** `/internal` 路径。
 
-    `/api/v1/goals` 一条路径挂 GET＋POST 两种方法，所以是「九条端点、八条路径」。
+    `/api/v1/goals` 一条路径挂 GET＋POST 两种方法，所以是「十条端点、九条路径」。
 
     两侧不同源：断言拿的是 FastAPI 实际生成的路由表，不是常量表——抄一份期望值
     等于用同一个事实源证明自己。
@@ -154,7 +156,8 @@ def test_client_contract_exposes_the_forwarded_paths_and_no_internal():
             "/api/v1/insights/{insight_id}/feedback",
             "/api/v1/goals", "/api/v1/goals/{goal_id}",
             "/api/v1/goals/{goal_id}/actions",
-            "/api/v1/actions", "/api/v1/actions/{action_id}"} <= paths, \
+            "/api/v1/actions", "/api/v1/actions/{action_id}",
+            "/api/v1/actions/{action_id}/outcomes"} <= paths, \
         f"客户端契约里缺了转发面：{sorted(p for p in paths if 'insight' in p or 'goal' in p or 'action' in p)}"
     assert not [p for p in paths if p.startswith("/internal")], \
         "FastAPI 上挂了 /internal 路径 ⇒ 内部面被暴露到客户端可达的面上"
