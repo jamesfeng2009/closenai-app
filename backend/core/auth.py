@@ -14,6 +14,8 @@ user_id 来源（按优先级）：
 
 环境分级（settings.environment）：
 - development（默认）：X-User-Id 透传 + 匿名兜底，不阻塞开发
+- staging：**与 production 同一档**（T6-04 决策点 D-T604-3）。这一档只多一道库面隔离，
+  鉴权口径不许比生产松——否则「设成 staging」换来的是设备身份透传，那比它要防的双写更糟。
 - production：强制 JWT Bearer。缺失 → 40103 MISSING_TOKEN；
   无效/过期 → 40102/40101；X-User-Id 一律忽略（防认证绕过）。
 """
@@ -29,6 +31,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core import env_isolation
 from backend.core.errors import AppException, ErrorCode
 from backend.core.logging import get_logger, set_user_id
 from backend.core.time_utils import utc_now
@@ -179,8 +182,14 @@ async def verify_apple_identity_token(identity_token: str) -> tuple[str, str | N
 # ── 请求级鉴权依赖 ──
 
 def _auth_enforced() -> bool:
-    """生产环境强制鉴权（fail-closed）。"""
-    return settings.environment.lower() in ("production", "prod")
+    """受保护档强制鉴权（fail-closed）：production／prod／staging（D-T604-3）。
+
+    判据集合在 `backend/core/env_isolation.py`，与 Go 侧 `config.ProtectedEnvironments`
+    由跨语言闸对账。这里刻意不做 `.lower()`：词表是逐字小写的四格，
+    设错大小写的那一档已经在 `_validate_startup_config` 拒绝启动，
+    不该由鉴权面替它兜底（兜了就是把「以为在生产档其实没有」藏进请求路径）。
+    """
+    return env_isolation.is_protected(settings.environment)
 
 
 def _decode_user_id_from_token(token: str) -> str | None:

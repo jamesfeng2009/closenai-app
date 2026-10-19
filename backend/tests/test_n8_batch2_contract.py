@@ -36,7 +36,7 @@ import yaml
 from backend.main import app
 from backend.services import curriculum_service as curriculum_module
 
-from go_route_table import go_ops, route_row
+from go_route_table import cutover_domain_keys, go_ops, route_row
 
 ROOT = Path(__file__).resolve().parents[2]
 GO = ROOT / "go-core"
@@ -255,7 +255,7 @@ def test_three_registers_agree_on_the_cut_domains():
         if d and d["kind"] == "ConfigMap")
     configmap_domains = {
         k.removeprefix("CLOSEN_CUTOVER_").lower()
-        for k in cm["data"] if k.startswith("CLOSEN_CUTOVER_")
+        for k in cutover_domain_keys(cm["data"])
     }
 
     openapi_domains = {

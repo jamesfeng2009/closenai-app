@@ -15,6 +15,7 @@ from backend.routers import auth, onboarding, journey, chat, memories, mood, gro
 from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
+from backend.core import env_isolation
 from backend.services.cron_service import cron_service
 from backend.services.source_events import close_producer
 
@@ -26,12 +27,32 @@ logger = get_logger("closenai.main")
 def _validate_startup_config() -> None:
     """启动配置校验。
 
-    production 环境：JWT_SECRET / CRON_SECRET 缺失或 DATABASE_URL 仍为 sqlite 默认
-    → fail-fast（启动即报错，避免带病上线后认证/定时任务静默失效）。
+    受保护档（production／prod／**staging**，T6-04 的 D-T604-3）：
+    `ENVIRONMENT` 不在词表里、连的是别的档的库、JWT_SECRET/CRON_SECRET 缺失、
+    DATABASE_URL 仍为 sqlite 默认 → fail-fast（启动即报错，避免带病上线后认证/定时任务静默失效）。
     development 环境仅告警，不阻断开发。
     推荐配置（Redis / QStash / Resend / Apple）缺失任何环境均仅告警（功能降级可用）。
+
+    词表与库面隔离那两条判据本体在 `backend/core/env_isolation.py`（Go 侧的同名判据
+    在 `go-core/internal/config/env_isolation.go`，两侧由用例表对账）：
+    py-api 是 canonical 的**写方**，「staging 连上生产库」这一半不需要切流百分比也会双写，
+    所以这道闸不能只长在 Go 那一侧。
     """
-    prod = settings.environment.lower() in ("production", "prod")
+    env = settings.environment
+    if not env_isolation.is_valid_environment(env):
+        raise RuntimeError(
+            "启动配置校验失败：ENVIRONMENT 不在词表里，读到 "
+            f"{env!r}，只认 {'|'.join(env_isolation.ENVIRONMENT_VALUES)}"
+            "（D-T604-2：`Production` 不是 `production`，静默落进非生产档会连鉴权口径一起换掉）"
+        )
+    isolation_error = env_isolation.check_db_isolation(
+        env, settings.database_url,
+        env_isolation.parse_fingerprints(settings.prod_db_fingerprints),
+    )
+    if isolation_error:
+        raise RuntimeError(f"启动配置校验失败：{isolation_error}")
+
+    protected = env_isolation.is_protected(env)
     missing_required: list[str] = []
     if not settings.jwt_secret:
         missing_required.append("JWT_SECRET")
@@ -53,7 +74,7 @@ def _validate_startup_config() -> None:
 
     if missing_required:
         msg = f"启动配置校验失败，缺失必需配置: {', '.join(missing_required)}"
-        if prod:
+        if protected:
             raise RuntimeError(msg)
         logger.warning("%s（development 仅告警）", msg)
 

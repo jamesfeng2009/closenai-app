@@ -14,7 +14,10 @@ from __future__ import annotations
 import json
 import re
 
-from go_route_table import go_ops, go_table_ops, normalize_param, route_row
+from go_route_table import (
+    CUTOVER_APPROVAL_KEY, cutover_domain_keys, go_ops, go_table_ops, normalize_param,
+    route_row,
+)
 import shutil
 import subprocess
 from pathlib import Path
@@ -347,7 +350,7 @@ def test_cutover_keys_without_ingress_path_stay_unrouted():
         for entry in entries if entry["backend"] == "go-api"
     }
     declared = {
-        domain_of(key) for key in cm["data"] if key.startswith("CLOSEN_CUTOVER_")
+        domain_of(key) for key in cutover_domain_keys(cm["data"])
     }
     key_only = sorted(declared - routed)
     assert key_only, (
@@ -390,6 +393,33 @@ def test_cutover_keys_without_ingress_path_stay_unrouted():
                     f"GET {path} 在 routes.go 的声明表里找不到（域键带上的那种形状）："
                     "生成物还写着它 ⇒ md 已过期，重跑 `cd go-core && go run ./tools/cutovermatrix -write`"
                 )
+
+
+def test_cutover_approval_bit_ships_unsigned():
+    """T6-04：ConfigMap 出厂必须带着**未签字**的审批位，且它是审批位不是域键。
+
+    为什么清单侧也要有一条：Go 侧的判据只在「有域在放量」时才咬人，
+    而这一格今天该判的是「清单出厂时没有人提前把字签好」。
+    `CLOSEN_CUTOVER_APPROVED: "1"` 混进基线＝每次部署都自动放量，
+    那正好是本票要消灭的那件事（工单 §为什么：八个键全 "0" 是当前状态，不是约束）。
+    """
+    cm = _one("ConfigMap", "closenai-config")
+    data = cm["data"]
+    assert CUTOVER_APPROVAL_KEY in data, (
+        "清单里没有 CLOSEN_CUTOVER_APPROVED：Go 侧读不到它＝没设＝未签，"
+        "但「未设」与「这一面不存在」在清单上读起来同形，必须显式写出来"
+    )
+    assert data[CUTOVER_APPROVAL_KEY] == "0", (
+        f"{CUTOVER_APPROVAL_KEY}={data[CUTOVER_APPROVAL_KEY]!r}：出厂带着已签字的审批位，"
+        "等于把放量做成部署的副作用（双签流程见 deploy/README.md）"
+    )
+    # 它不许被当成域：两面从 ConfigMap 推域名集合的对账都调 cutover_domain_keys()，
+    # 这里钉那个函数本身——排除项按逐字名，不按长度或猜值。
+    assert CUTOVER_APPROVAL_KEY not in cutover_domain_keys(data)
+    assert len(cutover_domain_keys(data)) == 8, (
+        f"切流域键应当 8 格，实得 {cutover_domain_keys(data)}")
+    assert {"CLOSEN_CUTOVER_ANALYTICS", "CLOSEN_CUTOVER_MEMORIES"} <= set(
+        cutover_domain_keys(data))
 
 
 def test_contract_paths_are_routed():

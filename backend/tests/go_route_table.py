@@ -27,6 +27,27 @@ ROUTES_GO = ROOT / "go-core" / "internal" / "httpapi" / "routes.go"
 
 METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
 
+# T6-04（2026-10-20）· 审批位的键名**登记在这里一处**。
+# `CLOSEN_CUTOVER_APPROVED` 长得像域键，但它不是域：它是「这批放量有没有人签字」那一位。
+# 本文件下面那两面从 ConfigMap 推「切流域集合」的对账
+# （test_k8s_manifests.py 的 key_only、test_n8_batch2_contract.py 的 configmap_domains）
+# 一旦把它当成一个叫 `approved` 的域，红会红得像「登记面漂移」而不是「多了个审批位」。
+# 所以两处都调 cutover_domain_keys()，不在各自文件里写第二份排除条件。
+CUTOVER_APPROVAL_KEY = "CLOSEN_CUTOVER_APPROVED"
+CUTOVER_KEY_PREFIX = "CLOSEN_CUTOVER_"
+
+
+def cutover_domain_keys(data: dict[str, str]) -> list[str]:
+    """ConfigMap（或任何键面）里那些**真是切流域**的键，按字典序返回。
+
+    排除项只有 CUTOVER_APPROVAL_KEY 那一格，且按逐字名排除——不用前缀长度、
+    不用「值是不是 0..100」那种猜法：猜法会把下一个非域键静默收进来。
+    """
+    return sorted(
+        key for key in data
+        if key.startswith(CUTOVER_KEY_PREFIX) and key != CUTOVER_APPROVAL_KEY
+    )
+
 
 def normalize_param(path: str) -> str:
     """`{memory_id}` → `{}`：路径参数改名不该打红切流闸（与 Go 的 NormalizePath 同口径）。"""

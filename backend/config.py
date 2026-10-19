@@ -19,7 +19,12 @@ class Settings(BaseSettings):
     app_name: str = "ClosenAI"
     app_tagline: str = "记录你的人生 · 理解你的模式 · 陪你一起成长"
     debug: bool = False
-    # 运行环境：development（默认，允许 X-User-Id 设备身份透传）/ production（强制 JWT Bearer 鉴权）
+    # 运行环境：只有四个逐字小写值（T6-04 的词表闸，判据在 backend/core/env_isolation.py）。
+    #   development  默认，允许 X-User-Id 设备身份透传
+    #   staging      与 production 同档（强制 JWT、缺密钥拒启），但库面必须是它自己的库
+    #   production / prod   强制 JWT Bearer 鉴权
+    # 词表外的值（含 `Production` 这种大小写错）一律拒绝启动：原先 Python 用 .lower()，
+    # Go 用逐字比较，两侧会把同一个值读成两个档（D-T604-2）。
     environment: str = "development"
 
     # API 配置
@@ -30,6 +35,12 @@ class Settings(BaseSettings):
 
     # 数据库
     database_url: str = "sqlite+aiosqlite:///./closenai.db"
+    # T6-04：生产库指纹黑名单（逗号分隔的 host／dbname／project ref）。
+    # 键名**不带 CLOSEN_ 前缀**——那个前缀在本仓的含义是「只有 Go 认得的键」
+    # （对照 CLOSEN_PY_API_URL 与 config.go 里 GoServiceToken 那条注释），
+    # 而这个键两侧都要读：py-api 同样是 canonical 的写方，只挡 Go 等于把双写的门开一半。
+    # 判据与逐格用例表在 backend/core/env_isolation.py ＋ go-core/testdata/env_isolation_cases.json。
+    prod_db_fingerprints: str = ""
     supabase_url: str = ""
     supabase_service_key: str = ""
 
