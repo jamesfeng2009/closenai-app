@@ -54,8 +54,8 @@
 | 指标 | 值 |
 |---|---|
 | 任务总数 | **34** |
-| `DONE` | **22**（65%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T5-01、T5-02、T5-03、T5-05、T6-01、T6-02） |
-| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **9**（T3-04、T3-05、T4-01…T4-04、T5-04、T6-03、T6-04） |
+| `DONE` | **23**（66%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T4-01、T5-01、T5-02、T5-03、T5-05、T6-01、T6-02） |
+| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **8**（T3-04、T3-05、T4-02…T4-04、T5-04、T6-03、T6-04） |
 
 | 波次 | 任务范围 | 完成/总数 | 出口标准 |
 |---|---|---|---|
@@ -96,7 +96,7 @@
 | T3-03 | Python BFF 代理层（纯转发） | BE | T3-01、T3-02 | W3 | DONE | 2026-10-19 结案（逐格与四件套见详情结案行；**§怎么做.1 的「五个端点」按实测改判为三条**——Go 侧今天没有 `/internal/v3/goals|actions`，接上去是一条永久 503 的死线还会进客户端契约，随 T4-02 一并接）：`backend/services/v3_proxy.py`（`build_headers`＝出站三头唯一构造点、`dial_target`＝配置不齐在**拨号之前** 503、`_client_factory`＝唯一 httpx 构造点、`_unwrap`＝只看信封 `code` 且 HTTP 状态原样带走、`quote(safe="")` 两条 path、`LIST_QUERY_KEYS` 三键白名单）＋`backend/routers/v3.py` 三条端点（query 一律 `str` 原样转发，校验只发生在 Go）＋`main.py:184` 注册；闸 G-03 `backend/tests/test_bff_is_thin.py` 九条（四条反向归零＋五条正向证人），**两处形态由变异自证收紧**（`tier/entitlement/is_pro` 改子串扫、注册证人改行首锚定，理由见裁决七-10-13）；契约重导 **101 paths／109 operations**（`/internal` 零条 ⇒ G-02 首次两侧实测对账），`test_contract_freeze` 计数 105→108；跨进程 E2E 新建（`go-core/tools/v3surface` 起真 `httpapi.NewServer`＋14 条判据＋1 条「跑过的==清单」归零证人，含 §验收 逐字那条「Go 停掉 ⇒ 三条端点都 503 且五键信封」）；部署面 `GO_API_URL` 进 ConfigMap、`GO_SERVICE_TOKEN` 只进 Secret（键面与轮换命令补进 `deploy/README.md`，同批更正 `10-config.yaml` 那条指向不存在 README 的悬空引用）。实测 `test_v3_proxy`＋`test_bff_is_thin`＋`test_contract_freeze`＋`test_v3_proxy_e2e`＋`test_db_commit_boundary`＋`test_k8s_manifests` **80 passed／1 skipped**；变异 `scripts/mutate_t303_gates.py` 打红 **43/43**、保持绿 **3/3**、未跑 0、残留 0（一条等价变异 `if code == 200`→`if False` 在 HTTP 面同形，已剔除并留档） |
 | T3-04 | 前端：证据区 + 状态徽章 | FE | T3-03 | W3 | TODO | — |
 | T3-05 | 前端：反馈条与纠错输入 | FE | T3-04 | W3 | TODO | — |
-| T4-01 | Schema：commitments 加 `goal_id`/`skipped_at` | GO+BE | T6-03（建议） | W4 | TODO | — |
+| T4-01 | Schema：commitments 加 `goal_id`/`skipped_at` | GO+BE | T6-03（建议） | W4 | DONE | — |
 | T4-02 | Go：goals/actions CRUD 与状态机 | GO | T4-01 | W4 | TODO | — |
 | T4-03 | Go：outcomes 端点 | GO | T4-02 | W4 | TODO | — |
 | T4-04 | 前端：洞察→行动→结果闭环 | FE | T4-03 | W4 | TODO | — |
@@ -808,7 +808,7 @@ Go 停掉 ⇒ `/api/v1/insights` 返回 503 且信封形状正确；BFF 单测�
 
 | 状态 | 负责 | 依赖 | 规模 |
 |---|---|---|---|
-| TODO | GO+BE | T6-03（建议先做） | M |
+| DONE | GO+BE | T6-03（建议先做） | M |
 
 **为什么**
 ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无法挂在目标下）与 `skipped_at`（Baseline 要求"跳过"是一等状态）。
@@ -828,6 +828,8 @@ ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无
 
 **验收**
 迁移在空库与含数据库都能跑；`go test ./internal/store` 绿；列级对账通过。
+
+> 结案 2026-10-19｜master 工作区（未推）｜**行动闭环的库面第一次有了两个真源并各自有闸**——`personal_commitments` 加了 `goal_id`/`skipped_at` 与一条 `(user_id, goal_id, status)` 索引，同一张表现在既是「承诺」也是「行动」（ADR-004／PLAN §5 决策 6）。**§怎么做 逐格**：1  alembic 新件 `f6b8d0e2a4c6`（挂在 T1-02 的 `e5a7b9d1f3a5` 之上，链仍单头）——工单 §怎么做.1 给的字面 SQL **逐字照做**（两列 NULL、索引三列同名同序），只有形状按既有口径写成 `op.add_column/op.create_index`；**不加 FK**（D-5：purge 靠逐表 rowcount，FK 会把删除顺序变成硬依赖，库级闸 `set(fks) <= {"refresh_tokens"}` 有靶 M3）、**不给 status 加 CHECK/enum**（裁决 §五-4，有靶 M4）；2 `go-core/db/schema/0002_canonical_runtime.sql` 由 `scripts/export_pg_schema.py` 从 `alembic upgrade head` 后的真库**重导**（只读快照，禁手改），`sqlc generate` 重生成 `canonicaldb`（`GoalID pgtype.Text`／`SkippedAt`／`SkipCommitmentParams`）；3 `canonical_repo.go` 新增 `SkipCommitment`、`InsertCommitment` 增带 `goal_id`、`ListCommitments` 带回两列；4 `test_canonical_schema.py` 的列级对账两侧同列（ORM 与库各有靶：O1 撤列、O2 改可空、O3 改索引列序）。**一条按实况的改判（不照工单字面）**：`SkipCommitment` **没有挂进 `domain.Store` 接口**——挂上去就等于「`active → skipped` 有了门而没有守卫」，而守卫（终态不许回退、重复同态幂等返回当前）是 T4-02 的 `TransitionAction`；本票先在仓储方法上把「跳到哪列、时间怎么写」钉死并让它被真库测跑过，T4-02 接线时这一格的坏法已有闸兜着（同包内 `st.(*canonicalTx)` 断言具体类型就是为了让靶落在仓储方法上，而不是等接线时才发现这一格从没跑过）。**幂等写在 SQL 而不是 Go**：`skipped_at = COALESCE(skipped_at, now())`——domain 层的「已跳过就返回当前」只兜得住顺序执行的那一半，并发那半只有列上的 COALESCE 兜得住（G1 摘掉它，红的正是「两次跳过时间逐位相同」那条断言）。**四件套**：入口＝迁移件＋一个内部能力登记（`SkipCommitment` 暂无调用方，登记归 T4-02，本票不开 HTTP 面）；执行＝`alembic upgrade head` 在**空库**上真跑过（九件逐级回退，T4-01 是第一级），`go test -run Commitment ./internal/store` 在真库上跑过三条；交付＝**本票的交付面是列与一条语句，用户可见仍在 T4-02…T4-04**（这一格按实况写清，不冒充端到端）；失败恢复＝跨用户 skip 返回 `domain.ErrInvalidOwnership` **且断言行未被改**（G3 摘 `AND user_id = $2`、R1 摘 ErrNoRows 折算各打红一次）、0 行不误判成功、`completed_at` 与 `skipped_at` 共存互不覆盖（先跳后完成两个时间戳都在且不相等）。**新增闸**：`test_t401_commitment_columns_are_expand_shaped_and_index_is_user_id_leading`（单独立一条的理由：`_all_tables()`／`_all_index_stmts()` 只吃 N2/N7 两件建表件，加列件不进那两个清单，于是「禁 FK／禁 CHECK／索引 user_id 打头」这三条对本件一句都不成立——不补这一格，下一件加列迁移就是从一个没有闸的洞里进来的）＋往返闸的 T4-01 两级新证（正向证人两列一索引、第一级回退只许动它自己加的东西）。**实测计数**：`test_canonical_schema.py` 聚焦 **25 passed**（带 `TEST_DATABASE_URL`＋一次性空库 `N2_MIGRATE_DATABASE_URL`＋`CLOSEN_REQUIRE_PG=1`，含九步回退）；全量 `backend/tests` **1570 passed／3 skipped／0 failed**（124.22s）；Go `go test -p 1 -v ./... -count=1` **749 PASS／1 SKIP／0 FAIL／17 包 ok**（唯一的 SKIP 是 `TestBrokerRestartRepublishesButBrokerDoesNotDeduplicate`，与本票无关），本票三条 `TestCommitmentGoalIDRoundTripsAndNullMeansNoGoal`／`TestSkipCommitmentIsIdempotentOnTheClock`／`TestSkipCommitmentRejectsForeignUser` 在真库上分别 0.21s／0.20s／0.09s 真跑；`go build`／`go vet` 干净、`gofmt -l .` 零输出。**变异自证** `scripts/mutate_t401_commitment_gates.py` 打红 **22/22**（迁移面 M1…M9 与链形状 M10、源与产物对账面 Q1/Q2、生成物面 G1…G5、仓储面 R1、ORM 面 O1…O3、真库回退面 RT1）、保持绿 **3/3**（往迁移 upgrade 体内／`SkipCommitment` 上方／`__table_args__` 上方各插 15 行注释 ⇒ 三侧照旧全绿）、未跑 **0**、残留 **0**（六个靶文件 copy2＋`filecmp(shallow=False)` 逐字节写回）。**第一轮 21/22**：O1 那版只撤 `goal_id` 一列、留着引用它的 `Index`，红的是 SQLAlchemy 建表期的 `ConstraintColumnNotFoundError`（收集期 ERROR）而不是那条对账判据 ⇒ 改的是**变异体**（撤成「模型整体回到 T4-01 之前」的两行撤法），不动判据。**RT1 是本票最有价值的一条**：把 downgrade 顺序倒过来（先删列、再删那条覆盖该列的索引），静态闸按字面查 `drop_index` 在不在**看不见这个顺序**，只有真 PG 会红——列一掉，PG 自动带走依赖它的索引，紧跟着的 `drop_index` 报「索引不存在」。这一格证明往返闸不是静态闸的复读。**一条等价变异剔除并留档**：ORM 里只**改名**那条索引而不动列元组，在 `test_live_schema_matches_orm_declaration` 上恒绿——该闸按 (唯一性, 列元组) 比较而不按索引名（库里 UNIQUE 约束会附带反射出自动命名索引，比名字会误报，这是它 docstring 写明的既有决定）；这一格的判据实际由静态闸的索引名断言承担（M6 有靶）。**发现缺陷（本票不顺手修，登记）**：① alembic head 的字面量在四份实库伴生测里各钉一份（`test_data_export_pg.py`／`test_posthog_erasure_retry_pg.py`／`test_delivery_audit_pg.py`／`test_canonical_schema.py`），本票 head 一变就要同步改四处——第二真源，归 **T6-03**；② `.sql` 与生成物仍是两个真源（Q1/Q2 只能由 `sqlc diff` 兜，Go 测试看不见源文件），同桶；③ 本机 dev PG 口令曾出现在 `test_canonical_schema.py` 的 docstring 里（本票已清成「口令从 env 取」），**git 历史里仍在，靠轮换处置、不 force push**。**未跑**：生产／staging 库上 `alembic upgrade head` 的实际执行（本机无 kubeconfig，VPS 面归 T0-01）。
 
 ---
 
