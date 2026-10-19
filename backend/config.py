@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     # 时间衰减半衰期（天）：距 created_at 满一个半衰期 ⇒ 新近项减半
     memory_inject_decay_half_life_days: int = 90
 
+    # Go Core 内部面代理（T3-03，ADR-001/002：客户端只认 /api/v1，Go 只暴露 /internal/v3）。
+    # 两个都默认留空，且**故意**不写 http://go-api:8080 这种"看起来能用"的默认值：
+    # 那会让配置缺失长成一次 5 秒连接超时（用户等满超时无缘无故看到 503），
+    # 而留空长成拨号之前就 503（判据见 services/v3_proxy.py 的 build_headers／dial_target）。
+    # 密钥与 Go 侧 internal/config/config.go 的 GO_SERVICE_TOKEN 是同一个键名，两侧同值。
+    go_api_url: str = ""
+    go_service_token: str = ""
+
     # Redis (Upstash)
     redis_url: str = ""
     redis_token: str = ""

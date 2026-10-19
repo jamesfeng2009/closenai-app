@@ -91,12 +91,14 @@ def test_register_count_equals_decorator_count():
     99 → 104：T1-01（2026-10-18）新增 /user/export 申请·列表·状态·下载四条，
     外加 GET /cron/export-jobs 一条队列认领（每 5 分钟）。
     104 → 105：T1-04（2026-10-18）新增 GET /cron/delivery-audit 一条每日交付审计。
+    105 → 108：T3-03（2026-10-19）新增洞察面三条纯转发端点
+    （GET /insights、GET /insights/{id}、POST /insights/{id}/feedback）。
     """
     router_ops, app_ops = count_decorators()
-    assert router_ops == 105, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
+    assert router_ops == 108, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
     assert app_ops == 1, f"app 级路由应为 1（GET /health），实得 {app_ops}"
     rows = table_rows("## 五、端点登记表")
-    assert len(rows) == router_ops + app_ops == 106
+    assert len(rows) == router_ops + app_ops == 109
 
 
 def test_no_unregistered_or_stale_endpoint():

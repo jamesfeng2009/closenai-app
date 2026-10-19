@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import auth, onboarding, journey, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics, bedtime, curriculum
+from backend.routers import auth, onboarding, journey, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics, bedtime, curriculum, v3
 from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
@@ -179,6 +179,9 @@ app.include_router(reflection.router, prefix="/api/v1", tags=["reflections"])
 app.include_router(cron.router, prefix="/api/v1", tags=["cron"])
 app.include_router(share.router, prefix="/api/v1", tags=["share"])
 app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
+# T3-03：洞察面的 BFF 代理。前缀与其余 17 个 router 同一口径（由 main 统一带），
+# tags 用 "v3" 登记这一面归属的批次面，契约表（contracts/endpoints.md）按 tag 分组读它。
+app.include_router(v3.router, prefix="/api/v1", tags=["v3"])
 
 
 @app.get("/health")
