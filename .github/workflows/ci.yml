@@ -61,6 +61,18 @@ jobs:
           go-version: "1.27.1"
       - name: Install deps
         run: pip install -r backend/requirements.txt
+      - name: Install schema toolchain (pg_dump + sqlc)
+        # T6-03 的两条闸只有装了工具才真跑，否则按「宿主没有工具链」skip：
+        #   · pg_dump —— `test_pg_schema_snapshot.py` 的第三条要把 alembic 重建成一次性库
+        #     再逐字节比快照（这一条不吃 pg_dump 就退化成只看列名的离线闸）；
+        #   · sqlc —— `test_canonical_schema.py::test_sqlc_generated_code_matches_queries`
+        #     用 `sqlc diff` 拍「.sql 与生成物两个真源」（工单 §怎么做.5：CI 校验生成物可复现，
+        #     而 sqlc generate 只在生成物变红时人手跑一次）。
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
       - name: Create CI databases
         run: |
           python - <<'EOF'
@@ -233,8 +245,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install deps
         # 变异脚本三边都可能动：pytest 闸、jest 闸、go 测试——装齐了才有资格说「抽样跑过」。
+        # T6-03 那条还要 pg_dump 与 sqlc：少一样它只能记「未跑」，抽样就成了假抽样。
         run: |
           pip install -r backend/requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
           cd frontend && npm ci
       - name: Create and migrate mutation database
         # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 让它变成 fail，

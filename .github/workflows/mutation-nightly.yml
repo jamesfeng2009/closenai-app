@@ -66,8 +66,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install deps
         # 变异脚本三边都可能动：pytest 闸、jest 闸、go 测试——装齐了才有资格说「全量跑过」。
+        # T6-03 那条还要 pg_dump 与 sqlc：少一样它只能记「未跑」，全量就成了缺页的全量。
         run: |
           pip install -r backend/requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
           cd frontend && npm ci
       - name: Create and migrate mutation database
         # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 把它变成 fail，
