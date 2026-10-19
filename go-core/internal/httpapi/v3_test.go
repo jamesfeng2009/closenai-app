@@ -136,25 +136,49 @@ func (f *stubGoalWriter) TransitionAction(_ context.Context, _, id string,
 	return f.actionRec, f.err
 }
 
+// stubOutcomeWriter 记录最后一次 RecordActionOutcome 收到的提案：这一面的「四种 result
+// 各回什么码／跨用户 404／同日不再写第二行」是一张映射表，真身在 domain 与真库测里。
+type stubOutcomeWriter struct {
+	got   domain.ActionOutcomeProposal
+	rec   domain.ActionOutcomeReceipt
+	err   error
+	calls int
+}
+
+func (f *stubOutcomeWriter) RecordActionOutcome(_ context.Context,
+	p domain.ActionOutcomeProposal) (domain.ActionOutcomeReceipt, error) {
+	f.calls++
+	f.got = p
+	return f.rec, f.err
+}
+
 func newV3Server(t *testing.T, browser *domain.InsightBrowser,
 	outcomes httpapi.FeedbackRecorder, token string) *httpapi.Server {
 	t.Helper()
-	return newV3ServerGoals(t, browser, outcomes, nil, nil, token)
+	return newV3ServerFull(t, browser, outcomes, nil, nil, nil, token)
 }
 
-// newV3ServerGoals 是唯一的装配点：内部面四格依赖＋密钥一起判（v3.go 的
-// internalEnabled），所以「goals 没装配」在这套测里不可能悄悄存在。
+// newV3ServerGoals 是目标/行动那批用例的装配点（结果面用默认桩）。
 func newV3ServerGoals(t *testing.T, browser *domain.InsightBrowser,
 	outcomes httpapi.FeedbackRecorder, read domain.GoalReader,
 	writes httpapi.GoalWriter, token string) *httpapi.Server {
 	t.Helper()
-	cfg := config.Config{AppName: "ClosenAI", Environment: "development",
-		HTTPAddr: ":0", InsightEvidenceRead: "on", GoServiceToken: token}
-	signer := auth.NewSigner("v3-test-secret-v3-test-secret", 30*time.Minute, 30*24*time.Hour)
-	explainer := domain.NewInsightExplainer(seedReader(),
-		domain.Policy{Read: domain.ReadPolicy{EvidenceMaxItems: 20, PatternMaxItems: 6}})
+	return newV3ServerFull(t, browser, outcomes, read, writes, nil, token)
+}
+
+// newV3ServerFull 是唯一的真装配点：内部面五格依赖＋密钥一起判（v3.go 的
+// internalEnabled），所以「goals 没装配」在这套测里不可能悄悄存在。
+// newV3ServerFull 是五格依赖的常规装配点：nil 会被替成默认桩。
+//
+// 「逐格置 nil 会怎样」不能用这个函数问——它正好把 nil 兜掉了。那一格由
+// newV3ServerWith（下面的最底层夹具）负责，见 v3_internal_enabled_test.go。
+func newV3ServerFull(t *testing.T, browser *domain.InsightBrowser,
+	outcomes httpapi.FeedbackRecorder, read domain.GoalReader,
+	writes httpapi.GoalWriter, outcomeWrites httpapi.OutcomeWriter,
+	token string) *httpapi.Server {
+	t.Helper()
 	if browser == nil {
-		browser = domain.NewInsightBrowser(&stubBrowseReader{}, explainer)
+		browser = domain.NewInsightBrowser(&stubBrowseReader{}, explainerForTest(t))
 	}
 	if read == nil {
 		read = &stubGoalReader{}
@@ -162,10 +186,30 @@ func newV3ServerGoals(t *testing.T, browser *domain.InsightBrowser,
 	if writes == nil {
 		writes = &stubGoalWriter{}
 	}
+	if outcomeWrites == nil {
+		outcomeWrites = &stubOutcomeWriter{}
+	}
+	return newV3ServerWith(t, &httpapi.V3{Insights: browser, Outcomes: outcomes,
+		Goals: domain.NewGoalBrowser(read), GoalWrites: writes,
+		OutcomeWrites: outcomeWrites}, token)
+}
+
+// newV3ServerWith 是唯一的 Server 装配口：V3 由调用方**逐格给好**，这里不兜 nil。
+// internalEnabled 的判据要能被一格一格地拆开测，兜掉 nil 就等于替它做了决定。
+func newV3ServerWith(t *testing.T, v3 *httpapi.V3, token string) *httpapi.Server {
+	t.Helper()
+	cfg := config.Config{AppName: "ClosenAI", Environment: "development",
+		HTTPAddr: ":0", InsightEvidenceRead: "on", GoServiceToken: token}
+	signer := auth.NewSigner("v3-test-secret-v3-test-secret", 30*time.Minute, 30*24*time.Hour)
 	return httpapi.NewServer(cfg, signer,
-		auth.NewService(store.NewFakeStore(), signer, 30*24*time.Hour), explainer,
-		nil, nil, nil, nil, nil, nil, &httpapi.V3{Insights: browser, Outcomes: outcomes,
-			Goals: domain.NewGoalBrowser(read), GoalWrites: writes})
+		auth.NewService(store.NewFakeStore(), signer, 30*24*time.Hour),
+		explainerForTest(t), nil, nil, nil, nil, nil, nil, v3)
+}
+
+func explainerForTest(t *testing.T) *domain.InsightExplainer {
+	t.Helper()
+	return domain.NewInsightExplainer(seedReader(),
+		domain.Policy{Read: domain.ReadPolicy{EvidenceMaxItems: 20, PatternMaxItems: 6}})
 }
 
 func listServer(t *testing.T, browse domain.InsightBrowseReader,
@@ -598,9 +642,10 @@ func TestInternalRoutesAreAbsentFromClientContract(t *testing.T) {
 				r.Path, r.Domain)
 		}
 	}
-	if len(internal) != 9 {
-		// 3 条是 T3-01/02 的洞察面，6 条是 T4-02 的目标/行动面（三条目标 + 三条行动）。
-		t.Errorf("声明表里的 /internal/ 路由 = %d 条 %v，期望 9 ⇒ 少一条就是这一面缺了入口",
+	if len(internal) != 10 {
+		// 3 条是 T3-01/02 的洞察面，6 条是 T4-02 的目标/行动面（三条目标 + 三条行动），
+		// 1 条是 T4-03 的行动结果面（POST /internal/v3/actions/{id}/outcomes）。
+		t.Errorf("声明表里的 /internal/ 路由 = %d 条 %v，期望 10 ⇒ 少一条就是这一面缺了入口",
 			len(internal), internal)
 	}
 	if strings.Contains(contract, "/internal/") {

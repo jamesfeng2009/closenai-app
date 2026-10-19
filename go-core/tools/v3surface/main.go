@@ -242,6 +242,30 @@ func (fixtureGoalWrites) TransitionAction(_ context.Context, userID, actionID st
 		Detail: fmt.Sprintf("action verb=%s", string(verb))}, nil
 }
 
+// fixtureOutcomeWrites 是 T4-03 那一格的夹具。**必须装**：internalEnabled 是五格 AND，
+// 少这一格＝整个 /internal/v3 面不注册，跨进程取证会看到十路 404（T4-02 实测翻车过一次，
+// 现在由 v3_internal_enabled_test.go 的逐格闸守着，但工具侧的装配仍然要人记得补）。
+type fixtureOutcomeWrites struct{}
+
+func (fixtureOutcomeWrites) RecordActionOutcome(_ context.Context,
+	p domain.ActionOutcomeProposal) (domain.ActionOutcomeReceipt, error) {
+	if p.UserID != fixtureUser {
+		return domain.ActionOutcomeReceipt{}, domain.ErrInvalidOwnership
+	}
+	if p.Type == "" || !p.Type.Valid() {
+		return domain.ActionOutcomeReceipt{}, domain.ErrInvalidOutcomeProposal
+	}
+	if p.Result != "" && !p.Result.Valid() {
+		return domain.ActionOutcomeReceipt{}, domain.ErrInvalidOutcomeProposal
+	}
+	return domain.ActionOutcomeReceipt{OutcomeID: "o-e2e", ActionID: p.ActionID,
+		OutcomeType: string(p.Type), Result: string(p.Result), Status: "recorded",
+		Changed: true, ModelVersion: 8, OperationID: p.OperationID,
+		CompletedTarget: p.ActionID,
+		Detail: fmt.Sprintf("outcome action=%s type=%s result=%s occurred=%t note=%q",
+			p.ActionID, string(p.Type), string(p.Result), !p.OccurredAt.IsZero(), p.Note)}, nil
+}
+
 // ── 装配：与 cmd/go-api 同一组构造函数，只有依赖换成了夹具 ────────────────────
 
 func buildHandler(token string) http.Handler {
@@ -256,8 +280,9 @@ func buildHandler(token string) http.Handler {
 		auth.NewService(store.NewFakeStore(), signer, 30*24*time.Hour), explainer,
 		nil, nil, nil, nil, nil, nil,
 		&httpapi.V3{Insights: browser, Outcomes: fixtureFeedback{},
-			Goals:      domain.NewGoalBrowser(fixtureGoal{}),
-			GoalWrites: fixtureGoalWrites{}}).Handler()
+			Goals:         domain.NewGoalBrowser(fixtureGoal{}),
+			GoalWrites:    fixtureGoalWrites{},
+			OutcomeWrites: fixtureOutcomeWrites{}}).Handler()
 }
 
 func main() {

@@ -181,6 +181,11 @@ type Store interface {
 	// LatestFeedbackForTarget 取该目标最近一条表态的 id 与类型；无历史时 Found=false。
 	LatestFeedbackForTarget(ctx context.Context, userID string,
 		target RefType, targetID string) (LatestFeedback, error)
+	// LatestOutcomeForTarget 取该用户在某条对象上**最近一条**同型 outcome 的投影
+	// （T4-03 §怎么做.5 的同日幂等判据的输入；「同不同一天」在领域层判，不在 SQL 里
+	// date_trunc——见 legacy_batch5.go:71 的同一件事：时区口径只能有一份）。
+	LatestOutcomeForTarget(ctx context.Context, userID string,
+		target RefType, targetID string, outcomeType OutcomeType) (LatestOutcome, error)
 	// GetPatternState 取生命周期改写需要的列；查不到返回 ErrPatternNotFound。
 	GetPatternState(ctx context.Context, userID, patternID string) (PatternState, error)
 	// UpdatePatternLifecycle 是 patterns 状态列的唯一写入口（07 §3：转移由领域层决定）。
@@ -244,6 +249,18 @@ type Store interface {
 type LatestFeedback struct {
 	ID           string
 	FeedbackType string
+	Found        bool
+}
+
+// LatestOutcome 是「同一对象最近一条同型 outcome」的投影
+// （T4-03 同日幂等的输入；只带判据要用的那几列，不是 outcomes 行的全形）。
+type LatestOutcome struct {
+	ID           string
+	OutcomeType  string
+	Status       string
+	Result       string
+	ModelVersion int64
+	CreatedAt    time.Time
 	Found        bool
 }
 

@@ -148,7 +148,7 @@ func main() {
 	// canonical 的唯一写入口只许有一个实例，否则乐观锁与版本账本各算一份。
 	goalBrowser := domain.NewGoalBrowser(canonical)
 	v3 := &httpapi.V3{Insights: insightBrowser, Outcomes: candidateDomain,
-		Goals: goalBrowser, GoalWrites: candidateDomain}
+		Goals: goalBrowser, GoalWrites: candidateDomain, OutcomeWrites: candidateDomain}
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,

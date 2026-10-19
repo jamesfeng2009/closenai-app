@@ -1445,6 +1445,60 @@ func (q *Queries) LatestFeedbackForTarget(ctx context.Context, arg LatestFeedbac
 	return i, err
 }
 
+const latestOutcomeForTarget = `-- name: LatestOutcomeForTarget :one
+SELECT o.id, o.outcome_type, o.status, o.result,
+       COALESCE(o.model_version, 0)::bigint AS model_version,
+       o.created_at
+FROM outcomes o
+JOIN outcome_links l ON l.outcome_id = o.id AND l.user_id = o.user_id
+WHERE l.user_id = $1 AND l.target_type = $2 AND l.target_id = $3 AND o.outcome_type = $4
+ORDER BY o.created_at DESC, o.id DESC
+LIMIT 1
+`
+
+type LatestOutcomeForTargetParams struct {
+	UserID      string
+	TargetType  string
+	TargetID    string
+	OutcomeType string
+}
+
+type LatestOutcomeForTargetRow struct {
+	ID           string
+	OutcomeType  string
+	Status       string
+	Result       string
+	ModelVersion int64
+	CreatedAt    pgtype.Timestamptz
+}
+
+// ── T4-03：行动结果的「同目标同型最近一条」读面（同日判定在领域层，SQL 只取最近一条）
+// 与 `LatestFeedbackForTarget` 同一族判据：`outcomes` 表上刻意没有唯一约束
+// （04 §22 的完成度量要按天记账，历史上同一条行动确实可以有多次同型结果），
+// 所以「这次是不是重复提交」只能在领域层判。SQL 只负责给出**最近一条**，
+// `ORDER BY created_at DESC, id DESC` 的次级键与 T4-02 读面同口径（同一时刻落地时
+// 要有全序，否则 LIMIT 1 在重放里不稳定）。
+// `model_version` 在列上是可空的（0002:148-161），这里 COALESCE 成 0：
+// 领域层拿它只为回填回执，NULL 与 0 在客户端是同一个「没带版本」，不必多带一层指针。
+func (q *Queries) LatestOutcomeForTarget(ctx context.Context, arg LatestOutcomeForTargetParams) (LatestOutcomeForTargetRow, error) {
+	row := q.db.QueryRow(ctx, latestOutcomeForTarget,
+		arg.UserID,
+		arg.TargetType,
+		arg.TargetID,
+		arg.OutcomeType,
+	)
+	var i LatestOutcomeForTargetRow
+	err := row.Scan(
+		&i.ID,
+		&i.OutcomeType,
+		&i.Status,
+		&i.Result,
+		&i.ModelVersion,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const linkFactEvidence = `-- name: LinkFactEvidence :exec
 INSERT INTO fact_evidence (fact_id, evidence_id, user_id)
 VALUES ($1, $2, $3)

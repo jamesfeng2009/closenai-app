@@ -36,6 +36,15 @@ var ErrFactNotFound = errors.New("domain: fact not found")
 // （MarkOutcomeStatus 的 SQL 守卫只放行 recorded/candidate 起算）。
 var ErrOutcomeNotFound = errors.New("domain: outcome not found")
 
+// ErrInvalidOutcomeProposal 是 outcome 提案本身不合形 ⇒ HTTP 面 400（T4-03 起）。
+//
+// 为什么原来没有这一枚：`checkOutcomeProposal` 的九条判据此前只有**内部调用方**
+// （consumer / N6 的跑批），它们把错误原样进日志，没有「折成哪个码」这件事。
+// T4-03 第一次把这条入口接到 HTTP 上，就需要一个能被 `errors.Is` 认出来的类型，
+// 否则 handler 只能靠**句子开头是不是 "domain:"** 来区分「提案错」与「库坏了」——
+// 那是拿文案当判据，改一句中文就能把 400 变成 500。
+var ErrInvalidOutcomeProposal = errors.New("domain: invalid outcome proposal")
+
 // RecordOutcome 记一条 outcome 并对权威结论做最小传播。
 //
 // 三个关键口径（决策出处 closenai-prd/V3方案裁决与分层-2026-10-12.md 七-5）：
@@ -53,87 +62,107 @@ func (s *Service) RecordOutcome(ctx context.Context, p OutcomeProposal) (Outcome
 	}
 	receipt := OutcomeReceipt{}
 	err := s.db.InTx(ctx, func(ctx context.Context, st Store) error {
-		modelID, version, err := st.EnsurePersonalModel(ctx, p.UserID)
+		inner, err := s.recordOutcomeWithin(ctx, st, p)
 		if err != nil {
 			return err
 		}
-		states, err := s.verifyTargets(ctx, st, p.UserID, p.Targets)
-		if err != nil {
-			return err
-		}
-		status := OutcomeStatusForOrigin(p.Origin)
-		written := version
-		if status == OutcomeStatusRecorded {
-			// 权威结论＝模型内容变了（02:1069），先 ++ 再落行，行上带的就是新版本。
-			newVersion, err := st.BumpVersion(ctx, modelID, version)
-			if err != nil {
-				return err
-			}
-			written = newVersion
-			if err := st.InsertVersion(ctx, VersionRow{ID: s.newID(), UserID: p.UserID,
-				PersonalModelID: modelID, Version: newVersion,
-				Reason: "outcome_recorded"}); err != nil {
-				return err
-			}
-		}
-		id := s.newID()
-		row := OutcomeRow{ID: id, UserID: p.UserID, OutcomeType: string(p.Type),
-			Status: string(status), Result: string(p.Result), Origin: string(p.Origin),
-			Description: p.Description,
-			OccurredAt:  p.OccurredAt, HasOccurredAt: !p.OccurredAt.IsZero(),
-			ModelVersion: written, GenerationRunID: p.GenerationRunID}
-		if err := st.InsertOutcome(ctx, row); err != nil {
-			return err
-		}
-		if err := st.LinkOutcomeTargets(ctx, id, p.UserID, p.Targets); err != nil {
-			return err
-		}
-		eventType := "outcome_recorded"
-		if status != OutcomeStatusRecorded {
-			eventType = "outcome_candidate"
-		}
-		payload := fmt.Sprintf(`{"outcome_type":%q,"origin":%q,"result":%q,"targets":%d}`,
-			p.Type, p.Origin, p.Result, len(p.Targets))
-		if err := s.emit(ctx, st, s.outcomeEvent(s.newID(), p.UserID, modelID, eventType,
-			"outcomes", id, written, payload, p.GenerationRunID)); err != nil {
-			return err
-		}
-		receipt = OutcomeReceipt{ID: id, Status: string(status), ModelVersion: written,
-			Patterns: []PatternChange{}, Revalidated: []string{},
-			CancelledProactives: []string{}}
-		if status != OutcomeStatusRecorded {
-			// 不变量 5/7 的交集：推断只登记，不改变模型相信什么。
-			receipt.Detail = "origin 非权威来源：只登记 candidate，不传播、不 ++版本"
-			return nil
-		}
-
-		// ── 传播一：pattern（04 §16–§17）───────────────────────────────────
-		for _, pid := range targetsOfType(p.Targets, RefPattern) {
-			change, changed, err := s.applyOutcomeToPattern(ctx, st, p, pid, written)
-			if err != nil {
-				return err
-			}
-			if changed {
-				receipt.Patterns = append(receipt.Patterns, change)
-			}
-			requested, err := s.requestInsightRevalidation(ctx, st, p.UserID, pid, version)
-			if err != nil {
-				return err
-			}
-			receipt.Revalidated = append(receipt.Revalidated, requested...)
-		}
-
-		// ── 传播二：goal / commitment 完成（02:824 落到真正使用的那张表）────
-		completed, err := s.completeTarget(ctx, st, p, states, written, &receipt)
-		if err != nil {
-			return err
-		}
-		receipt.CompletedTarget = completed
+		receipt = inner
 		return nil
 	})
 	if err != nil {
 		return OutcomeReceipt{}, err
 	}
+	return receipt, nil
+}
+
+// recordOutcomeWithin 是一次 outcome 写入的**事务体**，从 RecordOutcome 里抽出来的
+// 唯一理由与 reevaluateWithin 同（service_evidence.go:416）：T4-03 的同日幂等要在
+// 同一个事务里先读「最近一条同型」再决定写不写，而 RecordOutcome 自带 InTx，
+// 直接调用它会嵌套事务——真库那侧是 pgx 报错，假桩那侧却一切正常，
+// 于是这条判据在单测里假绿、在生产里红。
+//
+// 抽出来之后**不**再校验提案：调用方要么走 RecordOutcome（已校验），
+// 要么走 RecordActionOutcome（它自己先做同一套校验，见 action_outcome.go）。
+// 在这里校验第二次不会更错，但它会让「提案校验只有一处」这条判据变得不可核。
+func (s *Service) recordOutcomeWithin(ctx context.Context, st Store,
+	p OutcomeProposal) (OutcomeReceipt, error) {
+	receipt := OutcomeReceipt{}
+	modelID, version, err := st.EnsurePersonalModel(ctx, p.UserID)
+	if err != nil {
+		return OutcomeReceipt{}, err
+	}
+	states, err := s.verifyTargets(ctx, st, p.UserID, p.Targets)
+	if err != nil {
+		return OutcomeReceipt{}, err
+	}
+	status := OutcomeStatusForOrigin(p.Origin)
+	written := version
+	if status == OutcomeStatusRecorded {
+		// 权威结论＝模型内容变了（02:1069），先 ++ 再落行，行上带的就是新版本。
+		newVersion, err := st.BumpVersion(ctx, modelID, version)
+		if err != nil {
+			return OutcomeReceipt{}, err
+		}
+		written = newVersion
+		if err := st.InsertVersion(ctx, VersionRow{ID: s.newID(), UserID: p.UserID,
+			PersonalModelID: modelID, Version: newVersion,
+			Reason: "outcome_recorded"}); err != nil {
+			return OutcomeReceipt{}, err
+		}
+	}
+	id := s.newID()
+	row := OutcomeRow{ID: id, UserID: p.UserID, OutcomeType: string(p.Type),
+		Status: string(status), Result: string(p.Result), Origin: string(p.Origin),
+		Description: p.Description,
+		OccurredAt:  p.OccurredAt, HasOccurredAt: !p.OccurredAt.IsZero(),
+		ModelVersion: written, GenerationRunID: p.GenerationRunID}
+	if err := st.InsertOutcome(ctx, row); err != nil {
+		return OutcomeReceipt{}, err
+	}
+	if err := st.LinkOutcomeTargets(ctx, id, p.UserID, p.Targets); err != nil {
+		return OutcomeReceipt{}, err
+	}
+	eventType := "outcome_recorded"
+	if status != OutcomeStatusRecorded {
+		eventType = "outcome_candidate"
+	}
+	payload := fmt.Sprintf(`{"outcome_type":%q,"origin":%q,"result":%q,"targets":%d}`,
+		p.Type, p.Origin, p.Result, len(p.Targets))
+	if err := s.emit(ctx, st, s.outcomeEvent(s.newID(), p.UserID, modelID, eventType,
+		"outcomes", id, written, payload, p.GenerationRunID)); err != nil {
+		return OutcomeReceipt{}, err
+	}
+	receipt = OutcomeReceipt{ID: id, Status: string(status), ModelVersion: written,
+		Patterns: []PatternChange{}, Revalidated: []string{},
+		CancelledProactives: []string{}}
+	if status != OutcomeStatusRecorded {
+		// 不变量 5/7 的交集：推断只登记，不改变模型相信什么。
+		receipt.Detail = "origin 非权威来源：只登记 candidate，不传播、不 ++版本"
+		return receipt, nil
+	}
+
+	// ── 传播一：pattern（04 §16–§17）───────────────────────────────────
+	for _, pid := range targetsOfType(p.Targets, RefPattern) {
+		change, changed, err := s.applyOutcomeToPattern(ctx, st, p, pid, written)
+		if err != nil {
+			return OutcomeReceipt{}, err
+		}
+		if changed {
+			receipt.Patterns = append(receipt.Patterns, change)
+		}
+		requested, err := s.requestInsightRevalidation(ctx, st, p.UserID, pid, version)
+		if err != nil {
+			return OutcomeReceipt{}, err
+		}
+		receipt.Revalidated = append(receipt.Revalidated, requested...)
+	}
+
+	// ── 传播二：goal / commitment 完成（02:824 落到真正使用的那张表）────
+	completed, err := s.completeTarget(ctx, st, p, states, written, &receipt)
+	if err != nil {
+		return OutcomeReceipt{}, err
+	}
+	receipt.CompletedTarget = completed
 	return receipt, nil
 }
 

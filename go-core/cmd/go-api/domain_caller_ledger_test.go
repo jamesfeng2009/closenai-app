@@ -40,8 +40,9 @@ import (
 var zeroCallerLedger = map[string]string{
 	"PropagateEvidenceInvalidation": "T2-06／B-08：唯一调用方是同包的 InvalidateSource（见 TestInvalidateSourceChainIsReal）",
 	"RecheckProactive":              "R6（重算排程未上）",
-	"RecordOutcome":                 "T4（行动闭环的结果写入端点未上）",
-	"ReevaluateInsight":             "R6（重算排程未上）",
+	"RecordOutcome": "N6 的内部提案面（origin/targets 由调用方拼），T4-03 上的是它的 HTTP 包装入口 " +
+		"RecordActionOutcome；跑批与 consumer 那两侧今天仍未接",
+	"ReevaluateInsight": "R6（重算排程未上）",
 }
 
 // wiredThisBatch 是本批 D-G14 点名的两条「无争议的」，工作单逐字：
@@ -58,6 +59,9 @@ var wiredThisBatch = map[string]string{
 	"RequestAITask":          "internal/messaging/inbound 的 requestFollowUp",
 	"InvalidateSource":       "internal/messaging/inbound 的 DecodeEvent 返回的 Call",
 	"RecordUserFeedback":     "internal/httpapi/v3_feedback.go 的 handleV3InsightFeedback",
+	// T4-03：行动结果。装配点同样是 main.go 的 `httpapi.V3.OutcomeWrites`，
+	// 且必须是同一个 candidateDomain（否则同日幂等读与版本账本分属两个 Service 实例）。
+	"RecordActionOutcome": "internal/httpapi/v3_outcomes.go 的 handleV3ActionOutcome",
 }
 
 // TestDomainServiceCallerLedger 数的是**剥掉注释与字符串之后**的引用点。

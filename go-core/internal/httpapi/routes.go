@@ -136,6 +136,11 @@ var routeTable = []routeSpec{
 	{method: "PATCH", path: "/internal/v3/actions/{id}",
 		gated:   func(s *Server) bool { return s.internalEnabled() },
 		handler: func(s *Server) http.HandlerFunc { return s.handleV3ActionTransition }},
+	// T4-03：行动结果（用户自述）。同一条 internalEnabled 判据，同一次部署单元；
+	// `Result` 六值全收（「没变化」与「变差」是合法结果，Baseline §7.3-7）。
+	{method: "POST", path: "/internal/v3/actions/{id}/outcomes",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3ActionOutcome }},
 	// 兜底 404：不是切流面，但形状要留在表里（GET /api/v1/health 是 app 级端点的历史坑）。
 	// `/` 这条**不写方法**＝不限方法，与改写前的 `s.mux.HandleFunc("/", …)` 逐字同形；
 	// 给它补上 GET 会让 POST / 从「404 信封」变成「Go 默认的 405」，那是一次没人批的行为改动。

@@ -84,6 +84,9 @@ type fakeStore struct {
 	outcomeStatuses []string
 	feedbacks       []FeedbackRow
 	latestFB        *LatestFeedback
+	// T4-03：显式桩「同一对象最近一条同型 outcome」（同日幂等那两格的输入）。
+	// 没设桩时回落到本会话已写入的 outcomes 尾部（见 outcome_fake_test.go）。
+	latestOutcome   *LatestOutcome
 	patternSt       *PatternState
 	lifecycleWrites []PatternLifecycleRow
 	factWrites      []FactStatusRow

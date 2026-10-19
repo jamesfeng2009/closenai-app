@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 )
 
 // N6 的 fake 桩：与 N4/N5 同口径，只搬类型不做决策——桩里复刻的是**数据库的守卫**
@@ -71,6 +73,31 @@ func (f *fakeStore) LatestFeedbackForTarget(ctx context.Context, userID string,
 		}
 	}
 	return LatestFeedback{}, nil
+}
+
+// LatestOutcomeForTarget 优先用显式桩（用例要造「上一条是昨天写的」这类跨日输入），
+// 没设桩时回落到本会话已写入的 outcomes 尾部——回落里的 CreatedAt 取 now()，
+// 因为假桩里刚写进去的那条**就是**此刻写的（同一天 ⇒ 判成重复）。
+func (f *fakeStore) LatestOutcomeForTarget(ctx context.Context, userID string,
+	target RefType, targetID string, outcomeType OutcomeType) (LatestOutcome, error) {
+	if f.latestOutcome != nil {
+		return *f.latestOutcome, nil
+	}
+	for i := len(f.outcomes) - 1; i >= 0; i-- {
+		row := f.outcomes[i]
+		if row.UserID != userID || row.OutcomeType != string(outcomeType) {
+			continue
+		}
+		for _, l := range f.outcomeLinks {
+			if strings.HasSuffix(l, fmt.Sprintf(":%s:%s:%s", userID, target, targetID)) {
+				return LatestOutcome{ID: row.ID, OutcomeType: row.OutcomeType,
+					Status: row.Status, Result: row.Result,
+					ModelVersion: row.ModelVersion, CreatedAt: time.Now().UTC(),
+					Found: true}, nil
+			}
+		}
+	}
+	return LatestOutcome{}, nil
 }
 
 func (f *fakeStore) GetPatternState(ctx context.Context,

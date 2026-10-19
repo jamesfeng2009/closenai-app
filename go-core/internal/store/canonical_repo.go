@@ -676,6 +676,29 @@ func (t *canonicalTx) LatestFeedbackForTarget(ctx context.Context, userID string
 	return domain.LatestFeedback{ID: row.ID, FeedbackType: row.FeedbackType, Found: true}, nil
 }
 
+// LatestOutcomeForTarget 取同一条对象上最近一条同型 outcome（T4-03 同日幂等的读面）。
+//
+// 「是不是同一天」不在这里判：SQL 里 date_trunc 会把「一天」定义成库的时区，
+// 而领域层用的是进程时区（同 legacy_batch5.go:71 那条勘误的根因）。仓储只搬行。
+func (t *canonicalTx) LatestOutcomeForTarget(ctx context.Context, userID string,
+	target domain.RefType, targetID string,
+	outcomeType domain.OutcomeType) (domain.LatestOutcome, error) {
+	row, err := t.q.LatestOutcomeForTarget(ctx, canonicaldb.LatestOutcomeForTargetParams{
+		UserID: userID, TargetType: string(target), TargetID: targetID,
+		OutcomeType: string(outcomeType)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// 查不到同型历史＝「这是第一条」，是一条判定输入而不是存储故障
+		// （与 LatestFeedbackForTarget 同一口径）。
+		return domain.LatestOutcome{}, nil
+	}
+	if err != nil {
+		return domain.LatestOutcome{}, wrap("latest outcome for target", err)
+	}
+	return domain.LatestOutcome{ID: row.ID, OutcomeType: row.OutcomeType,
+		Status: row.Status, Result: row.Result, ModelVersion: row.ModelVersion,
+		CreatedAt: row.CreatedAt.Time, Found: true}, nil
+}
+
 func (t *canonicalTx) GetPatternState(ctx context.Context,
 	userID, patternID string) (domain.PatternState, error) {
 	row, err := t.q.GetPatternForUpdate(ctx, canonicaldb.GetPatternForUpdateParams{

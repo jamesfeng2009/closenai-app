@@ -530,41 +530,48 @@ func OutcomeCompletesTarget(t OutcomeType) bool {
 
 // checkOutcomeProposal 是畸形提案的第一道（01 §25 的方向：校验 LLM 产出，
 // 而不是让它撞库）。返回 error 时调用方**不写任何行**。
+//
+// 九条判据一律包 `ErrInvalidOutcomeProposal`：这一句错误在 T4-03 之后同时被两类
+// 调用方读——内部跑批只看日志，HTTP 面要按它折 400。没包住就得靠文案前缀分类，
+// 那是第二个事实源（判据在代码里，分类在字符串里）。
 func checkOutcomeProposal(p OutcomeProposal) error {
 	if strings.TrimSpace(p.UserID) == "" {
-		return fmt.Errorf("domain: outcome.user_id is required")
+		return fmt.Errorf("%w: user_id is required", ErrInvalidOutcomeProposal)
 	}
 	if !p.Type.Valid() {
-		return fmt.Errorf("domain: 未知 outcome_type %q（04:288-297 只给九类）", p.Type)
+		return fmt.Errorf("%w: 未知 outcome_type %q（04:288-297 只给九类）",
+			ErrInvalidOutcomeProposal, p.Type)
 	}
 	if !p.Origin.Valid() {
-		return fmt.Errorf("domain: 未知 outcome.origin %q（04:279-285 三条权威来源 + llm_inference）",
-			p.Origin)
+		return fmt.Errorf("%w: 未知 outcome.origin %q（04:279-285 三条权威来源 + llm_inference）",
+			ErrInvalidOutcomeProposal, p.Origin)
 	}
 	if p.Result == "" {
 		// 缺省值在这里归一化，**不传播给调用方**：checkOutcomeProposal 收的是值拷贝，
 		// 在它里面改 p.Result 只会让校验通过而落库仍是空串（result 列 NOT NULL）。
 		// 归一化由 RecordOutcome 在提案上做。
-		return fmt.Errorf("domain: outcome.result 为空时须由调用方归一化为 unknown（02:182-189 六值）")
+		return fmt.Errorf("%w: outcome.result 为空时须由调用方归一化为 unknown（02:182-189 六值）",
+			ErrInvalidOutcomeProposal)
 	}
 	if !p.Result.Valid() {
-		return fmt.Errorf("domain: 未知 outcome.result %q（02:182-189 六值）", p.Result)
+		return fmt.Errorf("%w: 未知 outcome.result %q（02:182-189 六值）",
+			ErrInvalidOutcomeProposal, p.Result)
 	}
 	if need, ok := OutcomeTargetRequirement(p.Type); ok && !hasTarget(p.Targets, need) {
-		return fmt.Errorf("domain: outcome_type %s 必须 link 至少一条 %s（04 §14/§18 的可核实对象）",
-			p.Type, need)
+		return fmt.Errorf("%w: outcome_type %s 必须 link 至少一条 %s（04 §14/§18 的可核实对象）",
+			ErrInvalidOutcomeProposal, p.Type, need)
 	}
 	// 不变量 5 的数据面：沉默不是来源，所以「proactive 没帮上忙」这件事必须来自
 	// 用户的可核实动作，不能来自「用户没回」。llm_inference 也满足这条——它落 candidate。
 	if p.Type == OutcomeProactiveNotHelpful && p.Origin == OriginProductEvent &&
 		!hasAnyFeedbackSignal(p.Description) {
-		return fmt.Errorf("domain: proactive_not_helpful 需要可核实的负反馈陈述，" +
-			"沉默不构成 outcome（01:810、04:274、不变量 5）")
+		return fmt.Errorf("%w: proactive_not_helpful 需要可核实的负反馈陈述，"+
+			"沉默不构成 outcome（01:810、04:274、不变量 5）", ErrInvalidOutcomeProposal)
 	}
 	for _, t := range p.Targets {
 		if t.ID == "" || !containsRefType(OutcomeLinkTargetTypes, t.Type) {
-			return fmt.Errorf("domain: outcome_links 目标 %q:%q 不合法（02:817-821 五类）",
-				t.Type, t.ID)
+			return fmt.Errorf("%w: outcome_links 目标 %q:%q 不合法（02:817-821 五类）",
+				ErrInvalidOutcomeProposal, t.Type, t.ID)
 		}
 	}
 	return nil
