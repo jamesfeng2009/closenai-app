@@ -35,12 +35,19 @@ TRACE_HEADER = "X-Trace-Id"
 # 失败面唯一的对外文案。带中英两段与 Go 信封里其余 message 同形，前端不翻译它也能显示。
 UNAVAILABLE_MESSAGE = "服务暂时不可用 / Service temporarily unavailable"
 
-# 内部面允许被 BFF 拨出去的路径前缀（id 由下面两个函数转义后拼进去）。
+# 内部面允许被 BFF 拨出去的路径前缀（id 由下面几个函数转义后拼进去）。
 # 这是一份**白名单**而不是枚举业务：它挡的是"客户端给一个任意 path 让 BFF 替它去拨内部面"
 # 这一种 SSRF 形状。
 PATH_INSIGHT_LIST = "/internal/v3/insights"
 PATH_INSIGHT_DETAIL = "/internal/v3/insights/"
 PATH_INSIGHT_FEEDBACK = "/internal/v3/insights/{}/feedback"
+# T4-02：目标与行动面（六条）。目标的新建与列表共用一个常量，行动挂在目标下的那条
+# 用 `{}` 占位——**goal_id 只从 path 来**，与 Go 侧 `/goals/{id}/actions` 同一格判据。
+PATH_GOAL_LIST = "/internal/v3/goals"
+PATH_GOAL_DETAIL = "/internal/v3/goals/"
+PATH_GOAL_ACTIONS = "/internal/v3/goals/{}/actions"
+PATH_ACTION_LIST = "/internal/v3/actions"
+PATH_ACTION_DETAIL = "/internal/v3/actions/"
 
 # 列表面转发的 query 键。其余一律不带 ⇒ 客户端不能经这一层往内部面塞身份或筛选条件
 # （Go 只认 X-User-Id，但"塞了也没用"和"根本进不去"是两种可审计的强度）。
@@ -58,6 +65,18 @@ def insight_detail_path(insight_id: str) -> str:
 
 def feedback_path(insight_id: str) -> str:
     return PATH_INSIGHT_FEEDBACK.format(quote(insight_id, safe=""))
+
+
+def goal_detail_path(goal_id: str) -> str:
+    return PATH_GOAL_DETAIL + quote(goal_id, safe="")
+
+
+def goal_actions_path(goal_id: str) -> str:
+    return PATH_GOAL_ACTIONS.format(quote(goal_id, safe=""))
+
+
+def action_detail_path(action_id: str) -> str:
+    return PATH_ACTION_DETAIL + quote(action_id, safe="")
 
 
 def _client_factory(timeout: float) -> httpx.AsyncClient:
@@ -143,6 +162,15 @@ async def get_json(path: str, user_id: str, *,
 
 async def post_json(path: str, user_id: str, *, body: Any) -> Any:
     return await forward("POST", path, user_id, payload=body)
+
+
+async def patch_json(path: str, user_id: str, *, body: Any) -> Any:
+    """目标/行动的转移端点用 PATCH（工单 T4-02 §怎么做.3 的动词，逐字带到 Go）。
+
+    单独一条而不是把 method 交给调用方拼字符串：这一面能出现的动词就 GET/POST/PATCH
+    三种，收成三个入口才有「有人新加了一种动词」的唯一改动点。
+    """
+    return await forward("PATCH", path, user_id, payload=body)
 
 
 def list_params(query: dict[str, Any]) -> dict[str, str]:

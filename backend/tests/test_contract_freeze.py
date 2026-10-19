@@ -85,7 +85,7 @@ def test_openapi_baseline_is_current():
 
 
 def test_register_count_equals_decorator_count():
-    """N0 验收：清单条数 == 104 个 router 端点 + app 级路由。
+    """N0 验收：清单条数 == 114 个 router 端点 + app 级路由。
 
     97 → 99：W5 T5-01（2026-10-18）新增 GET/POST /user/consents 两条合规台账端点。
     99 → 104：T1-01（2026-10-18）新增 /user/export 申请·列表·状态·下载四条，
@@ -93,12 +93,17 @@ def test_register_count_equals_decorator_count():
     104 → 105：T1-04（2026-10-18）新增 GET /cron/delivery-audit 一条每日交付审计。
     105 → 108：T3-03（2026-10-19）新增洞察面三条纯转发端点
     （GET /insights、GET /insights/{id}、POST /insights/{id}/feedback）。
+    108 → 114：T4-02（2026-10-19）新增目标/行动面六条纯转发端点
+    （GET+POST /goals、PATCH /goals/{id}、POST /goals/{id}/actions、
+    GET /actions、PATCH /actions/{id}）。这一批是 T3-03 结案行里登记的那笔欠账
+    （「Go 侧今天没有 /internal/v3/goals|actions，接上去是一条永久 503 的死线，
+    随 T4-02 一并接」），Go 面建成后同批接线，不是新加的业务面。
     """
     router_ops, app_ops = count_decorators()
-    assert router_ops == 108, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
+    assert router_ops == 114, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
     assert app_ops == 1, f"app 级路由应为 1（GET /health），实得 {app_ops}"
     rows = table_rows("## 五、端点登记表")
-    assert len(rows) == router_ops + app_ops == 109
+    assert len(rows) == router_ops + app_ops == 115
 
 
 def test_no_unregistered_or_stale_endpoint():

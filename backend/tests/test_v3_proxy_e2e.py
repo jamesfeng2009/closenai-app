@@ -57,8 +57,12 @@ CASE_PLAN: Dict[str, str] = {
     "feedback_duplicate_maps_to_409": "Go 的 409 折到客户端仍是 409，不是 200 也不是 500",
     "foreign_identity_sees_nothing": "陌生身份：列表空＋详情 404＋反馈 404（身份确实转发到了对面）",
     "feedback_body_identity_rejected": "body 里塞 user_id 被 Go 的 DisallowUnknownFields 拒掉",
+    "goal_and_action_lists_keep_gos_wire_shape": "目标/行动列表的键集与 truncated 逐字活到客户端",
+    "goal_write_echoes_header_and_body": "新建/转移：身份来自 header、正文来自 body 的那一跳",
+    "goal_skip_is_409_across_two_hops": "§验收逐字「非法转移 409」＋「未知动词 400」跨两跳",
+    "goal_body_identity_rejected_and_foreign_sees_nothing": "目标面 body 身份被拒＋陌生身份 404/空列表",
     "wrong_service_token_403": "凭据不符的 403 原样透传（401 才是错的那格）",
-    "stopped_server_gives_503_envelope": "§验收逐字：Go 停掉 ⇒ 503 且五键信封",
+    "stopped_server_gives_503_envelope": "§验收逐字：Go 停掉 ⇒ 503 且五键信封（九条端点里抽四条）",
 }
 
 _RAN: Set[str] = set()
@@ -320,7 +324,75 @@ async def test_feedback_body_identity_rejected(wired):
     _mark("feedback_body_identity_rejected")
 
 
-# ── 4. 门禁与停机 ─────────────────────────────────────────────────────────────
+# ── 4. 目标／行动面（T4-02）：六条里的四格跨进程判据 ──────────────────────────
+
+async def test_goal_and_action_lists_keep_gos_wire_shape(wired):
+    body = (await _call(make_app(), "GET", "/api/v1/goals")).json()
+    assert body["code"] == 200, body
+    items = body["data"]["items"]
+    assert [i["id"] for i in items] == ["g-e2e"], items
+    # 键集逐字：这一面没有 next_cursor（截断用 truncated），多一个键少一个键都要在这里红。
+    assert set(items[0]) == {"id", "title", "description", "status", "started_at",
+                             "target_at", "completed_at", "created_at", "updated_at"}, items[0]
+    assert items[0]["target_at"] is None, "没有截止的目标给出了一个时间 ⇒ 假装有值"
+    assert body["data"]["truncated"] is False, body["data"]
+    acts = (await _call(make_app(), "GET", "/api/v1/actions")).json()["data"]
+    assert [a["id"] for a in acts["items"]] == ["a-e2e"], acts
+    assert acts["items"][0]["goal_id"] == "g-e2e", "挂在目标下的行动读出来成了没挂"
+    _mark("goal_and_action_lists_keep_gos_wire_shape")
+
+
+async def test_goal_write_echoes_header_and_body(wired):
+    # 领域层（这里是夹具）报回来的 detail 是唯一能证明「身份来自 header、
+    # 正文来自 body」跨了两跳的位置——BFF 自己拆包也能让本进程的单测全绿。
+    body = (await _call(make_app(), "POST", "/api/v1/goals",
+                        json={"title": "早睡一小时", "target_at": "2026-11-01T00:00:00Z"}
+                        )).json()
+    assert body["code"] == 200, body
+    data = body["data"]
+    assert data["goal_id"] == "g-e2e" and data["changed"] is True, data
+    assert 'title="早睡一小时"' in data["detail"] and "target=true" in data["detail"], data
+    rec = (await _call(make_app(), "PATCH", "/api/v1/goals/g-e2e",
+                       json={"action": "cancel"})).json()["data"]
+    assert rec["detail"] == "goal verb=cancel", rec
+    assert rec["status"] == "cancelled", rec
+    _mark("goal_write_echoes_header_and_body")
+
+
+async def test_goal_skip_is_409_across_two_hops(wired):
+    """§验收逐字那一格「状态机非法转移 409」跨进程的版本。
+
+    夹具在这里回的是 `domain.ErrGoalIllegalTransition`（不是状态码），
+    所以红点落在 Go 的错误映射表上：那一格若把归属错误与转移错误混折，
+    本进程的桩测有可能看不出来（桩直接返回哨兵，而真面还要过一层 mux 与信封）。
+    """
+    resp = await _call(make_app(), "PATCH", "/api/v1/goals/g-e2e", json={"action": "skip"})
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["code"] == int(ErrorCode.CONFLICT)
+    # 未知动词是另一格：400 而不是 409（HTTP 层判动词，domain 判转移）。
+    bad = await _call(make_app(), "PATCH", "/api/v1/actions/a-e2e", json={"action": "undo"})
+    assert bad.status_code == 400, bad.text
+    assert bad.json()["code"] == int(ErrorCode.INVALID_PARAMS)
+    _mark("goal_skip_is_409_across_two_hops")
+
+
+async def test_goal_body_identity_rejected_and_foreign_sees_nothing(wired):
+    app = make_app()
+    resp = await _call(app, "POST", "/api/v1/goals",
+                       json={"title": "t", "user_id": "victim"})
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["code"] == int(ErrorCode.INVALID_PARAMS)
+    # 陌生身份：列表空、改别人的目标 404（与「不存在」同码，防枚举）。
+    empty = await _call(app, "GET", "/api/v1/goals", user="u-intruder")
+    assert empty.status_code == 200 and empty.json()["data"]["items"] == [], empty.text
+    off = await _call(app, "PATCH", "/api/v1/goals/g-e2e", json={"action": "cancel"},
+                      user="u-intruder")
+    assert off.status_code == 404, off.text
+    assert off.json()["code"] == int(ErrorCode.RESOURCE_NOT_FOUND)
+    _mark("goal_body_identity_rejected_and_foreign_sees_nothing")
+
+
+# ── 5. 门禁与停机 ─────────────────────────────────────────────────────────────
 
 async def test_wrong_service_token_403(wired, monkeypatch):
     monkeypatch.setattr(settings, "go_service_token", WRONG_TOKEN, raising=False)
@@ -338,6 +410,7 @@ async def test_stopped_server_gives_503_envelope(go_binary, monkeypatch):
     monkeypatch.setattr(settings, "go_service_token", srv.token, raising=False)
     app = make_app()
     assert (await _call(app, "GET", "/api/v1/insights")).status_code == 200
+    assert (await _call(app, "GET", "/api/v1/goals")).status_code == 200
     srv.stop()
     # 真停机的形状。这里不重试、不降级、不拿缓存假装成功：
     resp = await _call(app, "GET", "/api/v1/insights")
@@ -350,10 +423,15 @@ async def test_stopped_server_gives_503_envelope(go_binary, monkeypatch):
     assert (await _call(app, "GET", "/api/v1/insights/i-e2e-1")).status_code == 503
     assert (await _call(app, "POST", "/api/v1/insights/i-e2e-1/feedback",
                         json={"type": "confirm"})).status_code == 503
+    # T4-02 那六条同样不许在自己挂了的时候回 200 空集：
+    # 「目标都消失了」看起来像真的，那比一次 503 难归因得多。
+    assert (await _call(app, "GET", "/api/v1/goals")).status_code == 503
+    assert (await _call(app, "PATCH", "/api/v1/goals/g-e2e",
+                        json={"action": "cancel"})).status_code == 503
     _mark("stopped_server_gives_503_envelope")
 
 
-# ── 5. 跑过的必须等于清单 ─────────────────────────────────────────────────────
+# ── 6. 跑过的必须等于清单 ─────────────────────────────────────────────────────
 
 def test_every_cross_process_case_ran():
     # 这一条是本文件的「不算绿」证人：夹具被改名、用例被 skip、断言被注释掉，
