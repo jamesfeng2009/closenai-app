@@ -141,6 +141,12 @@ var routeTable = []routeSpec{
 	{method: "POST", path: "/internal/v3/actions/{id}/outcomes",
 		gated:   func(s *Server) bool { return s.internalEnabled() },
 		handler: func(s *Server) http.HandlerFunc { return s.handleV3ActionOutcome }},
+	// T5-04：proactives 的只读审计面。**只到这里为止**——工单 §怎么做.2 要求它
+	// 仅供运维/客服，不进 BFF、不进客户端契约，所以它在 routeTable 里与上面七条
+	// 共用同一条 internalEnabled 判据，而 path 留在 /internal/ 前缀下＝Ingress 无规则覆盖。
+	{method: "GET", path: "/internal/v3/proactives",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3ProactiveAudit }},
 	// 兜底 404：不是切流面，但形状要留在表里（GET /api/v1/health 是 app 级端点的历史坑）。
 	// `/` 这条**不写方法**＝不限方法，与改写前的 `s.mux.HandleFunc("/", …)` 逐字同形；
 	// 给它补上 GET 会让 POST / 从「404 信封」变成「Go 默认的 405」，那是一次没人批的行为改动。

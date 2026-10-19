@@ -147,8 +147,13 @@ func main() {
 	// 写面共用同一颗 candidateDomain——理由与上面 `Outcomes` 那格逐字相同：
 	// canonical 的唯一写入口只许有一个实例，否则乐观锁与版本账本各算一份。
 	goalBrowser := domain.NewGoalBrowser(canonical)
+	// T5-04：proactives 的只读审计面。同样挂在池面（一次审计读不是一笔要提交的改写），
+	// 而且**不给它任何写能力**——domain.ProactiveAuditReader 窄到只有那一条 List，
+	// 装配上想多给都多给不了。
+	proactiveAudit := domain.NewProactiveAuditBrowser(canonical)
 	v3 := &httpapi.V3{Insights: insightBrowser, Outcomes: candidateDomain,
-		Goals: goalBrowser, GoalWrites: candidateDomain, OutcomeWrites: candidateDomain}
+		Goals: goalBrowser, GoalWrites: candidateDomain, OutcomeWrites: candidateDomain,
+		Proactives: proactiveAudit}
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,

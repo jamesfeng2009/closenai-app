@@ -2799,6 +2799,93 @@ func (q *Queries) ListProactiveHistory(ctx context.Context, arg ListProactiveHis
 	return items, nil
 }
 
+const listProactivesForAudit = `-- name: ListProactivesForAudit :many
+SELECT id, status, trigger_type, scheduled_at, sent_at, responded_at, expires_at,
+       block_reason, reject_reason, journey_event_id, created_at, updated_at
+FROM proactives
+WHERE user_id = $1
+  AND ($2::varchar = '' OR status = $2)
+  AND (NOT $3::boolean
+       OR (sent_at IS NULL
+           AND status IN ('candidate', 'eligible', 'scheduled')
+           AND (scheduled_at < now() OR expires_at < now())))
+ORDER BY created_at DESC, id
+LIMIT $4
+`
+
+type ListProactivesForAuditParams struct {
+	UserID   string
+	Status   string
+	Stale    bool
+	RowLimit int32
+}
+
+type ListProactivesForAuditRow struct {
+	ID             string
+	Status         string
+	TriggerType    string
+	ScheduledAt    pgtype.Timestamptz
+	SentAt         pgtype.Timestamptz
+	RespondedAt    pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
+	BlockReason    pgtype.Text
+	RejectReason   pgtype.Text
+	JourneyEventID pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+// ── T5-04：proactives 的只读审计面（运维/客服；不进 BFF、不进客户端契约）─────
+// 三个可选条件各挡一种「审计看不出来」的坏法：
+//
+//	status 空串＝不按状态过滤。只看 sent 会让人以为从没排过期，只看 scheduled
+//	  会让人以为卡住的那批是「还没轮到」——八态要能一起摆出来才看得出动线断在哪一态。
+//	stale=true＝只要「到期却没发出去」的行。**谓词只写在这一处**：领域与 HTTP
+//	  各抄一遍迟早漂，而漂了以后审计会安静地少报（少报比错报更难发现，因为它不报错）。
+//	row_limit 由领域传 LIMIT+1：多取一行只为回答「后面还有没有」，不再数第二遍。
+//
+// 排序固定 created_at DESC：这一面同时服务「超期的那批」与「最近发送的记录」两种视图，
+// 而给一条 SQL 写两套排序口径＝把「谁在前」变成调用方的猜测。队列排序归 N5 worker。
+// 投影里没有 message 正文：审计看的是「发没发、为什么没发」，正文是用户内容，
+// 把它端进一条运维查询等于给每一次排障多开一条数据外流的路（04 §22 的取舍同口径）。
+func (q *Queries) ListProactivesForAudit(ctx context.Context, arg ListProactivesForAuditParams) ([]ListProactivesForAuditRow, error) {
+	rows, err := q.db.Query(ctx, listProactivesForAudit,
+		arg.UserID,
+		arg.Status,
+		arg.Stale,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProactivesForAuditRow{}
+	for rows.Next() {
+		var i ListProactivesForAuditRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.TriggerType,
+			&i.ScheduledAt,
+			&i.SentAt,
+			&i.RespondedAt,
+			&i.ExpiresAt,
+			&i.BlockReason,
+			&i.RejectReason,
+			&i.JourneyEventID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublishedInsights = `-- name: ListPublishedInsights :many
 SELECT id, statement, claim_type, confidence, time_from, time_to,
        generation_model, generation_version, generation_run_id, model_version,

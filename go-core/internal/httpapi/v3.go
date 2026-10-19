@@ -66,13 +66,17 @@ type GoalWriter interface {
 }
 
 // V3 是 `/internal/v3` 这一面的依赖集合（T3-01 读面＋T3-02 反馈写面＋T4-02 目标/行动面
-// ＋T4-03 行动结果写面）。
+// ＋T4-03 行动结果写面＋T5-04 触达审计读面）。
 type V3 struct {
 	Insights      *domain.InsightBrowser
 	Outcomes      FeedbackRecorder
 	Goals         *domain.GoalBrowser
 	GoalWrites    GoalWriter
 	OutcomeWrites OutcomeWriter
+	// Proactives 是 T5-04 的只读审计面。它和 Insights/Goals 一样是「一条窄接口的持有者」
+	// （domain.ProactiveAuditReader），不是整颗 *domain.Service：审计不改状态，
+	// 也不该有任何改状态的能力。
+	Proactives *domain.ProactiveAuditBrowser
 }
 
 // OutcomeWriter 是 T4-03 那一条结果入口需要的**那一个**方法（收窄理由与 GoalWriter 同：
@@ -85,17 +89,17 @@ type OutcomeWriter interface {
 
 // enabled 是这一面的注册判据：依赖齐＋密钥非空。
 //
-// 五格依赖一起判而不是每面各判一次：这一面是一次部署单元——密钥、canonical 池、
+// 六格依赖一起判而不是每面各判一次：这一面是一次部署单元——密钥、canonical 池、
 // domain.Service 同批配上。分开判会让「goals 忘了装配」表现为 insights 正常而
 // goals 那几条 404，而那与「从来没做过这个域」同形，没人会去查。
 //
 // 这一条判据从 T4-03 起有了一张逐格的闸（v3_internal_enabled_test.go：每格单独置 nil，
 // 整面都必须消失）。T4-02 结案行登记的缺陷①「摘掉一格没有任何测会红」就是缺这张表，
-// 而那一条登记在案的根因在本票被真的实现了一次：五格 AND 少一格＝装配漏一个域。
+// 而那一条登记在案的根因在本票被真的实现了一次：六格 AND 少一格＝装配漏一个域。
 func (s *Server) internalEnabled() bool {
 	return s.v3 != nil && s.v3.Insights != nil && s.v3.Outcomes != nil &&
 		s.v3.Goals != nil && s.v3.GoalWrites != nil && s.v3.OutcomeWrites != nil &&
-		s.cfg.GoServiceToken != ""
+		s.v3.Proactives != nil && s.cfg.GoServiceToken != ""
 }
 
 // requireInternalService 是这一面唯一的鉴权口。

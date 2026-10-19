@@ -166,9 +166,9 @@ func newV3ServerGoals(t *testing.T, browser *domain.InsightBrowser,
 	return newV3ServerFull(t, browser, outcomes, read, writes, nil, token)
 }
 
-// newV3ServerFull 是唯一的真装配点：内部面五格依赖＋密钥一起判（v3.go 的
+// newV3ServerFull 是唯一的真装配点：内部面六格依赖＋密钥一起判（v3.go 的
 // internalEnabled），所以「goals 没装配」在这套测里不可能悄悄存在。
-// newV3ServerFull 是五格依赖的常规装配点：nil 会被替成默认桩。
+// newV3ServerFull 是六格依赖的常规装配点：nil 会被替成默认桩。
 //
 // 「逐格置 nil 会怎样」不能用这个函数问——它正好把 nil 兜掉了。那一格由
 // newV3ServerWith（下面的最底层夹具）负责，见 v3_internal_enabled_test.go。
@@ -191,7 +191,11 @@ func newV3ServerFull(t *testing.T, browser *domain.InsightBrowser,
 	}
 	return newV3ServerWith(t, &httpapi.V3{Insights: browser, Outcomes: outcomes,
 		Goals: domain.NewGoalBrowser(read), GoalWrites: writes,
-		OutcomeWrites: outcomeWrites}, token)
+		OutcomeWrites: outcomeWrites,
+		// T5-04 起这一格也在 AND 里：不给默认桩的话上面每一批用例都会因为
+		// 「审计面没装配」而整面 404，那才是 T4-02 缺陷① 想表达的事，
+		// 不该由几十个无关用例来承担。审计面自己的用例走 newV3ServerAudit。
+		Proactives: domain.NewProactiveAuditBrowser(&stubProactiveAuditReader{})}, token)
 }
 
 // newV3ServerWith 是唯一的 Server 装配口：V3 由调用方**逐格给好**，这里不兜 nil。
@@ -642,10 +646,11 @@ func TestInternalRoutesAreAbsentFromClientContract(t *testing.T) {
 				r.Path, r.Domain)
 		}
 	}
-	if len(internal) != 10 {
+	if len(internal) != 11 {
 		// 3 条是 T3-01/02 的洞察面，6 条是 T4-02 的目标/行动面（三条目标 + 三条行动），
-		// 1 条是 T4-03 的行动结果面（POST /internal/v3/actions/{id}/outcomes）。
-		t.Errorf("声明表里的 /internal/ 路由 = %d 条 %v，期望 10 ⇒ 少一条就是这一面缺了入口",
+		// 1 条是 T4-03 的行动结果面（POST /internal/v3/actions/{id}/outcomes），
+		// 1 条是 T5-04 的触达审计面（GET /internal/v3/proactives）。
+		t.Errorf("声明表里的 /internal/ 路由 = %d 条 %v，期望 11 ⇒ 少一条就是这一面缺了入口",
 			len(internal), internal)
 	}
 	if strings.Contains(contract, "/internal/") {

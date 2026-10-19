@@ -602,11 +602,20 @@ func TestMainWiresTheInternalSurfaceToTheSameDomainService(t *testing.T) {
 		"Outcomes: candidateDomain",
 		"Insights: insightBrowser",
 		"domain.NewInsightBrowser(canonical, explainer)",
+		// T5-04：审计面的那一格。T4-02 翻过的车（装配漏一格 ⇒ 整面 404 而没人察觉）
+		// 在这一格上必须有证人，而不是只靠 httpapi 那侧的逐格注册闸——那只证明
+		// 「少一格会整面消失」，证明不了「main.go 给了这一格」。
+		"Proactives: proactiveAudit",
+		"domain.NewProactiveAuditBrowser(canonical)",
 		"batch6, v3)",
 	} {
 		if !strings.Contains(text, phrase) {
 			t.Errorf("main.go 里没有 %q ⇒ 内部面没接进进程，而 httpapi／domain 两侧的用例照样全绿（假绿）", phrase)
 		}
+	}
+	// 审计面只许挂一次，而且挂的是池面那颗 `canonical`（不是第二颗 Service、不是事务面）。
+	if n := strings.Count(text, "Proactives: proactiveAudit"); n != 1 {
+		t.Errorf("Proactives 那一格命中 %d 次，期望 1 ⇒ 要么没接上，要么长了第二个审计口", n)
 	}
 	// canonical 的唯一写入口只许有一个 Service 实例：三颗 worker 加内部面共用同一颗。
 	if n := strings.Count(text, "domain.NewService("); n != 1 {

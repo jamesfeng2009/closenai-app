@@ -242,7 +242,7 @@ func (fixtureGoalWrites) TransitionAction(_ context.Context, userID, actionID st
 		Detail: fmt.Sprintf("action verb=%s", string(verb))}, nil
 }
 
-// fixtureOutcomeWrites 是 T4-03 那一格的夹具。**必须装**：internalEnabled 是五格 AND，
+// fixtureOutcomeWrites 是 T4-03 那一格的夹具。**必须装**：internalEnabled 是六格 AND，
 // 少这一格＝整个 /internal/v3 面不注册，跨进程取证会看到十路 404（T4-02 实测翻车过一次，
 // 现在由 v3_internal_enabled_test.go 的逐格闸守着，但工具侧的装配仍然要人记得补）。
 type fixtureOutcomeWrites struct{}
@@ -266,6 +266,37 @@ func (fixtureOutcomeWrites) RecordActionOutcome(_ context.Context,
 			p.ActionID, string(p.Type), string(p.Result), !p.OccurredAt.IsZero(), p.Note)}, nil
 }
 
+// fixtureProactiveAudit 是 T5-04 那一格的夹具。它**没有**跨进程的调用方（这一面不进 BFF），
+// 装它的唯一理由是 `internalEnabled()` 是六格 AND：漏这一格的表现不是「审计面 404」，
+// 而是整个 /internal/v3 面 404——T4-02 就为这件事翻过一次车（十条跨进程整片红）。
+// 给两行而不是空切片与 fixtureGoal 同口径：注册判据只看非 nil，但跨进程侧要能分清
+// 「装配上了但仓储是空的」与「装配上了」。
+type fixtureProactiveAudit struct{}
+
+func (fixtureProactiveAudit) ListProactiveAuditRecords(_ context.Context,
+	userID, status string, limit int, _ bool) ([]domain.ProactiveAuditRecord, error) {
+	if userID != fixtureUser || limit <= 0 {
+		return []domain.ProactiveAuditRecord{}, nil
+	}
+	rows := []domain.ProactiveAuditRecord{
+		{ID: "pa-e2e-sent", Status: "sent", TriggerType: "memory_recall",
+			SentAt: published[0], CreatedAt: published[0], UpdatedAt: published[0]},
+		{ID: "pa-e2e-blocked", Status: "blocked", TriggerType: "memory_recall",
+			ScheduledAt: published[0], BlockReason: "quiet_hours",
+			JourneyEventID: "je-e2e", CreatedAt: published[0], UpdatedAt: published[0]},
+	}
+	if status == "" {
+		return rows, nil
+	}
+	kept := make([]domain.ProactiveAuditRecord, 0, 1)
+	for _, r := range rows {
+		if r.Status == status {
+			kept = append(kept, r)
+		}
+	}
+	return kept, nil
+}
+
 // ── 装配：与 cmd/go-api 同一组构造函数，只有依赖换成了夹具 ────────────────────
 
 func buildHandler(token string) http.Handler {
@@ -282,7 +313,8 @@ func buildHandler(token string) http.Handler {
 		&httpapi.V3{Insights: browser, Outcomes: fixtureFeedback{},
 			Goals:         domain.NewGoalBrowser(fixtureGoal{}),
 			GoalWrites:    fixtureGoalWrites{},
-			OutcomeWrites: fixtureOutcomeWrites{}}).Handler()
+			OutcomeWrites: fixtureOutcomeWrites{},
+			Proactives:    domain.NewProactiveAuditBrowser(fixtureProactiveAudit{})}).Handler()
 }
 
 func main() {
