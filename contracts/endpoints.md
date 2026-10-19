@@ -226,7 +226,7 @@
 | 113 | DELETE | `/api/v1/user/push-token` | JSON 信封 | auth | frontend/src/services/api.ts:797（封装未接线） | 200 | - | - | `backend/routers/user.py:153` `clear_push_token` |
 | 114 | POST | `/api/v1/user/push-token` | JSON 信封 | auth | frontend/src/services/api.ts:789 | 200+422 | `PushTokenRequest`: platform*, token* | - | `backend/routers/user.py:141` `register_push_token` |
 | 115 | PATCH | `/api/v1/user/settings` | JSON 信封 | auth | frontend/src/services/api.ts:782 | 200+422 | `UserSettingsUpdate`: chat_style, conversation_style, enneagram_type, language, mbti_type, name, push_enabled, push_frequency, push_time, quiet_end, quiet_hours_enabled, quiet_start, timezone | - | `backend/routers/user.py:62` `update_settings` |
-| 116 | GET | `/health` | JSON 信封 | anon | — | 200 | - | - | `backend/main.py:187` `health_check` |
+| 116 | GET | `/health` | JSON 信封 | anon | — | 200 | - | - | `backend/main.py:208` `health_check` |
 
 ## 六、SSE 契约（唯一一条流式端点）
 
