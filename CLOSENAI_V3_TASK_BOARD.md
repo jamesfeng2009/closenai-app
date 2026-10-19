@@ -54,8 +54,8 @@
 | 指标 | 值 |
 |---|---|
 | 任务总数 | **34** |
-| `DONE` | **27**（79%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T5-01、T5-02、T5-03、T5-05、T6-01、T6-02） |
-| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **4**（T4-04、T5-04、T6-03、T6-04） |
+| `DONE` | **28**（82%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T5-01、T5-02、T5-03、T5-04、T5-05、T6-01、T6-02） |
+| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **3**（T4-04、T6-03、T6-04） |
 
 | 波次 | 任务范围 | 完成/总数 | 出口标准 |
 |---|---|---|---|
@@ -64,7 +64,7 @@
 | W2 证据链路 | `T2-01`…`T2-05`＋`T2-06`（2026-10-18 拆自 T2-03 第⑤件，前置 B-08） | 6/6 | 记忆 → source → evidence 跨进程跑通（**2026-10-19 由 T2-04 达成，同日 T2-06 把「来源被删 → 证据退场」的退场段也跑通一次，T2-05 补上死信面的读数与重放工具；三者都跑在测试里，产品流量仍是零**） |
 | W3 洞察纠错 | `T3-01`…`T3-05` | 5/5 | 用户能看到依据并纠正，纠正真落库（**2026-10-20 T3-05 后两半句都到了屏上：canonical 洞察卡逐条给出 excerpt/observed_at/来源标签、空证据不铺结论，六态反馈条＋纠错 Modal 走 T3-03 那条转发链落 `user_feedback`；「真落库」由 T3-02 的真库测 `TestG06CorrectFeedbackWritesAuthoritativeRows` 钉住。仍是零的是产品流量与真机取证——归 T6-04**） |
 | W4 行动闭环 | `T4-01`…`T4-04` | 3/4 | 洞察→行动→结果一条端到端（**2026-10-19 T4-01/02/03 后：三段的服务端与 `/api/v1` 转发链已各自跨进程跑通并进契约，「端到端」这半句要等 T4-04 的屏**） |
-| W5 隐私与主动消息 | `T5-01`…`T5-05` | 4/5 | 关闭/静默/幂等三闸全绿 |
+| W5 隐私与主动消息 | `T5-01`…`T5-05` | 5/5 | 关闭/静默/幂等三闸全绿（**2026-10-20 T5-04 补上第五格：`proactives` 八态从此有一条只读审计面＋CLI，「为什么没发出去」不再靠手抄 SQL**） |
 | W6 架构收敛 | `T6-01`…`T6-04` | 2/4 | 单一 DDL、单一事实源、隔离生效 |
 
 > 这是**快照**，会随更新过期。以 `python scripts/task_board.py` 的输出为准（该脚本同时是 `--check` 的判据来源）。
@@ -103,7 +103,7 @@
 | T5-01 | `user_consents` 表与 API | BE | — | W5 | DONE | 2026-10-18 六用途台账表＋API＋兼容期双写＋注册默认；pytest 21 passed／迁移 a1c3e5f7b9d1 真 PG 实测；变异 B7、B8 打红 |
 | T5-02 | 静默时段（设置+投递门+UI） | BE+FE | — | W5 | DONE | 2026-10-18 两列 TIME＋PATCH 校验＋cron/推送双层门＋15 语言 UI；pytest 15／jest 29＋107＋tsc 0；变异 B1、B2、B4、B10、F1、F2、F3 打红 |
 | T5-03 | 幂等唯一约束（proactive/journey） | BE | — | W5 | DONE | 2026-10-18 部分唯一索引两条＋IntegrityError 幂等成功＋回填脚本 dry-run 默认；pytest 16／真 PG 23＋真并发同键 1 行；变异 B5、B6、B9 打红 |
-| T5-04 | ProactiveTask 内部审计视图 | GO | T3-03 | W5 | TODO | — |
+| T5-04 | ProactiveTask 内部审计视图 | GO | T3-03 | W5 | DONE | 2026-10-20 Go 只读面 `GET /internal/v3/proactives`＋CLI `tools/proactiveaudit`；八态/超期谓词落 `canonical.sql` 一处；跨进程夹具补第六格；Go 全量 831 PASS／0 FAIL、pytest 1598 passed、变异 54 红／6 绿 |
 | T5-05 | 「关闭→不发送」端到端闸 | BE | T5-02、T5-03 | W5 | DONE | 2026-10-18 三红一绿 sqlite＋真库 E2E（dispatch_daily_messages 全链，可重跑）；变异合计 13 红 2 绿 |
 | T6-01 | aiclient gRPC 处置（接线或登记） | GO | T0-01 | W6 | DONE | 2026-10-19 结案（选 A 登记）：台账 `internal_capabilities/ai.grpc.client` 标 IMPLEMENTED＋90 天到期删除条款；Go 侧 AST 实测闸 2 passed（零生产调用方＋probe_tools 与实测集合双向对账）；pytest 台账闸 28 passed；`feature_status.py --check` 零违例；变异 打红 12/12、保持绿 2/2、未跑 0、残留 0 |
 | T6-02 | 切流 path×method 矩阵约束 | GO | — | W6 | DONE | 2026-10-19 结案：三张真源（`50-ingress.yaml` 归属 × `contracts/endpoints.md` 的 path×方法 × `httpapi/routes.go` 声明表）对账，生成 `contracts/cutover-matrix.md`（8 个 `CLOSEN_CUTOVER_*` 键 ↔ 8 行，不可切项带 D-10 原因）；`go test -p 1 ./...` 全绿（cutover 17 PASS、cutover＋httpapi 124 PASS）；`pytest` 受影响面 **84 passed / 1 skipped**；变异自证 **打红 13/13、保持绿 3/3、未跑 0、残留 0**——过程中抓到并修掉两处「判据在真坏料上绿」（Ingress 解析跨规则串味、`gated` 掏空无人判） |
@@ -1012,7 +1012,7 @@ Baseline §14.2 要求区分六种用途并记录版本与撤回时间；当前�
 
 | 状态 | 负责 | 依赖 | 规模 |
 |---|---|---|---|
-| TODO | GO | T3-03 | M |
+| DONE | GO | T3-03 | M |
 
 **为什么**
 `proactives` 有八态与调度字段（`canonical.py:417-455`），但零 HTTP，出问题时只能查库。
@@ -1024,6 +1024,16 @@ Baseline §14.2 要求区分六种用途并记录版本与撤回时间；当前�
 
 **验收**
 能看到 pending 超期任务与最近发送记录；跨用户查询必须显式带 `user_id` 且鉴权为服务级。
+
+> 结案 2026-10-20｜master 工作区（未推）｜`proactives` 从「只能连库手写 SQL」变成一条有名字的只读口径。**四件套**：入口＝`GET /internal/v3/proactives`（`go-core/internal/httpapi/routes.go:147`，gated 在 `internalEnabled()` 的六格 AND 上；身份**只**从 `X-User-Id`、鉴权**只**从 `X-Service-Token`，密钥为空 ⇒ 整面不注册而不是 403）；执行＝谓词只住一处（`go-core/db/queries/canonical.sql:691` 的 `ListProactivesForAudit`，sqlc 生成物 → `store/proactive_audit_read.go` 按位置搬 12 列 → `domain/proactive_audit.go` 做拦空身份／收敛 limit／多取一行／裁剪／回显），httpapi 一层只判形状；交付＝`go run ./tools/proactiveaudit --user … --status … --limit … --stale` 在 stdout 上打**一行** JSON（`{user_id,query,applied{status,limit,stale,http_status,code,trace_id},total,truncated,items}`），失败时信封的 code／message／trace_id 原样抄出来，不替服务端总结；失败恢复＝空身份在 domain 是显式 `ErrProactiveAuditNeedsUser` 而不是空列表（空列表在审计面的意思是「这个人没有触达」）、`stale=yes` 400、未知查询键 400 而不是静默忽略、仓储报错不折成「200＋空列表」、跨用户回**零行**而不是 403（403 等于替旁人确认这个 id 有触达）、limit 默认 50／上限 200／多取一行 ⇒ `truncated`。**六条改判（工单字面 → 实况，全部有靶）**：① 库里没有 `skip_reason` 这一列（两侧 DDL 都只有 `block_reason`/`reject_reason`，`backend/models/canonical.py:451-452` 与 `go-core/db/schema/0002_canonical_runtime.sql:362-363`），所以两格都搬、按 block／reject 各自的语义读；② `?user_id=` 采 §怎么做.2＋ADR-002 换成 `X-User-Id` 头，且未知参数**显式 400**（静默忽略会让值班以为查的是 Bob、屏幕上其实是 Alice）；③ `pending` 不是八态之一，「超期」的真身是 `sent_at IS NULL ∧ status IN ('candidate','eligible','scheduled') ∧ (scheduled_at < now() OR expires_at < now())`，只写在 canonical.sql 那一条里，Go 侧 `ProactiveAuditStaleStatuses` 只供对账与文档、生产代码不读；④ status 过滤器**不校验**词表（与 insights/goals 同一判据：库里没有的那一态必然零行，抢先 400 会让同一个错误在两条面上有两种形状），代价是响应里必须**回显** `status`／`stale`／生效 `limit`，`IsProactiveStatus` 只服务 CLI 那句提示；⑤ 不进 BFF、不进 `contracts/endpoints.md`（契约冻结那条「表行数==路由装饰器数」的口径不受影响），G-02 的内部面计数闸 10→11 条（`go-core/internal/httpapi/v3_test.go:649`）；⑥ 投影里没有 `message`/`eligibility_detail`——审计要回答「发没发、为什么没发」，正文一旦能被端出来，每次排障就多一条用户内容外流的路。
+>
+> **实测计数**：Go `go test -p 1 -v ./... -count=1` **831 顶层 PASS／1 SKIP／0 FAIL／19 包 ok**（唯一 SKIP 是 `TestBrokerRestartRepublishesButBrokerDoesNotDeduplicate`，与本票无关）；本票各包 domain **252**／httpapi **153**／store **110**（含真库五条审计测）／`tools/proactiveaudit` **6**／`tools/v3surface` **3**（新立的装配证人）／`cmd/go-api` **22**；`gofmt -l .` 零输出、`go vet ./...` 干净。backend 全量 `pytest backend/tests` **1598 passed／4 skipped／0 failed（123.85s）**，含跨进程那 20 条。
+>
+> **变异自证** `scripts/mutate_t504_gates.py`：打红 **54/54**、保持绿 **6/6**、未跑 **0**、残留 **0**（十一个靶文件 copy2 备份＋`filecmp(shallow=False)` 逐字节写回，串行）。分族：D1…D11 领域（身份／limit 默认与上限／多取一行／裁剪／回显／词表与 SQL 源对账）、H1…H13 入口形状与注册面（白名单、`stale` 的 400、生效 limit、字段名与 null、错误不折成空列表、逐格注册的正向证人、11 条计数闸）、W1/W2 生产装配、W3/W4 **跨进程夹具装配**、S1…S4 仓储搬列（真库）、G1…G8 生成物里那段真被执行的 SQL（真库）、Q1/V1/V2 两个真源的现行代价（`sqlc diff` 与那条词表对账各兜一侧）、C1…C10 CLI（身份只进头、密钥只从头进、缺 env 就不发请求、失败原样报、一行产物、词表提示只进 stderr）、B1 给 BFF 加一条 `/proactives` 转发 ⇒ 十条计数闸红。**第一轮 44/52，八条的问题全都比“少几条绿”有价值**：① **三条判据根本没有靶**——D8 那条测的 `want` 侧写的是 `defaultProactiveAuditLimit` 常量自己（两侧同源 ⇒ 恒真，改成字面量 50/200 后默认页改小才红得起来，[[feedback-orm-identity-map-gate]]）、C3 的夹具只有 HTTP 非 200 的四档（「HTTP 200 而信封 code 500」那一格没人测，补了）、G4 缺「状态停在 scheduled 但 `sent_at` 已写上」那行半途夹具（于是摘掉 `sent_at IS NULL` 是**等价变异**，真库补了一行才打得红）；② 一条等价变异 H7——`optionalTime(row.SentAt, true)` 恒绿，因为那个 helper 自己就判 `IsZero`，变异体改成 `&row.SentAt` 才绕开（T4-02 的 HT6 同一课）；③ 四条 `if false` 型撤法在 Go 里报「变量未使用」＝红的是编译器不是判据（D10／H2／W1／C3 分别改成 `|| true`／`&& false`／撤两格／体内加 `{ _ = apierr.CodeOK`）；④ G2 那条单边谓词红在**前面那条**顺序测的 panic 上（进程一崩，点名判据根本不跑）⇒ 脚本给 store 那一族加了 `包|测名` 作用域，这一条单独拨一次。**一条刻意剔除并留档**：摘 `store.ListProactiveAuditRecords` 的 `limit <= 0` 守卫恒绿——domain 永远把 limit 收敛到 ≥1 之后才调它，两个调用方都过 domain，要钉它得绕过 domain，与分层纪律相反。
+>
+> **装配面第二次翻车（写进台账，因为它证明 T4-02 登记的缺陷①不是假想）**：`internalEnabled()` 加上第六格 `Proactives` 之后，跨进程夹具 `go-core/tools/v3surface/main.go` 没跟着补 ⇒ backend 全量里 **20 条跨进程测整片 404**，表现是「BFF 找不到 Go」而归因第一次一定指错地方。本票除了补装配（`fixtureProactiveAudit` 两行：一行 sent、一行 blocked＋`quiet_hours`＋回链 `je-e2e`），给它立了**自己的**证人 `go-core/tools/v3surface/main_test.go` 三测：逐条声明的内部路由都不许落到兜底 404（判据认的是 `handleNotFound` 那句字面文案而不是状态码——域内「查无此洞察」也是 404，按码判会让证人因为夹具数据对不上而红）、缺密钥时整面必须 404、审计面必须真端出那两行。W3／W4 各钉一次（撤那一格＝W3 红；装一颗空仓储＝W4 红，因为 AND 只看 Browser 指针非 nil）。
+>
+> **发现缺陷（本票不顺手修，登记）**：① `cmd/go-api/main.go` 的 `Goals`／`GoalWrites`／`OutcomeWrites` 三格仍然只有编译期与那句短语 grep 兜着，**没有**逐格装配证人（本票补齐的是夹具那一侧，生产那一侧同形状还空着）⇒ 归 **T6-04**；② `.sql` 源与 `canonicaldb` 生成物仍是两个真源（Q1／V2 只能由 `sqlc diff` 兜、V1 由 domain 那条词表对账兜，Go 测试看不见源文件）⇒ 归 **T6-03**。**未跑**：生产／staging 集群上的真实部署与运维取用（本机无 kubeconfig，VPS 面归 T0-01）；这一面按 §怎么做.2 本就没有屏，所以「用户可见」那一格对它不适用。
 
 ---
 
