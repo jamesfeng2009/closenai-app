@@ -191,6 +191,16 @@ type Store interface {
 	// （02:824「不要维护重复的 goal/commitment 状态」）。
 	CompleteGoal(ctx context.Context, userID, goalID string) error
 	CompleteCommitment(ctx context.Context, userID, commitmentID string) error
+	// ── T4-02：行动闭环的两张表写面（转移判据全在 goal.go，这里只搬列）─────────
+	// InsertGoal / InsertCommitment 的 status 由领域层给（'active' 是唯一的初值），
+	// 仓储不许自己填默认值——那等于把「新建的东西是什么状态」交给离用户最远的一层。
+	InsertGoal(ctx context.Context, row GoalRow) error
+	InsertCommitment(ctx context.Context, row CommitmentRow) error
+	// SkipCommitment 是 T4-01 交付的库面，本期第一次接上守卫（goal.go 的转移表）；
+	// CancelGoal / CancelCommitment 都**不**刷 completed_at（那一列的语义是「达成了」）。
+	SkipCommitment(ctx context.Context, userID, commitmentID string) error
+	CancelGoal(ctx context.Context, userID, goalID string) error
+	CancelCommitment(ctx context.Context, userID, commitmentID string) error
 	// ListInsightsForPattern 返回挂在该 pattern 上的 insight id 与当前状态（传播链第二跳）。
 	ListInsightsForPattern(ctx context.Context, userID, patternID string) ([]PatternInsightRef, error)
 	// ListQueuedProactives 取仍在队列里的触达行（完成目标后要按 packet 引用取消）。

@@ -169,6 +169,79 @@ func (fixtureFeedback) RecordUserFeedback(_ context.Context,
 			string(p.Type), p.TargetID, p.UserID, p.CorrectionText, op)}, nil
 }
 
+// fixtureGoal 是 T4-02 读面的夹具：一个用户一颗目标、一条行动。
+//
+// 为什么这里必须有行而不是空切片：`internalEnabled()` 现在把 goals 也算进注册判据，
+// 装配漏了这一格的表现不是「目标面 404」而是**整个内部面 404**（四格依赖一起判，
+// v3.go 的注释同口径）。空列表至少还能回 200，有行才让跨进程那侧看得见形状。
+type fixtureGoal struct{}
+
+func (fixtureGoal) ListGoalRecords(_ context.Context, userID, status string,
+	limit int) ([]domain.GoalRecord, error) {
+	if userID != fixtureUser || (status != "" && status != "active") {
+		return []domain.GoalRecord{}, nil
+	}
+	return []domain.GoalRecord{{ID: "g-e2e", Title: "早睡一小时", Description: "",
+		Status: "active", StartedAt: published[0], CreatedAt: published[0],
+		UpdatedAt: published[0]}}, nil
+}
+
+func (fixtureGoal) ListActionRecords(_ context.Context, userID, status string,
+	limit int) ([]domain.ActionRecord, error) {
+	if userID != fixtureUser || (status != "" && status != "active") {
+		return []domain.ActionRecord{}, nil
+	}
+	return []domain.ActionRecord{{ID: "a-e2e", Title: "提前上床", Status: "active",
+		GoalID: "g-e2e", CreatedAt: published[0], UpdatedAt: published[0]}}, nil
+}
+
+// fixtureGoalWrites 与 fixtureFeedback 同一格职责：把领域层**真正收到的那一格**
+// 原样吐回 Detail——跨进程唯一能证明「身份来自 header、goal_id 来自 path」的位置。
+type fixtureGoalWrites struct{}
+
+func (fixtureGoalWrites) CreateGoal(_ context.Context,
+	p domain.GoalProposal) (domain.GoalReceipt, error) {
+	if p.UserID != fixtureUser {
+		return domain.GoalReceipt{}, domain.ErrInvalidOwnership
+	}
+	return domain.GoalReceipt{ID: "g-e2e", Status: "active", Changed: true,
+		EventID: "ev-e2e", ModelVersion: 7,
+		Detail: fmt.Sprintf("goal title=%q target=%t", p.Title, p.HasTargetAt)}, nil
+}
+
+func (fixtureGoalWrites) TransitionGoal(_ context.Context, userID, goalID string,
+	verb domain.LifecycleVerb) (domain.GoalReceipt, error) {
+	if userID != fixtureUser {
+		return domain.GoalReceipt{}, domain.ErrInvalidOwnership
+	}
+	if verb == domain.VerbSkip {
+		return domain.GoalReceipt{}, domain.ErrGoalIllegalTransition
+	}
+	return domain.GoalReceipt{ID: goalID, Status: "cancelled", Changed: true,
+		EventID: "ev-e2e", ModelVersion: 7,
+		Detail: fmt.Sprintf("goal verb=%s", string(verb))}, nil
+}
+
+func (fixtureGoalWrites) CreateAction(_ context.Context,
+	p domain.ActionProposal) (domain.ActionReceipt, error) {
+	if p.UserID != fixtureUser {
+		return domain.ActionReceipt{}, domain.ErrInvalidOwnership
+	}
+	return domain.ActionReceipt{ID: "a-e2e", GoalID: p.GoalID, Status: "active",
+		Changed: true, EventID: "ev-e2e", ModelVersion: 7,
+		Detail: fmt.Sprintf("action goal=%s title=%q", p.GoalID, p.Title)}, nil
+}
+
+func (fixtureGoalWrites) TransitionAction(_ context.Context, userID, actionID string,
+	verb domain.LifecycleVerb) (domain.ActionReceipt, error) {
+	if userID != fixtureUser {
+		return domain.ActionReceipt{}, domain.ErrInvalidOwnership
+	}
+	return domain.ActionReceipt{ID: actionID, GoalID: "g-e2e", Status: "completed",
+		Changed: true, EventID: "ev-e2e", ModelVersion: 7,
+		Detail: fmt.Sprintf("action verb=%s", string(verb))}, nil
+}
+
 // ── 装配：与 cmd/go-api 同一组构造函数，只有依赖换成了夹具 ────────────────────
 
 func buildHandler(token string) http.Handler {
@@ -182,7 +255,9 @@ func buildHandler(token string) http.Handler {
 	return httpapi.NewServer(cfg, signer,
 		auth.NewService(store.NewFakeStore(), signer, 30*24*time.Hour), explainer,
 		nil, nil, nil, nil, nil, nil,
-		&httpapi.V3{Insights: browser, Outcomes: fixtureFeedback{}}).Handler()
+		&httpapi.V3{Insights: browser, Outcomes: fixtureFeedback{},
+			Goals:      domain.NewGoalBrowser(fixtureGoal{}),
+			GoalWrites: fixtureGoalWrites{}}).Handler()
 }
 
 func main() {

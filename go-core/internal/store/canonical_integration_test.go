@@ -689,7 +689,7 @@ func TestCanonicalDeliveryLifecycle(t *testing.T) {
 		t.Fatalf("CompleteGoal: %v", err)
 	}
 	goals, err := q.ListGoals(ctx, canonicaldb.ListGoalsParams{
-		UserID: userID, PersonalModelID: c.modelID, Status: "completed",
+		UserID: userID, Status: "completed", RowLimit: 50,
 	})
 	if err != nil || len(goals) != 1 || !goals[0].CompletedAt.Valid {
 		t.Fatalf("completed goals = %+v err %v", goals, err)

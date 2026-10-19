@@ -751,12 +751,12 @@ func (t *canonicalTx) CompleteCommitment(ctx context.Context, userID, commitment
 	return wrap("complete commitment", err)
 }
 
-// SkipCommitment 是 T4-01 交付的库面：**只有这一列的写法在这里，判据不在**。
+// SkipCommitment 是 T4-01 交付的库面，T4-02 第一次给它接上守卫。
 //
-// 为什么这一条不挂进 `domain.Store` 接口：接口挂上去就意味着 `active → skipped`
-// 这条状态转移在 domain 里有了门却没有守卫，而 T4-02 的 `TransitionAction`
-// 才是那个守卫（终态不许回退、重复同态幂等返回当前）。T4-01 先把「跳到哪张列、
-// 时间怎么写」钉死并让它被真库测跑过一遍，T4-02 接线时这一格的坏法已经有闸兜着。
+// T4-01 那一期刻意不把它挂进 `domain.Store`：接口挂上去就意味着
+// `active → skipped` 这条转移在 domain 里有了门却没有守卫，而终态不许回退、
+// 重复同态幂等这两条判据直到 T4-02 才存在（`domain.NextActionStatus`）。
+// 现在接上了，判据仍然只有一份：这一层只决定「跳到哪一列、哪个时间要留」。
 //
 // 幂等那一半在 SQL 的 `COALESCE(skipped_at, now())` 上而不是在这里：
 // 同一句跳过重复执行时，库里留的是**第一次**的时间。「什么时候跳过的」是审计事实，
@@ -769,6 +769,53 @@ func (t *canonicalTx) SkipCommitment(ctx context.Context, userID, commitmentID s
 		return fmt.Errorf("%w: commitment %s", domain.ErrInvalidOwnership, commitmentID)
 	}
 	return wrap("skip commitment", err)
+}
+
+// CancelGoal / CancelCommitment 与 Complete* 的分工只在列上：
+// 取消**不写 completed_at**（那是 04 §22 完成度量的分子），两张表都没有 cancelled_at，
+// 所以取消只留 status 与 updated_at——这一格决定在 canonical.sql 的头注释里，
+// 「能不能取消」仍然不在这里（goal.go 的转移表）。
+func (t *canonicalTx) CancelGoal(ctx context.Context, userID, goalID string) error {
+	_, err := t.q.CancelGoal(ctx, canonicaldb.CancelGoalParams{ID: goalID, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: goal %s", domain.ErrInvalidOwnership, goalID)
+	}
+	return wrap("cancel goal", err)
+}
+
+func (t *canonicalTx) CancelCommitment(ctx context.Context, userID,
+	commitmentID string) error {
+	_, err := t.q.CancelCommitment(ctx,
+		canonicaldb.CancelCommitmentParams{ID: commitmentID, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: commitment %s", domain.ErrInvalidOwnership, commitmentID)
+	}
+	return wrap("cancel commitment", err)
+}
+
+// InsertGoal / InsertCommitment 是两张表唯一的写入点（T4-02）。
+//
+// `Description` 空串 ⇒ NULL 而不是空字串：列上是 `text`（无 CHECK、无默认），
+// 把「没写说明」存成 "" 会让读面在「有说明但为空」和「没有说明」之间无法区分，
+// 而这两格在前端是两种渲染（一行空白 vs 整段不显示）。
+func (t *canonicalTx) InsertGoal(ctx context.Context, row domain.GoalRow) error {
+	err := t.q.InsertGoal(ctx, canonicaldb.InsertGoalParams{
+		ID: row.ID, UserID: row.UserID, PersonalModelID: row.PersonalModelID,
+		Title: row.Title, Description: textOf(row.Description), Status: row.Status,
+		StartedAt: optTimestamptz(row.StartedAt, true),
+		TargetAt:  optTimestamptz(row.TargetAt, row.HasTargetAt),
+	})
+	return wrap("insert goal", err)
+}
+
+func (t *canonicalTx) InsertCommitment(ctx context.Context, row domain.CommitmentRow) error {
+	err := t.q.InsertCommitment(ctx, canonicaldb.InsertCommitmentParams{
+		ID: row.ID, UserID: row.UserID, PersonalModelID: row.PersonalModelID,
+		Title: row.Title, Description: textOf(row.Description), Status: row.Status,
+		DueAt:  optTimestamptz(row.DueAt, row.HasDueAt),
+		GoalID: textOf(row.GoalID),
+	})
+	return wrap("insert commitment", err)
 }
 
 func (t *canonicalTx) ListInsightsForPattern(ctx context.Context, userID,

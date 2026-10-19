@@ -49,16 +49,38 @@ type FeedbackRecorder interface {
 		f domain.FeedbackProposal) (domain.FeedbackReceipt, error)
 }
 
-// V3 是 `/internal/v3` 这一面的依赖集合（T3-01 读面＋T3-02 反馈写面）。
+// GoalWriter 是 T4-02 四条写入口需要的**那一组**方法（同样是为了单测不发真 SQL）。
+//
+// 四个方法都是 `*domain.Service` 上已有的那四条入口，这里只做一次形状收窄：
+// 「六种转移各回什么码」是一张错误映射表，它的真身（转移表、留痕、幂等）
+// 由 `domain/service_goal_test.go` 与 store 的真库集成测各自钉住。
+type GoalWriter interface {
+	CreateGoal(ctx context.Context,
+		p domain.GoalProposal) (domain.GoalReceipt, error)
+	TransitionGoal(ctx context.Context, userID, goalID string,
+		verb domain.LifecycleVerb) (domain.GoalReceipt, error)
+	CreateAction(ctx context.Context,
+		p domain.ActionProposal) (domain.ActionReceipt, error)
+	TransitionAction(ctx context.Context, userID, actionID string,
+		verb domain.LifecycleVerb) (domain.ActionReceipt, error)
+}
+
+// V3 是 `/internal/v3` 这一面的依赖集合（T3-01 读面＋T3-02 反馈写面＋T4-02 目标/行动面）。
 type V3 struct {
-	Insights *domain.InsightBrowser
-	Outcomes FeedbackRecorder
+	Insights   *domain.InsightBrowser
+	Outcomes   FeedbackRecorder
+	Goals      *domain.GoalBrowser
+	GoalWrites GoalWriter
 }
 
 // enabled 是这一面的注册判据：依赖齐＋密钥非空。
+//
+// 四格依赖一起判而不是每面各判一次：这一面是一次部署单元——密钥、canonical 池、
+// domain.Service 同批配上。分开判会让「goals 忘了装配」表现为 insights 正常而
+// goals 那几条 404，而那与「从来没做过这个域」同形，没人会去查。
 func (s *Server) internalEnabled() bool {
 	return s.v3 != nil && s.v3.Insights != nil && s.v3.Outcomes != nil &&
-		s.cfg.GoServiceToken != ""
+		s.v3.Goals != nil && s.v3.GoalWrites != nil && s.cfg.GoServiceToken != ""
 }
 
 // requireInternalService 是这一面唯一的鉴权口。

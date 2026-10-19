@@ -74,8 +74,79 @@ func (f *stubFeedbackWriter) RecordUserFeedback(_ context.Context,
 	return f.receipt, f.err
 }
 
+type stubGoalReader struct {
+	goals    []domain.GoalRecord
+	actions  []domain.ActionRecord
+	err      error
+	gotUser  string
+	gotStat  string
+	gotLimit int
+}
+
+func (s *stubGoalReader) ListGoalRecords(_ context.Context, userID, status string,
+	limit int) ([]domain.GoalRecord, error) {
+	s.gotUser, s.gotStat, s.gotLimit = userID, status, limit
+	return s.goals, s.err
+}
+
+func (s *stubGoalReader) ListActionRecords(_ context.Context, userID, status string,
+	limit int) ([]domain.ActionRecord, error) {
+	s.gotUser, s.gotStat, s.gotLimit = userID, status, limit
+	return s.actions, s.err
+}
+
+// stubGoalWriter 记录**最后一次**调用的形状：四条入口各回什么码是一张映射表，
+// 它的真身（转移表、幂等、留痕）由 domain/service_goal_test.go 与真库集成测各自钉住。
+type stubGoalWriter struct {
+	gotGoal    domain.GoalProposal
+	gotAction  domain.ActionProposal
+	gotTransID string
+	gotVerb    domain.LifecycleVerb
+	goalRec    domain.GoalReceipt
+	actionRec  domain.ActionReceipt
+	err        error
+	calls      int
+}
+
+func (f *stubGoalWriter) CreateGoal(_ context.Context,
+	p domain.GoalProposal) (domain.GoalReceipt, error) {
+	f.calls++
+	f.gotGoal = p
+	return f.goalRec, f.err
+}
+
+func (f *stubGoalWriter) TransitionGoal(_ context.Context, _, id string,
+	verb domain.LifecycleVerb) (domain.GoalReceipt, error) {
+	f.calls++
+	f.gotTransID, f.gotVerb = id, verb
+	return f.goalRec, f.err
+}
+
+func (f *stubGoalWriter) CreateAction(_ context.Context,
+	p domain.ActionProposal) (domain.ActionReceipt, error) {
+	f.calls++
+	f.gotAction = p
+	return f.actionRec, f.err
+}
+
+func (f *stubGoalWriter) TransitionAction(_ context.Context, _, id string,
+	verb domain.LifecycleVerb) (domain.ActionReceipt, error) {
+	f.calls++
+	f.gotTransID, f.gotVerb = id, verb
+	return f.actionRec, f.err
+}
+
 func newV3Server(t *testing.T, browser *domain.InsightBrowser,
 	outcomes httpapi.FeedbackRecorder, token string) *httpapi.Server {
+	t.Helper()
+	return newV3ServerGoals(t, browser, outcomes, nil, nil, token)
+}
+
+// newV3ServerGoals 是唯一的装配点：内部面四格依赖＋密钥一起判（v3.go 的
+// internalEnabled），所以「goals 没装配」在这套测里不可能悄悄存在。
+func newV3ServerGoals(t *testing.T, browser *domain.InsightBrowser,
+	outcomes httpapi.FeedbackRecorder, read domain.GoalReader,
+	writes httpapi.GoalWriter, token string) *httpapi.Server {
 	t.Helper()
 	cfg := config.Config{AppName: "ClosenAI", Environment: "development",
 		HTTPAddr: ":0", InsightEvidenceRead: "on", GoServiceToken: token}
@@ -85,9 +156,16 @@ func newV3Server(t *testing.T, browser *domain.InsightBrowser,
 	if browser == nil {
 		browser = domain.NewInsightBrowser(&stubBrowseReader{}, explainer)
 	}
+	if read == nil {
+		read = &stubGoalReader{}
+	}
+	if writes == nil {
+		writes = &stubGoalWriter{}
+	}
 	return httpapi.NewServer(cfg, signer,
 		auth.NewService(store.NewFakeStore(), signer, 30*24*time.Hour), explainer,
-		nil, nil, nil, nil, nil, nil, &httpapi.V3{Insights: browser, Outcomes: outcomes})
+		nil, nil, nil, nil, nil, nil, &httpapi.V3{Insights: browser, Outcomes: outcomes,
+			Goals: domain.NewGoalBrowser(read), GoalWrites: writes})
 }
 
 func listServer(t *testing.T, browse domain.InsightBrowseReader,
@@ -520,8 +598,9 @@ func TestInternalRoutesAreAbsentFromClientContract(t *testing.T) {
 				r.Path, r.Domain)
 		}
 	}
-	if len(internal) != 3 {
-		t.Errorf("声明表里的 /internal/ 路由 = %d 条 %v，期望 3 ⇒ 少一条就是这一面缺了入口",
+	if len(internal) != 9 {
+		// 3 条是 T3-01/02 的洞察面，6 条是 T4-02 的目标/行动面（三条目标 + 三条行动）。
+		t.Errorf("声明表里的 /internal/ 路由 = %d 条 %v，期望 9 ⇒ 少一条就是这一面缺了入口",
 			len(internal), internal)
 	}
 	if strings.Contains(contract, "/internal/") {

@@ -89,9 +89,17 @@ type fakeStore struct {
 	factWrites      []FactStatusRow
 	goalDone        []string
 	commitmentDone  []string
-	patternInsights []PatternInsightRef
-	queued          []QueuedProactive
-	derived         []DerivedSupport
+	// T4-02 的三格写痕 + 两张表的新行：complete 复用上面两格，这里只记
+	// skip / 两种 cancel。桩按真库那样**不看当前状态**——转移判据在 domain，
+	// 桩里复刻它会让「domain 漏判」在单测里假绿。
+	goals             []GoalRow
+	commitments       []CommitmentRow
+	commitmentSkips   []string
+	commitmentCancels []string
+	goalCancels       []string
+	patternInsights   []PatternInsightRef
+	queued            []QueuedProactive
+	derived           []DerivedSupport
 
 	bumpErr    error
 	insertErr  error

@@ -49,7 +49,7 @@ func TestCommitmentGoalIDRoundTripsAndNullMeansNoGoal(t *testing.T) {
 	}
 
 	rows, err := q.ListCommitments(ctx, canonicaldb.ListCommitmentsParams{
-		UserID: userID, PersonalModelID: c.modelID, Status: "active",
+		UserID: userID, Status: "active", RowLimit: 50,
 	})
 	if err != nil {
 		t.Fatalf("ListCommitments: %v", err)
@@ -98,7 +98,7 @@ func TestSkipCommitmentIsIdempotentOnTheClock(t *testing.T) {
 	if err := tx(c.commitmentID); err != nil {
 		t.Fatalf("SkipCommitment: %v", err)
 	}
-	first := skippedRow(t, q, userID, c.modelID)
+	first := skippedRow(t, q, userID)
 	if first.Status != "skipped" {
 		t.Errorf("status = %q，期望 skipped ⇒「跳过」仍然只是一句前端文案", first.Status)
 	}
@@ -116,7 +116,7 @@ func TestSkipCommitmentIsIdempotentOnTheClock(t *testing.T) {
 	if err := tx(c.commitmentID); err != nil {
 		t.Fatalf("第二次 SkipCommitment 应当是幂等成功而不是错误：%v", err)
 	}
-	second := skippedRow(t, q, userID, c.modelID)
+	second := skippedRow(t, q, userID)
 	if !second.SkippedAt.Time.Equal(first.SkippedAt.Time) {
 		t.Errorf("重复跳过把时间从 %v 刷成 %v ⇒ 审计事实被最后一次点击改写",
 			first.SkippedAt.Time, second.SkippedAt.Time)
@@ -129,7 +129,7 @@ func TestSkipCommitmentIsIdempotentOnTheClock(t *testing.T) {
 		t.Fatalf("CompleteCommitment: %v", err)
 	}
 	rows, err := q.ListCommitments(ctx, canonicaldb.ListCommitmentsParams{
-		UserID: userID, PersonalModelID: c.modelID, Status: "completed",
+		UserID: userID, Status: "completed", RowLimit: 50,
 	})
 	if err != nil {
 		t.Fatalf("ListCommitments(completed): %v", err)
@@ -163,7 +163,7 @@ func TestSkipCommitmentRejectsForeignUser(t *testing.T) {
 
 	// 被拒的那一次必须**什么都没改**：只看错误码的闸兜不住「先写后判」这种坏法。
 	rows, err := q.ListCommitments(ctx, canonicaldb.ListCommitmentsParams{
-		UserID: owner, PersonalModelID: c.modelID, Status: "active",
+		UserID: owner, Status: "active", RowLimit: 50,
 	})
 	if err != nil {
 		t.Fatalf("ListCommitments: %v", err)
@@ -178,10 +178,10 @@ func TestSkipCommitmentRejectsForeignUser(t *testing.T) {
 
 // skippedRow 按状态读回那颗承诺：跳过之后它只存在于 `status='skipped'` 这一格里，
 // 所以「读不回来」与「没跳成功」在这里是同一种红，这是想要的形状而不是含糊。
-func skippedRow(t *testing.T, q *canonicaldb.Queries, userID, modelID string) canonicaldb.ListCommitmentsRow {
+func skippedRow(t *testing.T, q *canonicaldb.Queries, userID string) canonicaldb.ListCommitmentsRow {
 	t.Helper()
 	rows, err := q.ListCommitments(context.Background(), canonicaldb.ListCommitmentsParams{
-		UserID: userID, PersonalModelID: modelID, Status: "skipped",
+		UserID: userID, Status: "skipped", RowLimit: 50,
 	})
 	if err != nil {
 		t.Fatalf("ListCommitments(skipped): %v", err)

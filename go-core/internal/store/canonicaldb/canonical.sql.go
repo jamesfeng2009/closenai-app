@@ -51,6 +51,51 @@ func (q *Queries) BumpPersonalModelVersion(ctx context.Context, arg BumpPersonal
 	return current_version, err
 }
 
+const cancelCommitment = `-- name: CancelCommitment :one
+UPDATE personal_commitments
+SET status = 'cancelled', updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING id
+`
+
+type CancelCommitmentParams struct {
+	ID     string
+	UserID string
+}
+
+// 与 CancelGoal 同一格决定：这一张表也没有 cancelled_at，取消只留 status 与 updated_at。
+// 「跳到哪一列、哪个时间要不要留」是列语义，留在 SQL；「active → cancelled 许不许」
+// 是状态机，留在 domain（T4-02 的 TransitionAction），这里同样不加 `AND status=`。
+func (q *Queries) CancelCommitment(ctx context.Context, arg CancelCommitmentParams) (string, error) {
+	row := q.db.QueryRow(ctx, cancelCommitment, arg.ID, arg.UserID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const cancelGoal = `-- name: CancelGoal :one
+UPDATE personal_goals
+SET status = 'cancelled', updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING id
+`
+
+type CancelGoalParams struct {
+	ID     string
+	UserID string
+}
+
+// 取消**不写 completed_at**：那条列的语义是「达成了」，把「不想做了」写成达成
+// 会让 04 §22 的目标完成度量凭空多一个分子。这一张表没有 cancelled_at 列
+// （N2 建表时没有这一格，T4-01 只按 Baseline 的要求加了 skipped_at），
+// 所以取消留下的时间是 updated_at；要精确到「什么时候取消的」需要另开一次迁移，本期不做。
+func (q *Queries) CancelGoal(ctx context.Context, arg CancelGoalParams) (string, error) {
+	row := q.db.QueryRow(ctx, cancelGoal, arg.ID, arg.UserID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const claimOutboxBatch = `-- name: ClaimOutboxBatch :many
 WITH picked AS (
     SELECT id
@@ -1601,14 +1646,15 @@ const listCommitments = `-- name: ListCommitments :many
 SELECT id, title, description, status, due_at, completed_at, skipped_at,
        goal_id, created_at, updated_at
 FROM personal_commitments
-WHERE user_id = $1 AND personal_model_id = $2 AND status = $3
+WHERE user_id = $1 AND ($2::varchar = '' OR status = $2)
 ORDER BY created_at DESC
+LIMIT $3
 `
 
 type ListCommitmentsParams struct {
-	UserID          string
-	PersonalModelID string
-	Status          string
+	UserID   string
+	Status   string
+	RowLimit int32
 }
 
 type ListCommitmentsRow struct {
@@ -1624,8 +1670,9 @@ type ListCommitmentsRow struct {
 	UpdatedAt   pgtype.Timestamptz
 }
 
+// 与 ListGoals 同一格口径（T4-02）：`$2` 空串＝不过滤，按 user 而非 model 取。
 func (q *Queries) ListCommitments(ctx context.Context, arg ListCommitmentsParams) ([]ListCommitmentsRow, error) {
-	rows, err := q.db.Query(ctx, listCommitments, arg.UserID, arg.PersonalModelID, arg.Status)
+	rows, err := q.db.Query(ctx, listCommitments, arg.UserID, arg.Status, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -2040,14 +2087,15 @@ const listGoals = `-- name: ListGoals :many
 SELECT id, title, description, status, started_at, target_at, completed_at,
        created_at, updated_at
 FROM personal_goals
-WHERE user_id = $1 AND personal_model_id = $2 AND status = $3
+WHERE user_id = $1 AND ($2::varchar = '' OR status = $2)
 ORDER BY created_at DESC
+LIMIT $3
 `
 
 type ListGoalsParams struct {
-	UserID          string
-	PersonalModelID string
-	Status          string
+	UserID   string
+	Status   string
+	RowLimit int32
 }
 
 type ListGoalsRow struct {
@@ -2062,8 +2110,13 @@ type ListGoalsRow struct {
 	UpdatedAt   pgtype.Timestamptz
 }
 
+// 内部面读面（T4-02）。`$2` 空串＝不按状态过滤（「我的目标」默认要给全部四态，
+// 只显示 active 会让用户找不到自己刚完成的那一颗）。
+// 不再按 personal_model_id 过滤：一人一模型由 ix_personal_models_user_unique 兜住
+// （02 §5），而这一面唯一的调用方只拿到 user_id，加这一格等于把「模型行换了」
+// 变成「目标看不见」那种最难归因的空。
 func (q *Queries) ListGoals(ctx context.Context, arg ListGoalsParams) ([]ListGoalsRow, error) {
-	rows, err := q.db.Query(ctx, listGoals, arg.UserID, arg.PersonalModelID, arg.Status)
+	rows, err := q.db.Query(ctx, listGoals, arg.UserID, arg.Status, arg.RowLimit)
 	if err != nil {
 		return nil, err
 	}

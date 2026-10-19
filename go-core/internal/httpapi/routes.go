@@ -115,6 +115,27 @@ var routeTable = []routeSpec{
 	{method: "POST", path: "/internal/v3/insights/{id}/feedback",
 		gated:   func(s *Server) bool { return s.internalEnabled() },
 		handler: func(s *Server) http.HandlerFunc { return s.handleV3InsightFeedback }},
+	// T4-02：目标与行动面。开关判据与上面三条同格（internalEnabled），
+	// 因为这一面是一次部署单元；path 全部留在 /internal/ 前缀下 ⇒ Ingress 无规则覆盖，
+	// 对外不存在（v3.go 头注释）。
+	{method: "POST", path: "/internal/v3/goals",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3GoalCreate }},
+	{method: "GET", path: "/internal/v3/goals",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3GoalsList }},
+	{method: "PATCH", path: "/internal/v3/goals/{id}",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3GoalTransition }},
+	{method: "POST", path: "/internal/v3/goals/{id}/actions",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3ActionCreate }},
+	{method: "GET", path: "/internal/v3/actions",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3ActionsList }},
+	{method: "PATCH", path: "/internal/v3/actions/{id}",
+		gated:   func(s *Server) bool { return s.internalEnabled() },
+		handler: func(s *Server) http.HandlerFunc { return s.handleV3ActionTransition }},
 	// 兜底 404：不是切流面，但形状要留在表里（GET /api/v1/health 是 app 级端点的历史坑）。
 	// `/` 这条**不写方法**＝不限方法，与改写前的 `s.mux.HandleFunc("/", …)` 逐字同形；
 	// 给它补上 GET 会让 POST / 从「404 信封」变成「Go 默认的 405」，那是一次没人批的行为改动。

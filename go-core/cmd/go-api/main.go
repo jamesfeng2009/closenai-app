@@ -143,7 +143,12 @@ func main() {
 	//     取舍写在 `httpapi/v3.go` 的头注释；因此「部署了 Go 但没配密钥」与
 	//     「Go 从来没有这一面」对集群内同形，N8 那十条对外路由一行不受影响。
 	insightBrowser := domain.NewInsightBrowser(canonical, explainer)
-	v3 := &httpapi.V3{Insights: insightBrowser, Outcomes: candidateDomain}
+	// T4-02：目标/行动面。读面挂在池面（一次列表不是一笔要提交的改写），
+	// 写面共用同一颗 candidateDomain——理由与上面 `Outcomes` 那格逐字相同：
+	// canonical 的唯一写入口只许有一个实例，否则乐观锁与版本账本各算一份。
+	goalBrowser := domain.NewGoalBrowser(canonical)
+	v3 := &httpapi.V3{Insights: insightBrowser, Outcomes: candidateDomain,
+		Goals: goalBrowser, GoalWrites: candidateDomain}
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,

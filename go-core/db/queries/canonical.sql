@@ -252,15 +252,31 @@ INSERT INTO personal_goals (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
 -- name: ListGoals :many
+-- 内部面读面（T4-02）。`$2` 空串＝不按状态过滤（「我的目标」默认要给全部四态，
+-- 只显示 active 会让用户找不到自己刚完成的那一颗）。
+-- 不再按 personal_model_id 过滤：一人一模型由 ix_personal_models_user_unique 兜住
+-- （02 §5），而这一面唯一的调用方只拿到 user_id，加这一格等于把「模型行换了」
+-- 变成「目标看不见」那种最难归因的空。
 SELECT id, title, description, status, started_at, target_at, completed_at,
        created_at, updated_at
 FROM personal_goals
-WHERE user_id = $1 AND personal_model_id = $2 AND status = $3
-ORDER BY created_at DESC;
+WHERE user_id = $1 AND (sqlc.arg(status)::varchar = '' OR status = sqlc.arg(status))
+ORDER BY created_at DESC
+LIMIT sqlc.arg(row_limit);
 
 -- name: CompleteGoal :one
 UPDATE personal_goals
 SET status = 'completed', completed_at = now(), updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING id;
+
+-- name: CancelGoal :one
+-- 取消**不写 completed_at**：那条列的语义是「达成了」，把「不想做了」写成达成
+-- 会让 04 §22 的目标完成度量凭空多一个分子。这一张表没有 cancelled_at 列
+-- （N2 建表时没有这一格，T4-01 只按 Baseline 的要求加了 skipped_at），
+-- 所以取消留下的时间是 updated_at；要精确到「什么时候取消的」需要另开一次迁移，本期不做。
+UPDATE personal_goals
+SET status = 'cancelled', updated_at = now()
 WHERE id = $1 AND user_id = $2
 RETURNING id;
 
@@ -272,11 +288,13 @@ INSERT INTO personal_commitments (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
 -- name: ListCommitments :many
+-- 与 ListGoals 同一格口径（T4-02）：`$2` 空串＝不过滤，按 user 而非 model 取。
 SELECT id, title, description, status, due_at, completed_at, skipped_at,
        goal_id, created_at, updated_at
 FROM personal_commitments
-WHERE user_id = $1 AND personal_model_id = $2 AND status = $3
-ORDER BY created_at DESC;
+WHERE user_id = $1 AND (sqlc.arg(status)::varchar = '' OR status = sqlc.arg(status))
+ORDER BY created_at DESC
+LIMIT sqlc.arg(row_limit);
 
 -- name: CompleteCommitment :one
 UPDATE personal_commitments
@@ -291,6 +309,15 @@ RETURNING id;
 -- 「什么时候跳过的」是审计事实，被第二次点击刷掉就等于改写历史。
 UPDATE personal_commitments
 SET status = 'skipped', skipped_at = COALESCE(skipped_at, now()), updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING id;
+
+-- name: CancelCommitment :one
+-- 与 CancelGoal 同一格决定：这一张表也没有 cancelled_at，取消只留 status 与 updated_at。
+-- 「跳到哪一列、哪个时间要不要留」是列语义，留在 SQL；「active → cancelled 许不许」
+-- 是状态机，留在 domain（T4-02 的 TransitionAction），这里同样不加 `AND status=`。
+UPDATE personal_commitments
+SET status = 'cancelled', updated_at = now()
 WHERE id = $1 AND user_id = $2
 RETURNING id;
 
