@@ -1,0 +1,62 @@
+# T6-04（2026-10-20）· staging 那一刀：叠在 prod 之上的 overlay，**不是第三份完整编排**。
+#
+# 为什么不复制一份 prod：服务定义抄第二份＝第二真源（T6-03 刚为 canonical DDL 立过这条），
+# 下一批改 prod 的人只会改一处，两份编排会在同一个晚上分叉。
+# 这个文件只改三件事，别的都从 docker-compose.prod.yml 继承：
+#   1. `ENVIRONMENT` 换成 staging（受保护档：强制 JWT、缺密钥拒启——见 D-T604-3）；
+#   2. 库面：DATABASE_URL 换一个**变量名**（STAGING_DATABASE_URL），
+#      并强制要求 PROD_DB_FINGERPRINTS。工单 §为什么 那句话的形状是
+#      「两套 compose 变量指向同一个库」，所以这里的防法是**连可指错的键名都不给**：
+#      想双写，得有人主动把同一个值抄进两个不同名的键里，那是一次显式动作而不是手滑；
+#   3. 端口面：宿主回环与 80/443 归生产那一套（prod 的 py-api 占 127.0.0.1:8000、
+#      caddy 占 80/443）。staging 换到 18000/18080/18443，于是宿主 crontab 那一行
+#      `curl http://127.0.0.1:8000/…` 物理上打不到 staging 的进程。
+#      **`ports:` 必须带 `!override`**：compose 对 overlay 的 sequence 是**追加**而不是替换，
+#      2026-10-20 实跑 `docker compose config` 展开里 py-api 同时挂着 8000 与 18000、
+#      caddy 同时挂着 80/443 与 18080/18443——不加 `!override`，第 3 条整句落空，
+#      宿主 crontab 照样打得进 staging（而且两个 project 抢 8000 时先起的那个赢）。
+#      这一格由 `backend/tests/test_crontab_install_target.py::test_staging_overlay_expansion_drops_production_ports`
+#      钉的是**展开结果**，不是这个文件里出现过哪些数字。
+#
+# 用法（同一台 VPS 上的第二个 compose project，独立库、独立卷）：
+#   cp deploy/compose/.env.staging.example deploy/compose/.env.staging   # 权限 600，不入库
+#   docker compose -p closenai-staging \
+#     -f deploy/compose/docker-compose.prod.yml \
+#     -f deploy/compose/docker-compose.staging.yml \
+#     --env-file deploy/compose/.env.staging up -d
+#
+# 灰度键一律不在这里放量：staging 的 CLOSEN_CUTOVER_* 由 .env.staging 自己给，
+# 而审批位 CLOSEN_CUTOVER_APPROVED 对 staging 不适用（D-T604-7：它的百分比只落在自己的库上）。
+name: closenai-staging
+
+services:
+  py-api:
+    environment:
+      ENVIRONMENT: staging
+      DATABASE_URL: ${STAGING_DATABASE_URL:?staging 必须给指给自己那套库的串，禁止复用 DATABASE_URL}
+      PROD_DB_FINGERPRINTS: ${PROD_DB_FINGERPRINTS:?staging 不给生产库指纹＝这道闸一条都不判，拒启}
+    ports: !override
+      - "127.0.0.1:18000:8000"   # 宿主 crontab 打的是 8000，那一行永远落不到这里
+
+  ai-rpc:
+    environment:
+      ENVIRONMENT: staging
+      DATABASE_URL: ${STAGING_DATABASE_URL:?}
+
+  py-ai-worker:
+    environment:
+      ENVIRONMENT: staging
+      DATABASE_URL: ${STAGING_DATABASE_URL:?}
+
+  go-api:
+    environment:
+      ENVIRONMENT: staging
+      DATABASE_URL: ${STAGING_DATABASE_URL:?}
+      PROD_DB_FINGERPRINTS: ${PROD_DB_FINGERPRINTS:?}
+
+  # caddy 在 staging 不接管 80/443：那两个端口是生产那一套的入口，
+  # 同一台机器上两个 project 抢它们，后起的那个直接失败（这是有意的 fail-fast）。
+  caddy:
+    ports: !override
+      - "127.0.0.1:18080:80"
+      - "127.0.0.1:18443:443"

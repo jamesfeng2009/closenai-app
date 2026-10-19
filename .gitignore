@@ -21,6 +21,12 @@ env/
 .env.local
 .env.*.local
 *.env
+# T6-04：staging 用的那份真实环境文件里有 STAGING_DATABASE_URL 与 PROD_DB_FINGERPRINTS，
+# 这两串连起来就是「生产库的地址 + 它的指纹」，属于凭据面，一律不入库。
+# 只点名这两个真文件，示例文件（*.example）必须继续入库，所以不用 .env.staging* 通配。
+.env.staging
+.env.production
+!.env.*.example
 
 # Node / React Native / Expo
 node_modules/

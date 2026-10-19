@@ -39,14 +39,51 @@ QStash 公网回调（验签 `Upstash-Signature`），调度由投递侧注册�
 ## 安装（VPS 宿主）
 
 ```sh
-# 1. 密钥：只放宿主，权限 600，不入库（CRON_SECRET 须与后端 env 一致）
+# 1. 这一台是哪一档：脚本的判据来源（词表与两侧运行时同一张，见 T6-04 / D-T604-2）
 sudo mkdir -p /etc/closenai
+sudo sh -c 'umask 077; printf "ENVIRONMENT=production\n" > /etc/closenai/env'
+sudo chmod 600 /etc/closenai/env
+
+# 2. 密钥：只放宿主，权限 600，不入库（CRON_SECRET 须与后端 env 一致）
 sudo sh -c 'umask 077; printf "CRON_SECRET=%s\n" "<从密码管理器取>" > /etc/closenai/cron.env'
 sudo chmod 600 /etc/closenai/cron.env
 
-# 2. 装排程（会覆盖该用户的 crontab——先 crontab -l 导出留档）
-crontab deploy/schedule/crontab
+# 3. 装排程（会覆盖该用户的 crontab——先 crontab -l 导出留档）
+deploy/schedule/install-crontab.sh
 ```
+
+第 3 步走脚本而不是裸 `crontab deploy/schedule/crontab`，是因为 crontab 里那 15 行打的是
+`http://127.0.0.1:8000/…`，而这个端口归生产那一套编排；**staging 起来之后（T6-04），把同一张表
+装到 staging 宿主上会得到两套调度源各自按小时打端点**——它们连的是各自的库、看的是同一份声明，
+没有报错，只有重复投递。脚本读 `/etc/closenai/env` 的 `ENVIRONMENT`，只放行 `production|prod`，
+`staging`/`development`/词表外的值/文件缺失一律拒绝并非零退出。排障与闸门用
+`deploy/schedule/install-crontab.sh --check`（只判不装）。
+
+## staging 那一档（T6-04，2026-10-20）
+
+三条结论，都是「闸拦人」而不是「注释提醒人」：
+
+1. **staging 用独立库，串在启动时被逐字比对。** 编排是 prod 之上的 overlay
+   （[`compose/docker-compose.staging.yml`](compose/docker-compose.staging.yml)，不是第三份完整
+   编排——抄第二份就是造第二个真源，T6-03 刚为 canonical DDL 立过这条）。库变量名换成
+   `STAGING_DATABASE_URL`，并强制要求 `PROD_DB_FINGERPRINTS`（生产库的 host/dbname/用户名）。
+   py-api 与 go-api 启动时各自比对：命中生产指纹 ⇒ 拒启并报出 `host=`/`dbname=`（**不回显口令与
+   用户名**）；staging 档下黑名单为空也同样是拒启——「没配判据」不能等于「判据通过」。
+   键名与理由见 [`compose/.env.staging.example`](compose/.env.staging.example)。
+2. **切流键放量要双签。** ConfigMap 里的 8 个 `CLOSEN_CUTOVER_<域>` 之上还有一格
+   `CLOSEN_CUTOVER_APPROVED`（只认 `""|0|1`）。`ENVIRONMENT` 是 production 且任一格 `>0` 而审批位
+   不是 `1` ⇒ go-api 拒启。它随 ConfigMap 入库、发布时默认 `"0"`，所以「在 git 里把某个域改成 50」
+   这一步单独拿出来什么也不会发生；放量要同时改两处（百分比 + 审批位），那就是那次双签。
+   staging/development 不要求审批位：拨了只影响自己的库。
+3. **crontab 只装生产。** 见上一节的脚本与 `schedule/crontab` 顶部的
+   `# INSTALL-TARGET: production-only` 标记；三方对账在
+   `backend/tests/test_crontab_install_target.py`。
+
+`ENVIRONMENT` 是唯一真源，词表 `development|staging|production|prod` 逐字小写；`Production`
+这种拼错的值两侧都拒启（它会让请求静默落进非生产档，连鉴权口径一起换掉）。staging 是
+**受保护档**：与生产同一套 JWT 校验、缺 `JWT_SECRET`/`CRON_SECRET` 拒启——这样「staging 上跑通了」
+对「生产会怎样」才有预测力。用例表 `go-core/testdata/env_isolation_cases.json` 是两侧共同的规格，
+Go 与 Python 各写一份实现、各自跑同一批格（`backend/tests/test_env_isolation_cross_language.py`）。
 
 ## 时区
 
@@ -139,5 +176,16 @@ increase({job="closenai", app="go-api"} | json | msg="queue_metrics" | unwrap dl
 
 ## 回滚
 
-恢复上一版 crontab 文件后 `crontab deploy/schedule/crontab` 重装即可；宿主上的
-当前生效版本务必先 `crontab -l > <留档路径>` 再改——该状态不入库，git 帮不了你。
+- 调度：恢复上一版 crontab 文件后跑 `deploy/schedule/install-crontab.sh` 重装（同样只认
+  `production|prod`，所以「手滑把表装到 staging」这条路径不在回滚清单里——它压根装不上去）；
+  宿主上的当前生效版本务必先 `crontab -l > <留档路径>` 再改——该状态不入库，git 帮不了你。
+- 切流：把出问题的 `CLOSEN_CUTOVER_<域>` 改回 `0` 即回滚，**不需要**动 `CLOSEN_CUTOVER_APPROVED`
+  （全部回到 0 时审批位不再被要求，见 `go-core/internal/cutover/approval.go` 的判据方向）。
+  反过来，紧急止血也可以只把审批位改成 `"0"` 再重新 apply：go-api 会在启动时拒绝任何 `>0` 的格，
+  等于把「带放量配置的 Pod」整体拒之门外，比逐个改键更难漏。
+- staging：`docker compose -p closenai-staging ... down` 只影响这一档自己的库；它的 overlay 不接管
+  宿主 8000/80/443，所以生产那一套的入口不会被它抢走（抢了会 fail-fast，见 overlay 第 3 条注释）。
+  这一句成立的前提是 overlay 里那两格 `ports: !override`：compose 对 overlay 的 sequence 是
+  **追加**，不带 `!override` 时 prod 基线的 `127.0.0.1:8000` 会一起被展开（2026-10-20 实跑
+  `docker compose config` 发现并修掉，判据是 `test_staging_overlay_expansion_drops_production_ports`，
+  它看的是展开结果而不是文件里写了哪些数字）。

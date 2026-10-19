@@ -1,6 +1,12 @@
 # CLOSENAI V3 调度源（T0-02，2026-10-18 起唯一调度声明；vercel.json 退役）
 #
-# 安装（VPS，UTC 服务器时区）：crontab deploy/schedule/crontab
+# INSTALL-TARGET: production-only
+#
+# 安装（VPS，UTC 服务器时区）：deploy/schedule/install-crontab.sh
+#   —— 不要再用裸 `crontab deploy/schedule/crontab`：那行命令不问你装到哪个环境，
+#   而 staging 起来后（T6-04）它与生产会同时按小时打同一组 /cron/* 端点（双跑）。
+#   脚本读宿主 /etc/closenai/env 的 ENVIRONMENT，只在 production|prod 才落表，
+#   其余档一律拒绝并非零退出。--check 只判不装。
 # 排障、时区口径与手动重放见 deploy/README.md。
 # 密钥：CRON_SECRET 只存在于宿主 /etc/closenai/cron.env（权限 600，不入库）；
 #       crontab 本身不含任何明文密钥。

@@ -81,6 +81,18 @@ data:
   # Python 走 Starlette 的 redirect_slashes 给 307，Go 的 mux 没有那条 pattern 给 404 信封；
   # 它没种进夹具（种了就是把已知不同形钉成契约），属放量前置项，见 memory_detail.go 文件头。
   CLOSEN_CUTOVER_MEMORIES: "0"
+  # ── T6-04 审批位（Go-only；它**不是**第九个切流域）──────────────────────
+  # 上面那八个键今天全是 "0"，那是**当前状态**不是约束：把一个域拨到 50 的动作
+  # 在现网是「kubectl edit 一行」，没有第二个人签字、也没有任何一处代码反对。
+  # 从本票起，go-api 在 ENVIRONMENT=production 且**任一个**百分比 > 0 时，
+  # 必须读到 CLOSEN_CUTOVER_APPROVED="1" 才肯启动，否则拒绝启动
+  # （判据 internal/cutover/approval.go，逐格闸 cutover/approval_test.go，
+  # §验收 第二句「把切流键改 50 且无审批 ⇒ 启动失败」的靶在 scripts/mutate_t604_gates.py）。
+  # 取值面只认 ""|0|1：写成 "true"/"yes"/"1 " 一律拒启（同 CLOSEN_INSIGHT_EVIDENCE_READ 的口径——
+  # 一个「以为签了字其实没签」的审批位比没有审批位更危险）。
+  # 放在 ConfigMap 而不是 Secret：它是**流程标记**不是凭据，放量之后它必须能被审计读到。
+  # 双签流程与回滚口径写在 deploy/README.md「staging 那一档」一节第 2 条。
+  CLOSEN_CUTOVER_APPROVED: "0"
   # PostHog 收件箱地址。默认值两侧都是这个字面量（backend/config.py:160），
   # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
   # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。
