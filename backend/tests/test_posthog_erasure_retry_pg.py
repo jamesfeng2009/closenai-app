@@ -43,7 +43,7 @@ from backend.services.user_service import user_service
 pytestmark = pytest.mark.asyncio
 
 PREFIX = "t102"
-HEAD = "e5a7b9d1f3a5"  # T1-02 件（当前 head）
+HEAD = "f6b8d0e2a4c6"  # 当前 alembic head（T4-01 件挂在 T1-02 件之上）
 
 
 @pytest.fixture

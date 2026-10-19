@@ -245,13 +245,20 @@ class PersonalGoal(Base):
 
 
 class PersonalCommitment(Base):
-    """02 §10：架构方案 §五-5「不建新表」在 Go 权威侧的反转落点（登记于 tasks.md N2）。"""
+    """02 §10：架构方案 §五-5「不建新表」在 Go 权威侧的反转落点（登记于 tasks.md N2）。
+
+    T4-01 起这一张表**同时**是「行动」：`goal_id` 让它挂到目标下，`skipped_at` 让「跳过」
+    成为一等状态（PLAN §5 决策 6／§7 状态映射表）。合法状态 `active/completed/skipped/
+    cancelled` 在 Go 的 domain 校验，库里不加 CHECK 也不加 enum（裁决 §五-4）。
+    """
 
     __tablename__ = "personal_commitments"
 
     id: Mapped[str] = _id()
     user_id: Mapped[str] = _user_id()
     personal_model_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # 无 FK（D-5：删除靠逐表 rowcount，FK 会把 purge 顺序变成硬依赖）；归属靠 user_id 谓词。
+    goal_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
@@ -261,11 +268,16 @@ class PersonalCommitment(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    skipped_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = _ts()
     updated_at: Mapped[datetime] = _ts()
 
     __table_args__ = (
         Index("ix_personal_commitments_user_status", "user_id", "status"),
+        # 读路径是「某人名下、某目标下按状态筛」；前导列 user_id 同时兜住 purge 那条闸。
+        Index("ix_personal_commitments_goal", "user_id", "goal_id", "status"),
     )
 
 

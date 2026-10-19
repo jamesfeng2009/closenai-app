@@ -52,6 +52,10 @@ TRACE_MIGRATION_PATH = (
     ROOT / "backend" / "alembic" / "versions"
     / "e7a2c4b6d8f1_add_outbox_trace_id.py"
 )
+T401_MIGRATION_PATH = (
+    ROOT / "backend" / "alembic" / "versions"
+    / "f6b8d0e2a4c6_add_commitment_goal_and_skip.py"
+)
 QUERIES_PATH = ROOT / "go-core" / "db" / "queries" / "canonical.sql"
 GO_DIR = ROOT / "go-core"
 
@@ -65,7 +69,9 @@ W5_CONSENT_REVISION = "a1c3e5f7b9d1"  # T5-01 user_consents
 W5_QUIET_REVISION = "b2d4f6a8c0e2"  # T5-02 users.quiet_start/quiet_end
 W5_HEAD_REVISION = "c3e5a7b9d1f2"  # T5-03 chat_messages 幂等键 + journey 日序唯一
 T101_EXPORT_REVISION = "d4f6a8b0c2e4"  # T1-01 data_export_jobs
-T102_ERASURE_REVISION = "e5a7b9d1f3a5"  # T1-02 posthog_erasure_retries（当前 head）
+T102_ERASURE_REVISION = "e5a7b9d1f3a5"  # T1-02 posthog_erasure_retries
+# W4 行动闭环（2026-10-19）：T4-01 给 personal_commitments 加 goal_id/skipped_at（当前 head）
+T401_COMMITMENT_REVISION = "f6b8d0e2a4c6"
 
 # N2 的 21 张新表（ai_generation_runs 属 O4 已交付，N2 沿用同一份 DDL，不在此列）
 N2_TABLES = (
@@ -206,10 +212,12 @@ def test_migration_graph_is_single_head_with_n7_on_top():
 
     script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
     heads = script.get_heads()
-    assert heads == [T102_ERASURE_REVISION], (
-        f"alembic head = {heads}，T1-02 之后须是单头 {T102_ERASURE_REVISION}"
+    assert heads == [T401_COMMITMENT_REVISION], (
+        f"alembic head = {heads}，T4-01 之后须是单头 {T401_COMMITMENT_REVISION}"
     )
-    # 新件必须挂在既有 head 之上（不是另起一条链）：退一件就回到 T1-01 的导出件。
+    # 新件必须挂在既有 head 之上（不是另起一条链）：退两件分别回到 T4-01 与 T1-01 的导出件。
+    assert script.get_revision(T401_COMMITMENT_REVISION).down_revision == T102_ERASURE_REVISION, (
+        "T4-01 的承诺件没挂在 T1-02 的重试台账件之上，链形状变了")
     assert script.get_revision(T102_ERASURE_REVISION).down_revision == T101_EXPORT_REVISION, (
         "T1-02 的重试台账件没挂在 T1-01 导出件之上，链形状变了")
     export_down = script.get_revision(T101_EXPORT_REVISION).down_revision
@@ -281,6 +289,43 @@ def test_every_canonical_table_has_a_user_id_leading_index():
         if not leading:
             pk = re.search(r"PRIMARY KEY \(user_id[,)]", body)
             assert pk, f"{name} 没有以 user_id 打头的索引，purge 会退化成顺扫"
+
+
+def test_t401_commitment_columns_are_expand_shaped_and_index_is_user_id_leading():
+    """T4-01 的两列与一条索引：静态口径拍在**这一件迁移**上，而不是靠 N2 件顺带兜住。
+
+    为什么单独立一条：`_all_tables()`／`_all_index_stmts()` 只吃 N2/N7 两件（它们是建表件），
+    加列件不进那两个清单，于是「禁 FK／禁 CHECK／索引必须 user_id 打头」这三条对本件
+    一句都不成立——不补这一格，下一件加列迁移就是从一个没有闸的洞里进来的。
+    四种坏法各有靶：给 goal_id 加 FK（purge 顺序变成硬依赖，D-5）、给 status 加 CHECK
+    （状态集合改判变成一次迁移，裁决 §五-4）、索引列序换成 (goal_id, user_id, status)
+    （前导列变了 ⇒ purge 那条 user_id 打头的闸退化成顺扫，而查询计划看起来没问题）、
+    列建成 NOT NULL（老代码不写这一列，迁移当场把存量行卡住，expand 形退化成 break 形）。
+    """
+    src = T401_MIGRATION_PATH.read_text(encoding="utf-8")
+    up, _, down = src.partition("def downgrade()")
+    up = up.partition("def upgrade()")[2]
+
+    for forbidden in ("ForeignKey", "foreign_keys", "CHECK", "CREATE TYPE", "sa.Enum",
+                      "ON DELETE", "server_default"):
+        assert forbidden not in up, f"T4-01 的 upgrade 里出现 {forbidden}：口径见迁移 docstring"
+    assert up.count("nullable=True") == 2, (
+        "两列必须各自可空、且只有这两处可空声明：建成 NOT NULL 就把 expand 形变成 break 形，"
+        "存量行会在迁移当场卡住")
+    assert 'sa.Column("goal_id", sa.String(length=36)' in up, "goal_id 不是 VARCHAR(36)"
+    assert 'sa.Column("skipped_at", sa.DateTime(timezone=True)' in up, (
+        "skipped_at 不是 TIMESTAMPTZ：本地日界会跟着库时区漂")
+
+    index = re.search(r'create_index\(\s*"([^"]+)",\s*"([^"]+)",\s*\[([^\]]+)\]', up)
+    assert index, "T4-01 没建索引：(user_id, goal_id, status) 是这一面的读路径"
+    name, table, cols = index.group(1), index.group(2), [
+        c.strip().strip('"') for c in index.group(3).split(",")]
+    assert (name, table) == ("ix_personal_commitments_goal", "personal_commitments"), (
+        f"索引名/表名被改掉：{name} ON {table}")
+    assert cols == ["user_id", "goal_id", "status"], f"索引列序 = {cols}，前导列必须是 user_id"
+
+    assert "drop_index" in down and "goal_id" in down and "skipped_at" in down, (
+        "回退件不完整：本地回退时留下一列或留下一条索引，快照与库就长期漂移")
 
 
 def test_idempotency_unique_keys_are_declared():
@@ -527,12 +572,14 @@ def test_live_db_has_no_enum_or_jsonb_or_new_fk():
 
 
 def test_alembic_roundtrip_on_empty_database():
-    """N2/N7/trace/W5/T1-01/T1-02 验收的「alembic upgrade/downgrade 隔离库实测」（八件逐级回退）。
+    """N2/N7/trace/W5/T1-01/T1-02/T4-01 验收的「alembic upgrade/downgrade 隔离库实测」（九件逐级回退）。
 
     指向一个**空的**库（库里连 alembic_version 都没有），用独立 env 变量避免误打
     共享库；跑完库里有 alembic_version，所以下一次取证前要重建：
         docker exec closenai-pg-dev psql -U postgres -c 'CREATE DATABASE n2_roundtrip'
-        N2_MIGRATE_DATABASE_URL='postgresql://postgres:***@127.0.0.1:55432/n2_roundtrip'
+        N2_MIGRATE_DATABASE_URL='postgresql://postgres:<口令从 env 取>@127.0.0.1:55432/n2_roundtrip'
+    口令一律从 env 取（`docker inspect` 的 POSTGRES_PASSWORD），**不写进本文件**：
+    本机 dev 库的口令也是凭据，2026-10-19 清掉这里的一行明文并轮换（[[feedback-no-credentials-in-repo]]）。
     """
     from sqlalchemy import create_engine, text
 
@@ -599,7 +646,7 @@ def test_alembic_roundtrip_on_empty_database():
 
     alembic("upgrade", "head")
     after_up, head = tables_and_head()
-    assert head == T102_ERASURE_REVISION, f"upgrade 后 head = {head}，应为 {T102_ERASURE_REVISION}"
+    assert head == T401_COMMITMENT_REVISION, f"upgrade 后 head = {head}，应为 {T401_COMMITMENT_REVISION}"
     assert set(CANONICAL_TABLES) <= after_up, (
         f"缺表 {set(CANONICAL_TABLES) - after_up}")
     assert has_trace_col(), "upgrade 后 outbox_messages 应带 trace_id（批 T-B 的正向证人）"
@@ -619,10 +666,23 @@ def test_alembic_roundtrip_on_empty_database():
     assert {
         "uq_posthog_erasure_retries_user_id", "ix_posthog_erasure_retries_next_attempt"
     } <= index_names(), "T1-02 件的唯一约束/索引没建起来"
+    # T4-01 的正向证人：两列（可空）与那条 user_id 打头的复合索引。
+    assert has_columns("personal_commitments", {"goal_id", "skipped_at"}), (
+        "T4-01 件没给 personal_commitments 加 goal_id/skipped_at ⇒ 行动仍挂不到目标下")
+    assert "ix_personal_commitments_goal" in index_names(), "T4-01 件的索引没建起来"
 
-    # 逐级回退：先退 T1-02 重试台账（表整个走），再退 T1-01 导出件（表整个走），
-    # 然后退 W5 三件（T5-03 → T5-02 → T5-01），
+    # 逐级回退：先退 T4-01 的两列（只该走列与一条索引，表要留着），再退 T1-02 重试台账（表整个走），
+    # 然后退 T1-01 导出件（表整个走），接着退 W5 三件（T5-03 → T5-02 → T5-01），
     # 接着退 trace 件（只该走一列），最后退 N7 件（表整个走）与 N2 件（21 张全走）。
+    alembic("downgrade", "-1")
+    after_down_t401, head = tables_and_head()
+    assert head == T102_ERASURE_REVISION, f"退 T4-01 后 head = {head}，应回到 {T102_ERASURE_REVISION}"
+    assert not has_columns("personal_commitments", {"goal_id", "skipped_at"}), (
+        "T4-01 的列没退干净：留下一列会让快照与库长期漂移，而下一件迁移以为自己在空列上加东西")
+    assert "ix_personal_commitments_goal" not in index_names(), "退 T4-01 仍残留它的索引"
+    assert "personal_commitments" in after_down_t401 and set(CANONICAL_TABLES) <= after_down_t401, (
+        "退一列一索引带走了别人的表——加列件的回退只许动它自己加的东西")
+
     alembic("downgrade", "-1")
     after_down_t102, head = tables_and_head()
     assert head == T101_EXPORT_REVISION, f"退 T1-02 后 head = {head}，应回到 {T101_EXPORT_REVISION}"

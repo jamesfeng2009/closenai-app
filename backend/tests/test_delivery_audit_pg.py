@@ -43,7 +43,7 @@ from backend.services.delivery_service import METRIC_MARKER, audit_paid_delivery
 pytestmark = pytest.mark.asyncio
 
 PREFIX = "t104"
-HEAD = "e5a7b9d1f3a5"  # 当前 alembic head（T1-02 件）
+HEAD = "f6b8d0e2a4c6"  # 当前 alembic head（T4-01 件挂在 T1-02 件之上）
 
 
 @pytest.fixture

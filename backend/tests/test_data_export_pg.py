@@ -111,9 +111,12 @@ async def pg(monkeypatch, tmp_path):
             select(func.count(User.id)).where(User.id.not_like(f"{PREFIX}%"))
         ) or 0)
     # head 必须是**最新**那条迁移，否则本轮新增的表根本不存在，用例全在打空库。
-    # 因此它跟着 head 走（现在＝T1-02 的 posthog_erasure_retries），而 T1-01 的证人放在下一行：
-    # 那张表必须在库里，这才是本文件真正依赖的东西。
-    assert head == "e5a7b9d1f3a5", f"库的 alembic head={head}，不是最新的 T1-02 件"
+    # 因此它跟着 head 走（现在＝T4-01 的 personal_commitments 两件，挂在 T1-02 件之上），
+    # 而 T1-01 的证人放在下一行：那张表必须在库里，这才是本文件真正依赖的东西。
+    # 注意这条断言每落一件迁移就要改一次——同一句话在 `test_canonical_schema.py`、
+    # `test_posthog_erasure_retry_pg.py`、`test_delivery_audit_pg.py` 里各有一份字面量
+    # （四个第二真源），2026-10-19 登记给 T6-03「单一事实源」，本批只做跟手更新。
+    assert head == "f6b8d0e2a4c6", f"库的 alembic head={head}，不是最新的 T4-01 件"
     assert "data_export_jobs" in pg_tables, "库里没有 data_export_jobs：本文件的靶不在，跑它没有意义"
     assert others == 0, f"库里已有 {others} 个别的用户：本用例会在真库上删数据，只能跑在一空库"
 
