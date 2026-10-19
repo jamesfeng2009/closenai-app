@@ -69,8 +69,13 @@ func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2,
 	batch3 *Batch3, batch4 *Batch4, batch5 *Batch5, batch6 *Batch6, v3 *V3) *Server {
 	s := &Server{
-		cfg:        cfg,
-		middleware: NewMiddleware(signer, cfg.IsProduction()),
+		cfg: cfg,
+		// T6-04（D-T604-3）：强制鉴权那一格读 IsProtected()，不是 IsProduction()。
+		// 差别只有一档：staging。它读的是「能不能拿 X-User-Id 当身份」——
+		// 用 IsProduction 的话 staging 会得到 development 的设备身份透传口径，
+		// 比本票要防的双写更糟。判据与真值表在 config/env_isolation.go＋
+		// config_test 那边，这里只负责别接错线。
+		middleware: NewMiddleware(signer, cfg.IsProtected()),
 		auth:       service,
 		evidence:   explainer,
 		batch1:     batch1,

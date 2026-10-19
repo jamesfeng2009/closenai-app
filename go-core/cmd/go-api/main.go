@@ -46,6 +46,43 @@ func main() {
 	if err := cfg.RequireAuthSecret(); err != nil {
 		log.Fatalf("go-api: %v", err)
 	}
+	// T6-04 §怎么做.1：库面隔离判在**建连之前**。判晚了就等于「先连上生产库、
+	// 再决定要不要拒绝」——那一次连接本身已经进了 PG 的日志与连接计数，
+	// 而同一份 DATABASE_URL 还会先喂给 migrate 容器把 schema 动过一遍。
+	if err := cfg.RequireDBIsolation(); err != nil {
+		log.Fatalf("go-api: %v", err)
+	}
+
+	// N8 批 1（analytics + discovery）的依赖面。灰度百分比未到的请求逐字转交 py-api，
+	// 所以 CLOSEN_PY_API_URL 缺失而百分比 <100 时是**拒绝启动**而不是静默 404。
+	//
+	// T6-04（决策点 D-T604-10）：这张八格表在这里**只构造一次**，两个消费方共用它
+	// ——cutover.New 拿它决定每条请求归谁，CheckApproval 拿它决定要不要拒绝启动。
+	// 分成两份各读一遍 cfg 字段的话，「审批看的是另一份数」就是下一个 D-G12。
+	cutoverPercents := map[string]int{
+		"analytics":  cfg.CutoverAnalytics,
+		"discovery":  cfg.CutoverDiscovery,
+		"curriculum": cfg.CutoverCurriculum,
+		"journey":    cfg.CutoverJourney,
+		"onboarding": cfg.CutoverOnboarding,
+		// 批 5：mood 键盖 /mood/history 与 /mood/trend 两条已上 path 的 GET；
+		// reflections 键**先声明不上 path**（D-10：Ingress 的 path 匹配不看方法，
+		// /api/v1/reflections 的 GET 与 POST 共用一个 path，而两个 POST 仍归 py-api）。
+		"mood":        cfg.CutoverMood,
+		"reflections": cfg.CutoverReflections,
+		// D-G12（批 3）：memories 这条键早就在 config 里声明了，却没进这张 map——
+		// 而它与 reflections 同为 PATHLESS（Ingress 没有入口 path），所以今天没有流量
+		// 走到这一格，缺格一直是**静默**的。缺格的语义是 `!ok ⇒ 当成 100% 自答`，
+		// 于是下一刀把 path 放进 Ingress 时 Go 会无视百分比全量自答、键调回 0 也回滚不了。
+		// 补格＝把「拨了不响的假旋钮」变成「今天 0%，真能回滚」。
+		"memories": cfg.CutoverMemories,
+	}
+	// T6-04 §怎么做.2：production 档只要有域在放量就必须有签字（§验收 第二句）。
+	// 这一句在 New 之前、也在建连之前——放量没签字时不该留下任何「它连过生产库」的痕迹。
+	if err := cutover.CheckApproval(cfg.Environment, cutoverPercents, cfg.CutoverApproved); err != nil {
+		log.Fatalf("go-api: %v", err)
+	}
+
 	if cfg.JWTSecret == "" {
 		slog.Warn("go-api: JWT_SECRET empty, every bearer token will be rejected")
 	}
@@ -77,26 +114,9 @@ func main() {
 	canonical := store.NewCanonical(pool)
 	explainer := domain.NewInsightExplainer(canonical, domain.DefaultPolicy())
 
-	// N8 批 1（analytics + discovery）的依赖面。灰度百分比未到的请求逐字转交 py-api，
-	// 所以 CLOSEN_PY_API_URL 缺失而百分比 <100 时是**拒绝启动**而不是静默 404。
-	gate, err := cutover.New(cfg.CutoverPyAPIURL, map[string]int{
-		"analytics":  cfg.CutoverAnalytics,
-		"discovery":  cfg.CutoverDiscovery,
-		"curriculum": cfg.CutoverCurriculum,
-		"journey":    cfg.CutoverJourney,
-		"onboarding": cfg.CutoverOnboarding,
-		// 批 5：mood 键盖 /mood/history 与 /mood/trend 两条已上 path 的 GET；
-		// reflections 键**先声明不上 path**（D-10：Ingress 的 path 匹配不看方法，
-		// /api/v1/reflections 的 GET 与 POST 共用一个 path，而两个 POST 仍归 py-api）。
-		"mood":        cfg.CutoverMood,
-		"reflections": cfg.CutoverReflections,
-		// D-G12（批 3）：memories 这条键早就在 config 里声明了，却没进这张 map——
-		// 而它与 reflections 同为 PATHLESS（Ingress 没有入口 path），所以今天没有流量
-		// 走到这一格，缺格一直是**静默**的。缺格的语义是 `!ok ⇒ 当成 100% 自答`，
-		// 于是下一刀把 path 放进 Ingress 时 Go 会无视百分比全量自答、键调回 0 也回滚不了。
-		// 补格＝把「拨了不响的假旋钮」变成「今天 0%，真能回滚」。
-		"memories": cfg.CutoverMemories,
-	})
+	// 灰度闸本体：那张表在上面已经构造并过完审批位了（D-T604-10），这里只做
+	// 「有域没到 100% 却没有 CLOSEN_PY_API_URL」那一格检查。
+	gate, err := cutover.New(cfg.CutoverPyAPIURL, cutoverPercents)
 	if err != nil {
 		log.Fatalf("go-api: cutover: %v", err)
 	}

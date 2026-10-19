@@ -608,6 +608,12 @@ func TestMainWiresTheInternalSurfaceToTheSameDomainService(t *testing.T) {
 		"Proactives: proactiveAudit",
 		"domain.NewProactiveAuditBrowser(canonical)",
 		"batch6, v3)",
+		// T4-02 缺陷①／T6-03 缺陷①逐字归本票的那三格：goals 的读面与两个写面。
+		// 那笔欠账的形状是「httpapi 与 domain 两侧各自都绿，进程里却没有这一格」——
+		// 上一轮翻过的车（漏装配 ⇒ 整个内部面 404）就是这条判据要拦的。
+		"Goals: goalBrowser",
+		"GoalWrites: candidateDomain",
+		"OutcomeWrites: candidateDomain",
 	} {
 		if !strings.Contains(text, phrase) {
 			t.Errorf("main.go 里没有 %q ⇒ 内部面没接进进程，而 httpapi／domain 两侧的用例照样全绿（假绿）", phrase)
@@ -627,6 +633,18 @@ func TestMainWiresTheInternalSurfaceToTheSameDomainService(t *testing.T) {
 	}
 	if n := strings.Count(text, "Outcomes: candidateDomain"); n != 1 {
 		t.Errorf("Outcomes: candidateDomain 命中 %d 次，期望 1 ⇒ 反馈写口要么没接上，要么长了第二个", n)
+	}
+	// 逐格计数证人（T6-04 补的三格）：存在性由上面那个循环管，这里管「只挂一次」。
+	// `OutcomeWrites` 与 `GoalWrites` 都指向 candidateDomain，但字符串互不包含，
+	// 所以这一格能分开数；挂两次意味着内部面长了第二个写口，乐观锁各算一份。
+	for _, phrase := range []string{
+		"Goals: goalBrowser",
+		"GoalWrites: candidateDomain",
+		"OutcomeWrites: candidateDomain",
+	} {
+		if n := strings.Count(text, phrase); n != 1 {
+			t.Errorf("%q 命中 %d 次，期望 1 ⇒ 这一格要么没接上，要么接了两次", phrase, n)
+		}
 	}
 	// 这一面**不许**有第二个旋钮：开关只有 `GO_SERVICE_TOKEN` 一格（空 ⇒ 不注册）。
 	lower := strings.ToLower(text)

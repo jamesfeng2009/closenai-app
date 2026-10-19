@@ -10,10 +10,14 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	AppName     string
+	AppName string
+	// Environment 只有四个合法值（`development|staging|production|prod`，逐字小写）；
+	// 词表与判据在 env_isolation.go，取值不在表里一律拒绝启动（D-T604-2）。
+	// `staging` 自 T6-04 起是**受保护档**：与 production 同样强制 JWT、同样缺密钥就拒启（D-T604-3）。
 	Environment string
 	DatabaseURL string
 	JWTSecret   string
@@ -71,6 +75,19 @@ type Config struct {
 	// 这是本结构里唯一的 Go-only 变量：CLOSEN_ 前缀与 domain 的数值闸同源，
 	// Python 侧没有对应字段，所以它不进上面的跨语言名单口径。
 	InsightEvidenceRead string
+	// CutoverApproved 是 T6-04 的**审批位**（`CLOSEN_CUTOVER_APPROVED`）：
+	// production 且八个百分比里任一个 > 0 时必须是 "1"，否则拒绝启动。
+	// 它**不是**第九个切流域——`cutover/matrix.go` 与 ConfigMap 那两面闸都按
+	// `envInt("CLOSEN_CUTOVER_<域>"` 取域，所以这里用 envString 读它，
+	// 免得它被当成一个叫 `approved` 的域。
+	CutoverApproved string
+	// ProdDBFingerprints 是「生产库长什么样」那张黑名单（`PROD_DB_FINGERPRINTS`，逗号分隔）。
+	// 键名刻意**不带 CLOSEN_ 前缀**：与 GoServiceToken 同一条口径——带前缀＝只有 Go 认得，
+	// 而这个键 Python 也读（`backend/main.py::_validate_startup_config`），因为 py-api 同样是
+	// canonical 的写方，只挡 Go 等于把「两套进程双写同一个库」的门开了一半。
+	// 判据与逐条命中形状见 `env_isolation.go`；两侧实现不同源，由
+	// `go-core/testdata/env_isolation_cases.json` 这份**用例表**对账。
+	ProdDBFingerprints []string
 	// GoServiceToken 是 `/internal/v3/*` 这一面的服务间凭据（ADR-002：Go 只暴露内部面，
 	// 鉴权用 `X-Service-Token`）。变量名刻意**不带 CLOSEN_ 前缀**：它两侧都读
 	// （Go 在这里，Python 在 backend/config.py 的 `go_service_token`），
@@ -85,6 +102,31 @@ type Config struct {
 }
 
 const defaultDatabaseURL = "sqlite+aiosqlite:///./closenai.db"
+
+// EnvironmentValues 是 ENVIRONMENT 的**唯一词表**（D-T604-2），顺序即文档顺序。
+// 四个值逐字小写：`"Production"` 不是合法值而是拼错——把它折叠成小写会让
+// 「设错了但看起来设了」这一格静默通过，而本仓对回退开关的口径是反的
+// （对照 CLOSEN_INSIGHT_EVIDENCE_READ 只认 on|off）。
+// Python 侧同一张表在 backend/core/env_isolation.py，跨语言闸逐字比这两个集合。
+var EnvironmentValues = []string{"development", "staging", "production", "prod"}
+
+// ProtectedEnvironments 是「这一档必须像生产一样严格」的子集（D-T604-3）：
+// 强制 JWT 鉴权、缺密钥拒绝启动都按这张表判。staging 必须在里面——
+// 否则「设成 staging」换来的是 development 的设备身份透传口径，
+// 那比它要防的双写更糟（docker-compose.prod.yml:77 记的就是同一个坑）。
+var ProtectedEnvironments = []string{"staging", "production", "prod"}
+
+func inList(list []string, v string) bool {
+	for _, item := range list {
+		if item == v {
+			return true
+		}
+	}
+	return false
+}
+
+// IsValidEnvironment 判取值在不在词表里（Load 用它，闸也用它对账 Python 那张表）。
+func IsValidEnvironment(env string) bool { return inList(EnvironmentValues, env) }
 
 // ShareLandingURL 是分享落地的唯一取法，与 Python 侧 `settings.share_landing_url` 同口径：
 // 上架前给站点、上架后给 App Store。消费方不许直接读 AppStoreURL——未配置时那会发出
@@ -122,6 +164,25 @@ func Load() (Config, error) {
 		CutoverMood:            envInt("CLOSEN_CUTOVER_MOOD", 0),
 		CutoverReflections:     envInt("CLOSEN_CUTOVER_REFLECTIONS", 0),
 		CutoverMemories:        envInt("CLOSEN_CUTOVER_MEMORIES", 0),
+		CutoverApproved:        envString("CLOSEN_CUTOVER_APPROVED", ""),
+		ProdDBFingerprints:     envList("PROD_DB_FINGERPRINTS"),
+	}
+	// 环境词表（D-T604-2）：设错了必须起不来。这一格原来是裸着的——
+	// `ENVIRONMENT=stging` 在 Go 侧读成「不是 production」，于是中间件按开发档放行
+	// 设备身份透传（server.go:73），而运维以为自己在跑生产档。
+	if !IsValidEnvironment(cfg.Environment) {
+		return cfg, fmt.Errorf(
+			"unsupported ENVIRONMENT %q: only %s are accepted (staging is a protected tier, see D-T604-3)",
+			cfg.Environment, strings.Join(EnvironmentValues, "|"))
+	}
+	// 审批位的取值面与回退开关同口径：只认空|"0"|"1"。
+	// "true"/"yes"/"1 " 一律拒启——一个「以为签了字其实没签」的审批位比没有审批位更危险。
+	switch cfg.CutoverApproved {
+	case "", "0", "1":
+	default:
+		return cfg, fmt.Errorf(
+			"unsupported CLOSEN_CUTOVER_APPROVED %q: only 1 (signed) or 0/empty (not signed) are accepted",
+			cfg.CutoverApproved)
 	}
 	if cfg.JWTAlgorithm != "HS256" {
 		return cfg, errors.New("unsupported JWT_ALGORITHM: cross-language baseline is HS256")
@@ -156,22 +217,33 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// RequireAuthSecret mirrors backend/main.py::_validate_startup_config: production
-// refuses to boot without a secret, development starts and lets tokens fail closed.
+// RequireAuthSecret mirrors backend/main.py::_validate_startup_config: protected tiers
+// (staging included, D-T604-3) refuse to boot without a secret; development starts and
+// lets tokens fail closed.
 func (c Config) RequireAuthSecret() error {
-	if c.IsProduction() && c.JWTSecret == "" {
-		return errors.New("JWT_SECRET is required in production")
+	if c.IsProtected() && c.JWTSecret == "" {
+		return errors.New("JWT_SECRET is required in staging and production")
 	}
 	return nil
 }
 
-func (c Config) IsProduction() bool {
-	switch c.Environment {
-	case "production", "prod":
-		return true
-	}
-	return false
+// IsProductionEnv 是「这一档就是生产」的字面判据，词表只在这里写一次。
+// 与 IsProtected() 的区别必须守住：staging 是受保护档，但**不是**生产档——
+// 切流审批位按后者判（D-T604-7：staging 的百分比只落在它自己的库上），
+// 缺密钥与强制 JWT 按前者判（D-T604-3）。
+func IsProductionEnv(env string) bool {
+	return env == "production" || env == "prod"
 }
+
+func (c Config) IsProduction() bool {
+	return IsProductionEnv(c.Environment)
+}
+
+// IsProtected 判「这一档必须按生产一样严格」（D-T604-3）：强制 JWT 鉴权、
+// 缺 JWT_SECRET 拒绝启动都读它，而不是读 IsProduction——否则 `staging` 会拿到
+// development 的设备身份透传口径（`X-User-Id` 直接当身份），那比本票要防的双写更糟。
+// 消费点两处：httpapi/server.go 的 NewMiddleware、本包的 RequireAuthSecret。
+func (c Config) IsProtected() bool { return inList(ProtectedEnvironments, c.Environment) }
 
 func envString(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
@@ -190,4 +262,22 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return v
+}
+
+// envList 读逗号分隔的列表：逐项去空白、丢掉空项。
+// 「只有分隔符没有内容」（`",,"`／`"  , "`）算空列表，与没配同一个方向——
+// 空白不是指纹，把它当指纹会让任何 host 都命中（那是把闸调成了永久拒启）。
+// Python 侧同一份口径在 backend/core/env_isolation.py:parse_fingerprints。
+func envList(key string) []string {
+	raw, ok := os.LookupEnv(key)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, item := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

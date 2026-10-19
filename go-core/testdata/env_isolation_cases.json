@@ -1,0 +1,143 @@
+{
+  "_about": "T6-04（2026-10-20）· staging/prod 库面隔离的用例表＝判据的**规格**，不是任何一侧的输出。",
+  "_why_shared": "go-core/internal/config/env_isolation.go 与 backend/core/env_isolation.py 是两份**各自实现**的判据（跨语言铁律：断言两侧不许同源）。这张表把「什么形状该拒、什么形状必须放行」逐格写死，两侧各跑一遍：任何一侧改判据而没改规格，另一侧的闸就红。",
+  "_fields": "expect=refuse ⇒ CheckDBIsolation 必须返回错误；expect=allow ⇒ 必须返回 nil。fingerprints 是 PROD_DB_FINGERPRINTS 逗号分隔拆好后的列表。database_url 里的口令是假值（真凭据永不入库，同「凭据不入库」口径），它的存在是为了钉另一件事：拒绝启动的报错**不许**把整串回显出去。",
+  "cases": [
+    {
+      "name": "staging_host逐字命中生产host",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@db.closenai-prod.supabase.co:5432/postgres",
+      "fingerprints": ["db.closenai-prod.supabase.co"],
+      "expect": "refuse",
+      "reason": "§验收 第一句的逐字形状：staging 指到生产串 ⇒ 启动失败。"
+    },
+    {
+      "name": "staging_host后缀命中（只给域根）",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@db.abcd1234.supabase.co:5432/postgres",
+      "fingerprints": ["abcd1234.supabase.co"],
+      "expect": "refuse",
+      "reason": "运维通常只记得「那个 Supabase 项目」，指纹写项目域根也要拦得住。"
+    },
+    {
+      "name": "staging_project_ref裸令牌命中用户名",
+      "environment": "staging",
+      "database_url": "postgresql://postgres.abcd1234:FAKE_pw_not_real@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require",
+      "fingerprints": ["abcd1234"],
+      "expect": "refuse",
+      "reason": "Supabase session pooler 的 host 里没有 project ref，ref 只长在用户名里 ⇒ 裸令牌按子串判（D-T604-5）。同时钉另一句：报错只打 host/dbname，用户名与口令都不许回显。"
+    },
+    {
+      "name": "staging_dbname逐字命中",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@pg.internal.staging.lan:5432/closenai_prod",
+      "fingerprints": ["closenai_prod"],
+      "expect": "refuse",
+      "reason": "同机自建 PG 的形状：host 是自己的，库名却是生产库。"
+    },
+    {
+      "name": "staging_带驱动scheme也要认",
+      "environment": "staging",
+      "database_url": "postgresql+psycopg://closenai:FAKE_pw_not_real@db.prod.example.com:5432/postgres",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "同一个 DATABASE_URL 两侧共用（internal/dsn 那条口径），拆法不许按 scheme 挑。"
+    },
+    {
+      "name": "staging_host大小写不同也要命中",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@DB.Prod.Example.COM:5432/postgres",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "DNS 不敏感，比较必须也不敏感；这条不给的话「换个大小写就绕过」是现成的。"
+    },
+    {
+      "name": "staging_自己的库必须放行",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@postgres.staging.internal:5432/closenai_staging",
+      "fingerprints": ["prod.example.com", "closenai_prod"],
+      "expect": "allow",
+      "reason": "正向证人：没有这一格，上面几条可以靠「一律拒启」骗过去。"
+    },
+    {
+      "name": "staging_黑名单为空拒启",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@postgres.staging.internal:5432/closenai_staging",
+      "fingerprints": [],
+      "expect": "refuse",
+      "reason": "D-T604-6：没配的隔离不叫隔离，「以为设了」比没设更危险。"
+    },
+    {
+      "name": "development_黑名单为空放行",
+      "environment": "development",
+      "database_url": "postgresql://closenai:closenai-dev-only@postgres:5432/closenai",
+      "fingerprints": [],
+      "expect": "allow",
+      "reason": "本机 dev 编排（docker-compose.dev.yml）今天就不配这个键；把它调红的第一天就是被人绕过的那天（D-T604-6）。"
+    },
+    {
+      "name": "development_命中生产库同样拒启",
+      "environment": "development",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@db.prod.example.com:5432/postgres",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "本机笔记本连生产库与 staging 连生产库是同一场事故，没有理由只拦后者。"
+    },
+    {
+      "name": "development_sqlite串放行",
+      "environment": "development",
+      "database_url": "sqlite+aiosqlite:///./closenai.db",
+      "fingerprints": ["prod.example.com"],
+      "expect": "allow",
+      "reason": "非 PG 串没有 host 可比；生产档带 sqlite 会在真正的建连处失败，那里的报错比这里准。"
+    },
+    {
+      "name": "production_连自己的库必须放行",
+      "environment": "production",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@db.prod.example.com:5432/postgres",
+      "fingerprints": ["prod.example.com"],
+      "expect": "allow",
+      "reason": "反向证人：黑名单不许把生产自己判死。判死了，这道闸上线第一天就会被整条注释掉。"
+    },
+    {
+      "name": "production_空黑名单放行",
+      "environment": "production",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@db.prod.example.com:5432/postgres",
+      "fingerprints": [],
+      "expect": "allow",
+      "reason": "生产侧不读黑名单（它是被比对的对象，不是比对者）。"
+    },
+    {
+      "name": "prod别名同样放行",
+      "environment": "prod",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@db.prod.example.com:5432/postgres",
+      "fingerprints": ["prod.example.com"],
+      "expect": "allow",
+      "reason": "IsProduction()/Python 的 prod 别名早于本票存在，必须同档。"
+    },
+    {
+      "name": "词表外的值一律拒启",
+      "environment": "Production",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@postgres.staging.internal:5432/closenai_staging",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "D-T604-2：`Production` 不是 `production`。让它静默落进非生产档，换来的是 development 的鉴权口径。"
+    },
+    {
+      "name": "拼错的staging拒启",
+      "environment": "stging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@postgres.staging.internal:5432/closenai_staging",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "同上，另一条拼法。"
+    },
+    {
+      "name": "空环境名拒启",
+      "environment": "",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@postgres.staging.internal:5432/closenai_staging",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "空串走 envString 的默认值才是 development；直接递给判据时它必须是「不知道是哪一档」＝拒。"
+    }
+  ]
+}
