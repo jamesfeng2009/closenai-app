@@ -1,0 +1,34 @@
+# CLOSENAI V3 调度源（T0-02，2026-10-18 起唯一调度声明；vercel.json 退役）
+#
+# 安装（VPS，UTC 服务器时区）：crontab deploy/schedule/crontab
+# 排障、时区口径与手动重放见 deploy/README.md。
+# 密钥：CRON_SECRET 只存在于宿主 /etc/closenai/cron.env（权限 600，不入库）；
+#       crontab 本身不含任何明文密钥。
+# 节律判据：backend/tests/test_cron_schedule_coverage.py 逐行解析本文件对账
+#           `/api/v1/cron/*` 路由（GET 必须在此排程或带理由豁免）。
+# 三条 POST（process-user / follow-up / purge-user）不在这里：它们是 QStash
+# 公网回调（验签 Upstash-Signature），由投递侧注册调度，不是宿主 cron。
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# ── 整点每小时（7 条，节律与端点 docstring 逐字一致）──
+0 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/daily-message >/dev/null
+0 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/journey >/dev/null
+0 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/mood-reminder >/dev/null
+0 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/bedtime >/dev/null
+0 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/curriculum >/dev/null
+0 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/care-push >/dev/null
+0 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/purge-deleted-users >/dev/null
+# ── 按日（UTC 小时固定）──
+0 15 * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/daily-insight >/dev/null
+0 12 * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/trial-reminder >/dev/null
+0 3 * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/cleanup-tokens >/dev/null
+# T1-04 付费交付审计：数「买断过了、过了宽限期、库里还没有成功导出行」的用户，超阈值打 DELIVERY-ALERT
+0 4 * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/delivery-audit >/dev/null
+# ── 按周（dow 固定；0=周日，与端点 docstring「每周」宣称同形）──
+0 0 * * 0 . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/weekly-insight >/dev/null
+0 2 * * 0 . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/weekly-drift >/dev/null
+# ── 保热＋导出队列：从 T0-02 起这句「每 5 分钟」第一次成立（此前 vercel.json 没有这条）──
+*/5 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/health >/dev/null
+# T1-01 数据导出：认领 queued job 生成 zip ＋ 回收卡死 ＋ 到期清理（产物只保留 7 天）
+*/5 * * * * . /etc/closenai/cron.env && curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:8000/api/v1/cron/export-jobs >/dev/null

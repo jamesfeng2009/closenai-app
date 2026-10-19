@@ -1762,6 +1762,20 @@
           "name": "prompt_version",
           "number": 7,
           "type": 9
+        },
+        {
+          "json_name": "sourceRef",
+          "label": 1,
+          "name": "source_ref",
+          "number": 13,
+          "type": 9
+        },
+        {
+          "json_name": "sourceOccurredAt",
+          "label": 1,
+          "name": "source_occurred_at",
+          "number": 14,
+          "type": 9
         }
       ],
       "file": "closenai_ai.proto",

@@ -142,6 +142,17 @@ message TaskRequested {
   repeated SourcePointer sources = 5;
   string policy_version = 6;
   string prompt_version = 7;
+  // T2-01：第一段的**来源指针**，形如 `memories:` 加一个 uuid（四张表名与 uuid 的取值面
+  // 由两侧同一张白名单判，见 `backend/ai/mq/contract.py` 与 `go-core/internal/domain`）。
+  // 为什么必须新加而不是复用 `sources`(5)：`sources` 是「已经投影成 source_records 的
+  // 那些行」，而 `ai.observation.requested` 要表达的是**投影之前**的那一行原文——
+  // 第一段没有候选可指，`sourceMessageId` 只能表达「候选入库后请下一段」。
+  // 空串＝这一段没有体外来源（今天 `ai.pattern.requested`／`ai.insight.requested` 两条边
+  // 就是这种形态，来源仍由 `sourceMessageId` 承载）。号位不复用 8–12（15 §6 `:91`）。
+  string source_ref = 13;
+  // 来源那一行**发生**的时刻（RFC3339，可选）。空串＝没带；带了就必须可解析，
+  // 因为「最近 30 天」这类窗口若拿消费时刻兜底，会把重放的老消息算成新近证据。
+  string source_occurred_at = 14;
   // ⚠️ 首稿在这里放过 user_id(8) / personal_model_id(9) / requested_at(10) /
   // correlation_id(11) / causation_id(12)，全部按本文件顶部那条统一取舍删回 Envelope：
   // 前三样分别由 Envelope 的 `user_id`(8)、`personal_model_id`(9)、`occurred_at`(4) 承载

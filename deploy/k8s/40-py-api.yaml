@@ -29,7 +29,21 @@ spec:
                 name: closenai-config
             - secretRef:
                 name: closenai-runtime
-          # /health 是契约内端点（contracts/endpoints.md 第 98 条，backend/main.py:170）。
+          # T1-01 数据导出归档目录。**写在容器 env 而不是共享 ConfigMap**：
+          # 10-config.yaml 的键是 Go/Python 两侧互认的名字（test_k8s_manifests 那条闸按
+          # 名字对账），而导出归档只有 py-api 读写，塞进共享 ConfigMap 等于让 Go 声明一个
+          # 它不读的键。路径与下面的 hostPath 成对，改一处必须改两处。
+          env:
+            - name: EXPORT_DIR
+              value: /data/exports
+          volumeMounts:
+            # 单机 k3s：hostPath 而不是 PVC——这台集群没有可依赖的默认 StorageClass，
+            # PVC Pending 会让整个 Deployment 起不来（比丢归档更糟）。代价说清楚：
+            # 归档不跨节点，Pod 漂到别的节点就找不到旧包（下载回 50007，用户重新申请即可，
+            # 而 /cron/export-jobs 会在下一轮把它退回队列）。
+            - name: exports
+              mountPath: /data/exports
+          # /health 是契约内端点（contracts/endpoints.md 第 105 条，backend/main.py:170）。
           readinessProbe:
             httpGet:
               path: /health

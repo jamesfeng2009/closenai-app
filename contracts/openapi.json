@@ -221,6 +221,58 @@
         "title": "ChatStreamRequest",
         "type": "object"
       },
+      "ConsentUpdate": {
+        "description": "单项同意表态（T5-01，Baseline §14.2）。\n\n`purpose` 用裸 str 而不是 Literal：合法集合只有一处定义（models/consent.py 的\nConsentPurpose），写第二份枚举到本文件就是造第二个真源，由 service 层按枚举校验。",
+        "properties": {
+          "granted": {
+            "description": "true=授予（刷新 granted_at、清 revoked_at）；false=撤回",
+            "title": "Granted",
+            "type": "boolean"
+          },
+          "purpose": {
+            "description": "用途键：core_service | ai_processing | proactive_push | analytics | data_export | model_training",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "表态所依据的文案版本，缺省为当前版本",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "purpose",
+          "granted"
+        ],
+        "title": "ConsentUpdate",
+        "type": "object"
+      },
+      "ExportRequest": {
+        "description": "通用数据导出申请（T1-01，Baseline §2.2-6「带走」）。\n\n`scope` 用裸 str＋可选：合法集合在服务层按 `EXPORT_SCOPES` 校验（与 ConsentUpdate\n同一口径，避免第二份枚举）。省略即 `all`，所以老客户端不发体也能申请——本批不新增\n必填字段，契约面是纯加法。",
+        "properties": {
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "导出范围，当前只有 all",
+            "title": "Scope"
+          }
+        },
+        "title": "ExportRequest",
+        "type": "object"
+      },
       "FirstReadAnswer": {
         "description": "单道快问的答案（q = 题目 id，option = 选项 id）。\n\n选项 id 与前端 OnboardingScreen 的 QUICK_QUESTIONS 对齐（模板库在后端\n`backend/data/first_read/{zh,en}.json`）；后端只认模板内已有的 id/文案，\n未知项在 first_read_service 里跳过并回退 filler。",
         "properties": {
@@ -968,6 +1020,39 @@
             ],
             "title": "Push Time"
           },
+          "quiet_end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quiet End"
+          },
+          "quiet_hours_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quiet Hours Enabled"
+          },
+          "quiet_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quiet Start"
+          },
           "timezone": {
             "anyOf": [
               {
@@ -1674,7 +1759,7 @@
     },
     "/api/v1/cron/bedtime": {
       "get": {
-        "description": "睡前复盘提醒（PRD §5.16 S1，Vercel Cron 每小时触发）。\n\n用户本地 22:00–23:30 固定窗口推送复盘入口；危机命中 24h 内停推、\n当日已完成复盘不打扰。纯推送（模板文案），不写对话流、不计配额。",
+        "description": "睡前复盘提醒（PRD §5.16 S1，宿主 crontab 每小时触发）。\n\n用户本地 22:00–23:30 固定窗口推送复盘入口；危机命中 24h 内停推、\n当日已完成复盘不打扰。纯推送（模板文案），不写对话流、不计配额。",
         "operationId": "bedtime_reminder_api_v1_cron_bedtime_get",
         "responses": {
           "200": {
@@ -1694,7 +1779,7 @@
     },
     "/api/v1/cron/care-push": {
       "get": {
-        "description": "连续负面 3 天关心推送（PRD P1-F01 §6，Vercel Cron 每小时触发）。\n\n对最近连续 3 天负面签到的用户在最佳发送小时推送关心文案；\n属特殊事件，每用户每月 ≤4 次，超限静默跳过。\n纯推送（非 LLM 内容），不写对话流、不计配额。",
+        "description": "连续负面 3 天关心推送（PRD P1-F01 §6，宿主 crontab 每小时触发）。\n\n对最近连续 3 天负面签到的用户在最佳发送小时推送关心文案；\n属特殊事件，每用户每月 ≤4 次，超限静默跳过。\n纯推送（非 LLM 内容），不写对话流、不计配额。",
         "operationId": "care_push_api_v1_cron_care_push_get",
         "responses": {
           "200": {
@@ -1714,7 +1799,7 @@
     },
     "/api/v1/cron/cleanup-tokens": {
       "get": {
-        "description": "清理过期 refresh token（Vercel Cron 每日触发）。\n\n过期 token 已无认证价值，物理删除防 refresh_tokens 表无限增长；\n已吊销未过期 token 保留（重放检测依赖吊销记录）。",
+        "description": "清理过期 refresh token（宿主 crontab 每日 `0 3 * * *` 触发）。\n\n过期 token 已无认证价值，物理删除防 refresh_tokens 表无限增长；\n已吊销未过期 token 保留（重放检测依赖吊销记录）。",
         "operationId": "cleanup_tokens_api_v1_cron_cleanup_tokens_get",
         "responses": {
           "200": {
@@ -1734,7 +1819,7 @@
     },
     "/api/v1/cron/curriculum": {
       "get": {
-        "description": "Growth Curriculum 周规划（PRD §5.17，Vercel Cron 每小时触发）。\n\n用户本地周日 21 点桶预生成下周 7 张主题卡（Rule 优先 + LLM 周规划）。\n拉取式消费：只落 journey_events 首页池，不推送、不计配额。",
+        "description": "Growth Curriculum 周规划（PRD §5.17，宿主 crontab 每小时触发）。\n\n用户本地周日 21 点桶预生成下周 7 张主题卡（Rule 优先 + LLM 周规划）。\n拉取式消费：只落 journey_events 首页池，不推送、不计配额。",
         "operationId": "curriculum_generation_api_v1_cron_curriculum_get",
         "responses": {
           "200": {
@@ -1754,7 +1839,7 @@
     },
     "/api/v1/cron/daily-insight": {
       "get": {
-        "description": "每日洞察生成（P0-F07 §1）：仅为当日活跃用户（当日有签到或对话）生成，prompt 喂入当日对话。",
+        "description": "每日洞察生成（P0-F07 §1，宿主 crontab 每日 `0 15 * * *` 触发）：仅为当日活跃用户（当日有签到或对话）生成，prompt 喂入当日对话。",
         "operationId": "daily_insight_api_v1_cron_daily_insight_get",
         "responses": {
           "200": {
@@ -1774,7 +1859,7 @@
     },
     "/api/v1/cron/daily-message": {
       "get": {
-        "description": "每日主动消息生成（Vercel Cron 触发）。\n\n1. 按用户时区分组（UTC+8, UTC+7, UTC+0）\n2. 对每组用户，通过 QStash 分块分发（每块 50 用户）\n3. 每个分块独立调用 LLM 生成主动消息 + 推送通知",
+        "description": "每日主动消息生成（宿主 crontab 每小时触发）。\n\n1. 按用户时区分组（UTC+8, UTC+7, UTC+0）\n2. 对每组用户，通过 QStash 分块分发（每块 50 用户）\n3. 每个分块独立调用 LLM 生成主动消息 + 推送通知",
         "operationId": "daily_message_api_v1_cron_daily_message_get",
         "responses": {
           "200": {
@@ -1787,6 +1872,46 @@
           }
         },
         "summary": "Daily Message",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/delivery-audit": {
+      "get": {
+        "description": "付费交付审计（T1-04，Baseline §4.3「线上监控能发现付款成功但交付失败」）。\n\n宿主 crontab 每日 `0 4 * * *` 触发（UTC，落在 cleanup-tokens 之后一小时：两条都是\n只读/清理类作业，错开一小时是为了让日志里各自的行不混在同一分钟的批次噪声里）。\n\n为什么判据读库不读事件：`archive_*` / `iap_*` 那些交付事件有四种正当理由落不到\n分析平台（未装 SDK、未配 key、用户没给分析同意、中继前进程就崩了）。把告警建在\n事件计数上，等于让\"平台没配\"看起来像\"交付一切正常\"。权益行与导出行不会因此消失，\n所以这条端点数的是库。\n\n返回体只给计数与阈值，不给 user_id 清单：告警要的是\"有没有、多少个\"，\n具体是谁由运维按 metric 行的计数去库里查——把付费用户名单写进一条 HTTP 响应，\n是本批最不该新造的那类泄漏面。",
+        "operationId": "delivery_audit_api_v1_cron_delivery_audit_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Delivery Audit",
+        "tags": [
+          "cron"
+        ]
+      }
+    },
+    "/api/v1/cron/export-jobs": {
+      "get": {
+        "description": "通用数据导出：认领 queued job 生成 zip ＋ 回收卡死 ＋ 到期清理（T1-01）。\n\n宿主 crontab 每 5 分钟触发。一条端点做完三件事而不是拆三条，是因为这三件事共享\n同一张表的同一批状态：分开排程就会出现「已过期但还没生成完」的中间态，而那种态\n除了让 job 卡在 ready 与 expired 之间反复，对用户没有任何意义。\n逐 job 独立 SAVEPOINT（与 purge-deleted-users 同口径）：一个用户导出失败不能把整批\n带回滚，更不能让这条 HTTP 变成 500——那样下一个 5 分钟也没人来认领。",
+        "operationId": "export_jobs_api_v1_cron_export_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Jobs",
         "tags": [
           "cron"
         ]
@@ -1814,7 +1939,7 @@
     },
     "/api/v1/cron/health": {
       "get": {
-        "description": "保热端点（供外部探活/手动调用）。\n\n调度清单（vercel.json）并未排程本路径，`settings.health_check_interval`\n也没有消费方——这两条口径由 tests/test_cron_schedule_coverage.py 与\ntasks.md 的 T 桶看住，别在这里写成「已定时」。",
+        "description": "保热端点（宿主 crontab 每 5 分钟 GET 触发；2026-10-18 逐条数\n`deploy/schedule/crontab`，这句从 T0-02 起才第一次成立）。\n\n排程逐条对账归 tests/test_cron_schedule_coverage.py；`settings.health_check_interval`\n仍无代码消费方（tasks.md T 桶「只登记不顺手删」），别把它做成旋钮。",
         "operationId": "health_api_v1_cron_health_get",
         "responses": {
           "200": {
@@ -1834,7 +1959,7 @@
     },
     "/api/v1/cron/journey": {
       "get": {
-        "description": "第一周剧本调度（PRD §5.19.3 P1-B02 / 架构方案 §二 M2，Vercel Cron 每小时触发）。\n\n扫描 scheduled_at<=now 且 status=pending 的剧本事件并按日序投递：D0–D5 与 D7 报告\n全部模板直出（零 LLM），仅 D2 走推送，其余只进 App 内红点。",
+        "description": "第一周剧本调度（PRD §5.19.3 P1-B02 / 架构方案 §二 M2，宿主 crontab 每小时触发）。\n\n扫描 scheduled_at<=now 且 status=pending 的剧本事件并按日序投递：D0–D5 与 D7 报告\n全部模板直出（零 LLM），仅 D2 走推送，其余只进 App 内红点。",
         "operationId": "journey_dispatch_api_v1_cron_journey_get",
         "responses": {
           "200": {
@@ -1854,7 +1979,7 @@
     },
     "/api/v1/cron/mood-reminder": {
       "get": {
-        "description": "签到轻提醒（PRD P0-F03 §7，Vercel Cron 每小时触发）。\n\n对用户本地「push_time + 2 小时」仍未签到的用户推送轻提醒；\n纯推送（非 LLM 内容），不写对话流、不计配额。",
+        "description": "签到轻提醒（PRD P0-F03 §7，宿主 crontab 每小时触发）。\n\n对用户本地「push_time + 2 小时」仍未签到的用户推送轻提醒；\n纯推送（非 LLM 内容），不写对话流、不计配额。",
         "operationId": "mood_reminder_api_v1_cron_mood_reminder_get",
         "responses": {
           "200": {
@@ -1894,7 +2019,7 @@
     },
     "/api/v1/cron/purge-deleted-users": {
       "get": {
-        "description": "兜底清理：物理删除软删除超 1 小时的用户（QStash 投递失败/未配置时）。\n\nVercel Cron 定时触发（建议每小时）；逐用户独立 SAVEPOINT，单用户失败不影响批次。\nstale_hours=1 给 QStash 正常重试留窗口，避免与异步任务重复删除。",
+        "description": "兜底清理：物理删除软删除超 1 小时的用户（QStash 投递失败/未配置时）。\n\n宿主 crontab 每小时触发；逐用户独立 SAVEPOINT，单用户失败不影响批次。\nstale_hours=1 给 QStash 正常重试留窗口，避免与异步任务重复删除。\n\n同一条端点顺带重试 PostHog 侧擦除（T1-02）。为什么不新开一条 cron：这两件事的消费者\n是同一个「注销还没走完」状态，而 `posthog_erasure_retries` 的行恰恰在 users 行删除之后\n才出现——拆成两条排程就会出现「purge 已跑、重试要等下一班车」的空档，而那正是残留\n被永久留下的形状。少一条排程也少一条要在 deploy/schedule/crontab 对账的登记项。",
         "operationId": "purge_deleted_users_api_v1_cron_purge_deleted_users_get",
         "responses": {
           "200": {
@@ -1934,7 +2059,7 @@
     },
     "/api/v1/cron/trial-reminder": {
       "get": {
-        "description": "试用到期提醒（PRD P1-F02 §4，Vercel Cron 每日触发）。\n\n对 24 小时内试用到期的用户推送提醒（按用户语言），每条订阅只提醒一次。",
+        "description": "试用到期提醒（PRD P1-F02 §4，宿主 crontab 每日触发）。\n\n对 24 小时内试用到期的用户推送提醒（按用户语言），每条订阅只提醒一次。",
         "operationId": "trial_reminder_api_v1_cron_trial_reminder_get",
         "responses": {
           "200": {
@@ -1954,7 +2079,7 @@
     },
     "/api/v1/cron/weekly-drift": {
       "get": {
-        "description": "渐变漂移周检测（spec memory-layer §3，每周日凌晨触发）。\n\n对每用户 current 且 conviction≥0.4 的记忆做近 7 天 vs 前 7 天消息\nembedding 趋势分析，相似度下降 > 0.15 时写 drift_score 并生成 drift_alert。",
+        "description": "渐变漂移周检测（spec memory-layer §3，宿主 crontab 每周日凌晨触发）。\n\n对每用户 current 且 conviction≥0.4 的记忆做近 7 天 vs 前 7 天消息\nembedding 趋势分析，相似度下降 > 0.15 时写 drift_score 并生成 drift_alert。",
         "operationId": "weekly_drift_api_v1_cron_weekly_drift_get",
         "responses": {
           "200": {
@@ -1974,7 +2099,7 @@
     },
     "/api/v1/cron/weekly-insight": {
       "get": {
-        "description": "周洞察生成（每周日凌晨触发）。",
+        "description": "周洞察生成（宿主 crontab 每周日凌晨触发）。",
         "operationId": "weekly_insight_api_v1_cron_weekly_insight_get",
         "responses": {
           "200": {
@@ -2857,7 +2982,7 @@
     },
     "/api/v1/memories/{memory_id}": {
       "delete": {
-        "description": "删除单条记忆（合规：用户可随时删除自己的数据）。",
+        "description": "删除单条记忆（合规：用户可随时删除自己的数据）。\n\nT2-06：`source_records` 是薄指针，删掉这一行**不会**让已入账的依据自己失效，\n所以这里登记一条 `source.deleted`，由路由层在提交之后投给 Go 的传播面。\n顺序是有判据的：投在提交前＝Go 读到的还是翻转前的自己。",
         "operationId": "delete_memory_api_v1_memories__memory_id__delete",
         "parameters": [
           {
@@ -4096,6 +4221,204 @@
         ]
       }
     },
+    "/api/v1/user/consents": {
+      "get": {
+        "description": "同意台账（T5-01 / Baseline §14.2）：六种用途在当前文案版本上的表态与时刻。\n\nusers 上的两个布尔位只答「现在开没开」，答不了「哪个版本、何时同意、何时撤回」。",
+        "operationId": "get_consents_api_v1_user_consents_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Consents",
+        "tags": [
+          "user"
+        ]
+      },
+      "post": {
+        "description": "记一次单项表态（granted=true 授予 / false 撤回）。\n\n兼容期双写：ai_processing ⇒ users.ai_consent，analytics ⇒ users.analytics_consent，\nproactive_push ⇒ users.push_enabled；analytics 撤回顺带抹除 PostHog 人物数据。",
+        "operationId": "set_consent_api_v1_user_consents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Consent",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/export": {
+      "get": {
+        "description": "最近导出任务列表（倒序）。\n\n有这一条，「数据导出入口」在重装 App／换设备后仍然可用：否则前端只能记住上一次的\njob_id 才能回到已生成的档案，而 ready 产物只保留 7 天，那条 job_id 一丢就找不到。",
+        "operationId": "list_exports_api_v1_user_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Exports",
+        "tags": [
+          "user"
+        ]
+      },
+      "post": {
+        "description": "申请通用数据导出（T1-01 / Baseline §2.2-6「带走」、§3 P0）。\n\n只建 job 并返回状态，不在请求里生成 zip：一个老用户的全表拷贝可以跑到几十秒，\n把它放进一次 HTTP 请求就等于让 Vercel/k3s 的网关超时替用户决定「带走」成不成。\n生成由 GET /cron/export-jobs 认领。",
+        "operationId": "request_export_api_v1_user_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Export",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/export/{job_id}": {
+      "get": {
+        "description": "查询导出 job 状态；status=ready 时响应里带 download_path。",
+        "operationId": "get_export_job_api_v1_user_export__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Export Job",
+        "tags": [
+          "user"
+        ]
+      }
+    },
+    "/api/v1/user/export/{job_id}/download": {
+      "get": {
+        "description": "鉴权流式取回 zip（media_type=\"application/zip\"，与 5 条 PDF 端点同一条口径）。\n\n不发签名 URL：本部署没有接通对象存储，公开可转发的 bearer 链接会把「导出」变成\n第二次泄露。路径解析与越界拒绝在 export_service.resolve_download 里。",
+        "operationId": "download_export_api_v1_user_export__job_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Export",
+        "tags": [
+          "user"
+        ]
+      }
+    },
     "/api/v1/user/profile": {
       "get": {
         "description": "获取用户信息（Streak、等级、配额等）。",
@@ -4216,7 +4539,7 @@
     },
     "/health": {
       "get": {
-        "description": "健康检查端点（供外部探活/手动调用）。\n\n2026-10-17 复核：这一句原文自称由 Vercel Cron 按分钟定时保热，但 `vercel.json` 的 crons\n里**没有**本路径（12 条排程全是 `/api/v1/cron/*`），`settings.health_check_interval`\n也没有消费方。今天真的在调它的是 k3s 的存活/就绪探针（`deploy/k8s/40-py-api.yaml:32-41`）。\n排程口径归 `tests/test_cron_schedule_coverage.py` 看住，无消费方的键按 tasks.md 的 T 桶\n「只登记不顺手删」——别在这里写成「已定时」。",
+        "description": "健康检查端点（供外部探活/手动调用）。\n\n2026-10-18 复核（T0-02）：现役调度源是 `deploy/schedule/crontab`——13 条排程里\n`/api/v1/cron/health` 有一条每 5 分钟保热，`vercel.json` 同日退役。本路径自身\n不在 crontab 里，今天真的在调它的是 k3s 的存活/就绪探针\n（`deploy/k8s/40-py-api.yaml:32-41`）。无消费方的 `settings.health_check_interval`\n按 tasks.md 的 T 桶「只登记不顺手删」；排程口径归 `tests/test_cron_schedule_coverage.py`。",
         "operationId": "health_check_health_get",
         "responses": {
           "200": {

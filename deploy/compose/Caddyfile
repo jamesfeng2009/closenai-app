@@ -1,0 +1,12 @@
+# api.closenai.app {$CLOSENAI_DOMAIN} — T0-01b 反代模板（VPS 上线时配 DNS 后生效）。
+# TLS 由 Caddy 的 Let's Encrypt 自动签发/续期；本文件不含任何密钥。
+{$CLOSENAI_DOMAIN:80} {
+	encode zstd gzip
+	handle /api/* {
+		reverse_proxy py-api:8000
+	}
+	# go-api 不在这里出现：它不对公网暴露（方案 §12），也没有路由该被反代。
+	handle {
+		respond "closenai edge"
+	}
+}

@@ -1,0 +1,122 @@
+# T0-06 · 夜间全量变异自证（`ci.yml` 的 `mutation-sample` 只抽样 3 条，这里跑全部 35 条）。
+#
+# 为什么单独一个 workflow：全量要 1–2 小时，塞进 PR 流水线会让每个小改动等一小时，
+# 结果就是大家把它 `continue-on-error` 掉——那等于没有闸。
+#
+# 判据与 PR 面完全同一套代码（`scripts/mutation_sample.py`）：正向证人 → 变异打红到位 →
+# git 独立复核恢复。差别只有 `--all`。
+#
+# 失败开 issue（工作单第 4 条）：同一个脚本只保一张未关的 issue，避免每晚刷一张。
+name: Mutation nightly (T0-06)
+
+on:
+  schedule:
+    # 每天 18:40 UTC（北京 02:40）：避开 push/PR 高峰，runner 抢得到。
+    - cron: "40 18 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: mutation-nightly
+  cancel-in-progress: false
+
+jobs:
+  mutation-all:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    services:
+      postgres:
+        # pgvector：alembic 首条迁移就 CREATE EXTENSION vector（同 backend 作业的理由）。
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 3s --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/closenai_mut
+      CLOSEN_REQUIRE_PG: "1"
+      CLOSEN_AMQP_URL: amqp://guest:guest@127.0.0.1:5672/
+    outputs:
+      failed: ${{ steps.run.outputs.failed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install deps
+        # 变异脚本三边都可能动：pytest 闸、jest 闸、go 测试——装齐了才有资格说「全量跑过」。
+        run: |
+          pip install -r backend/requirements.txt
+          cd frontend && npm ci
+      - name: Create and migrate mutation database
+        # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 把它变成 fail，
+        # 所以这里必须把库建好并升到 head，而不是让全量在空集上假绿。
+        run: |
+          python - <<'EOF'
+          import psycopg
+          conn = psycopg.connect(
+              "postgresql://postgres:postgres@127.0.0.1:5432/postgres", autocommit=True
+          )
+          if not conn.execute(
+              "select 1 from pg_database where datname = 'closenai_mut'"
+          ).fetchone():
+              conn.execute('CREATE DATABASE "closenai_mut"')
+          EOF
+          alembic -c backend/alembic.ini upgrade head
+      - name: mutation_sample --all（串行，禁并发）
+        id: run
+        # 输出写进 $GITHUB_OUTPUT 供下一步开 issue；这里刻意不让它直接 fail 掉整个作业，
+        # 因为「先记账再红」——issue 没开成功就红，等于把台账丢了。
+        run: |
+          set +e
+          python scripts/mutation_sample.py --all > /tmp/mut.log 2>&1
+          code=$?
+          cat /tmp/mut.log
+          echo "failed=$(grep -o '失败 [0-9]*：.*' /tmp/mut.log | head -1)" >> "$GITHUB_OUTPUT"
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          tail -40 /tmp/mut.log > /tmp/mut.tail
+          echo "$code" > /tmp/mut.code
+      - name: 失败开 issue（同脚本只保一张）
+        if: steps.run.outputs.exit != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED: ${{ steps.run.outputs.failed }}
+        run: |
+          title="[变异自证] 夜间全量红：${FAILED:-未解析到失败清单}"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "$title in:title" --json number --jq '.[0].number // ""')
+          if [ -n "$existing" ]; then
+            echo "已有 #$existing 覆盖同一批失败，不重复开"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --body "$(printf '来源：[%s Run #%s](%s)\n\n判据：`scripts/mutation_sample.py --all` 的四个环节之一没过——\n正向证人基线不绿／变异不再打红／汇总分数不齐／跑完工作区与跑前不一致。\n\n末 40 行日志：\n\n```\n%s\n```\n' \
+                "$GITHUB_WORKFLOW" "$GITHUB_RUN_NUMBER" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+                "$(cat /tmp/mut.tail)")"
+          fi
+      - name: 以变异结果决定作业颜色
+        run: |
+          code=$(cat /tmp/mut.code)
+          echo "mutation_sample 退出码：$code"
+          exit "$code"

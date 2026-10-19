@@ -1,0 +1,263 @@
+# T0-03 · CI 门禁五作业（2026-10-18）。
+#
+# 动机（Baseline §18/§22）：30+ 个闸此前全靠人记得本地跑；这个文件把
+# 「谁改坏了什么当场红」变成机器义务。
+#
+# 环境名不臆造，逐条来自测试自己的取数口径：
+#   · `backend/tests/_pg_env.py`：`TEST_DATABASE_URL` ＋ `CLOSEN_REQUIRE_PG=1`
+#     （缺 env 从静默 skip 变成 fail——这正是本闸要的形状）；
+#   · `backend/tests/test_canonical_schema.py:452`：迁移往返用独立空库 `N2_MIGRATE_DATABASE_URL`；
+#   · `backend/tests/test_r5_interop_broker.py:100`：broker 面读 `CLOSEN_AMQP_URL`；
+#   · go 测试 `go test -p 1`：批 4 教训——并发跑包会共用 vhost 造成假红。
+# 本文件的每个 service/healthcheck 都对应一次本机 dry-run（见任务板 T0-03 结案行）。
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# 同一分支的新 push 取消还没跑完的旧 run（省 runner，也让红更快）。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector 官方镜像：alembic 首条迁移就 CREATE EXTENSION vector（2026-10-18 本机
+        # 实测裸 postgres:16 在 migrate 处 FeatureNotSupported）。
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/closenai_ci
+      N2_MIGRATE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/n2_roundtrip
+      CLOSEN_REQUIRE_PG: "1"
+      CLOSEN_AMQP_URL: amqp://guest:guest@127.0.0.1:5672/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      # go 工具链不是可选项：test_proto_cross_language / test_go_auth_interop /
+      # test_r5_interop_broker 都会 shell-out 到 go（GO_BIN 缺省走 PATH）。
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - name: Install deps
+        run: pip install -r backend/requirements.txt
+      - name: Create CI databases
+        run: |
+          python - <<'EOF'
+          import psycopg
+          for dbname in ("closenai_ci", "n2_roundtrip"):
+              conn = psycopg.connect(
+                  "postgresql://postgres:postgres@127.0.0.1:5432/postgres", autocommit=True
+              )
+              exists = conn.execute(
+                  "select 1 from pg_database where datname = %s", (dbname,)
+              ).fetchone()
+              if not exists:
+                  conn.execute(f'CREATE DATABASE "{dbname}"')
+          EOF
+      - name: Migrate CI database
+        # `CLOSEN_REQUIRE_PG=1` 让实库用例「缺库就红」，而**没迁移的库同样是缺库**：
+        # 2026-10-18 补这一步之前，本作业只建库不迁移，`test_canonical_schema` 的三条
+        # live 用例与 T1-01 的 `test_data_export_pg` 在 runner 上必然红。本机 dry-run 用的是
+        # 已经 upgrade 过的库，正好把这个缺口盖住——所以现在按同一口径把它钉成步骤。
+        # scheme 用 `postgresql+psycopg`：本仓只声明 psycopg[binary]（asyncpg 不在依赖里），
+        # alembic 的 env.py 从 backend.config 读 DATABASE_URL，本机实测该串可跑到 head。
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/closenai_ci
+        run: python -m alembic -c backend/alembic.ini upgrade head
+      - name: pytest (backend)
+        # 本机同环境实测：1166 passed／3 skipped。三条 skip 是有意的，不是漏配 env：        #   · test_go_py_service_interop 两条要宿主 docker＋go/py 两个本地镜像＋具名 PG 容器
+        #     （T0-01a 本机已 2 passed 取证，runner 上自建镜像要花 6–8 分钟且不是本闸的判据）；
+        #   · test_k8s_manifests 一条要真集群里的 closenai 命名空间（建 ns 属部署动作）。
+        run: python -m pytest backend/tests -q
+
+  go:
+    runs-on: ubuntu-latest
+    services:
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    env:
+      # amqp 集成测试带真 broker 才跑（不带就 skip，等于这条门禁白配）。
+      CLOSEN_AMQP_URL: amqp://guest:guest@127.0.0.1:5672/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+          cache-dependency-path: |
+            go-core/go.sum
+            go-core/tools/protogen/go.sum
+      - name: gofmt
+        run: |
+          cd go-core
+          gofmt -l . | tee /tmp/fmt
+          test ! -s /tmp/fmt
+      - name: go vet
+        run: cd go-core && go vet ./...
+      # -p 1：并发跑包会共用 vhost 造成假红（批 4 教训，见任务板 T0-03）。
+      - name: go test
+        run: cd go-core && go test -p 1 ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm ci
+        run: cd frontend && npm ci
+      - name: jest
+        run: cd frontend && npx jest --silent
+      - name: tsc
+        run: cd frontend && npx tsc --noEmit
+
+  contract:
+    # 生成物不许手改：台账/protoc 产物与源码不同步就在这里红。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - name: Install deps
+        # grpcio-tools 是构建期工具，刻意不在 requirements.txt（见其 R1 段注释），
+        # 钉法与 pyproject dev 同源：~=1.84.0。
+        run: pip install -r backend/requirements.txt "grpcio-tools~=1.84.0"
+      - name: OpenAPI/endpoint ledger idempotent re-export
+        run: |
+          python scripts/export_contract.py
+          git diff --exit-code contracts/
+      - name: proto re-gen idempotent
+        run: |
+          python scripts/gen_proto.py
+          git diff --exit-code go-core/gen backend/gen contracts/proto
+      - name: cutover matrix re-gen idempotent
+        # T6-02：contracts/cutover-matrix.md 是三张真源（Ingress 归属 × endpoints 登记表 ×
+        # Go 路由声明表）的对账产物。`go test ./internal/cutover/` 已经会因过期而红，
+        # 这一步的价值是把**该跑哪条命令**写在 CI 日志里，而不是让人猜生成器在哪。
+        run: |
+          (cd go-core && go run ./tools/cutovermatrix -write)
+          git diff --exit-code contracts/cutover-matrix.md
+
+  taskboard:
+    # 总表↔详情同源；DONE 必须带结案行（scripts/task_board.py 的判据）；
+    # 功能状态台账（T0-05）由四个证据面对账，生成物过期或状态虚高都在这里红。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: task_board --check
+        run: python scripts/task_board.py --check
+      - name: feature status ledger re-render
+        # 判据违例（虚高 state／指不到的证据）由脚本自己拒写；git diff 再拦一道「改了 JSON 没重跑」。
+        run: |
+          python scripts/feature_status.py
+          git diff --exit-code docs/feature-status.md
+
+  # T0-06 变异自证抽样：只跑与本次改动相关的 `scripts/mutate_*.py`（上限 3 条，全量交给
+  # `mutation-nightly.yml`）。判据不是「脚本退 0」这一条——先跑被选脚本点名的闸要求全绿
+  # （正向证人），再跑变异要求打红到位，最后用 git 独立复核工作区与跑前逐字一致
+  # （脚本自己声称 copy2＋filecmp 恢复了，这里不信自述）。
+  # 反向演示（任务板 T0-06 结案行）：把某条闸的断言掏空 ⇒ 变异不再打红 ⇒ 本作业红。
+  mutation-sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        # pgvector：alembic 首条迁移就 CREATE EXTENSION vector（同 backend 作业的理由）。
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        ports: ["5672:5672"]
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s --health-timeout 3s --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/closenai_mut
+      CLOSEN_REQUIRE_PG: "1"
+      CLOSEN_AMQP_URL: amqp://guest:guest@127.0.0.1:5672/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install deps
+        # 变异脚本三边都可能动：pytest 闸、jest 闸、go 测试——装齐了才有资格说「抽样跑过」。
+        run: |
+          pip install -r backend/requirements.txt
+          cd frontend && npm ci
+      - name: Create and migrate mutation database
+        # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 让它变成 fail，
+        # 所以这里必须把库建好并升到 head，而不是让抽样在空集上假绿。
+        run: |
+          python - <<'EOF'
+          import psycopg
+          conn = psycopg.connect(
+              "postgresql://postgres:postgres@127.0.0.1:5432/postgres", autocommit=True
+          )
+          if not conn.execute(
+              "select 1 from pg_database where datname = 'closenai_mut'"
+          ).fetchone():
+              conn.execute('CREATE DATABASE "closenai_mut"')
+          EOF
+          alembic -c backend/alembic.ini upgrade head
+      - name: Resolve diff base
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$(git rev-parse HEAD~1)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: mutation_sample（按改动抽样，串行）
+        run: python scripts/mutation_sample.py --changed-from "${{ steps.base.outputs.sha }}" --limit 3

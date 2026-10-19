@@ -1,0 +1,165 @@
+# T0-01a · 本地开发编排（2026-10-18）。把 5 个进程＋1 个 broker 第一次起在一起。
+#
+# 一条入口（仓库根）：make dev-up
+# 或 docker compose -f deploy/compose/docker-compose.dev.yml --env-file deploy/compose/.env up -d
+#
+# 端口口径（任务板 T0-01a.5）：对外只发布 8000（py-api）与 127.0.0.1:15672（RabbitMQ UI）；
+# go-api 不发布宿主端口，只在网络内以 go-api:8000 可达（本机调试可临时加映射）。
+# ai-rpc / py-ai-worker / postgres / rabbitmq 同样不发布（5672/5432 不对外是验收项）。
+#
+# 镜像 build-arg 做成变量是本机实测的产物（docker.io 直连 Bad Gateway，2026-10-13）：
+# 本机在 deploy/compose/.env 里写 *_IMAGE=docker.m.daocloud.io/library/... 覆盖，
+# 上游默认保持可移植。
+#
+# dev 口令（closenai/closenai-dev-only）是**明示的开发凭据**，不是秘密；
+# 真密钥一律走 .env／宿主 env，prod 清单（docker-compose.prod.yml）用 ${VAR:?} 强制要求注入。
+
+name: closenai-dev
+
+x-py-image: &py-build
+  build:
+    context: ../..
+    dockerfile: deploy/Dockerfile.py-api
+    args:
+      PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
+      # 容器内 pypi.org 直连会卡死（2026-10-18 实测 pip 层 30 分钟无进展）⇒
+      # 默认上游、.env 覆盖镜像站，与 GOPROXY 同一套做法。
+      PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+  image: closenai-py-api:dev
+
+services:
+  postgres:
+    # pgvector 官方镜像＝postgres 加 vector 扩展；alembic 首条迁移就 CREATE EXTENSION vector，
+    # 裸 postgres:16 会在 migrate 处 FeatureNotSupported（2026-10-18 实测）。
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    environment:
+      POSTGRES_DB: closenai
+      POSTGRES_USER: closenai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-closenai-dev-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U closenai -d closenai"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  rabbitmq:
+    image: ${RABBITMQ_IMAGE:-rabbitmq:3-management}
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:15672:15672" # 仅本机
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # 一次性 job：schema 只前滚（alembic 是唯一事实源；go-core/db/schema 那份的双写风险＝方案 §17，归 T0-01b 之后的 canonical 单源任务）。
+  migrate:
+    <<: *py-build
+    command: ["alembic", "-c", "backend/alembic.ini", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://closenai:${POSTGRES_PASSWORD:-closenai-dev-only}@postgres:5432/closenai
+      PYTHONPATH: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  py-api:
+    <<: *py-build
+    environment:
+      DATABASE_URL: postgresql+psycopg://closenai:${POSTGRES_PASSWORD:-closenai-dev-only}@postgres:5432/closenai
+      ENVIRONMENT: development
+      JWT_SECRET: ${JWT_SECRET:?dev 也必须给 JWT_SECRET，见 deploy/compose/.env.example}
+      CRON_SECRET: ${CRON_SECRET:?同上}
+      CLOSEN_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      # T1-01 数据导出产物目录。不给它就用镜像里的 /app/data/exports，那会落在容器可写层：
+      # 重建容器＝用户拿不到自己 7 天内的档案包，而库里还写着 ready。
+      EXPORT_DIR: /data/exports
+    volumes:
+      - exports:/data/exports
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  ai-rpc:
+    <<: *py-build
+    command: ["python", "-m", "backend.ai.rpc.server"]
+    environment:
+      CLOSEN_AI_RPC_PORT: "50051"
+      # 同一 backend/config.py 的 Settings：不给 DATABASE_URL 会退回镜像里的
+      # sqlite 默认值，请求期才炸——dev 编排直接把真地址灌进去。
+      DATABASE_URL: postgresql+psycopg://closenai:${POSTGRES_PASSWORD:-closenai-dev-only}@postgres:5432/closenai
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  py-ai-worker:
+    <<: *py-build
+    command: ["python", "-m", "backend.ai.mq.worker"]
+    environment:
+      # R5 开关面：dev 编排里默认打开（worker.py 的入口语义是开关关＝零副作用，
+      # 这里开起来才验证得到「起在一起」这件事本身）。
+      CLOSEN_MQ_WORKER: "1"
+      CLOSEN_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      DATABASE_URL: postgresql+psycopg://closenai:${POSTGRES_PASSWORD:-closenai-dev-only}@postgres:5432/closenai
+      ENVIRONMENT: development
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  go-api:
+    build:
+      context: ../../go-core
+      args:
+        GO_IMAGE: ${GO_IMAGE:-golang:1.27-alpine}
+        # 本机 proxy.golang.org 在容器内拉 module 中途 EOF（2026-10-18 实测）⇒ 与
+        # GO_IMAGE 同一套做法：默认上游保持可移植，.env 里用镜像站覆盖。
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: closenai-go-api:dev
+    environment:
+      DATABASE_URL: postgresql://closenai:${POSTGRES_PASSWORD:-closenai-dev-only}@postgres:5432/closenai?sslmode=disable
+      ENVIRONMENT: development
+      JWT_SECRET: ${JWT_SECRET:?同上}
+      HTTP_ADDR: ":8000"
+      CLOSEN_PY_API_URL: http://py-api:8000
+      # 开关 0 时这个地址无人使用；开 CLOSEN_OUTBOX_WORKER 声明拓扑时必须给，
+      # 否则 Go 侧拒绝启动 worker（缺地址只许报错、不许空转，与 Python 侧同形）。
+      CLOSEN_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      # N8 切流键全 0（与现口径一致）；灰度是运维决策，不在编排里偷偷放量。
+      # 唯一例外是开发流程本身：AMQP 拓扑由 Go 独占声明（见 publisher.py 的
+      # TopologyMissing 文案「先起带 CLOSEN_OUTBOX_WORKER 的 go-api」），默认仍 0，
+      # 要在本机把管道起通就在 .env 里显式写 CLOSEN_OUTBOX_WORKER=1。
+      CLOSEN_OUTBOX_WORKER: ${CLOSEN_OUTBOX_WORKER:-0}
+      CLOSEN_CANDIDATE_WORKER: ${CLOSEN_CANDIDATE_WORKER:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  rabbitmqdata:
+  # T1-01：导出归档只在 py-api 一侧读写（下载走它的鉴权路径），所以只挂给它一个服务。
+  exports:

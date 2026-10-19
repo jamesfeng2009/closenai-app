@@ -99,12 +99,12 @@
       "frontend_calls": ["getWeeklyInsight", "getPatternDiscovery"],
       "cron": ["/api/v1/cron/daily-insight", "/api/v1/cron/weekly-insight"],
       "cutover_key": "CLOSEN_CUTOVER_DISCOVERY",
-      "tests": ["frontend/__tests__/insightEvidence.test.ts", "frontend/__tests__/insightTier.test.ts", "backend/tests/test_evidence_policy.py", "backend/tests/test_evidence_excerpt_locatable.py"],
+      "tests": ["frontend/__tests__/insightEvidence.test.ts", "frontend/__tests__/insightTier.test.ts", "backend/tests/test_evidence_policy.py", "backend/tests/test_evidence_excerpt_locatable.py", "backend/tests/test_source_deleted_producer.py", "go-core/internal/messaging/inbound/source_deleted_test.go", "go-core/internal/domain/source_invalidation_test.go", "go-core/internal/store/canonical_source_deleted_integration_test.go"],
       "e2e_tests": ["backend/tests/test_v3_evidence_e2e.py"],
       "state": "WIRED",
       "verified_on": null,
       "verified_by": null,
-      "next_gap": "证据段（记忆→命令→候选→Go 入站→权威表）2026-10-19 起跨进程真跑通一次（test_v3_evidence_e2e.py，本机真库＋真 broker），但**产品流量仍是零**：候选生产面（R6）没有发射点，「生成 Pattern → 展示」这后半段仍未被任何端到端闸摸过，所以状态不升到 E2E_VERIFIED；证据跨用户/模型超时/用户否认三条必测异常归 W3（T3-01…T3-05）"
+      "next_gap": "证据段（记忆→命令→候选→Go 入站→权威表）2026-10-19 起跨进程真跑通一次（test_v3_evidence_e2e.py，本机真库＋真 broker）；同日 T2-06 把退场段也跑通一次（删记忆→source.deleted→source_records.status='deleted'→仅依赖者失效，同一条 e2e 里的第 7 条用例），但**产品流量仍是零**：`CLOSEN_SOURCE_EVENTS` 默认关、灰度 0%，候选生产面（R6）没有发射点，「生成 Pattern → 展示」这后半段仍未被任何端到端闸摸过，所以状态不升到 E2E_VERIFIED；证据跨用户/模型超时/用户否认三条必测异常归 W3（T3-01…T3-05）"
     },
     {
       "id": "proactive.message",

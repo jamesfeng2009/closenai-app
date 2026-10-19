@@ -4,9 +4,14 @@
 #
 # 基础镜像做成 build-arg：本机 docker.io 直连 Bad Gateway（2026-10-13 实测），
 # 需 --build-arg PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim。
+# PIP_INDEX_URL 同理做成 build-arg：2026-10-18 实测容器内 pypi.org 直连会卡死
+# （pip 层 30 分钟无进展）；默认上游保持可移植，本机/国内 CI 覆盖为镜像站。
 ARG PYTHON_IMAGE=python:3.13-slim
+ARG PIP_INDEX_URL=https://pypi.org/simple
 FROM ${PYTHON_IMAGE} AS deps
-ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+# 全局 ARG 不进 stage 作用域，须重新声明。
+ARG PIP_INDEX_URL
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_INDEX_URL=${PIP_INDEX_URL}
 WORKDIR /app
 COPY backend/requirements.txt ./
 RUN pip install -r requirements.txt
@@ -17,6 +22,10 @@ WORKDIR /app
 COPY --from=deps /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 COPY backend/ ./backend/
+# T0-01b.7：容器不许以 root 跑。slim 自带 useradd；数字 uid 与 go-core/Dockerfile 的
+# USER 65532 同一取向——不依赖镜像里存在具名用户，k8s/compose 侧 runAsNonRoot 成立。
+RUN useradd --system --uid 10001 closenai
+USER 10001:10001
 # 8000＝HTTP 面（本镜像的默认 CMD），50051＝R3 的 AI 面 gRPC。
 # 一个镜像两个进程：独立 Deployment（deploy/k8s/50-ai-rpc.yaml）不改镜像、只把 CMD 换成
 # `python -m backend.ai.rpc.server`。EXPOSE 只是元信息，真正放行端口的是那份清单。

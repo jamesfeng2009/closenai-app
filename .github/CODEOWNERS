@@ -10,7 +10,6 @@
 /.trellis/spec/cost-optimization.md @jamesfeng2009
 /.trellis/spec/domain-configuration.md @jamesfeng2009
 /pyproject.toml              @jamesfeng2009
-/vercel.json                 @jamesfeng2009
 
 # 前端代码 — 前端开发者负责
 /frontend/                   @frontend-dev
