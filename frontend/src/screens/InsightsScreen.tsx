@@ -11,20 +11,23 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share,
+  Modal, TextInput,
 } from 'react-native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getWeeklyInsight, getPatternDiscovery, getShareReport, getYearInReview, getTimeline,
   getUserProfile, getReportPdf, getYearInReviewPdf, getMoodTrend, listInsights, getInsight,
+  postInsightFeedback,
   ApiError,
 } from '../services/api';
 import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
 import { reportPdfFile, YEAR_IN_REVIEW_PDF_FILE, pdfFailureKey } from '../config/pdfFiles';
 import type {
   GrowthTimeline, MoodTrendData, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
-  InsightListItem, InsightDetail,
+  InsightListItem, InsightDetail, InsightFeedbackType, InsightFeedbackReceipt,
 } from '../types';
 import { trackFunnelShare } from '../services/funnel';
+import { track } from '../services/analytics';
 import { memoriesWithinDays } from '../services/evidence';
 import type { MemoryRef } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -58,6 +61,35 @@ const TREND_DAYS = 7;
 // `evidence_summary.count` 才是「裁剪前有多少条」的出处，两者都要显示，
 // 否则用户会以为 5 条就是全部依据。
 const EVIDENCE_MAX = 5;
+
+// ── T3-05：反馈条（六态）与纠错输入 ──────────────────────────────────────────
+// 六态逐字取 Go 的 `domain.FeedbackTypes`（outcome.go:125-136），顺序即按钮顺序。
+// 不在这里重述合法性判据：未知档由 Go 回 400，空纠错由 Go 回 400（v3_feedback.go:80-84）。
+const FEEDBACK_TYPES: InsightFeedbackType[] = [
+  'confirm', 'partially_confirm', 'reject', 'correct', 'outdated', 'forget_from_model',
+];
+
+// 纠错正文上限逐字等于 Go 的 `maxCorrectionText`（v3_feedback.go:26）。
+// 两处差一格的后果是用户写完 501 字才被拒，而这在输入框里看不出来。
+const CORRECTION_MAX_LENGTH = 500;
+
+// 重复表态的码：Go 把 `ErrDuplicateFeedback` 折成 CodeConflict=409（apierr.go:20），
+// BFF 原样透传信封码（v3_proxy.py:145），所以客户端看到的就是 409 而不是 4xxxx。
+const CODE_DUPLICATE_FEEDBACK = 409;
+
+/**
+ * 乐观更新要写的徽章值——**不是前端自己定的第二套状态机**。
+ * 逐字抄 Go 的 `StatusForDerivedTarget(RefInsight, ·)`（outcome.go:629-641），
+ * 由 `insightFeedbackWiring.test.ts` 拿 Go 源对账；`partially_confirm` 不在表里，
+ * 因为 Go 明确「部分认可不改写状态」（outcome.go:611-615），前端替它猜一个就是假改写。
+ */
+const LOCAL_TARGET_STATUS: Partial<Record<InsightFeedbackType, string>> = {
+  confirm: 'confirmed',
+  reject: 'retracted',
+  correct: 'corrected',
+  outdated: 'expired',
+  forget_from_model: 'dismissed',
+};
 
 /** 按日期升序取最近 N 天（后端窗口顺序不做假设，本地排序保证折线/矩阵方向） */
 const recentDays = (days: { date: string; value: number }[], n: number): ChartDay[] =>
@@ -102,6 +134,20 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [detailById, setDetailById] = useState<Record<string, InsightDetail>>({});
   const [detailBusyId, setDetailBusyId] = useState<string | null>(null);
   const [detailFailedId, setDetailFailedId] = useState<string | null>(null);
+  // T3-05：一条表态一格标记。`type` 是乐观写的（徽章与「已反馈」那行立刻跟上），
+  // `receipt` 是服务端回执到达后才写（成功＝按钮收起，失败＝整格删掉＝回滚）。
+  // 分两个 map 会分不清「回执说没改写」与「我猜它会改写」，所以合成一格但只允许
+  // receipt 在有回执时非空。
+  const [feedbackById, setFeedbackById] = useState<
+    Record<string, { type: InsightFeedbackType; receipt?: InsightFeedbackReceipt }>
+  >({});
+  const [feedbackBusyId, setFeedbackBusyId] = useState<string | null>(null);
+  // 「改口」：提交成功过的条目默认收起六枚按钮（工单 §怎么做.4「不重复弹按钮」），
+  // 点「改口」才重新铺出来——重复提交由后端 409 兜底，不靠这里禁死用户。
+  const [amendId, setAmendId] = useState<string | null>(null);
+  const [correctionFor, setCorrectionFor] = useState<string | null>(null);
+  const [correctionText, setCorrectionText] = useState('');
+  const [correcting, setCorrecting] = useState(false);
 
   const loadInsights = useCallback(async () => {
     if (!isLoggedIn) {
@@ -143,6 +189,95 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     }
     setEvidenceOpenId(item.id);
     if (!detailById[item.id]) await fetchDetail(item.id);
+  };
+
+  /** 徽章取哪张表：读面六档（`insights.status`）还是状态机五档（`insights.fbResult`）。 */
+  const statusBadgeKey = (item: InsightListItem): string => {
+    const mark = feedbackById[item.id];
+    if (!mark) return `insights.status.${item.status}`;
+    // changed=false＝服务端一个字没改（`partially_confirm` 永远是这格），
+    // 这时回执里的 target_status 就是当前状态，仍归读面那张表管。
+    if (mark.receipt && !mark.receipt.changed) return `insights.status.${mark.receipt.target_status}`;
+    return `insights.fbResult.${mark.receipt?.target_status ?? LOCAL_TARGET_STATUS[mark.type]}`;
+  };
+
+  /** 「已反馈：{六态标签}」——标签仍取 Go 的 FeedbackTypes 词表，前端不另造一档。 */
+  const doneLine = (item: InsightListItem): string => {
+    const mark = feedbackById[item.id];
+    return t('insights.fbDone', { label: mark ? t(`insights.fb.${mark.type}`) : '' });
+  };
+
+  /**
+   * 一次表态：先乐观写徽章 → 发请求 → 成功用回执覆盖，失败把整格删掉（＝回滚）。
+   *
+   * 失败一律不弹 `e.message`：`ApiError.message` 是服务端给运维看的中英双语串
+   * （「纠错必须填写说明文字 / correction_text is required for correct」），
+   * 弹给用户就是把内部口径当界面（工单 §怎么做.3）。
+   */
+  const submitFeedback = async (
+    item: InsightListItem, type: InsightFeedbackType, correction: string = '',
+  ): Promise<boolean> => {
+    if (feedbackBusyId === item.id) return false;
+    const prev = feedbackById[item.id];
+    const predicted = LOCAL_TARGET_STATUS[type];
+    setFeedbackBusyId(item.id);
+    if (predicted) setFeedbackById((p) => ({ ...p, [item.id]: { type } }));
+    try {
+      const receipt = await postInsightFeedback(item.id, type, correction);
+      setFeedbackById((p) => ({ ...p, [item.id]: { type, receipt } }));
+      setAmendId(null);
+      // 埋点只带行为元数据：纠错正文是内容，进分析队列等于给它开第二条出网路径
+      // （analytics.ts 的属性白名单与 Go/Python 三侧对齐，本票不扩表）。
+      track('insight_feedback_submitted', { feature: 'insights', action: type });
+      Alert.alert(t('insights.fbSavedTitle'), t('insights.fbSavedMessage'));
+      return true;
+    } catch (e) {
+      setFeedbackById((p) => {
+        const next = { ...p };
+        if (prev) {
+          next[item.id] = prev;
+        } else {
+          delete next[item.id];
+        }
+        return next;
+      });
+      Alert.alert(
+        t('common.error'),
+        e instanceof ApiError && e.code === CODE_DUPLICATE_FEEDBACK
+          ? t('insights.fbDuplicate')
+          : t('insights.fbFailed'),
+      );
+      return false;
+    } finally {
+      setFeedbackBusyId(null);
+    }
+  };
+
+  const onFeedbackPress = (item: InsightListItem, type: InsightFeedbackType) => {
+    // 「我要纠正」是唯一带正文的一档：Go 也这么分（v3_feedback.go:80-84 只对 correct 判非空）。
+    if (type === 'correct') {
+      setCorrectionFor(item.id);
+      setCorrectionText('');
+      return;
+    }
+    submitFeedback(item, type);
+  };
+
+  const closeCorrection = () => {
+    setCorrectionFor(null);
+    setCorrectionText('');
+  };
+
+  const submitCorrection = async () => {
+    const text = correctionText.trim();
+    // 空正文不发请求：Go 对 `correct` 判必填（400），但更坏的是用户以为纠正过了。
+    if (!correctionFor || !text || correcting) return;
+    const item = (insights ?? []).find((x) => x.id === correctionFor);
+    if (!item) return;
+    setCorrecting(true);
+    const ok = await submitFeedback(item, 'correct', text);
+    setCorrecting(false);
+    if (ok) closeCorrection();
   };
 
   const load = useCallback(async () => {
@@ -335,6 +470,7 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   }
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* 每周洞察（Insight Level 标识，PRD §1） */}
       <View style={styles.card}>
@@ -417,7 +553,7 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
                 <Text style={styles.bodyText}>{item.statement}</Text>
                 <View style={styles.badgeRow}>
                   <Text style={styles.claimBadge}>{t(`insights.claim.${item.claim_type}`)}</Text>
-                  <Text style={styles.statusBadge}>{t(`insights.status.${item.status}`)}</Text>
+                  <Text style={styles.statusBadge}>{t(statusBadgeKey(item))}</Text>
                   {item.confidence != null && (
                     <Text style={styles.metaText}>
                       {t('insights.confidence', { value: Math.round(item.confidence * 100) })}
@@ -490,6 +626,41 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
                       </>
                     )}
                   </>
+                )}
+                {/* T3-05 反馈条放在这一格的最后（结论与依据都铺完了才问用户认不认）。
+                    evidence_count===0 那一格压根没有结论可表态，所以六枚按钮也只长在 else 分支里。 */}
+                {feedbackById[item.id]?.receipt && amendId !== item.id ? (
+                  // 提交成功过就收起六枚按钮（工单 §怎么做.4「不重复弹按钮」），
+                  // 但留一个「改口」：重复表态由后端 409 判，前端不靠禁死用户来防。
+                  <View style={styles.fbRow}>
+                    <Text style={styles.fbDoneText}>{doneLine(item)}</Text>
+                    <TouchableOpacity
+                      style={styles.fbAmendBtn}
+                      onPress={() => setAmendId(item.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('insights.fbAmend')}
+                    >
+                      <Text style={styles.fbAmendText}>{t('insights.fbAmend')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.fbRow}>
+                    {FEEDBACK_TYPES.map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.fbBtn,
+                          feedbackBusyId === item.id && styles.fbBtnDisabled,
+                        ]}
+                        onPress={() => onFeedbackPress(item, type)}
+                        disabled={feedbackBusyId === item.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={t(`insights.fb.${type}`)}
+                      >
+                        <Text style={styles.fbBtnText}>{t(`insights.fb.${type}`)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 )}
               </>
             )}
@@ -644,6 +815,61 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         </View>
       )}
     </ScrollView>
+
+      {/* T3-05 纠错弹层：只有「我要纠正」这一档带正文，所以弹层也只服务它。
+          放在 ScrollView 之外（用 fragment 包起来）——弹层里的 TextInput 嵌在
+          竖向 ScrollView 里时键盘遮挡与滚动争用都归这一屏的滚动容器管。 */}
+      <Modal
+        visible={correctionFor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCorrection}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('insights.fbCorrectTitle')}</Text>
+            <Text style={styles.modalHint}>{t('insights.fbCorrectHint')}</Text>
+            <TextInput
+              style={styles.correctInput}
+              multiline
+              value={correctionText}
+              onChangeText={setCorrectionText}
+              placeholder={t('insights.fbCorrectPlaceholder')}
+              placeholderTextColor={Colors.textMuted}
+              maxLength={CORRECTION_MAX_LENGTH}
+              accessibilityLabel={t('insights.fbCorrectPlaceholder')}
+            />
+            {/* 计数不走 i18n：纯数字加斜杠在 15 门语言里同形，为它补 15 份键只会进
+                i18nLocales 那张「同形词豁免表」，然后每条都要人再判一次为什么同形。 */}
+            <Text style={styles.correctCount}>
+              {`${correctionText.trim().length}/${CORRECTION_MAX_LENGTH}`}
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={closeCorrection}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.cancel')}
+              >
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalSubmitBtn,
+                  (!correctionText.trim() || correcting) && styles.modalSubmitBtnDisabled,
+                ]}
+                onPress={submitCorrection}
+                disabled={!correctionText.trim() || correcting}
+                accessibilityRole="button"
+                accessibilityLabel={t('insights.fbCorrectSubmit')}
+              >
+                <Text style={styles.modalSubmitText}>{t('insights.fbCorrectSubmit')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -727,4 +953,49 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md, color: Colors.textSecondary,
     marginTop: Spacing.xs, marginBottom: Spacing.sm, lineHeight: LineHeight.caption,
   },
+  // T3-05 反馈条：六枚按钮换行排（窄屏一行放不下），按 Go 的词表顺序铺。
+  // 忙态必须压暗——TouchableOpacity 的 disabled 自己不改观感，否则用户会连点。
+  fbRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.sm },
+  fbBtn: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: BorderRadius.pill,
+    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: Colors.borderLight,
+  },
+  fbBtnDisabled: { opacity: 0.4 },
+  fbBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary },
+  fbDoneText: { fontSize: FontSize.sm, color: Colors.textTertiary, flex: 1, lineHeight: 18 },
+  fbAmendBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.pill,
+    borderWidth: 1, borderColor: Colors.gold400,
+  },
+  fbAmendText: { fontSize: FontSize.sm, color: Colors.gold400, fontWeight: '600' },
+  // 纠错弹层（工单 T3-05 §怎么做.2 的 Modal 多行输入）
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center', alignItems: 'center', padding: Spacing.lg,
+  },
+  modalCard: {
+    width: '100%', maxWidth: 460, backgroundColor: Colors.bgSecondary,
+    borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.borderLight, padding: Spacing.lg,
+  },
+  modalTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textPrimary },
+  modalHint: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 4, lineHeight: LineHeight.caption },
+  correctInput: {
+    minHeight: 96, marginTop: Spacing.md, padding: Spacing.md,
+    borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.borderLight,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    fontSize: FontSize.md, color: Colors.textPrimary, textAlignVertical: 'top',
+  },
+  correctCount: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 4 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.sm, marginTop: Spacing.md },
+  modalCancelBtn: {
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: BorderRadius.pill,
+    borderWidth: 1, borderColor: Colors.borderLight,
+  },
+  modalCancelText: { fontSize: FontSize.md, color: Colors.textTertiary },
+  modalSubmitBtn: {
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: BorderRadius.pill,
+    backgroundColor: Colors.gold400,
+  },
+  modalSubmitBtnDisabled: { opacity: 0.4 },
+  modalSubmitText: { fontSize: FontSize.md, fontWeight: '700', color: Colors.bgPrimary },
 });
