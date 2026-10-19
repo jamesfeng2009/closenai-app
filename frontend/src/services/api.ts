@@ -19,6 +19,8 @@ import type {
   GrowthDashboard, WeeklyInsight, GrowthTimeline,
   GrowthRecordItem, GrowthTopic,
   InsightListPage, InsightDetail, InsightFeedbackReceipt, InsightFeedbackType,
+  GoalListPage, GoalReceipt, ActionListPage, ActionWriteReceipt,
+  ActionTransition, ActionResultChoice, ActionOutcomeReceipt,
   LevelDetail, BadgeItem, RelationshipTimeline, TimelineDaySummary,
   PersonalityProfile, PersonalityRefreshResult,
   AssessmentState, AssessmentAnswerResult, ComboReport,
@@ -542,6 +544,127 @@ export async function postInsightFeedback(
         type,
         correction_text: correctionText ?? '',
         operation_id: operationId ?? '',
+      }),
+    },
+  );
+}
+
+// ═══ V3 目标 / 行动 / 结果（T4-04：洞察 → 行动 → 结果那条闭环的六条出口）═══
+//
+// 六条都打 `/api/v1/…`，由 BFF 纯转发到 Go 的 `/internal/v3/…`（T4-02／T4-03）。
+// 两条共同的纪律：
+//   - **身份不进 body**：`user_id` 在 Go 侧是 `DisallowUnknownFields`，多传一个键整条
+//     请求 400（v3.go 的 requireInternalService）；身份只由 Authorization 换出的
+//     `X-User-Id` 决定，前端这一层没有任何一格可以替用户声明「这是谁」。
+//   - **不在这里重述合法性**：动词、result、outcome_type 的正误全在 Go 的 domain，
+//     前端拦一遍就给同一个错误造出两种说法（与洞察面 `listInsights` 同口径）。
+
+/** `GET /api/v1/goals` 与 `/actions` 的可选参数（工单 §怎么做：只按状态与条数筛）。 */
+export interface CommitmentListQuery {
+  status?: string;
+  limit?: number;
+}
+
+const listTail = (query: CommitmentListQuery): string => {
+  const parts: string[] = [];
+  if (query.status) parts.push(`status=${encodeURIComponent(query.status)}`);
+  if (query.limit != null) parts.push(`limit=${encodeURIComponent(String(query.limit))}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+};
+
+/**
+ * 目标列表：`{items, truncated}`——这一面**没有游标**（T4-02：目标与行动是人手立的东西，
+ * 量级几十条；给它加游标等于造一个没有第二个调用方的机制）。
+ */
+export async function listGoals(query: CommitmentListQuery = {}): Promise<GoalListPage> {
+  // 路径字面量必须是括号里的第一段（契约扫描器按它认调用点，模板串会静默失联）。
+  return request<GoalListPage>('/goals' + listTail(query));
+}
+
+/** 行动列表：同上，行内多 `due_at/completed_at/skipped_at/goal_id` 四格可空列。 */
+export async function listActions(query: CommitmentListQuery = {}): Promise<ActionListPage> {
+  return request<ActionListPage>('/actions' + listTail(query));
+}
+
+/**
+ * 新建目标。`target_at` 是 RFC3339 串或 null：Go 用 `*time.Time` 收，
+ * 非法字符串走「请求体不合形」⇒ 400，所以这里只负责给出合形的串，不做第二套日期校验。
+ */
+export async function createGoal(
+  title: string,
+  description: string = '',
+  targetAt: string | null = null,
+): Promise<GoalReceipt> {
+  return request<GoalReceipt>('/goals', {
+    method: 'POST',
+    body: JSON.stringify({ title, description, target_at: targetAt }),
+  });
+}
+
+/**
+ * 在某颗目标下新建行动：唯一的行动创建入口（`POST /goals/{goal_id}/actions`）。
+ *
+ * goal_id 走 path、body 里不许再有 goal_id——两处给不同值就是一句无法两全的请求，
+ * 而多传键在这里直接 400。
+ */
+export async function createAction(
+  goalId: string,
+  title: string,
+  description: string = '',
+  dueAt: string | null = null,
+): Promise<ActionWriteReceipt> {
+  return request<ActionWriteReceipt>(
+    `/goals/${encodeURIComponent(goalId)}/actions`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ title, description, due_at: dueAt }),
+    },
+  );
+}
+
+/**
+ * 生命周期动词（complete／skip／cancel）。回 `changed=false` 表示这一态早就是它了
+ * （重复点同一枚按钮的幂等面），屏上必须换成第二句话而不是报错。
+ */
+export async function transitionAction(
+  actionId: string,
+  action: ActionTransition,
+): Promise<ActionWriteReceipt> {
+  return request<ActionWriteReceipt>(
+    `/actions/${encodeURIComponent(actionId)}`,
+    { method: 'PATCH', body: JSON.stringify({ action }) },
+  );
+}
+
+/**
+ * 记一条行动结果（用户自述）。
+ *
+ * `outcome_type` 固定成 `commitment_completed` 而不是参数：这一面只 link commitment
+ * （v3_outcomes.go 与 domain.RecordActionOutcome 钉死 `RefCommitment`），传 goal_progress
+ * 之类会在 Go 的 `OutcomeTargetRequirement` 那一格 400。把它写死在一个地方，
+ * 屏上那四枚按钮就无从漂进一张没有入口的词表。
+ *
+ * `operation_id` 只是**回显**：outcomes 表没有 metadata 列（T4-03 登记的缺陷①），
+ * 同日幂等按 (user, target, outcome_type, UTC 日) 判，所以它能让重试对上自己那次点击，
+ * 但不能当「同一笔请求不双计」的硬保证用。
+ */
+export async function postActionOutcome(
+  actionId: string,
+  result: ActionResultChoice,
+  note: string = '',
+  occurredAt: string | null = null,
+  operationId: string = '',
+): Promise<ActionOutcomeReceipt> {
+  return request<ActionOutcomeReceipt>(
+    `/actions/${encodeURIComponent(actionId)}/outcomes`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        outcome_type: 'commitment_completed',
+        result,
+        note,
+        occurred_at: occurredAt,
+        operation_id: operationId,
       }),
     },
   );

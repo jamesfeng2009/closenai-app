@@ -17,7 +17,7 @@ import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/co
 import {
   getWeeklyInsight, getPatternDiscovery, getShareReport, getYearInReview, getTimeline,
   getUserProfile, getReportPdf, getYearInReviewPdf, getMoodTrend, listInsights, getInsight,
-  postInsightFeedback,
+  postInsightFeedback, listGoals, createGoal, createAction,
   ApiError,
 } from '../services/api';
 import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
@@ -25,6 +25,7 @@ import { reportPdfFile, YEAR_IN_REVIEW_PDF_FILE, pdfFailureKey } from '../config
 import type {
   GrowthTimeline, MoodTrendData, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
   InsightListItem, InsightDetail, InsightFeedbackType, InsightFeedbackReceipt,
+  GoalItem,
 } from '../types';
 import { trackFunnelShare } from '../services/funnel';
 import { track } from '../services/analytics';
@@ -91,6 +92,25 @@ const LOCAL_TARGET_STATUS: Partial<Record<InsightFeedbackType, string>> = {
   forget_from_model: 'dismissed',
 };
 
+// ── T4-04：洞察底部「试一个小行动」→ 新建行动 ────────────────────────────────
+
+/**
+ * 标题的 rune 上限逐字等于 Go 的 `maxGoalTitle`（`goal.go` 的 `checkTitle` 那一格，
+ * 目标与行动共用一个上限）。两处差一格的后果是用户写完 201 字才被服务端拒，
+ * 而这在输入框里看不出来——与上面 `CORRECTION_MAX_LENGTH` 同一件事。
+ */
+const ACTION_TITLE_MAX = 200;
+
+/** 截止日的输入形状（不是校验业务规则：Go 只判 RFC3339 合不合形，不判日期早于今天）。 */
+const DUE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 目标选择里「新建一颗」的那一档的本地键——它不是服务端 id，绝不许进请求体。 */
+const NEW_GOAL = '__new__';
+
+/** 按 rune 截断：`slice` 会把 emoji 与代理对切成半个字符，而那截残文会变成乱码标题。 */
+const truncateRunes = (text: string, n: number): string =>
+  Array.from(text).slice(0, n).join('').trim();
+
 /** 按日期升序取最近 N 天（后端窗口顺序不做假设，本地排序保证折线/矩阵方向） */
 const recentDays = (days: { date: string; value: number }[], n: number): ChartDay[] =>
   [...days].sort((a, b) => a.date.localeCompare(b.date)).slice(-n);
@@ -148,6 +168,25 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [correctionFor, setCorrectionFor] = useState<string | null>(null);
   const [correctionText, setCorrectionText] = useState('');
   const [correcting, setCorrecting] = useState(false);
+  // T4-04：行动 Modal 的那一叠状态。`actionFor` 是「为哪一条洞察立行动」，
+  // 与纠错弹层同形（一次只开一个），所以也只存一个 id 而不是 map。
+  const [actionFor, setActionFor] = useState<string | null>(null);
+  const [actionTitle, setActionTitle] = useState('');
+  const [actionDue, setActionDue] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+  // 目标候选只在第一次开弹层时拉（打开即拉，而不是让用户在弹层里等一次网络往返）。
+  const [actionGoals, setActionGoals] = useState<GoalItem[] | null>(null);
+  const [actionGoalsFailed, setActionGoalsFailed] = useState(false);
+  // 候选列表被服务端截断（ListGoals 是 created_at DESC + LIMIT 50）时要说出口：
+  // 不说，用户找不到自己那颗旧目标就会以为它没了。
+  const [actionGoalsTruncated, setActionGoalsTruncated] = useState(false);
+  const [actionGoalId, setActionGoalId] = useState<string>(NEW_GOAL);
+  const [newGoalTitle, setNewGoalTitle] = useState('');
+  /**
+   * 「目标已经建成、行动还没落」时记住那颗新目标的 id：重试绝不能再建第二颗目标，
+   * 否则每失败一次就多一颗同名目标留在账上（工单 §怎么做.4 的失败恢复那一格）。
+   */
+  const [createdGoalId, setCreatedGoalId] = useState<string | null>(null);
 
   const loadInsights = useCallback(async () => {
     if (!isLoggedIn) {
@@ -278,6 +317,86 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     const ok = await submitFeedback(item, 'correct', text);
     setCorrecting(false);
     if (ok) closeCorrection();
+  };
+
+  const reloadActionGoals = useCallback(async () => {
+    try {
+      const page = await listGoals({ status: 'active' });
+      setActionGoals(page.items);
+      setActionGoalsTruncated(page.truncated);
+      setActionGoalsFailed(false);
+      setActionGoalId(page.items[0]?.id ?? NEW_GOAL);
+    } catch {
+      // 目标列表拉不到不等于这一屏坏了：退成「新建一颗」，用户仍能把行动立出去。
+      setActionGoalsFailed(true);
+      setActionGoalsTruncated(false);
+      setActionGoalId(NEW_GOAL);
+    }
+  }, []);
+
+  /**
+   * 打开行动弹层：标题预填洞察摘要（截到 200 rune），目标候选第一次才拉。
+   *
+   * 「行动必须先挂在一颗目标下」不是这一屏的选择：唯一的行动创建入口是
+   * `POST /api/v1/goals/{goal_id}/actions`（T4-02），domain 的 `ActionProposal.GoalID`
+   * 虽可空，HTTP 面上却没有那条 path。所以这一格给的是**选择**而不是自创的免挂通道。
+   */
+  const openActionModal = (item: InsightListItem) => {
+    const prefill = truncateRunes(item.statement, ACTION_TITLE_MAX);
+    setActionFor(item.id);
+    setActionTitle(prefill);
+    setNewGoalTitle(prefill);
+    setActionDue('');
+    setCreatedGoalId(null);
+    if (!actionGoals) void reloadActionGoals();
+    else setActionGoalId(actionGoals[0].id);
+  };
+
+  const closeActionModal = () => setActionFor(null);
+
+  /**
+   * 落一条行动。两步写（可能先建目标）之间没有事务，所以失败恢复按「已经落下的那一半」判：
+   * 目标建成就把它的 id 留住，重试只补行动那一步。
+   */
+  const submitAction = async () => {
+    const title = actionTitle.trim();
+    // 空标题不发请求：Go 判 400，但更坏的是用户以为行动立好了。
+    if (!actionFor || !title || actionBusy) return;
+    const due = actionDue.trim();
+    let dueAt: string | null = null;
+    if (due) {
+      // 本地日的 23:59 → RFC3339：截止是「那天结束之前」，取 UTC 零点会把最后一整天切掉，
+      // 而那一格在屏上写的明明是同一个日期。
+      const parsed = new Date(`${due}T23:59:00`);
+      if (!DUE_DATE_PATTERN.test(due) || Number.isNaN(parsed.getTime())) {
+        Alert.alert(t('common.error'), t('actions.dateInvalid'));
+        return;
+      }
+      dueAt = parsed.toISOString();
+    }
+    setActionBusy(true);
+    try {
+      let goalId = actionGoalId === NEW_GOAL ? createdGoalId : actionGoalId;
+      if (!goalId) {
+        const goal = await createGoal(newGoalTitle.trim() || title);
+        goalId = goal.goal_id;
+        setCreatedGoalId(goalId);
+      }
+      await createAction(goalId, title, '', dueAt);
+      Alert.alert(t('actions.savedTitle'), t('actions.savedMessage'), [
+        { text: t('common.close'), style: 'cancel' },
+        { text: t('growthRecords.title'), onPress: () => navigation.navigate('GrowthRecords') },
+      ]);
+      setActionFor(null);
+      setCreatedGoalId(null);
+      // 新建的那颗目标要能在下一次选择里出现，所以这份候选缓存作废而不是手拼一行。
+      setActionGoals(null);
+    } catch {
+      // 不弹 e.message（服务端给运维的双语串），也不假装成功：这一句要说清「什么都没加」。
+      Alert.alert(t('common.error'), t('actions.failed'));
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const load = useCallback(async () => {
@@ -662,6 +781,17 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
                     ))}
                   </View>
                 )}
+                {/* T4-04 的入口在**这一格**（结论与依据都铺完、表过态之后），不在列表行上：
+                    一条说不清来源的洞察不该顺手变成一条行动。
+                    evidence_count===0 那一格走的是上面那个分支，压根长不出这个按钮。 */}
+                <TouchableOpacity
+                  style={styles.actionCta}
+                  onPress={() => openActionModal(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('actions.cta')}
+                >
+                  <Text style={styles.actionCtaText}>{t('actions.cta')}</Text>
+                </TouchableOpacity>
               </>
             )}
           </View>
@@ -869,6 +999,136 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
           </View>
         </View>
       </Modal>
+
+      {/* T4-04 新建行动弹层：与纠错弹层同一形状（RN 裸 Modal，样式复用 modal*）。
+          目标选择放在这里而不是屏上的目标区，是因为这一条行动的归属只有此刻的用户知道。 */}
+      <Modal
+        visible={actionFor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeActionModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('actions.modalTitle')}</Text>
+            <Text style={styles.modalHint}>{t('actions.actionLabel')}</Text>
+            <TextInput
+              style={styles.correctInput}
+              multiline
+              value={actionTitle}
+              onChangeText={setActionTitle}
+              placeholder={t('actions.actionLabel')}
+              placeholderTextColor={Colors.textMuted}
+              maxLength={ACTION_TITLE_MAX}
+              accessibilityLabel={t('actions.actionLabel')}
+            />
+            {/* 计数不走 i18n：与上面纠错弹层同一判据（纯数字加斜杠在 15 门语言里同形）。 */}
+            <Text style={styles.correctCount}>
+              {`${actionTitle.trim().length}/${ACTION_TITLE_MAX}`}
+            </Text>
+
+            <Text style={styles.modalHint}>{t('actions.goalLabel')}</Text>
+            {actionGoalsFailed ? (
+              <View style={styles.failRow}>
+                <Text style={styles.emptyText}>{t('common.loadFailed')}</Text>
+                <TouchableOpacity
+                  style={styles.retryBtn}
+                  onPress={() => void reloadActionGoals()}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('common.retry')}
+                >
+                  <Text style={styles.retryText}>{t('common.retry')}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.goalRow}>
+                {(actionGoals ?? []).map((goal) => (
+                  <TouchableOpacity
+                    key={goal.id}
+                    style={[styles.goalChip, actionGoalId === goal.id && styles.goalChipActive]}
+                    onPress={() => setActionGoalId(goal.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={goal.title}
+                  >
+                    <Text
+                      style={[styles.goalChipText, actionGoalId === goal.id && styles.goalChipTextActive]}
+                      numberOfLines={1}
+                    >
+                      {goal.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={[styles.goalChip, actionGoalId === NEW_GOAL && styles.goalChipActive]}
+                  onPress={() => setActionGoalId(NEW_GOAL)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('actions.newGoal')}
+                >
+                  <Text style={[styles.goalChipText, actionGoalId === NEW_GOAL && styles.goalChipTextActive]}>
+                    {t('actions.newGoal')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {actionGoalsTruncated && !actionGoalsFailed && (
+              // 与上面依据区那条截断说明同一个样式：这一面「还有更多没给」只有一种说法。
+              <Text style={styles.refsNote}>{t('actions.truncated')}</Text>
+            )}
+            {actionGoalId === NEW_GOAL && (
+              <>
+                <Text style={styles.modalHint}>{t('actions.goalTitleLabel')}</Text>
+                <TextInput
+                  style={styles.goalInput}
+                  value={newGoalTitle}
+                  onChangeText={setNewGoalTitle}
+                  placeholder={t('actions.goalTitleLabel')}
+                  placeholderTextColor={Colors.textMuted}
+                  maxLength={ACTION_TITLE_MAX}
+                  accessibilityLabel={t('actions.goalTitleLabel')}
+                />
+              </>
+            )}
+
+            <Text style={styles.modalHint}>{t('actions.dateLabel')}</Text>
+            {/* 占位符是纯格式串，不入库文案表：与上面那两处「同形不补键」同一判据。 */}
+            <TextInput
+              style={styles.dueInput}
+              value={actionDue}
+              onChangeText={setActionDue}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={Colors.textMuted}
+              autoCapitalize="none"
+              maxLength={10}
+              accessibilityLabel={t('actions.dateLabel')}
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={closeActionModal}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.cancel')}
+              >
+                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalSubmitBtn,
+                  (!actionTitle.trim() || actionBusy) && styles.modalSubmitBtnDisabled,
+                ]}
+                onPress={submitAction}
+                disabled={!actionTitle.trim() || actionBusy}
+                accessibilityRole="button"
+                accessibilityLabel={actionBusy ? t('actions.saving') : t('actions.create')}
+              >
+                <Text style={styles.modalSubmitText}>
+                  {actionBusy ? t('actions.saving') : t('actions.create')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -998,4 +1258,29 @@ const styles = StyleSheet.create({
   },
   modalSubmitBtnDisabled: { opacity: 0.4 },
   modalSubmitText: { fontSize: FontSize.md, fontWeight: '700', color: Colors.bgPrimary },
+  // ── T4-04：行动入口与目标选择 ──
+  actionCta: {
+    alignSelf: 'flex-start', marginTop: Spacing.md,
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: BorderRadius.pill,
+    borderWidth: 1, borderColor: Colors.gold400, backgroundColor: 'rgba(255,215,0,0.10)',
+  },
+  actionCtaText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
+  goalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: Spacing.sm },
+  goalChip: {
+    maxWidth: '100%', paddingHorizontal: 12, paddingVertical: 5, borderRadius: BorderRadius.pill,
+    borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  goalChipActive: { borderColor: Colors.gold400, backgroundColor: 'rgba(255,215,0,0.12)' },
+  goalChipText: { fontSize: FontSize.sm, color: Colors.textSecondary },
+  goalChipTextActive: { color: Colors.gold400, fontWeight: '600' },
+  goalInput: {
+    marginTop: Spacing.sm, padding: Spacing.md, borderRadius: BorderRadius.lg,
+    borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: 'rgba(255,255,255,0.04)',
+    fontSize: FontSize.md, color: Colors.textPrimary,
+  },
+  dueInput: {
+    marginTop: Spacing.sm, padding: Spacing.md, borderRadius: BorderRadius.lg,
+    borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: 'rgba(255,255,255,0.04)',
+    fontSize: FontSize.md, color: Colors.textPrimary,
+  },
 });

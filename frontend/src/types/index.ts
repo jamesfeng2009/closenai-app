@@ -272,6 +272,105 @@ export type InsightFeedbackType =
   | 'outdated'
   | 'forget_from_model';
 
+// ═══ V3 行动闭环（T4-04：洞察 → 行动 → 结果）═══
+//
+// 下面每一格的键名都不是这里定的：逐字抄 Go 的 `v3*Wire`／`v3*Payload`
+// （internal/httpapi/v3_goals.go、v3_outcomes.go），由
+// `__tests__/actionsWiring.test.ts` 拿 Go 源对账。可空时间在 Go 侧是 `*time.Time`，
+// 线上就是 null —— 不许在这里写成 `string`，否则「没设截止」会渲染成一个空的日期。
+
+/** 目标列表行：Go 的 `v3GoalItemWire` 九键。 */
+export interface GoalItem {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  started_at: string | null;
+  target_at: string | null;
+  completed_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** `GET /api/v1/goals` 的 data：这一面没有游标，只有 truncated（T4-02 的口径）。 */
+export interface GoalListPage {
+  items: GoalItem[];
+  truncated: boolean;
+}
+
+/** 行动列表行：Go 的 `v3ActionItemWire` 十键。 */
+export interface ActionItem {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  due_at: string | null;
+  completed_at: string | null;
+  skipped_at: string | null;
+  /** null ⇒ 这一颗没挂在目标下；空串是「挂在一颗标题为空的目标下」，两件事。 */
+  goal_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** `GET /api/v1/actions` 的 data。 */
+export interface ActionListPage {
+  items: ActionItem[];
+  truncated: boolean;
+}
+
+/** 目标写回执：Go 的 `v3GoalWritePayload` 六键。 */
+export interface GoalReceipt {
+  goal_id: string;
+  status: string;
+  changed: boolean;
+  event_id: string;
+  model_version: number;
+  detail: string;
+}
+
+/** 行动写回执：Go 的 `v3ActionWritePayload` 七键。 */
+export interface ActionWriteReceipt {
+  action_id: string;
+  goal_id: string | null;
+  status: string;
+  changed: boolean;
+  event_id: string;
+  model_version: number;
+  detail: string;
+}
+
+/**
+ * 三个生命周期动词：逐字取 Go 的 `domain.lifecycleVerbs`（goal.go:56-60）。
+ *
+ * 发状态词（`status=completed`）而不是动词，调用方就能拼出 `status=skipped` 打到目标上
+ * ——那一列在 personal_goals 里根本不存在（v3_goals.go 的 `v3TransitionRequest` 头注释）。
+ */
+export type ActionTransition = 'complete' | 'skip' | 'cancel';
+
+/**
+ * 屏上「结果如何」四选一：逐字取 Go 六值里的四格（outcome.go:68-73）。
+ *
+ * `mixed`／`not_relevant` 不在屏上，不是漏了两档而是这一屏的问题只有四句答案
+ * （工单 §怎么做.3「变好/没变化/变差/说不清」）；「说不清」落 `unknown`，
+ * 因为缺省值也是它（action_outcome.go:96-99）。
+ */
+export type ActionResultChoice = 'better' | 'same' | 'worse' | 'unknown';
+
+/** 结果回执：Go 的 `v3OutcomePayload` 十键。 */
+export interface ActionOutcomeReceipt {
+  outcome_id: string;
+  action_id: string;
+  outcome_type: string;
+  result: string;
+  status: string;
+  changed: boolean;
+  model_version: number;
+  completed_target: string;
+  operation_id: string;
+  detail: string;
+}
+
 // ═══ Relationship (P0-F04：关系等级 / 徽章 / 时间线) ═══
 
 /** 等级信息（/growth/level.current 与 relationship-timeline.level 共用）。 */
