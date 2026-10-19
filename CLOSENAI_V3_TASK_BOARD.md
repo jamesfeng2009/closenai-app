@@ -54,8 +54,8 @@
 | 指标 | 值 |
 |---|---|
 | 任务总数 | **34** |
-| `DONE` | **23**（66%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T4-01、T5-01、T5-02、T5-03、T5-05、T6-01、T6-02） |
-| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **8**（T3-04、T3-05、T4-02…T4-04、T5-04、T6-03、T6-04） |
+| `DONE` | **25**（74%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T4-01、T4-02、T4-03、T5-01、T5-02、T5-03、T5-05、T6-01、T6-02） |
+| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **6**（T3-04、T3-05、T4-04、T5-04、T6-03、T6-04） |
 
 | 波次 | 任务范围 | 完成/总数 | 出口标准 |
 |---|---|---|---|
@@ -63,7 +63,7 @@
 | W1 P0 合规 | `T1-01`…`T1-04` | 4/4 | 导出/consent/静默可用；付费交付指标可见 |
 | W2 证据链路 | `T2-01`…`T2-05`＋`T2-06`（2026-10-18 拆自 T2-03 第⑤件，前置 B-08） | 6/6 | 记忆 → source → evidence 跨进程跑通（**2026-10-19 由 T2-04 达成，同日 T2-06 把「来源被删 → 证据退场」的退场段也跑通一次，T2-05 补上死信面的读数与重放工具；三者都跑在测试里，产品流量仍是零**） |
 | W3 洞察纠错 | `T3-01`…`T3-05` | 3/5 | 用户能看到依据并纠正，纠正真落库（**2026-10-19 T3-01/02/03 后：服务端三条链已跨进程跑通到 `/api/v1` 且进契约，但前端仍未消费——「用户能看到」这半句归 T3-04/05**） |
-| W4 行动闭环 | `T4-01`…`T4-04` | 0/4 | 洞察→行动→结果一条端到端 |
+| W4 行动闭环 | `T4-01`…`T4-04` | 3/4 | 洞察→行动→结果一条端到端（**2026-10-19 T4-01/02/03 后：三段的服务端与 `/api/v1` 转发链已各自跨进程跑通并进契约，「端到端」这半句要等 T4-04 的屏**） |
 | W5 隐私与主动消息 | `T5-01`…`T5-05` | 4/5 | 关闭/静默/幂等三闸全绿 |
 | W6 架构收敛 | `T6-01`…`T6-04` | 2/4 | 单一 DDL、单一事实源、隔离生效 |
 
@@ -98,7 +98,7 @@
 | T3-05 | 前端：反馈条与纠错输入 | FE | T3-04 | W3 | TODO | — |
 | T4-01 | Schema：commitments 加 `goal_id`/`skipped_at` | GO+BE | T6-03（建议） | W4 | DONE | — |
 | T4-02 | Go：goals/actions CRUD 与状态机 | GO | T4-01 | W4 | DONE | 2026-10-19 结案（§怎么做.2 的 `UpdateGoalStatus`／`GetGoalState` 按实况改判为复用既有语句，理由与四件套见详情结案行）：`domain/goal.go`＋`domain/service_goal.go`＋`store/goal_read.go`＋`httpapi/v3_goals.go` 六条内部端点＋BFF 六条转发（兑 T3-03 结案行那笔欠账）；契约重导 **106 paths／115 operations**；真库集成测 6 条、跨进程 e2e 15→19 条；Go **17 包 ok／779 PASS／0 FAIL**＋gofmt 零输出，pytest 全量 **1589 passed／4 skipped／0 failed**；变异 `scripts/mutate_t402_gates.py` 打红 **39/39**、保持绿 **5/5**、未跑 0、残留 0（第一轮 26/28 抓到两条「红点没落在点名判据上」，见详情） |
-| T4-03 | Go：outcomes 端点 | GO | T4-02 | W4 | TODO | — |
+| T4-03 | Go：outcomes 端点 | GO | T4-02 | W4 | DONE | 2026-10-19 结案（两处按实况改判：`OriginUserReported` 在词表里不存在⇒用 `OriginUserStatement`；result 收**六值**而不是工单的四值。理由与四件套见详情结案行）：`domain/action_outcome.go` 新入口（钉 origin/targets＋同日 UTC 幂等，事务体仍复用 `recordOutcomeWithin` ⇒ 写路径只有一条）＋`httpapi/v3_outcomes.go`＋`routes.go:141` 一条内部端点＋BFF 第十条转发；契约重导 **107 paths／116 operations**；闸 Go 11＋5＋3（`v3_internal_enabled_test.go` 兑 T4-02 登记的装配欠账）＋真库 6、Python 代理 7 函数／8 节点、e2e `CASE_PLAN` 19＋归零证人；Go **17 包 ok／804 PASS／0 FAIL**＋gofmt 零输出，pytest 全量 **1598 passed／4 skipped／0 failed**，结果面跨进程 **28 passed**；变异 `scripts/mutate_t403_gates.py` 打红 **40/40**、保持绿 **5/5**、未跑 0、残留 0（第一轮 37/39 抓到 DB2 等价变异＝测自己的数据把证人种错格子、P9 挂错闸＝两个已提交产物同源，均已修）；欠账登记：`operation_id` 无列只回显、目标级结果端点缺失 |
 | T4-04 | 前端：洞察→行动→结果闭环 | FE | T4-03 | W4 | TODO | — |
 | T5-01 | `user_consents` 表与 API | BE | — | W5 | DONE | 2026-10-18 六用途台账表＋API＋兼容期双写＋注册默认；pytest 21 passed／迁移 a1c3e5f7b9d1 真 PG 实测；变异 B7、B8 打红 |
 | T5-02 | 静默时段（设置+投递门+UI） | BE+FE | — | W5 | DONE | 2026-10-18 两列 TIME＋PATCH 校验＋cron/推送双层门＋15 语言 UI；pytest 15／jest 29＋107＋tsc 0；变异 B1、B2、B4、B10、F1、F2、F3 打红 |
@@ -867,7 +867,7 @@ ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无
 
 | 状态 | 负责 | 依赖 | 规模 |
 |---|---|---|---|
-| TODO | GO | T4-02 | M |
+| DONE | GO | T4-02 | M |
 
 **怎么做**
 1. `POST /internal/v3/actions/{id}/outcomes`：
@@ -883,6 +883,16 @@ ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无
 
 **验收**
 四种 result 各一条；非法 outcome_type 400；跨用户 404；`outcomes` + `outcome_links` 两行同事务写入。
+
+> 结案 2026-10-19｜master 工作区（未推）｜**闭环的最后一格补上了**：洞察（T3-01/02）→ 行动（T4-02）→ 结果（本票）三段现在都有内部端点＋一条 `/api/v1` 转发，用户「做完了，然后呢」这件事第一次有可写的地方。**§怎么做 逐格**：1 `POST /internal/v3/actions/{id}/outcomes` 挂在 `routes.go:141`（内部面，ADR-002：`domain` 字段留空＝不参与切流，Ingress 无规则覆盖 ⇒ 对外不存在）；2 **改判（不照工单字面）**——§怎么做.2 点名的 `OriginUserReported` 在 origin 词表里**不存在**（真身 `outcome.go:90-95` 四值），取 `OriginUserStatement`：它是三条权威来源之一 ⇒ 落 `recorded` ＋ ++模型版本，正是「用户自己说这件事发生了」的语义；新造一枚 origin 等于给词表加第二个事实源，而 O-5 的版本判据就是按这一枚举分道的。同理 `OutcomeProposal` 的组装**没有放在 handler**——新建 `domain/action_outcome.go` 的 `RecordActionOutcome`：让 handler 直接调 `RecordOutcome` 等于把 origin 交给请求体声明（`llm_inference` 与 `user_statement` 之间差的正是「这条算不算模型相信的事」），且同日幂等要在同一事务里读「最近一条同型」再决定写不写，而 `RecordOutcome` 自带 `InTx`（嵌套事务在真库上是 pgx 报错、在假桩里全绿）。本文件只钉三件事：origin、targets、那一格同日判定，**事务体仍复用 `recordOutcomeWithin` ⇒ 写路径只有一条**；3 匹配判据照工单用既有 `checkOutcomeProposal`/`OutcomeTargetRequirement`（`outcome.go:490-500`），本面只 link `commitment`，所以 `goal_progress`／`pattern_*`／`proactive_*` 在这一条行动上 400 而不是写出「挂在行动上却描述目标」的那一行（**目标级结果端点＝本票留下的欠账**，登记在下面）；4 **改判**——§怎么做.1 的 result 四值（improved/no_change/worse/unclear）与 02:182-189 的六值不同源，这一面**收六值**（better/same/worse/mixed/not_relevant/unknown），缺省归一化为 `unknown` 而不是 400；工单 §验收 要的「四种 result 各一条」说的是**不许只留正向**（Baseline §7.3-7），`same`／`worse`／`unknown` 都在内，而不是再造一张四值表；5 同日幂等落在 domain 而不是 handler 也不是 SQL：`sameUTCDate`（按 **UTC** 折日历日——这一面拿不到用户时区，`users` 表没有那一列；口径统一比「贴近直觉」重要，跨日界那一次本来就该是两条独立观测），**没有用 `date_trunc`**（`legacy_batch5.go:71` 那条时区漂移勘误的同一根因）。重复提交 ⇒ 回首次那一行（`OutcomeID`/`Result` 都是库里那条）＋`Changed=false`＋一句 `Detail`，**不写第二行**、不再 ++版本。
+>
+> **四件套**：入口＝一条内部端点＋一条 `/api/v1` 转发（`routers/v3.py` 第十条 handler，`Depends(get_current_user)` 第九→十）；执行＝`go test -p 1 ./...` 全绿，真库 6 条集成测在真 PG 上跑过（同日两连点只一行、跨日两行、`outcome_type` 谓词与 `target_id` 谓词各自独立、`l.user_id` 归属、次级排序键、NOT NULL 回链）；交付＝回执十键（`outcome_id/action_id/outcome_type/result/status/changed/model_version/completed_target/operation_id/detail`）——`detail` 在 `Changed=false` 时必须有，否则「刚刚记下了」与「今天已经记过了」在屏上是同一句话；失败恢复＝提案不合形 400（`ErrInvalidOutcomeProposal`→40001）、跨用户与不存在折成**同一个** 40402（反枚举，`v3_feedback.go` 同判据）、Go 停机时 BFF 五键 503 且**不许**把失败渲染成「没记上」。§验收 逐字四条全有闸：四种 result 各一条（domain 表驱动＋真库一条往返）、非法 `outcome_type` 400（D7／HT4 各打红一次）、跨用户 404（DB3／HT5）、两行同事务（DB7：回链不带走归属 ⇒ NOT NULL 当场回滚，**桩里 `append` 两次永远一起成功，原子性只有真库能证**）。
+>
+> **新增闸**：Go `internal/domain/action_outcome_test.go` **11 条**（origin/targets 钉死、同日两连点、跨日、UTC+8 同一日、`operation_id` 回显、`occurred_at` 带走、备注落 `description`、缺省 result、goal 级类型 400、空 `action_id` 是 400 不是 404）；`internal/httpapi/v3_outcomes_test.go` **5 条**（存在与密钥消失、身份不信 body/query、`note` 500/501 分界、path 参数名与注册表同批、错误映射逐码）；`internal/httpapi/v3_internal_enabled_test.go` **3 条**（**这是 T4-02 结案行登记的那笔欠账**：五格装配判据以前只在编译期兜着，现在每少一格都有一条测会红，HT8 证明它确实会红）；`internal/store/canonical_outcome_integration_test.go` **6 条真库**；Python `backend/tests/test_v3_outcomes_proxy.py` **7 个函数／8 条节点**（目标 path 逐字、`{}` 之后的后缀不被转义吃掉、body 原样含 `user_id`/`origin`、坏 JSON 在拨号之前 400、404/400 两跳后还是那两个数、503 五键信封、幂等回执形状跨跳）；`test_bff_is_thin.py` 身份入口 9→10、handler 计数九→十、内部 path 常量新增 `"/internal/v3/actions/{}/outcomes"`；`test_v3_proxy_e2e.py` `CASE_PLAN` 19 条＋1 条归零证人（跨进程跑真 `httpapi.NewServer`：§验收 的 400/404 两跳与同日幂等都在这一面二次自证）。
+>
+> **实测计数**：Go `gofmt -l .` 零输出、`go build`／`go vet` 干净、`go test -p 1 ./... -count=1` **17 包 ok／0 FAIL／804 条顶层 `--- PASS`**（口径＝`grep -c '^--- PASS'`，不含子测；比 T4-02 的 779 多 25 条，与本票新增 11+5+3+6 条减去一条改名同量级）；聚焦跑 domain＋httpapi 的 T4-03 用例 **20 PASS**、store `-run T403` **6 PASS**（真 PG）；backend 全量带实库＋实 broker **1598 passed／4 skipped／0 failed（119.33s）**；结果面代理＋跨进程 e2e **28 passed**；契约重导 **107 paths／116 operations**（`/internal` 仍零条 ⇒ G-02 对账照旧成立），`test_contract_freeze` 计数 115→116。**变异自证** `scripts/mutate_t403_gates.py` 打红 **40/40**（D origin/词表/幂等/时区/回执 13、HT 入口形状与错误映射 8、DB 真库读面与回链 7、Q1 两个真源 1、P BFF 那一跳 11）、保持绿 **5/5**（五个靶文件各插 15 行注释）、未跑 **0**、残留 **0**（八个靶文件 copy2＋`filecmp(shallow=False)` 逐字节写回）。**第一轮 37/39 抓到两条「红点没落在点名判据上」，都已修**：① **DB2 是等价变异**——`outcome_type` 谓词写成恒真照样全绿，根因在**测自己的数据**：那条「另一种 `outcome_type`」的行原先种在另一个 `target_id` 上，于是 `target_id` 谓词替它挡了一切；把证人挪到**同一条行动**且时刻更晚之后 DB2 才红得点名那一条（教训：证人必须站在被证的那一格里，不能站在邻居格里）；② **P9 挂错闸**——`test_no_unregistered_or_stale_endpoint` 比的是 `endpoints.md` 与 `openapi.json` 两个**都已提交**的产物，同源，路由改名后一起重导照样绿；拆成 P9（活体 `test_client_contract_exposes_the_forwarded_paths_and_no_internal`）＋ P10（快照 `test_openapi_baseline_is_current`），两侧各红一次。
+>
+> **发现缺陷（本票不顺手修，登记）**：① **`operation_id` 没有列**——`outcomes` 表无 `metadata`（0002:148-161），同日幂等因此按 (user, target, outcome_type, UTC 日) 判，`operation_id` **只在回执里回显**；客户端拿它只能对上自己那次点击，不能拿它做「同一笔请求不双计」的硬保证（真要做要么加列，要么按 outbox 的稳定 id 思路做幂等表）；② **目标级结果端点缺失**——本面只 link commitment，`goal_progress`/`goal_completed` 想记在**目标**上今天没有入口（T4-04 的屏因此只画「一条行动的结果」）；③ `internalEnabled()` 五格 AND 的**装配本身**（`cmd/go-api`）仍没有测，本票补的是「少一格会红」而不是「装配代码不会写错」⇒ 同归 **T6-04**；④ `.sql` 源与 `canonicaldb` 生成物仍是两个真源（Q1 只能由 `sqlc diff` 兜，Go 测试看不见源文件）＋alembic head 字面量在四份实库伴生测里各钉一份 ⇒ 归 **T6-03**；⑤ **跨语言第二真源**：`backend/tests/test_go_auth_interop.py::test_go_test_suite_passes` 把「Go 全量绿灯」交给 Python 侧一个 600s 墙钟的子进程转发，其结果取决于 `GO_BIN`/`GOROOT`/`shutil.which` 的候选顺序（不可用则 `skip`），与本机直接 `go test -p 1 ./...` 并发跑时偶发超时——本票所有 Go 结论一律以直接跑的实测为准，不采信这一条的绿或红。**未跑**：生产／staging 集群上的真实部署与灰度（本机无 kubeconfig，VPS 面归 T0-01）；用户可见的屏在 **T4-04**（本票交付的是接口面与一条已通的转发链）。
 
 ---
 
