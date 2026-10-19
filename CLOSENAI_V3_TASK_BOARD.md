@@ -97,7 +97,7 @@
 | T3-04 | 前端：证据区 + 状态徽章 | FE | T3-03 | W3 | TODO | — |
 | T3-05 | 前端：反馈条与纠错输入 | FE | T3-04 | W3 | TODO | — |
 | T4-01 | Schema：commitments 加 `goal_id`/`skipped_at` | GO+BE | T6-03（建议） | W4 | DONE | — |
-| T4-02 | Go：goals/actions CRUD 与状态机 | GO | T4-01 | W4 | TODO | — |
+| T4-02 | Go：goals/actions CRUD 与状态机 | GO | T4-01 | W4 | DONE | 2026-10-19 结案（§怎么做.2 的 `UpdateGoalStatus`／`GetGoalState` 按实况改判为复用既有语句，理由与四件套见详情结案行）：`domain/goal.go`＋`domain/service_goal.go`＋`store/goal_read.go`＋`httpapi/v3_goals.go` 六条内部端点＋BFF 六条转发（兑 T3-03 结案行那笔欠账）；契约重导 **106 paths／115 operations**；真库集成测 6 条、跨进程 e2e 15→19 条；Go **17 包 ok／779 PASS／0 FAIL**＋gofmt 零输出，pytest 全量 **1589 passed／4 skipped／0 failed**；变异 `scripts/mutate_t402_gates.py` 打红 **39/39**、保持绿 **5/5**、未跑 0、残留 0（第一轮 26/28 抓到两条「红点没落在点名判据上」，见详情） |
 | T4-03 | Go：outcomes 端点 | GO | T4-02 | W4 | TODO | — |
 | T4-04 | 前端：洞察→行动→结果闭环 | FE | T4-03 | W4 | TODO | — |
 | T5-01 | `user_consents` 表与 API | BE | — | W5 | DONE | 2026-10-18 六用途台账表＋API＋兼容期双写＋注册默认；pytest 21 passed／迁移 a1c3e5f7b9d1 真 PG 实测；变异 B7、B8 打红 |
@@ -837,7 +837,7 @@ ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无
 
 | 状态 | 负责 | 依赖 | 规模 |
 |---|---|---|---|
-| TODO | GO | T4-01 | L |
+| DONE | GO | T4-01 | L |
 
 **怎么做**
 1. **Domain 新文件** `internal/domain/service_goal.go`：
@@ -852,6 +852,14 @@ ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无
 
 **验收**
 状态机非法转移 409；跨用户 404；重复 PATCH 幂等；`personal_goals`/`personal_commitments` 各有真行。
+
+> 结案 2026-10-19｜master 工作区（未推）｜**行动闭环第一次两头都通了**：Go 的内部面六条端点有了调用方，BFF 的 `/api/v1` 面也把它们接了出去（这一批是 T3-03 结案行登记的那笔欠账——「Go 侧今天没有 `/internal/v3/goals|actions`，接上去是一条永久 503 的死线，随 T4-02 一并接」）。**§怎么做 逐格**：1 `domain/goal.go` 两张转移表（`NextGoalStatus` 只放行 active→completed|cancelled、`NextActionStatus` 多一枚 skip）＋一套词表（`skipped` **不属于目标**：`personal_goals` 没有 `skipped_at` 列，放开它等于让一次合法转移写不出列）＋`checkTitle` 的 1–200 rune；`domain/service_goal.go` 四条入口 `CreateGoal`（先 `EnsurePersonalModel` 再插行）／`CreateAction`（先核验 `goal_id` 归属且 `status='active'` 再插行）／`TransitionGoal`／`TransitionAction`，幂等格是「当前态就是动词的目标态 ⇒ `Changed=false` ＋ 一句 `Detail`，不写事件」；2 **Store 有改判（不照字面新增语句）**：工单点名的 `UpdateGoalStatus` 映射到既有的 `CompleteGoal`/`CompleteCommitment`＋`CancelGoal`/`CancelCommitment`＋T4-01 的 `SkipCommitment`，`GetGoalState` 映射到既有的 `ListRefStates`——在 SQL 里再写一遍 `AND status='active'` 就是把转移判据放进第二个事实源，而 T4-01 起这一格的闸只认 domain 那一侧；新增的只有 `internal/store/goal_read.go`（`ListGoalRecords`/`ListActionRecords`，`limit<=0` 直接拒而不是替调用方猜）；3 HTTP 六条挂在 `/internal/v3`（`routes.go` 的 `domain` 一律留空＝不参与切流，Ingress 无规则覆盖 ⇒ 对外不存在，ADR-002），`httpapi/v3_goals.go` **只做形状与错误映射**，本文件不许出现第二张「动词→状态」表；4 归属与「不存在」折成**同一个** 40402（分成 403 等于替旁人确认这颗 id 存在），转移非法与「往已结束的目标下挂新行动」都回 409；5 审计：`goal_created`/`action_created`/`goal_transitioned`/`action_transitioned` 四枚写进 `personal_model_events`，**不入 outbox**（这四类不在 `outboxRouting`，R 系列的通信面仍是零流量），且建一颗目标不改模型相信什么 ⇒ **不 ++ 版本、不写 versions 行**。
+>
+> **四件套**：入口＝六条内部端点＋六条 `/api/v1` 转发；执行＝`go test -p 1 ./...` 全绿，真库 6 条集成测在真 PG 上跑过（NULL／空串两个方向、`cancel` 永不刷 `completed_at`、`updated_at` 推进、跨用户断言行未被改、状态过滤器与 `LIMIT`）；交付＝回执五键（`goal_id/status/changed/event_id/model_version`＋`detail`）与列表的 `truncated`（读面多取一条当证人）；失败恢复＝转移非法 409／归属不符 404／限长与坏动词 400，Go 停机时 BFF 五键 503 且**不许**把失败渲染成空列表。
+>
+> **新增闸**：Go `internal/httpapi/v3_goals_test.go` 八条（存在与密钥消失、身份不信 query/body、`target_at` 带着走、goal_id 只从 path、错误映射、动词与多余键、两条列表面）；`internal/domain/service_goal_test.go` 补 `TestTransitionGoalIsIdempotentOnSameState`（原先只有行动侧有幂等闸，而 §验收 那句「重复 PATCH 幂等」说的是**两面**）；`internal/store/canonical_goal_integration_test.go` 6 条真库；Python `backend/tests/test_v3_goals_proxy.py` 12 条函数／15 条节点；`test_bff_is_thin.py` 身份入口计数 3→9、契约路径那条改名 `test_client_contract_exposes_the_forwarded_paths_and_no_internal`、新增 `test_forwarded_surface_has_nine_handlers_and_no_extra_verbs`（动词集合也钉：内部面没有 DELETE，BFF 长出它就是客户端契约里一条**打不通**的端点）；`test_v3_proxy_e2e.py` 15→19 条（目标/行动跨进程四格：列表键集与 `truncated`、写回执 echo header＋body、§验收逐字那条「非法转移 409」跨两跳＋未知动词 400、body 身份被拒＋陌生身份 404／空列表），`CASE_PLAN` 那条「跑过的==清单」归零证人跟着涨。
+>
+> **实测计数**：Go `go build`／`go vet` 干净、`gofmt -l .` 零输出、`go test -p 1 ./... -count=1` **17 包 ok／0 FAIL／779 条顶层 `--- PASS`**（计数口径＝`grep -c '^--- PASS'`，不含子测）；带实库的聚焦跑 `./internal/{domain,httpapi,store} -run 'Goal|Action|Commitment|V3'` **51 PASS**；backend 全量带实库＋实 broker **1589 passed／4 skipped／0 failed（116.14s）**；契约重导 **106 paths／115 operations**（`/internal` 仍零条 ⇒ G-02 对账照旧成立），`test_contract_freeze` 计数 108→114／109→115。**变异自证** `scripts/mutate_t402_gates.py` 打红 **39/39**（SM 状态机 4、ID 幂等 2、OW 归属 1、LS 分页 2、HT 入口形状 7、EM 错误映射 2、DB 真库与生成物 9、Q1 两个真源 1、P BFF 那一跳 11）、保持绿 **5/5**（Go 三处＋Python 两处各插 15 行注释）、未跑 **0**、残留 **0**（九个靶文件 copy2＋`filecmp(shallow=False)` 逐字节写回）。**第一轮 26/28 抓到两条「红点没落在点名判据上」**：SM2 只改转移表时红的是 `TestTransitionTablesAdmitOnlyActiveOrigin` 而不是点名的 goal-skip 那条——因为 `TransitionGoal` 前面还有 `validVerbForGoal` 那一格守卫，于是把两处一起改（真实坏法就是两处同时松手，此时目标上的 skip 会**悄悄走 `CancelGoal`**）；HT6 是等价变异（`optionalTime` 自己就判零值，把 `valid` 改成 `true` 观察不到），改成直接取字段地址 `&g.TargetAt` 绕开那道判断。**P7 第一轮同样是等价变异**：只摘 `http_status=resp.status_code` 照样全绿，因为 `AppException` 自己会按 code 推出状态——改成「不报错、照单回 `data`」才是那条判据的坏法。**两条剔除并留档**：① 摘 `internalEnabled()` 里 `s.v3.Goals != nil` 没有任何一条测会红（测试装配恒注桩），改判据在 `cmd/go-api` 的编译期；② 删 `LIST_QUERY_KEYS` 的白名单不可观察，因为 handler 只会把 `status/limit/cursor` 三键交进 `list_params`——白名单在这一格是第二层防御而不是唯一防线，这两条都不是本轮能靠变异钉住的。**一次真翻车（写进台账，因为它证明了上面①不是假想）**：`internalEnabled()` 把 goals 算进注册判据之后，`tools/v3surface` 的夹具没跟着补 ⇒ 全量回归里跨进程 15 条整片 404（「漏装配」的坏法表现为**整个内部面消失**，而不是 goals 四条 404）。补 `fixtureGoal`／`fixtureGoalWrites` 之后同批加了那四条目标/行动跨进程用例。**发现缺陷（本票不顺手修，登记）**：① `cmd/go-api` 的装配本身仍没有测（`internalEnabled` 四格一起判这条设计只有编译期兜着）⇒ 归 **T6-04**；② alembic head 字面量在四份实库伴生测里各钉一份、`.sql` 与 `canonicaldb` 生成物仍是两个真源（本票 Q1 只能靠 `sqlc diff` 兜）⇒ 同归 **T6-03**；③ 本机 dev PG 口令仍在 git 历史里（靠轮换，不 force push）。**未跑**：生产／staging 集群上的真实部署与灰度（本机无 kubeconfig，VPS 面归 T0-01）；用户可见的屏在 **T4-04**（本票交付的是接口面与一条已通的转发链）。
 
 ---
 
