@@ -340,6 +340,14 @@ const resource = {
       "important": "Hanya bila ada pencapaian atau sesuatu yang patut mendapat perhatian anda",
       "off": "Tiada mesej aktif; anda boleh mula bila-bila masa"
     },
+    "quietHours": "Jangan ganggu",
+    "quietHoursOn": "Diaktifkan",
+    "quietHoursOff": "Dinyahaktifkan",
+    "quietWindow": "Jam senyap",
+    "quietWindowTitle": "Pilih jam senyap anda",
+    "quietStart": "Mula",
+    "quietEnd": "Tamat",
+    "quietWindowHint": "Kami tidak akan menghantar mesej aktif dalam tempoh ini. Tempoh yang melampaui tengah malam (cth. 22:00–08:00) juga berkesan.",
 
     "style": {
       "warm": "Hangat & Penyayang",
@@ -657,6 +665,24 @@ const resource = {
     "consentReadonlyHint": "Untuk menukar pilihan anda, pergi ke Profil → Tetapan Perkongsian Data.",
     "deletionTitle": "Pemadaman Data",
     "deletionDesc": "Anda boleh memadam akaun dan semua data anda (perbualan, memori, daftar perasaan, rekod pertumbuhan) secara kekal pada bila-bila masa di Profil → Padam Akaun. Tindakan ini tidak boleh dipulihkan."
+  },
+  "export": {
+    "title": "Eksport Data",
+    "desc": "Eksport salinan data peribadi anda (perbualan, memori, daftar hadir, rekod pertumbuhan, wawasan dan log persetujuan anda). Token log masuk dan resit pembayaran tidak termasuk. Arkib boleh dimuat turun selama {{days}} hari, kemudian anda boleh memintanya lagi. Menghapus akaun turut menghapus arkib.",
+    "descNoRetention": "Eksport salinan data peribadi anda (perbualan, memori, daftar hadir, rekod pertumbuhan, wawasan dan log persetujuan anda). Token log masuk dan resit pembayaran tidak termasuk, dan menghapus akaun turut menghapus arkib.",
+    "request": "Minta eksport",
+    "inProgress": "Eksport sedang berjalan",
+    "download": "Muat turun",
+    "statusQueued": "Dalam giliran",
+    "statusRunning": "Menjana",
+    "statusReady": "Sedia untuk dimuat turun",
+    "statusFailed": "Gagal menjana",
+    "statusExpired": "Tamat tempoh",
+    "unavailable": "Peranti ini tidak dapat membuka panel kongsi sekarang. Sila cuba lagi nanti.",
+    "notReady": "Arkib belum sedia. Sila cuba sebentar lagi.",
+    "tooFrequent": "Anda sudah meminta eksport dalam 24 jam lepas. Sila cuba lagi nanti.",
+    "artifactMissing": "Fail arkib hilang pada pelayan. Ia akan dijana semula secara automatik.",
+    "failedGeneric": "Eksport gagal. Sila cuba lagi nanti."
   },
   "help": {
     "sectionFaq": "Soalan Lazim",

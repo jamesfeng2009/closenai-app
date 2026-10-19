@@ -347,6 +347,14 @@ const resource = {
       "important": "Solo cuando hay un hito o algo que merece tu atención",
       "off": "Nada de mensajes activos; tú puedes empezar cuando quieras"
     },
+    "quietHours": "No molestar",
+    "quietHoursOn": "Activado",
+    "quietHoursOff": "Desactivado",
+    "quietWindow": "Horas de silencio",
+    "quietWindowTitle": "Elige tus horas de silencio",
+    "quietStart": "Inicio",
+    "quietEnd": "Fin",
+    "quietWindowHint": "No enviaremos mensajes activos durante este periodo. Los periodos que cruzan la medianoche (p. ej. 22:00–08:00) también funcionan.",
 
     "style": {
       "warm": "Cálido y cercano",
@@ -666,6 +674,24 @@ const resource = {
     "consentReadonlyHint": "Para cambiar tu elección, ve a Perfil → Configuración de uso compartido.",
     "deletionTitle": "Eliminación de datos",
     "deletionDesc": "Puedes eliminar de forma permanente tu cuenta y todos tus datos (conversaciones, recuerdos, registros, historial de crecimiento) cuando quieras desde Perfil → Eliminar cuenta. No se puede deshacer."
+  },
+  "export": {
+    "title": "Exportación de datos",
+    "desc": "Exporta una copia de tus datos personales (conversaciones, recuerdos, registros de ánimo, historial de crecimiento, ideas y tu registro de consentimientos). Nunca se incluyen tokens de acceso ni comprobantes de pago. El archivo se puede descargar durante {{days}} días; después puedes solicitar uno nuevo. Si eliminas tu cuenta, el archivo también se borra.",
+    "descNoRetention": "Exporta una copia de tus datos personales (conversaciones, recuerdos, registros de ánimo, historial de crecimiento, ideas y tu registro de consentimientos). Nunca se incluyen tokens de acceso ni comprobantes de pago, y si eliminas tu cuenta el archivo también se borra.",
+    "request": "Solicitar exportación",
+    "inProgress": "Exportación en curso",
+    "download": "Descargar",
+    "statusQueued": "En cola",
+    "statusRunning": "Generando",
+    "statusReady": "Lista para descargar",
+    "statusFailed": "Error al generar",
+    "statusExpired": "Caducado",
+    "unavailable": "Este dispositivo no puede abrir el menú de compartir ahora. Inténtalo más tarde.",
+    "notReady": "El archivo todavía no está listo. Inténtalo en un momento.",
+    "tooFrequent": "Ya solicitaste una exportación en las últimas 24 horas. Inténtalo más tarde.",
+    "artifactMissing": "El archivo desapareció del servidor. Se generará de nuevo automáticamente.",
+    "failedGeneric": "La exportación falló. Inténtalo más tarde."
   },
   "help": {
     "sectionFaq": "Preguntas frecuentes",

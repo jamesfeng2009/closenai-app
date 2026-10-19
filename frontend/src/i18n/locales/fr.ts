@@ -347,6 +347,14 @@ const resource = {
       "important": "Uniquement pour une étape ou ce qui mérite ton attention",
       "off": "Aucun message actif ; tu peux engager la conversation quand tu veux"
     },
+    "quietHours": "Ne pas déranger",
+    "quietHoursOn": "Activé",
+    "quietHoursOff": "Désactivé",
+    "quietWindow": "Heures de silence",
+    "quietWindowTitle": "Choisir vos heures de silence",
+    "quietStart": "Début",
+    "quietEnd": "Fin",
+    "quietWindowHint": "Nous n'enverrons pas de messages actifs pendant cette période. Les périodes qui dépassent minuit (ex. 22:00–08:00) fonctionnent aussi.",
 
     "style": {
       "warm": "Chaleureux et attentionné",
@@ -666,6 +674,24 @@ const resource = {
     "consentReadonlyHint": "Pour modifier votre choix, allez dans Profil → Paramètres de partage des données.",
     "deletionTitle": "Suppression des données",
     "deletionDesc": "Vous pouvez supprimer définitivement votre compte et toutes vos données (conversations, souvenirs, pointages, historiques de croissance) à tout moment dans Profil → Supprimer le compte. Cette action est irréversible."
+  },
+  "export": {
+    "title": "Export des données",
+    "desc": "Exportez une copie de vos données personnelles (conversations, souvenirs, points d'humeur, journaux de progression, analyses et journal des consentements). Les jetons de connexion et les reçus de paiement ne sont jamais inclus. L'archive reste téléchargeable {{days}} jours, puis vous pouvez la redemander. Supprimer votre compte supprime aussi l'archive.",
+    "descNoRetention": "Exportez une copie de vos données personnelles (conversations, souvenirs, points d'humeur, journaux de progression, analyses et journal des consentements). Les jetons de connexion et les reçus de paiement ne sont jamais inclus, et supprimer votre compte supprime aussi l'archive.",
+    "request": "Demander un export",
+    "inProgress": "Export en cours",
+    "download": "Télécharger",
+    "statusQueued": "En file d'attente",
+    "statusRunning": "En cours de génération",
+    "statusReady": "Prêt à télécharger",
+    "statusFailed": "Échec de la génération",
+    "statusExpired": "Expiré",
+    "unavailable": "Cet appareil ne peut pas ouvrir de volet de partage pour le moment. Réessayez plus tard.",
+    "notReady": "L'archive n'est pas encore prête. Réessayez dans un instant.",
+    "tooFrequent": "Vous avez déjà demandé un export ces dernières 24 heures. Réessayez plus tard.",
+    "artifactMissing": "Le fichier d'archive a disparu sur le serveur. Il sera régénéré automatiquement.",
+    "failedGeneric": "Échec de l'export. Réessayez plus tard."
   },
   "help": {
     "sectionFaq": "Questions fréquentes",

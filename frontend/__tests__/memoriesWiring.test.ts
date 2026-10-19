@@ -97,9 +97,11 @@ describe('① 三条新封装真的指向后端那三条端点', () => {
 
   it('后端契约里这三条都登记过（防止前端指向一条契约外的线）', () => {
     const md = readRepo('contracts/endpoints.md');
-    expect(md).toContain('| 56 | POST | `/api/v1/memories` |');
-    expect(md).toContain('| 58 | POST | `/api/v1/memories/version` |');
-    expect(md).toContain('| 60 | GET | `/api/v1/memories/{memory_id}` |');
+    // 只认「方法 + 路径在册」，不认序号：序号是全表排序的结果，T1-01 新增
+    // GET /cron/export-jobs 一条就把这三行各往后推 1，把台账重导变成改测试没有意义。
+    expect(md).toContain('| POST | `/api/v1/memories` |');
+    expect(md).toContain('| POST | `/api/v1/memories/version` |');
+    expect(md).toContain('| GET | `/api/v1/memories/{memory_id}` |');
   });
 });
 

@@ -340,6 +340,14 @@ const resource = {
       "important": "전환점이나 주목할 일이 있을 때만 보내요",
       "off": "먼저 보내지는 않아요. 언제든지 당신이 시작할 수 있어요"
     },
+    "quietHours": "방해 금지",
+    "quietHoursOn": "켜짐",
+    "quietHoursOff": "꺼짐",
+    "quietWindow": "방해 금지 시간",
+    "quietWindowTitle": "방해 금지 시간 선택",
+    "quietStart": "시작",
+    "quietEnd": "끝",
+    "quietWindowHint": "이 시간에는 능동 메시지를 보내지 않습니다. 자정을 넘는 설정(예: 22:00–08:00)도 적용됩니다.",
 
     "style": {
       "warm": "따뜻한 공감형",
@@ -657,6 +665,24 @@ const resource = {
     "consentReadonlyHint": "선택을 변경하려면 프로필 → 데이터 공유 설정으로 이동하세요.",
     "deletionTitle": "데이터 삭제",
     "deletionDesc": "프로필 → 계정 삭제에서 계정과 모든 데이터(대화, 기억, 체크인, 성장 기록)를 언제든지 영구적으로 삭제할 수 있습니다. 이 작업은 되돌릴 수 없습니다."
+  },
+  "export": {
+    "title": "데이터 내보내기",
+    "desc": "본인 데이터의 사본(대화, 기억, 체크인, 성장 기록, 통찰, 동의 기록)을 내보냅니다. 로그인 토큰과 결제 영수증은 절대 포함되지 않습니다. 아카이브는 {{days}}일 동안 다운로드할 수 있으며, 이후 다시 요청할 수 있습니다. 계정을 삭제하면 아카이브도 함께 삭제됩니다.",
+    "descNoRetention": "본인 데이터의 사본(대화, 기억, 체크인, 성장 기록, 통찰, 동의 기록)을 내보냅니다. 로그인 토큰과 결제 영수증은 절대 포함되지 않으며, 계정을 삭제하면 아카이브도 함께 삭제됩니다.",
+    "request": "내보내기 요청",
+    "inProgress": "내보내는 중",
+    "download": "다운로드",
+    "statusQueued": "대기 중",
+    "statusRunning": "생성 중",
+    "statusReady": "다운로드 가능",
+    "statusFailed": "생성 실패",
+    "statusExpired": "만료됨",
+    "unavailable": "이 기기에서는 지금 공유 창을 열 수 없습니다. 잠시 후 다시 시도해 주세요.",
+    "notReady": "아카이브가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+    "tooFrequent": "지난 24시간 안에 이미 내보내기를 요청했습니다. 잠시 후 다시 시도해 주세요.",
+    "artifactMissing": "서버에서 아카이브 파일을 찾을 수 없습니다. 자동으로 다시 생성됩니다.",
+    "failedGeneric": "내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요."
   },
   "help": {
     "sectionFaq": "자주 묻는 질문",

@@ -123,7 +123,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const deleteMyAccount = useCallback(async () => {
     // 删除失败时原样上抛（保留 ApiError 的服务端文案），由调用方（ProfileScreen）兜底提示
     // 注销侧不用先调 clearPushToken：后端 soft_delete_account 自己清了
-    // （user_service.py:425，取证见 backend/tests/test_account_deletion.py:71）
+    // （出处按内容找：backend/services/user_service.py 的 soft_delete_account →
+    //   clear_push_tokens，取证见 backend/tests/test_account_deletion.py 的
+    //   test_soft_delete_clears_push_tokens。这里刻意不写行号：同一个文件里多一个函数
+    //   行号就漂，W5 补 user_consents 到 PURGE_TARGETS 时就把 `:425` 漂成了 `:467`）
     await deleteAccount();
     await resetSessionFull();
     setUser(null);

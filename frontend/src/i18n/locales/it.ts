@@ -347,6 +347,14 @@ const resource = {
       "important": "Solo quando c'è un traguardo o qualcosa che merita la tua attenzione",
       "off": "Nessun messaggio attivo; puoi iniziare tu quando vuoi"
     },
+    "quietHours": "Non disturbare",
+    "quietHoursOn": "Attivo",
+    "quietHoursOff": "Disattivo",
+    "quietWindow": "Fascia di silenzio",
+    "quietWindowTitle": "Scegli la fascia di silenzio",
+    "quietStart": "Inizio",
+    "quietEnd": "Fine",
+    "quietWindowHint": "In questo intervallo non invieremo messaggi proattivi. Valgono anche gli intervalli che superano la mezzanotte (es. 22:00–08:00).",
 
     "style": {
       "warm": "Caloroso e premuroso",
@@ -666,6 +674,24 @@ const resource = {
     "consentReadonlyHint": "Per modificare la scelta, vai su Profilo → Impostazioni condivisione dati.",
     "deletionTitle": "Cancellazione dei dati",
     "deletionDesc": "Puoi eliminare definitivamente il tuo account e tutti i dati (conversazioni, ricordi, check-in, registri di crescita) in qualsiasi momento in Profilo → Elimina account. L'operazione non può essere annullata."
+  },
+  "export": {
+    "title": "Esportazione dei dati",
+    "desc": "Esporta una copia dei tuoi dati personali (conversazioni, ricordi, check-in, registro di crescita, intuizioni e registro dei consensi). I token di accesso e le ricevute di pagamento non sono mai inclusi. L'archivio resta scaricabile per {{days}} giorni, poi puoi richiederlo di nuovo. Eliminando l'account, l'archivio viene eliminato.",
+    "descNoRetention": "Esporta una copia dei tuoi dati personali (conversazioni, ricordi, check-in, registro di crescita, intuizioni e registro dei consensi). I token di accesso e le ricevute di pagamento non sono inclusi ed eliminando l'account l'archivio viene eliminato.",
+    "request": "Richiedi esportazione",
+    "inProgress": "Esportazione in corso",
+    "download": "Scarica",
+    "statusQueued": "In coda",
+    "statusRunning": "In generazione",
+    "statusReady": "Pronto da scaricare",
+    "statusFailed": "Generazione fallita",
+    "statusExpired": "Scaduto",
+    "unavailable": "Questo dispositivo non può aprire il pannello di condivisione. Riprova più tardi.",
+    "notReady": "L'archivio non è ancora pronto. Riprova a breve.",
+    "tooFrequent": "Hai già richiesto un'esportazione nelle ultime 24 ore. Riprova più tardi.",
+    "artifactMissing": "Il file dell'archivio è sparito sul server. Verrà rigenerato automaticamente.",
+    "failedGeneric": "Esportazione fallita. Riprova più tardi."
   },
   "help": {
     "sectionFaq": "Domande frequenti",

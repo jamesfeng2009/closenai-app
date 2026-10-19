@@ -347,6 +347,14 @@ const resource = {
       "important": "Só quando houver uma conquista ou algo que mereça sua atenção",
       "off": "Nada de mensagens ativas; você pode começar quando quiser"
     },
+    "quietHours": "Não incomodar",
+    "quietHoursOn": "Ativado",
+    "quietHoursOff": "Desativado",
+    "quietWindow": "Horário de silêncio",
+    "quietWindowTitle": "Escolha o horário de silêncio",
+    "quietStart": "Início",
+    "quietEnd": "Fim",
+    "quietWindowHint": "Não enviaremos mensagens ativas nesse período. Períodos que atravessam a meia-noite (ex. 22:00–08:00) também funcionam.",
 
     "style": {
       "warm": "Caloroso e acolhedor",
@@ -666,6 +674,24 @@ const resource = {
     "consentReadonlyHint": "Para mudar sua escolha, vá em Perfil → Configurações de compartilhamento de dados.",
     "deletionTitle": "Exclusão de dados",
     "deletionDesc": "Você pode excluir permanentemente sua conta e todos os dados (conversas, memórias, check-ins, registros de crescimento) a qualquer momento em Perfil → Excluir conta. Isso não pode ser desfeito."
+  },
+  "export": {
+    "title": "Exportação de dados",
+    "desc": "Exporte uma cópia dos seus dados pessoais (conversas, lembranças, registros de humor, histórico de evolução, insights e o registro de consentimentos). Tokens de login e comprovantes de pagamento nunca são incluídos. O arquivo fica disponível para download por {{days}} dias; depois você pode solicitar outro. Excluir a conta também exclui o arquivo.",
+    "descNoRetention": "Exporte uma cópia dos seus dados pessoais (conversas, lembranças, registros de humor, histórico de evolução, insights e o registro de consentimentos). Tokens de login e comprovantes de pagamento não são incluídos, e excluir a conta também exclui o arquivo.",
+    "request": "Solicitar exportação",
+    "inProgress": "Exportação em andamento",
+    "download": "Baixar",
+    "statusQueued": "Na fila",
+    "statusRunning": "Gerando",
+    "statusReady": "Pronto para baixar",
+    "statusFailed": "Falha ao gerar",
+    "statusExpired": "Expirado",
+    "unavailable": "Este dispositivo não consegue abrir o painel de compartilhamento agora. Tente novamente mais tarde.",
+    "notReady": "O arquivo ainda não está pronto. Tente novamente em instantes.",
+    "tooFrequent": "Você já solicitou uma exportação nas últimas 24 horas. Tente novamente mais tarde.",
+    "artifactMissing": "O arquivo sumiu no servidor. Ele será recriado automaticamente.",
+    "failedGeneric": "A exportação falhou. Tente novamente mais tarde."
   },
   "help": {
     "sectionFaq": "Perguntas frequentes",

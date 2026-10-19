@@ -347,6 +347,14 @@ const resource = {
       "important": "Nur bei einem Meilenstein oder wenn es wirklich zählt",
       "off": "Keine aktiven Nachrichten – du kannst jederzeit selbst anfangen"
     },
+    "quietHours": "Nicht stören",
+    "quietHoursOn": "Aktiv",
+    "quietHoursOff": "Aus",
+    "quietWindow": "Ruhezeit",
+    "quietWindowTitle": "Ruhezeit auswählen",
+    "quietStart": "Beginn",
+    "quietEnd": "Ende",
+    "quietWindowHint": "In diesem Zeitraum senden wir keine aktiven Nachrichten. Zeiträume über Mitternacht (z. B. 22:00–08:00) funktionieren ebenfalls.",
 
     "style": {
       "warm": "Warm & fürsorglich",
@@ -666,6 +674,24 @@ const resource = {
     "consentReadonlyHint": "Ihre Auswahl ändern Sie unter Profil → Datenaustausch-Einstellungen.",
     "deletionTitle": "Datenlöschung",
     "deletionDesc": "Unter Profil → Konto löschen können Sie Ihr Konto und alle Daten (Gespräche, Erinnerungen, Check-ins, Wachstumsaufzeichnungen) jederzeit endgültig löschen. Das kann nicht rückgängig gemacht werden."
+  },
+  "export": {
+    "title": "Datenexport",
+    "desc": "Exportieren Sie eine Kopie Ihrer persönlichen Daten (Gespräche, Erinnerungen, Check-ins, Wachstumsaufzeichnungen, Erkenntnisse und Ihr Zustimmungsprotokoll). Login-Token und Zahlungsbelege sind niemals enthalten. Das Archiv kann {{days}} Tage lang geladen werden, danach können Sie es erneut anfordern. Löschen Sie Ihr Konto, wird auch das Archiv gelöscht.",
+    "descNoRetention": "Exportieren Sie eine Kopie Ihrer persönlichen Daten (Gespräche, Erinnerungen, Check-ins, Wachstumsaufzeichnungen, Erkenntnisse und Ihr Zustimmungsprotokoll). Login-Token und Zahlungsbelege sind nicht enthalten; löschen Sie Ihr Konto, wird auch das Archiv gelöscht.",
+    "request": "Export anfordern",
+    "inProgress": "Export läuft",
+    "download": "Herunterladen",
+    "statusQueued": "In Warteschlange",
+    "statusRunning": "Wird erstellt",
+    "statusReady": "Bereit zum Download",
+    "statusFailed": "Erstellung fehlgeschlagen",
+    "statusExpired": "Abgelaufen",
+    "unavailable": "Dieses Gerät kann derzeit kein Freigabefenster öffnen. Bitte versuchen Sie es später erneut.",
+    "notReady": "Das Archiv ist noch nicht bereit. Bitte versuchen Sie es gleich erneut.",
+    "tooFrequent": "Sie haben innerhalb der letzten 24 Stunden bereits einen Export angefordert. Bitte versuchen Sie es später erneut.",
+    "artifactMissing": "Die Archivdatei fehlt auf dem Server. Sie wird automatisch neu erstellt.",
+    "failedGeneric": "Export fehlgeschlagen. Bitte versuchen Sie es später erneut."
   },
   "help": {
     "sectionFaq": "FAQ",

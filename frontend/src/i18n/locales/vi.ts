@@ -340,6 +340,14 @@ const resource = {
       "important": "Chỉ gửi khi có mốc đáng nhớ hoặc điều thật sự cần bạn chú ý",
       "off": "Không chủ động nhắn, bạn vẫn có thể bắt đầu bất cứ lúc nào"
     },
+    "quietHours": "Không làm phiền",
+    "quietHoursOn": "Đã bật",
+    "quietHoursOff": "Đã tắt",
+    "quietWindow": "Giờ yên tĩnh",
+    "quietWindowTitle": "Chọn giờ yên tĩnh",
+    "quietStart": "Bắt đầu",
+    "quietEnd": "Kết thúc",
+    "quietWindowHint": "Trong khoảng này chúng tôi sẽ không gửi tin nhắn chủ động. Khoảng vượt qua nửa đêm (vd 22:00–08:00) vẫn có hiệu lực.",
 
     "style": {
       "warm": "Ấm áp, quan tâm",
@@ -657,6 +665,24 @@ const resource = {
     "consentReadonlyHint": "Để thay đổi lựa chọn, hãy vào Hồ sơ → Cài đặt chia sẻ dữ liệu.",
     "deletionTitle": "Xóa dữ liệu",
     "deletionDesc": "Bạn có thể xóa vĩnh viễn tài khoản và toàn bộ dữ liệu (hội thoại, ký ức, lượt check-in, bản ghi phát triển) bất cứ lúc nào trong Hồ sơ → Xóa tài khoản. Hành động này không thể hoàn tác."
+  },
+  "export": {
+    "title": "Xuất dữ liệu",
+    "desc": "Xuất một bản sao dữ liệu cá nhân của bạn (cuộc trò chuyện, ký ức, điểm danh, nhật ký trưởng thành, thông tin chuyên sâu và nhật ký đồng ý). Mã đăng nhập và biên lai thanh toán không bao giờ được bao gồm. Bản lưu trữ tải về được trong {{days}} ngày, sau đó bạn có thể yêu cầu lại. Xóa tài khoản cũng xóa bản lưu trữ.",
+    "descNoRetention": "Xuất một bản sao dữ liệu cá nhân của bạn (cuộc trò chuyện, ký ức, điểm danh, nhật ký trưởng thành, thông tin sâu sắc và nhật ký đồng ý). Mã đăng nhập và biên lai thanh toán không được bao gồm, và xóa tài khoản cũng xóa bản lưu trữ.",
+    "request": "Yêu cầu xuất",
+    "inProgress": "Đang xuất",
+    "download": "Tải xuống",
+    "statusQueued": "Đang xếp hàng",
+    "statusRunning": "Đang tạo",
+    "statusReady": "Sẵn sàng tải",
+    "statusFailed": "Tạo thất bại",
+    "statusExpired": "Đã hết hạn",
+    "unavailable": "Thiết bị này hiện không mở được bảng chia sẻ. Vui lòng thử lại sau.",
+    "notReady": "Bản lưu trữ chưa sẵn sàng. Vui lòng thử lại sau giây lát.",
+    "tooFrequent": "Bạn đã yêu cầu xuất trong 24 giờ qua. Vui lòng thử lại sau.",
+    "artifactMissing": "Tệp lưu trữ bị mất trên máy chủ. Hệ thống sẽ tự tạo lại.",
+    "failedGeneric": "Xuất thất bại. Vui lòng thử lại sau."
   },
   "help": {
     "sectionFaq": "Câu hỏi thường gặp",

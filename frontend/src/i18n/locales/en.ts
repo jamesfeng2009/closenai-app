@@ -347,6 +347,14 @@ const resource = {
       "important": "Only when there is a milestone or something worth your attention",
       "off": "No active messages; you can still start a chat anytime"
     },
+    "quietHours": "Do Not Disturb",
+    "quietHoursOn": "Enabled",
+    "quietHoursOff": "Off",
+    "quietWindow": "Quiet Hours",
+    "quietWindowTitle": "Choose Your Quiet Hours",
+    "quietStart": "Start",
+    "quietEnd": "End",
+    "quietWindowHint": "We won't send proactive messages during this window. Windows that cross midnight (e.g. 22:00–08:00) work too.",
 
     "style": {
       "warm": "Warm & Caring",
@@ -666,6 +674,24 @@ const resource = {
     "consentReadonlyHint": "To change your choice, go to Profile → Data Sharing Settings.",
     "deletionTitle": "Data Deletion",
     "deletionDesc": "You can permanently delete your account and all data (conversations, memories, check-ins, growth records) anytime in Profile → Delete Account. This cannot be undone."
+  },
+  "export": {
+    "title": "Data Export",
+    "desc": "Export a copy of your personal data (conversations, memories, check-ins, growth records, insights and your consent log). Sign-in tokens and payment receipts are never included. The archive stays downloadable for {{days}} days, then you can request a new one. Deleting your account removes the archive as well.",
+    "descNoRetention": "Export a copy of your personal data (conversations, memories, check-ins, growth records, insights and your consent log). Sign-in tokens and payment receipts are never included, and deleting your account removes the archive as well.",
+    "request": "Request export",
+    "inProgress": "Export in progress",
+    "download": "Download",
+    "statusQueued": "Queued",
+    "statusRunning": "Generating",
+    "statusReady": "Ready to download",
+    "statusFailed": "Failed",
+    "statusExpired": "Expired",
+    "unavailable": "This device can't open a share sheet right now. Please try again later.",
+    "notReady": "The archive isn't ready yet. Please try again in a moment.",
+    "tooFrequent": "You already requested an export within the last 24 hours. Please try again later.",
+    "artifactMissing": "The archive file went missing on the server. It will be rebuilt automatically.",
+    "failedGeneric": "Export failed. Please try again later."
   },
   "help": {
     "sectionFaq": "FAQ",

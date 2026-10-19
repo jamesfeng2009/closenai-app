@@ -26,6 +26,7 @@ import { PRIVACY_POLICY_URL, TERMS_URL } from '../config/links';
 import { lifeArchivePdfFile, pdfFailureKey } from '../config/pdfFiles';
 import { getEntitlements, getLifeArchivePdf, getSubscriptionStatus, ApiError } from '../services/api';
 import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
+import { track } from '../services/analytics';
 import { parseIntroTrialOffer } from '../services/introOffer';
 import {
   getLifeArchiveProducts, getProducts, initIAP, isUserCancelled, purchaseLifeArchive,
@@ -93,6 +94,20 @@ const TIER_DISPLAY: Record<string, string> = {
   pro: 'Pro',
   pro_plus: 'Pro+',
 };
+
+/**
+ * PDF 分享失败的机器码（T1-04 付费交付可观测）。
+ *
+ * 为什么不能直接用 `e.message`：那是给界面看的裸文案，可能是后端返回的自由文本，
+ * 上报进分析通道等于把交付内容塞进行为事件（白名单只放行枚举值这一条红线，
+ * 见 `backend/tests/test_delivery_observability.py::test_reason_key_registered_on_all_three_sides`）。
+ * 码本身可枚举：设备侧不可用 / 后端业务码（如 40304 无权益）/ 其余网络与未知。
+ */
+function pdfFailureReason(e: unknown): string {
+  if (e instanceof PdfUnavailableError) return 'device_share_unavailable';
+  if (e instanceof ApiError) return `api_${e.code}`;
+  return 'network_or_unknown';
+}
 
 type BadgeTone = 'current' | 'upgrade' | 'downgrade';
 
@@ -310,13 +325,24 @@ export default function PaywallScreen() {
   // 已购档位导出 PDF（批1 G2）。权益判定不放在这里：按钮只对 owned 出现，
   // 真无权益（权益刚被退款回收、订阅月度额度用尽）由后端 40304 把关，文案分档到
   // pdf.failed.entitlement——App 自己判一遍就是第二个真源。
+  //
+  // T1-04 交付可观测：后端只看得到「PDF 生成并送出去了」，看不到这台设备最后有没有
+  // 真的把文件交给分享面板（`PdfUnavailableError` 全程不出设备）。所以成/败由客户端补一条
+  // `archive_share_result`，失败只带机器码（见 `pdfFailureReason`）。
   const onExportArchivePdf = async (scope: LifeArchiveScope) => {
     if (anyBusy || !isArchiveOwned(scope)) return;
     setArchivePdfScope(scope);
     try {
       const bytes = await getLifeArchivePdf(scope);
       await exportPdf(bytes, lifeArchivePdfFile(scope));
+      track('archive_share_result', {
+        feature: 'life_archive', action: 'share', result: 'ok',
+      });
     } catch (e) {
+      track('archive_share_result', {
+        feature: 'life_archive', action: 'share', result: 'failed',
+        reason: pdfFailureReason(e),
+      });
       Alert.alert(t('common.error'), pdfFailureText(e));
     } finally {
       setArchivePdfScope(null);

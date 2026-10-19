@@ -68,13 +68,22 @@ describe('① 后端声明了开关，且读写两侧各是自己那一态', () 
     );
   });
 
-  it('新字段追加在末尾，不打动上面已有字段的声明顺序', () => {
-    // 切流面两侧逐字比的是字节序：中途插字段会改已有端点的响应字节
-    const freq = modelBody('UserProfileResponse').indexOf('push_frequency:');
-    const enabled = modelBody('UserProfileResponse').indexOf('push_enabled:');
-    expect(freq).toBeGreaterThan(-1);
-    expect(enabled).toBeGreaterThan(freq);
-    expect(modelBody('UserProfileResponse').slice(enabled + 1)).not.toMatch(/^\s{4}\w+.*:/m);
+  it('新字段一律追加在末尾，不打动上面已有字段的声明顺序', () => {
+    // 切流面两侧逐字比的是字节序：中途插字段会改已有端点的响应字节。
+    // W5-02（2026-10-18）在此之后追加了 quiet_start/quiet_end，所以「末尾」的锚点
+    // 跟着下移到 quiet_end——这条闸要拍的从来不是「push_enabled 是最后一个」，
+    // 而是「后加的排在先加的之后，且最后那个之后没有字段」。
+    const body = modelBody('UserProfileResponse');
+    const order = [
+      'push_frequency:',
+      'push_enabled:',
+      'quiet_start:',
+      'quiet_end:',
+    ];
+    order.forEach((f) => expect(body).toContain(f));
+    const at = order.map((f) => body.indexOf(f));
+    expect(at).toEqual([...at].sort((x, y) => x - y));
+    expect(body.slice(at[at.length - 1] + 1)).not.toMatch(/^\s{4}\w+.*:/m);
   });
 });
 

@@ -340,6 +340,14 @@ const resource = {
       "important": "只在有里程碑、值得你看一眼的时候才发",
       "off": "不再主动发消息，你随时可以找我聊"
     },
+    "quietHours": "免打扰时段",
+    "quietHoursOn": "已开启",
+    "quietHoursOff": "已关闭",
+    "quietWindow": "免打扰时间",
+    "quietWindowTitle": "选择免打扰时段",
+    "quietStart": "开始时间",
+    "quietEnd": "结束时间",
+    "quietWindowHint": "这段时间内不会给你发主动消息；跨零点（如 22:00–08:00）同样有效。",
 
     "style": {
       "warm": "温暖知心",
@@ -657,6 +665,24 @@ const resource = {
     "consentReadonlyHint": "如需变更选择，请前往「我的 → 数据共享设置」。",
     "deletionTitle": "数据删除",
     "deletionDesc": "你可以随时在「我的 → 注销账号」永久删除账号及全部数据（对话、记忆、签到、成长记录），删除后不可恢复。"
+  },
+  "export": {
+    "title": "数据导出",
+    "desc": "导出你的个人数据副本（对话、记忆、签到、成长记录、洞察与同意台账）。其中不含登录令牌与支付凭证。档案在 {{days}} 天内可下载，之后可重新申请。注销账号会一并删除该档案。",
+    "descNoRetention": "导出你的个人数据副本（对话、记忆、签到、成长记录、洞察与同意台账）。其中不含登录令牌与支付凭证，注销账号会一并删除该档案。",
+    "request": "申请导出",
+    "inProgress": "导出进行中",
+    "download": "下载",
+    "statusQueued": "排队中",
+    "statusRunning": "生成中",
+    "statusReady": "可下载",
+    "statusFailed": "生成失败",
+    "statusExpired": "已过期",
+    "unavailable": "这台设备暂时打不开分享面板，请稍后重试。",
+    "notReady": "档案还没准备好，请稍候再试。",
+    "tooFrequent": "24 小时内已申请过一次导出，请稍后再试。",
+    "artifactMissing": "服务器上的档案文件丢失，系统会自动重新生成。",
+    "failedGeneric": "导出失败，请稍后重试。"
   },
   "help": {
     "sectionFaq": "常见问题",

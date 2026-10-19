@@ -24,6 +24,8 @@ const ALLOWED_PROPERTY_KEYS = new Set([
   'source',
   'trigger',
   'result',
+  // 失败原因的机器码（T1-04 付费交付可观测）；只允许枚举值，不许塞 error.message。
+  'reason',
   'duration_ms',
   'count',
   'value',

@@ -387,6 +387,43 @@ export interface UserProfile {
   push_frequency?: PushFrequency | null;
   // 推送总开关（D-G6）：后端七处闸按这列决定投不投主动消息，响应里此前一直没回显
   push_enabled?: boolean | null;
+  // 免打扰时段（T5-02）：用户本地 HH:MM，任一为 null 即关闭——与后端 users.quiet_start
+  // 的 NULL＝关闭口径一致，前端不要用 00:00 当「关闭」的哨兵值。
+  quiet_start?: string | null;
+  quiet_end?: string | null;
+}
+
+/**
+ * 通用数据导出任务（T1-01 · Baseline §2.2-6「带走」）。
+ *
+ * 字段逐字对齐 backend/services/export_service.py 的 `_export_view`，状态集合同
+ * backend/models/export.py 的 `EXPORT_STATUSES`——异步 job 的五个状态是给用户看的
+ * 五句话（排队中／生成中／可下载／失败／已过期），任何一侧改名另一侧就读不懂。
+ * `download_path` 只在 download_ready 为真时出现，前端不自己拼 URL（拼错了才知道
+ * 后端换了前缀）。
+ */
+export type ExportJobStatus = 'queued' | 'running' | 'ready' | 'failed' | 'expired';
+
+export interface ExportJob {
+  job_id: string;
+  scope: string;
+  status: ExportJobStatus;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  expires_at: string | null;
+  byte_size: number;
+  error_code: string | null;
+  attempts: number;
+  download_ready: boolean;
+  file_name: string | null;
+  download_path?: string;
+}
+
+/** `GET /user/export` 的响应：最近若干条任务＋保存周期（周期由后端给，界面不自己写）。 */
+export interface ExportJobList {
+  jobs: ExportJob[];
+  retention_days: number;
 }
 
 /**
@@ -403,6 +440,11 @@ export interface UserSettings {
   language?: string;
   push_frequency?: PushFrequency;
   push_enabled?: boolean;
+  // 免打扰时段（T5-02）：开启必须同时给 quiet_start 与 quiet_end（后端 40001 校验），
+  // 关闭只发 quiet_hours_enabled=false，两列由后端一起写回 NULL。
+  quiet_start?: string;
+  quiet_end?: string;
+  quiet_hours_enabled?: boolean;
   mbti_type?: string;
   conversation_style?: ConversationStyle;
   primary_framework?: PrimaryFramework;
@@ -546,36 +588,9 @@ export interface EntitlementsResult {
   best_scope: LifeArchiveScope | null;
 }
 
-export interface LifeArchiveChapter {
-  key: string;
-  title: string;
-  aigc_generated: boolean;
-  aigc_label: string | null;
-  items: string[];
-}
-
-export interface LifeArchiveResult {
-  archive_type: string;
-  scope: LifeArchiveScope;
-  gate: 'entitlement' | 'subscription';
-  language: string;
-  window_days: number | null;
-  generated_at: string;
-  from_cache?: boolean;
-  stats: {
-    active_days: number;
-    chat_count: number;
-    memory_count: number;
-    checkin_count: number;
-    message_count: number;
-  };
-  chapters: LifeArchiveChapter[];
-  aigc_mark: string;
-  aigc_notice: string;
-  // 刻意保持 App Store 直链、不带推荐码：Life Archive 是买断的个人档案，
-  // 不是引流分享卡（同一理由：它的 PDF 也不加品牌水印与二维码）。
-  share_url: string;
-}
+// T1-03（2026-10-18）：`LifeArchiveChapter`／`LifeArchiveResult` 随那条零调用的导出封装
+// 一并删除——`POST /share/life-archive` 仍是服务端能力，但档案浏览屏未立项，
+// 前端零消费者的类型留在类型面就是台账噪声（理由登记在 contracts/endpoints.md 的「前端调用」列）。
 
 // ═══ Share 深链（M4）═══
 

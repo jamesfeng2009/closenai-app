@@ -38,23 +38,28 @@ const PAYWALL = 'src/screens/PaywallScreen.tsx';
 const ENDPOINTS_MD = 'contracts/endpoints.md';
 const ERRORS_PY = 'backend/core/errors.py';
 
-/** endpoints.md §七 的表格行：`/api/v1/<path>` → 登记的文件名（可能是拼接模板）。 */
-function pdfNameRows(): { path: string; name: string }[] {
-  const md = readRepo(ENDPOINTS_MD);
-  const lines = md.split('\n');
-  const start = lines.findIndex((l) => l.startsWith('## 七、'));
-  const end = lines.findIndex((l, i) => i > start && l.startsWith('## 八、'));
+/** §七 内按小节切行：7.1 是 PDF 表（第二列＝文件名），7.2 是 ZIP 表（第二列＝Content-Type）。 */
+function sectionRows(head: string, stop: RegExp): { path: string; cols: string[] }[] {
+  const lines = readRepo(ENDPOINTS_MD).split('\n');
+  const start = lines.findIndex((l) => l.startsWith(head));
   expect(start).toBeGreaterThan(-1);
+  const end = lines.findIndex((l, i) => i > start && stop.test(l));
   expect(end).toBeGreaterThan(start);
-  const rows: { path: string; name: string }[] = [];
+  const rows: { path: string; cols: string[] }[] = [];
   for (const line of lines.slice(start, end)) {
-    const m = /^\| (?:POST|GET) `\/api\/v1\/([^`]+)` \| `([^`]+)` \|/.exec(line);
-    if (m) {
-      // §七 对拼接名会带一句「（按路径/查询参数拼接）」注尾，比对前摘掉
-      rows.push({ path: `/${m[1]}`, name: m[2].replace(/（[^）]*）$/, '').trim() });
-    }
+    const m = /^\| (?:POST|GET) `\/api\/v1\/([^`]+)` \|(.*)$/.exec(line);
+    if (m) rows.push({ path: `/${m[1]}`, cols: m[2].split('|').map((c) => c.trim()) });
   }
   return rows;
+}
+
+/** endpoints.md §7.1 的表格行：`/api/v1/<path>` → 登记的落盘文件名（可能是拼接模板）。 */
+function pdfNameRows(): { path: string; name: string }[] {
+  return sectionRows('### 7.1', /^### 7\.2|^## 八、/).map((r) => ({
+    path: r.path,
+    // 对拼接名 §七 会带一句「（按路径/查询参数拼接）」注尾，比对前摘掉
+    name: (r.cols[0] ?? '').replace(/^`|`$/g, '').replace(/（[^）]*）$/, '').trim(),
+  }));
 }
 
 describe('① 落盘文件名与 contracts/endpoints.md §七 逐字（U2-3）', () => {
@@ -62,6 +67,15 @@ describe('① 落盘文件名与 contracts/endpoints.md §七 逐字（U2-3）',
 
   it('§七 确实解析出了五条登记行（解析器空转的话下面全是假绿）', () => {
     expect(rows).toHaveLength(5);
+  });
+
+  // 按小节切分的证人：T1-01 在 §七 加了 7.2 ZIP 小节，它必须被读到、又不混进 PDF 名单，
+  // 否则「只取 7.1」这句话本身就可能是扫空集。
+  it('7.2 的 ZIP 行确实在册、且没有混进 PDF 名单（T1-01 加的第二小节）', () => {
+    const zip = sectionRows('### 7.2', /^## 八、/);
+    expect(zip.map((r) => r.path)).toEqual(['/user/export/{job_id}/download']);
+    expect(zip[0].cols[0]).toBe('`application/zip`');
+    expect(rows.map((r) => r.path)).not.toContain('/user/export/{job_id}/download');
   });
 
   it('回忆卡、年报两个固定名逐字相等', () => {
@@ -135,8 +149,13 @@ describe('② 四条封装在册、都真被屏调用，且都吃二进制出口
     }
   });
 
-  it('api.ts 里只有这四处用 binary，其余调用仍走信封解包', () => {
-    expect(countIn(api, /binary: true/g)).toBe(4);
+  it('api.ts 里二进制出口只有这五处：四个 PDF ＋ T1-01 的 ZIP，其余调用仍走信封解包', () => {
+    // 第五条不是漂移而是 T1-01 的 /user/export/{job_id}/download——它由
+    // __tests__/dataExportWiring.test.ts 逐条钉；这里计数若再涨就是有人新开了
+    // 一条没登记的字节流出口。
+    expect(countIn(api, /binary: true/g)).toBe(5);
+    const zip = api.slice(api.indexOf('export async function getUserExportDownload'));
+    expect(zip.slice(0, zip.indexOf('\n}'))).toContain('/user/export/${jobId}/download');
     expect(api).toContain('binary?: boolean');
   });
 

@@ -340,6 +340,14 @@ const resource = {
       "important": "Hanya saat ada tonggak atau hal yang layak mendapat perhatianmu",
       "off": "Tidak ada pesan aktif – kamu tetap bisa memulai kapan saja"
     },
+    "quietHours": "Jangan ganggu",
+    "quietHoursOn": "Aktif",
+    "quietHoursOff": "Nonaktif",
+    "quietWindow": "Jam senyap",
+    "quietWindowTitle": "Pilih jam senyap",
+    "quietStart": "Mulai",
+    "quietEnd": "Selesai",
+    "quietWindowHint": "Kami tidak mengirim pesan aktif selama rentang ini. Rentang yang melewati tengah malam (mis. 22:00–08:00) juga berlaku.",
 
     "style": {
       "warm": "Hangat & Penuh Perhatian",
@@ -657,6 +665,24 @@ const resource = {
     "consentReadonlyHint": "Untuk mengubah pilihan Anda, buka Profil → Pengaturan Berbagi Data.",
     "deletionTitle": "Penghapusan Data",
     "deletionDesc": "Anda dapat menghapus permanen akun dan seluruh data (percakapan, memori, check-in, catatan pertumbuhan) kapan saja di Profil → Hapus Akun. Tindakan ini tidak dapat dibatalkan."
+  },
+  "export": {
+    "title": "Ekspor Data",
+    "desc": "Ekspor salinan data pribadimu (percakapan, memori, cek-el, catatan pertumbuhan, wawasan, dan log persetujuanmu). Token login dan tanda terima pembayaran tidak pernah disertakan. Arsip dapat diunduh selama {{days}} hari, setelah itu kamu bisa meminta lagi. Menghapus akun juga menghapus arsipnya.",
+    "descNoRetention": "Ekspor salinan data pribadimu (percakapan, memori, cek-el, catatan pertumbuhan, wawasan, dan log persetujuanmu). Token login dan tanda terima pembayaran tidak disertakan, dan menghapus akun juga menghapus arsipnya.",
+    "request": "Minta ekspor",
+    "inProgress": "Sedang mengekspor",
+    "download": "Unduh",
+    "statusQueued": "Antre",
+    "statusRunning": "Membuat",
+    "statusReady": "Siap diunduh",
+    "statusFailed": "Gagal dibuat",
+    "statusExpired": "Kedaluwarsa",
+    "unavailable": "Perangkat ini belum bisa membuka panel berbagi. Coba lagi nanti.",
+    "notReady": "Arsip belum siap. Coba lagi sebentar.",
+    "tooFrequent": "Kamu sudah meminta ekspor dalam 24 jam terakhir. Coba lagi nanti.",
+    "artifactMissing": "Berkas arsip hilang di server. Sistem akan membuatnya ulang secara otomatis.",
+    "failedGeneric": "Ekspor gagal. Coba lagi nanti."
   },
   "help": {
     "sectionFaq": "Tanya Jawab",

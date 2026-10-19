@@ -11,17 +11,27 @@
  * ② `GET /discovery/daily`（原 `api.ts:629`）→ **删封装**：`getDailyDiscovery` + `DailyDiscovery`
  *    类型一并删。删的是前端死代码，后端端点仍在且已 `deprecated=True`，所以契约行不该消失，
  *    只该从「有封装」退回 `—`。
- * ③ `DELETE /user/push-token`（`api.ts:583`）→ **改判：不接登出**。工作单默认「接到登出/注销」，
+ * ③ `DELETE /user/push-token`（封装 = `clearPushToken`，行号会随上方函数增减漂移，判据现算）
+ *    → **改判：不接登出**。工作单默认「接到登出/注销」，
  *    但实测两处都跟产品口径冲突：
  *    - 登出侧：`AuthContext.tsx:109` 的既有口径是「登出保留推送 token，使重新登录前也能收到主动消息，
  *      APNs 410 由后端自清」⇒ 接上就等于取消那句。
- *    - 注销侧：后端 `user_service.py:425` 的 `soft_delete_account` 自己调了 `clear_push_tokens`，
- *      已有 `backend/tests/test_account_deletion.py:71` 作证；前端再调一次是对已删账号发请求（必 401）。
+ *    - 注销侧：后端 `user_service.py` 的 `soft_delete_account` 自己调了 `clear_push_tokens`，
+ *      已有 `backend/tests/test_account_deletion.py::test_soft_delete_clears_push_tokens` 作证；
+ *      前端再调一次是对已删账号发请求（必 401）。
+ *      出处一律按**符号**写而不是行号：W5（2026-10-18）往 PURGE_TARGETS 加 user_consents
+ *      就把 `:425` 漂成了 `:467`，行号引用是这条闸的下一次红灯。
  *    ⇒ 交付物是「这条端点在当前产品口径下没有合法消费者」的**反向闸**，不是接线。
  *    勘误登记（不改）：`backend/routers/user.py:10` 与 `:112` 的文档串仍写「登出时调用」，
  *    与本改判冲突，归 S 桶台账。
  * 本地 `dailyDiscoveryRepository` 已随 D-G10 删除（见 __tests__/idleRepositoriesWiring.test.ts）；
  * `MoodCheckinResponse` 缺 `note` 是 D-G8 发现的登记项，均不在本闸范围。
+ *
+ * ④ `POST /share/life-archive`（2026-10-18 T1-03）→ **删封装＋登记理由**：`exportLifeArchive`
+ *    与 `LifeArchiveResult`／`LifeArchiveChapter` 一并移除，端点保留为服务端能力。契约的
+ *    「前端调用」列从 `（封装未接线）` 换成 `—（理由）`，理由的真源是
+ *    `scripts/export_contract.py` 的 `SERVER_ONLY_REASONS`；裸 `—` 与带理由的 `—` 的差别就是
+ *    「漏扫」与「有意不接」的差别，所以本闸钉的是**每条登记必须带任务号＋日期**，防无声增长。
  */
 import fs from 'fs';
 import path from 'path';
@@ -74,6 +84,22 @@ function contractRow(pathFragment: string, method: string): string {
 
 function contractFrontCell(row: string): string {
   return row.split('|')[6].trim();
+}
+
+/**
+ * `clearPushToken` 里那条 DELETE 调用在 api.ts 中的 1-based 行号。
+ * 契约的「前端调用」列由生成器按真实行号写，所以这里也必须现算——写死数字的话，
+ * 上方每加一个函数这条闸就自己红一次（2026-10-18 实测：api.ts 从 584 漂到 607）。
+ */
+function clearPushTokenCallLine(): number {
+  const lines = api.split('\n');
+  const start = lines.findIndex((l) =>
+    l.startsWith('export async function clearPushToken')
+  );
+  expect(start).toBeGreaterThanOrEqual(0);
+  const offset = lines.slice(start).findIndex((l) => l.includes("'/user/push-token'"));
+  expect(offset).toBeGreaterThanOrEqual(0);
+  return start + offset + 1;
 }
 
 /** 取两个锚点之间的源码切片（用于「某段注释/某个 handler 里有没有 X」这类判据）。 */
@@ -233,14 +259,19 @@ describe('③ DELETE /user/push-token：改判为「有意零消费者」的反�
     const block = slice(auth, 'const deleteMyAccount', 'const refreshUser');
     expect(codeOnly(block)).not.toContain('clearPushToken');
     expect(block).toContain('soft_delete_account');
-    expect(block).toContain('user_service.py:425');
-    expect(block).toContain('test_account_deletion.py:71');
+    expect(block).toContain('clear_push_tokens');
+    expect(block).toContain('test_soft_delete_clears_push_tokens');
     expect(block).toContain('await deleteAccount();');
   });
 
   it('后端取证仍然成立（改判依据不是一次性快照）', () => {
-    const lines = readRepo(USER_SERVICE_PY).split('\n');
-    expect(lines[424]).toContain('await self.clear_push_tokens(db, user_id)');
+    // 按符号定位而不是行号：user_service.py 里加一个方法就会把这条闸打成假红
+    //（W5 实测漂移 425 → 467），而判据要的是「注销路径里真调了清 token」。
+    const src = readRepo(USER_SERVICE_PY);
+    const a = src.indexOf('async def soft_delete_account');
+    expect(a).toBeGreaterThanOrEqual(0);
+    const body = src.slice(a, a + src.slice(a).indexOf('\n    async def ', 1));
+    expect(body).toContain('await self.clear_push_tokens(db, user_id)');
     expect(readRepo(ACCOUNT_TEST_PY)).toContain(
       'async def test_soft_delete_clears_push_tokens(db)'
     );
@@ -249,6 +280,54 @@ describe('③ DELETE /user/push-token：改判为「有意零消费者」的反�
   it('契约：该行仍带「封装未接线」——这正是本改判的登记形状', () => {
     const row = contractRow('/api/v1/user/push-token', 'DELETE');
     expect(row).toContain('（封装未接线）');
-    expect(row).toContain('api.ts:584');
+    // 出处列写的是 api.ts 的行号，而上方的函数会长 ⇒ 行号会漂。
+    // 这里按「clearPushToken 里那条 DELETE 调用」现算行号，钉的是形状，不是某个数字。
+    expect(row).toContain(`api.ts:${clearPushTokenCallLine()}`);
+  });
+});
+
+describe('④ T1-03：登记的零消费者必须带理由字符串（防无声增长）', () => {
+  const EXPORT_PY = readRepo('scripts/export_contract.py');
+  const rows = readRepo(ENDPOINTS_MD)
+    .split('\n')
+    .filter((l) => {
+      const cols = l.split('|');
+      return /^\| \d+ \|/.test(l) && cols[3]?.trim().startsWith('`/');
+    });
+  const reasonRows = rows.filter((l) => contractFrontCell(l).startsWith('—（'));
+
+  it('正向证人：登记面不是空集（否则下面几条闸在扫空集）', () => {
+    expect(reasonRows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('每条登记的理由都带任务号与实测日期', () => {
+    for (const row of reasonRows) {
+      expect(contractFrontCell(row)).toMatch(/T\d+-\d+·\d{4}-\d{2}-\d{2}/);
+    }
+  });
+
+  it('理由的真源在 export_contract.py 的登记表里，不在台账里手写', () => {
+    expect(EXPORT_PY).toContain('SERVER_ONLY_REASONS');
+    for (const row of reasonRows) {
+      const reason = contractFrontCell(row).replace(/^—（/, '').replace(/）$/, '');
+      expect(EXPORT_PY).toContain(reason);
+    }
+  });
+
+  it('POST /share/life-archive 仍在表里，且形状是「有理由的 —」而不是「封装未接线」', () => {
+    const row = contractRow('/api/v1/share/life-archive', 'POST');
+    expect(contractFrontCell(row)).toContain('服务端内部能力');
+    expect(contractFrontCell(row)).toContain('—（');
+    expect(row).not.toContain('封装未接线');
+  });
+
+  it('死封装与它的返回类型确实从前端实现面消失（验收判据：grep = 0）', () => {
+    // 只看代码：types 里那条「为什么删」的注释必然提到被删的名字，
+    // 拿它当消费者就等于让删除动作自己打红自己。
+    expect(codeOnly(api)).not.toContain('exportLifeArchive');
+    expect(codeOnly(types)).not.toContain('LifeArchiveResult');
+    expect(codeOnly(types)).not.toContain('LifeArchiveChapter');
+    // 正向证人：PDF 领取口（批 1 G2 接的线）不许被这一刀一起摘掉
+    expect(api).toContain('getLifeArchivePdf');
   });
 });

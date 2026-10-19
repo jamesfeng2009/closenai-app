@@ -39,6 +39,9 @@ const PRIMARY_FRAMEWORKS: PrimaryFramework[] = ['mbti', 'enneagram'];
 // 推送频率三档（U3-a）：顺序照后端 Literal 的 daily|important|off，
 // 判档在 cron_service.py:445-447——off 直接不发，important 只在有里程碑时发。
 const PUSH_FREQUENCIES: PushFrequency[] = ['daily', 'important', 'off'];
+// 免打扰默认窗口（T5-02）：库里两列是 NULL＝关闭，第一次开启得有个起点，
+// 22:00–08:00 是「晚上别吵我」的最小惊讶选择，用户可在同一屏改。
+const QUIET_DEFAULT_WINDOW = { start: '22:00', end: '08:00' };
 
 export default function ProfileScreen({
   navigation, route,
@@ -60,6 +63,9 @@ export default function ProfileScreen({
   const [styleVisible, setStyleVisible] = useState(false);
   const [frameworkVisible, setFrameworkVisible] = useState(false);
   const [freqVisible, setFreqVisible] = useState(false);
+  // 免打扰时段（T5-02）：modal 里可连续改起止，busy 期间同样禁点
+  const [quietVisible, setQuietVisible] = useState(false);
+  const [quietBusy, setQuietBusy] = useState(false);
   // 撤回分析同意后的结果文案（后端按 PostHog 是否配置决定能否真的删除）：
   // 「已删除」与「已停止上报」是两句不同的话，说错了就是向用户虚假承诺
   const [analyticsNote, setAnalyticsNote] = useState<string | null>(null);
@@ -183,6 +189,53 @@ export default function ProfileScreen({
       Alert.alert(t('common.error'), msg);
     } finally {
       setPushBusy(false);
+    }
+  };
+
+  // 免打扰时段（T5-02）：后端把「两列任一为 NULL」定义为关闭，所以
+  // 开启必须同时给起止（schemas.py 的 quiet_hours_enabled 校验拒半开窗口），
+  // 关闭只发 enabled=false，两列由 service 一起写回 NULL。
+  const quietOn = !!profile?.quiet_start && !!profile?.quiet_end;
+  const quietWindow = (override?: { start?: string; end?: string }) => ({
+    quiet_start: override?.start || profile?.quiet_start || QUIET_DEFAULT_WINDOW.start,
+    quiet_end: override?.end || profile?.quiet_end || QUIET_DEFAULT_WINDOW.end,
+  });
+
+  const onToggleQuiet = async (next: boolean) => {
+    if (!requireAuth()) return;
+    if (quietBusy) return;
+    try {
+      setQuietBusy(true);
+      const updated = await updateUserSettings(
+        next
+          ? { quiet_hours_enabled: true, ...quietWindow() }
+          : { quiet_hours_enabled: false }
+      );
+      setProfile(updated);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    } finally {
+      setQuietBusy(false);
+    }
+  };
+
+  // 改起止：两个值一起发（只发一列在后端是「半开窗口」400 的语义，不是「改一端」），
+  // modal 保持打开，允许连着把开始和结束都调完。
+  const onSelectQuietMoment = async (which: 'start' | 'end', time: string) => {
+    if (!requireAuth()) return;
+    if (quietBusy) return;
+    try {
+      setQuietBusy(true);
+      const updated = await updateUserSettings(
+        quietWindow(which === 'start' ? { start: time } : { end: time })
+      );
+      setProfile(updated);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+      Alert.alert(t('common.error'), msg);
+    } finally {
+      setQuietBusy(false);
     }
   };
 
@@ -368,6 +421,36 @@ export default function ProfileScreen({
             {t(`profile.pushFreqOption.${profile?.push_frequency || 'daily'}`)}
           </Text>
           <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+        {/* 免打扰时段（T5-02）：开关一行 + 起止一行。库里两列 NULL＝关闭，
+            所以关闭态下起止行只读不可点——没有窗口就没有「起止」可编辑。 */}
+        <TouchableOpacity
+          style={[styles.settingItem, quietBusy && styles.settingItemDisabled]}
+          disabled={quietBusy}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: quietOn }}
+          testID="quietToggle"
+          onPress={() => onToggleQuiet(!quietOn)}
+        >
+          <Text style={styles.settingIcon}>🌙</Text>
+          <Text style={styles.settingLabel}>{t('profile.quietHours')}</Text>
+          <Text style={quietOn ? styles.settingValueGreen : styles.settingValueSmall}>
+            {quietOn ? t('profile.quietHoursOn') : t('profile.quietHoursOff')}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.settingItem, !quietOn && styles.settingItemDisabled]}
+          disabled={!quietOn || quietBusy}
+          accessibilityRole="button"
+          testID="quietWindowRow"
+          onPress={() => { if (requireAuth()) setQuietVisible(true); }}
+        >
+          <Text style={styles.settingIcon}>🕙</Text>
+          <Text style={styles.settingLabel}>{t('profile.quietWindow')}</Text>
+          <Text style={styles.settingValue}>
+            {quietOn ? `${profile?.quiet_start} – ${profile?.quiet_end}` : t('profile.quietHoursOff')}
+          </Text>
+          {quietOn && <Text style={styles.arrow}>›</Text>}
         </TouchableOpacity>
       </View>
 
@@ -618,6 +701,55 @@ export default function ProfileScreen({
               );
             })}
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setFreqVisible(false)}>
+              <Text style={styles.cancelText}>{t('common.done')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 免打扰起止（T5-02）：两排整点 chip，每点一次都成对 PATCH（只发一列在后端是
+          「半开窗口」400 的语义，不是「改一端」）。modal 不关，方便连着调完两端。 */}
+      <Modal
+        visible={quietVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setQuietVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{t('profile.quietWindowTitle')}</Text>
+            <ScrollView style={styles.quietScroll}>
+              <Text style={styles.quietGroupLabel}>{t('profile.quietStart')}</Text>
+              <View style={styles.quietChipRow}>
+                {PUSH_HOURS.map((h) => (
+                  <TouchableOpacity
+                    key={h}
+                    testID={`quietStart-${h}`}
+                    accessibilityRole="button"
+                    style={[styles.quietChip, h === profile?.quiet_start && styles.quietChipActive]}
+                    onPress={() => onSelectQuietMoment('start', h)}
+                  >
+                    <Text style={styles.quietChipText}>{h.slice(0, 2)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.quietGroupLabel}>{t('profile.quietEnd')}</Text>
+              <View style={styles.quietChipRow}>
+                {PUSH_HOURS.map((h) => (
+                  <TouchableOpacity
+                    key={h}
+                    testID={`quietEnd-${h}`}
+                    accessibilityRole="button"
+                    style={[styles.quietChip, h === profile?.quiet_end && styles.quietChipActive]}
+                    onPress={() => onSelectQuietMoment('end', h)}
+                  >
+                    <Text style={styles.quietChipText}>{h.slice(0, 2)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.styleDesc}>{t('profile.quietWindowHint')}</Text>
+            </ScrollView>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setQuietVisible(false)}>
               <Text style={styles.cancelText}>{t('common.done')}</Text>
             </TouchableOpacity>
           </View>
@@ -951,6 +1083,18 @@ const styles = StyleSheet.create({
   langCheck: { fontSize: FontSize.title, color: Colors.gold400 },
   styleOptionText: { flex: 1, marginRight: Spacing.md },
   styleDesc: { fontSize: FontSize.md, color: Colors.textTertiary, marginTop: 2 },
+  // 免打扰起止（T5-02）：整点 chip 两排，用 ScrollView 兜小屏
+  quietScroll: { maxHeight: 360 },
+  quietGroupLabel: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.md,
+  },
+  quietChipRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: Spacing.xs },
+  quietChip: {
+    width: 52, paddingVertical: 8, marginVertical: 3, marginRight: 6, borderRadius: BorderRadius.md,
+    borderWidth: 1, borderColor: Colors.borderLight, alignItems: 'center',
+  },
+  quietChipActive: { borderColor: Colors.gold400, backgroundColor: 'rgba(255,215,0,0.10)' },
+  quietChipText: { fontSize: FontSize.md, color: Colors.textPrimary },
   cancelBtn: { alignItems: 'center', paddingVertical: 14, marginTop: Spacing.xs },
   cancelText: { fontSize: FontSize.title, color: Colors.gold400, fontWeight: '600' },
 });

@@ -23,6 +23,7 @@ import type {
   AssessmentState, AssessmentAnswerResult, ComboReport,
   EnneagramState, EnneagramAnswerResult,
   UserProfile, UserSettings,
+  ExportJob, ExportJobList,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
   ShareLink, YearInReviewCard,
   OnThisDayResponse,
@@ -30,7 +31,7 @@ import type {
   JourneyEventsResponse, MemoryRef,
   CurriculumWeekResponse,
   BedtimeTodayResponse, BedtimeStepResponse,
-  SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult, LifeArchiveResult,
+  SubscriptionStatus, ReceiptVerifyResult, EntitlementsResult,
   LifeArchiveScope,
   ReflectionDraft, ReflectionItem,
   Memory,
@@ -612,6 +613,39 @@ export async function deleteAccount(): Promise<void> {
   await request<{ deleted: boolean }>('/user/account', { method: 'DELETE' });
 }
 
+// ── 通用数据导出（T1-01 · Baseline §2.2-6「带走」／§14.2 数据可携）──────────
+// 后端是异步 job：申请只入队，产物由每 5 分钟的 cron 生成，界面对用户说「排队中／
+// 生成中／可下载／失败／已过期」五态（同一集合见 types.ExportJobStatus）。
+// 字节走 binary:true 与 PDF 同一条出口：鉴权在 request 里，所以不用 Linking.openURL
+// 打开 download_path（浏览器/系统打开 URL 带不上 Bearer，必然 401）。
+
+/** 申请导出全部个人数据（scope 目前只有 all）；24h 内已有未失败的 job 回 42904。 */
+export async function postUserExport(scope: string = 'all'): Promise<ExportJob> {
+  return request<ExportJob>('/user/export', {
+    method: 'POST',
+    body: JSON.stringify({ scope }),
+  });
+}
+
+/**
+ * 最近若干条导出任务（倒序）＋保存周期。
+ *
+ * 换设备后仍能找回未过期的 ready 产物；`retention_days` 由后端给，界面不自己写「7 天」。
+ */
+export async function listUserExports(): Promise<ExportJobList> {
+  return request<ExportJobList>('/user/export');
+}
+
+/** 单个任务状态；前端轮询它，直到 ready／failed／expired。 */
+export async function getUserExport(jobId: string): Promise<ExportJob> {
+  return request<ExportJob>(`/user/export/${jobId}`);
+}
+
+/** 下载 zip 字节；非 ready 态后端回 409，所以调用方只在 download_ready 为真时进来。 */
+export async function getUserExportDownload(jobId: string): Promise<ArrayBuffer> {
+  return request<ArrayBuffer>(`/user/export/${jobId}/download`, { binary: true });
+}
+
 /** 设置 AI 数据共享同意状态（合规 5.1.2(i)）。 */
 export async function setAiConsent(consent: boolean): Promise<boolean> {
   const res = await request<{ ai_consent: boolean }>('/user/ai-consent', {
@@ -917,23 +951,6 @@ export async function verifyReceipt(
 /** Life Archive 买断权益（一次性内购，永久可用，与订阅状态互不影响）。 */
 export async function getEntitlements(): Promise<EntitlementsResult> {
   return request<EntitlementsResult>('/iap/entitlements');
-}
-
-/**
- * 导出 Life Archive（章节化数据）。
- *
- * 无权益且非订阅用户 → 后端 40304（ApiError.code=40304），Paywall 据此引导购买。
- * 同档位（订阅口径为同档位同自然月）命中后端缓存，`regenerate` 才重新组装。
- */
-export async function exportLifeArchive(
-  scope: LifeArchiveScope,
-  language: string,
-  regenerate = false,
-): Promise<LifeArchiveResult> {
-  return request<LifeArchiveResult>('/share/life-archive', {
-    method: 'POST',
-    body: JSON.stringify({ scope, language, regenerate }),
-  });
 }
 
 // ═══ Auth ═══
