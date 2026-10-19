@@ -234,6 +234,7 @@ func plantChain(t *testing.T, q *canonicaldb.Queries, userID string) chain {
 		ID: c.commitmentID, UserID: userID, PersonalModelID: c.modelID,
 		Title: "no meetings on Wednesday mornings", Description: nullText(),
 		Status: "active", DueAt: ts(now.AddDate(0, 0, 7)),
+		GoalID: nullText(), // T4-01 之前这一列不存在；NULL＝「没挂在任何目标下」，不是空串
 	}); err != nil {
 		t.Fatalf("InsertCommitment: %v", err)
 	}

@@ -161,6 +161,8 @@ type PersonalCommitment struct {
 	CompletedAt     pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	GoalID          pgtype.Text
+	SkippedAt       pgtype.Timestamptz
 }
 
 type PersonalFact struct {

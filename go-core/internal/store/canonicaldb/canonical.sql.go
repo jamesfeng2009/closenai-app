@@ -813,8 +813,8 @@ func (q *Queries) GetUserNotificationPrefs(ctx context.Context, id string) (GetU
 
 const insertCommitment = `-- name: InsertCommitment :exec
 INSERT INTO personal_commitments (
-	id, user_id, personal_model_id, title, description, status, due_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
+	id, user_id, personal_model_id, title, description, status, due_at, goal_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertCommitmentParams struct {
@@ -825,8 +825,11 @@ type InsertCommitmentParams struct {
 	Description     pgtype.Text
 	Status          string
 	DueAt           pgtype.Timestamptz
+	GoalID          pgtype.Text
 }
 
+// goal_id 追加在末尾而不是插在 personal_model_id 之后：sqlc 的参数结构体按位置生成，
+// 插中间会让既有调用方的字段顺序整体平移，而这一列对老代码是「没有目标」＝ NULL。
 func (q *Queries) InsertCommitment(ctx context.Context, arg InsertCommitmentParams) error {
 	_, err := q.db.Exec(ctx, insertCommitment,
 		arg.ID,
@@ -836,6 +839,7 @@ func (q *Queries) InsertCommitment(ctx context.Context, arg InsertCommitmentPara
 		arg.Description,
 		arg.Status,
 		arg.DueAt,
+		arg.GoalID,
 	)
 	return err
 }
@@ -1594,7 +1598,8 @@ func (q *Queries) ListActiveFacts(ctx context.Context, arg ListActiveFactsParams
 }
 
 const listCommitments = `-- name: ListCommitments :many
-SELECT id, title, description, status, due_at, completed_at, created_at, updated_at
+SELECT id, title, description, status, due_at, completed_at, skipped_at,
+       goal_id, created_at, updated_at
 FROM personal_commitments
 WHERE user_id = $1 AND personal_model_id = $2 AND status = $3
 ORDER BY created_at DESC
@@ -1613,6 +1618,8 @@ type ListCommitmentsRow struct {
 	Status      string
 	DueAt       pgtype.Timestamptz
 	CompletedAt pgtype.Timestamptz
+	SkippedAt   pgtype.Timestamptz
+	GoalID      pgtype.Text
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
 }
@@ -1633,6 +1640,8 @@ func (q *Queries) ListCommitments(ctx context.Context, arg ListCommitmentsParams
 			&i.Status,
 			&i.DueAt,
 			&i.CompletedAt,
+			&i.SkippedAt,
+			&i.GoalID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -3287,6 +3296,29 @@ func (q *Queries) SetProactiveVerdict(ctx context.Context, arg SetProactiveVerdi
 		arg.RejectReason,
 		arg.EligibilityDetail,
 	)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const skipCommitment = `-- name: SkipCommitment :one
+UPDATE personal_commitments
+SET status = 'skipped', skipped_at = COALESCE(skipped_at, now()), updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING id
+`
+
+type SkipCommitmentParams struct {
+	ID     string
+	UserID string
+}
+
+// T4-01 交付的是这一格的**库面**，状态机不在这里：「active → skipped、终态不许回退」
+// 归 domain（T4-02），SQL 里加 `AND status = 'active'` 会把同一套判据写第二遍。
+// COALESCE 是幂等的那一半：同一句跳过重复执行时，`skipped_at` 保持第一次的时间——
+// 「什么时候跳过的」是审计事实，被第二次点击刷掉就等于改写历史。
+func (q *Queries) SkipCommitment(ctx context.Context, arg SkipCommitmentParams) (string, error) {
+	row := q.db.QueryRow(ctx, skipCommitment, arg.ID, arg.UserID)
 	var id string
 	err := row.Scan(&id)
 	return id, err

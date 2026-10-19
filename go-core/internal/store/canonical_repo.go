@@ -751,6 +751,26 @@ func (t *canonicalTx) CompleteCommitment(ctx context.Context, userID, commitment
 	return wrap("complete commitment", err)
 }
 
+// SkipCommitment 是 T4-01 交付的库面：**只有这一列的写法在这里，判据不在**。
+//
+// 为什么这一条不挂进 `domain.Store` 接口：接口挂上去就意味着 `active → skipped`
+// 这条状态转移在 domain 里有了门却没有守卫，而 T4-02 的 `TransitionAction`
+// 才是那个守卫（终态不许回退、重复同态幂等返回当前）。T4-01 先把「跳到哪张列、
+// 时间怎么写」钉死并让它被真库测跑过一遍，T4-02 接线时这一格的坏法已经有闸兜着。
+//
+// 幂等那一半在 SQL 的 `COALESCE(skipped_at, now())` 上而不是在这里：
+// 同一句跳过重复执行时，库里留的是**第一次**的时间。「什么时候跳过的」是审计事实，
+// 被第二次点击刷掉等于改写历史；而 domain 层的「已跳过就直接返回当前」只兜得住
+// 顺序执行的那一半，并发那半只有列上的 COALESCE 兜得住。
+func (t *canonicalTx) SkipCommitment(ctx context.Context, userID, commitmentID string) error {
+	_, err := t.q.SkipCommitment(ctx,
+		canonicaldb.SkipCommitmentParams{ID: commitmentID, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: commitment %s", domain.ErrInvalidOwnership, commitmentID)
+	}
+	return wrap("skip commitment", err)
+}
+
 func (t *canonicalTx) ListInsightsForPattern(ctx context.Context, userID,
 	patternID string) ([]domain.PatternInsightRef, error) {
 	rows, err := t.q.ListInsightsForPattern(ctx, canonicaldb.ListInsightsForPatternParams{

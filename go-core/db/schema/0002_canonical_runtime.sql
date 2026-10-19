@@ -1,7 +1,7 @@
 -- Canonical schema baseline handed to the Go toolchain (D-7).
 -- Provenance: pg_dump of the PostgreSQL 16 database produced by `alembic upgrade head`
 --   command: docker exec closenai-pg-dev pg_dump -U postgres -d closenai --schema-only --no-owner --no-privileges -t public.personal_models -t public.personal_model_versions -t public.personal_model_events -t public.source_records -t public.evidence -t public.personal_facts -t public.fact_evidence -t public.personal_goals -t public.personal_commitments -t public.patterns -t public.pattern_evidence -t public.insights -t public.insight_evidence -t public.insight_patterns -t public.proactives -t public.proactive_insights -t public.proactive_patterns -t public.outcomes -t public.outcome_links -t public.user_feedback -t public.inbox_messages
---   captured: 2026-10-13; alembic head revision c8a2e4b6d0f2
+--   captured: 2026-10-19; alembic head revision f6b8d0e2a4c6
 -- DDL ownership stays with backend/alembic until N2 defines the canonical tables;
 -- this file is the read-only snapshot sqlc/golang tooling generates against.
 -- Regenerate with scripts/export_pg_schema.py; do not hand-edit.
@@ -220,7 +220,9 @@ CREATE TABLE public.personal_commitments (
     due_at timestamp with time zone,
     completed_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    goal_id character varying(36),
+    skipped_at timestamp with time zone
 );
 
 
@@ -790,6 +792,13 @@ CREATE INDEX ix_patterns_user_type ON public.patterns USING btree (user_id, patt
 --
 
 CREATE INDEX ix_patterns_user_updated ON public.patterns USING btree (user_id, updated_at);
+
+
+--
+-- Name: ix_personal_commitments_goal; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_personal_commitments_goal ON public.personal_commitments USING btree (user_id, goal_id, status);
 
 
 --
