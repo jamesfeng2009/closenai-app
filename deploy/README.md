@@ -11,7 +11,9 @@ make dev-ps    # 端口面自查；make dev-down / make dev-logs
 ```
 
 - 服务：`postgres:16`、`rabbitmq:3-management`、`migrate`（一次性 `alembic upgrade head`，
-  schema 唯一事实源＝alembic；`go-core/db/schema` 双写风险归方案 §17）、`py-api`、`ai-rpc`、
+  schema 唯一事实源＝alembic；`go-core/db/schema` 那三份是它的只读派生物，漂移闸见
+  `go-core/db/schema/drift_test.go`＋`backend/tests/test_pg_schema_snapshot.py`，T6-03 结案）、
+  `py-api`、`ai-rpc`、
   `py-ai-worker`、`go-api`——这是仓库里第一次把 5 进程＋1 broker 编在同一张网上。
 - 端口只发布 `127.0.0.1:8000`（py-api）与 `127.0.0.1:15672`（RabbitMQ UI）；
   `go-api` 无宿主端口，只在网络内 `go-api:8000` 可达。5432/5672/50051 一律不对外。

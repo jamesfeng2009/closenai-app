@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from _pg_env import pg_test_url
 from backend.config import settings
+from backend.core.alembic_chain import head_revision
 from backend.core.time_utils import utc_now
 from backend.models.journey import UserEntitlement
 from backend.models.share import ShareExport
@@ -43,7 +44,10 @@ from backend.services.delivery_service import METRIC_MARKER, audit_paid_delivery
 pytestmark = pytest.mark.asyncio
 
 PREFIX = "t104"
-HEAD = "f6b8d0e2a4c6"  # 当前 alembic head（T4-01 件挂在 T1-02 件之上）
+# T6-03：head 不再抄字面量。期望值离线从 backend/alembic/versions/ 推
+# （backend/core/alembic_chain.py），实测值从库里读；两侧不同源，红了只可能是
+# 「库没跟上链」。唯一保留字面量的是 test_canonical_schema.py 那条链形状闸。
+HEAD = head_revision()
 
 
 @pytest.fixture

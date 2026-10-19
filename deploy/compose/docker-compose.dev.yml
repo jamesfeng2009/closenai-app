@@ -56,7 +56,8 @@ services:
       timeout: 5s
       retries: 12
 
-  # 一次性 job：schema 只前滚（alembic 是唯一事实源；go-core/db/schema 那份的双写风险＝方案 §17，归 T0-01b 之后的 canonical 单源任务）。
+  # 一次性 job：schema 只前滚。alembic 是唯一事实源；go-core/db/schema 那三份快照由
+  # scripts/export_pg_schema.py 从它派生（T6-03 结案，漂移闸＝drift_test.go + test_pg_schema_snapshot.py）。
   migrate:
     <<: *py-build
     command: ["alembic", "-c", "backend/alembic.ini", "upgrade", "head"]

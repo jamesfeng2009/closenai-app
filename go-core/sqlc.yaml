@@ -1,13 +1,19 @@
 # sqlc 配置（D-7 结案：N1 手写 SQL，sqlc 随 N2 canonical 新表同时上）。
 #
-# schema 三份快照都由 scripts/export_pg_schema.py 从 `alembic upgrade head` 后的
-# PostgreSQL 导出，DDL 属主仍是 backend/alembic（每件头部含导出命令与 alembic revision）；
-# sqlc 只读它们做类型推断，不参与迁移。
+# schema 三份快照都是**派生物**（T6-03 迁移单一化）：表名单取自 alembic 迁移件的
+# _TABLES，DDL 主体取自「一次性空库 → alembic upgrade head → pg_dump」，
+# 生成器只有 scripts/export_pg_schema.py 一个，文件头逐份写了 source/command/revision。
+# sqlc 只读它们做类型推断，不参与迁移；手写这三份就是本票要消灭的双写。
 # 0003 是 N7 的 outbox_messages（裁决七-6 N7-1：新迁移而非改已应用的 0002）。
 #
 # 用法：cd go-core && sqlc generate
-# 生成物 internal/store/canonicaldb 入库、禁手改（V3 08 §4）；
-# 漂移闸门在 backend/tests/test_canonical_schema.py。
+# 生成物 internal/store/canonicaldb 入库、禁手改（V3 08 §4）。
+# 漂移闸分三层：
+#   · go-core/db/schema/drift_test.go —— 快照自身（表头白名单、逐字节指纹、表不二次声明、
+#     表名单跟 alembic 的 _TABLES 对齐）；无 PG 也能跑，CI 的 go 作业带它。
+#   · backend/tests/test_pg_schema_snapshot.py —— 快照 ↔ alembic 逐列/逐字节（含重建库
+#     的 pg_dump 复现，以及 `users` 只在 0001 出现一次）。
+#   · backend/tests/test_canonical_schema.py —— alembic ↔ ORM ↔ 实库 22 表逐列 + `sqlc diff`。
 version: "2"
 sql:
   - engine: "postgresql"

@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from _pg_env import pg_test_url
 from backend.config import settings
+from backend.core.alembic_chain import head_revision
 from backend.core.time_utils import utc_now
 from backend.models.auth import RefreshToken
 from backend.models.canonical import Insight
@@ -111,12 +112,14 @@ async def pg(monkeypatch, tmp_path):
             select(func.count(User.id)).where(User.id.not_like(f"{PREFIX}%"))
         ) or 0)
     # head 必须是**最新**那条迁移，否则本轮新增的表根本不存在，用例全在打空库。
-    # 因此它跟着 head 走（现在＝T4-01 的 personal_commitments 两件，挂在 T1-02 件之上），
-    # 而 T1-01 的证人放在下一行：那张表必须在库里，这才是本文件真正依赖的东西。
-    # 注意这条断言每落一件迁移就要改一次——同一句话在 `test_canonical_schema.py`、
-    # `test_posthog_erasure_retry_pg.py`、`test_delivery_audit_pg.py` 里各有一份字面量
-    # （四个第二真源），2026-10-19 登记给 T6-03「单一事实源」，本批只做跟手更新。
-    assert head == "f6b8d0e2a4c6", f"库的 alembic head={head}，不是最新的 T4-01 件"
+    # T6-03（2026-10-20）之前这一句是字面量 `== "f6b8d0e2a4c6"`，而同一句话在
+    # `test_canonical_schema.py`、`test_posthog_erasure_retry_pg.py`、
+    # `test_delivery_audit_pg.py` 里各有一份＝四个第二真源，每落一件迁移要同步改四处。
+    # 现在期望值由 `backend/core/alembic_chain.py` 离线从 versions 目录推（不连库），
+    # 实测值从库里读——两侧不同源，红了只可能是「库没跟上链」这一个意思。
+    assert head == head_revision(), (
+        f"库的 alembic head={head}，链的 head={head_revision()}：库落后了")
+    # 本文件真正依赖的东西是下一行那张表在不在库里（head 相等只是「库够新」的证据）。
     assert "data_export_jobs" in pg_tables, "库里没有 data_export_jobs：本文件的靶不在，跑它没有意义"
     assert others == 0, f"库里已有 {others} 个别的用户：本用例会在真库上删数据，只能跑在一空库"
 
