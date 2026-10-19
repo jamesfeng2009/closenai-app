@@ -301,10 +301,11 @@ describe('⑤ 加载/空/失败/重试四态分离，且裁剪不藏', () => {
   it('失败态与空态是两句文案，重试一律走 common.retry', () => {
     expect(src).toContain("t('insights.canonicalEmpty')");
     expect(src).toContain("t('common.loadFailed')");
-    // 三处 = 周报卡 1 ＋ 新面列表失败 1 ＋ 新面详情失败 1。
+    // 五处 = 周报卡 1 ＋ 新面列表失败 1 ＋ 新面详情失败 1 ＋ T4-04 行动弹层「目标候选
+    // 拉取失败」1（Text ＋ accessibilityLabel 各一次，所以那里计 2）。
     // 数量钉死是为了「新增一处自己造的 Retry 文案」也会被拦下：那样等于把
     // 「重试」在 15 语言里做成只有英文的按钮。
-    expect(src.match(/t\('common\.retry'\)/g)).toHaveLength(3);
+    expect(src.match(/t\('common\.retry'\)/g)).toHaveLength(5);
     expect(src).toContain('onPress={loadInsights}');
     expect(src).toContain('onPress={() => fetchDetail(item.id)}');
   });
