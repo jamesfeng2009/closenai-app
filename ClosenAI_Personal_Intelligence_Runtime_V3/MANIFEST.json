@@ -1,0 +1,41 @@
+{
+  "package": "ClosenAI Personal Intelligence Runtime V3",
+  "version": "V3",
+  "generated_at": "2026-10-06",
+  "document_count": 22,
+  "files": [
+    "README.md",
+    "docs/00_ARCHITECTURE_OVERVIEW.md",
+    "docs/01_PERSONAL_MODEL_DOMAIN_ARCHITECTURE.md",
+    "docs/02_PERSONAL_INTELLIGENCE_DATABASE_SCHEMA.md",
+    "docs/03_EVIDENCE_PATTERN_INSIGHT_ENGINE.md",
+    "docs/04_PROACTIVE_OUTCOME_LOOP.md",
+    "docs/05_PERSONAL_MODEL_RUNTIME_ARCHITECTURE.md",
+    "docs/06_SYSTEM_COMPONENTS_AND_BOUNDARIES.md",
+    "docs/07_GO_PERSONAL_MODEL_DOMAIN.md",
+    "docs/08_GO_PERSONAL_MODEL_REPOSITORY.md",
+    "docs/09_GO_PERSONAL_MODEL_SERVICE.md",
+    "docs/10_AI_CONTRACT.md",
+    "docs/11_EVENT_CONTRACT.md",
+    "docs/12_PYTHON_AI_RUNTIME.md",
+    "docs/13_GO_AI_ORCHESTRATOR.md",
+    "docs/14_MESSAGING_ARCHITECTURE.md",
+    "docs/15_PROTOBUF_WIRE_CONTRACT.md",
+    "docs/16_SERIALIZATION_DESERIALIZATION.md",
+    "docs/17_GO_PYTHON_MESSAGING_RUNTIME.md",
+    "docs/18_OUTBOX_INBOX_IDEMPOTENCY.md",
+    "docs/19_END_TO_END_AI_EVENT_FLOW.md",
+    "docs/20_DATABASE_MIGRATION_AND_DEPLOYMENT.md",
+    "docs/21_IMPLEMENTATION_RUNBOOK.md"
+  ],
+  "architecture": {
+    "core_runtime": "Go",
+    "ai_runtime": "Python",
+    "database": "PostgreSQL",
+    "postgres_driver": "pgx v5",
+    "query_codegen": "sqlc",
+    "transport": "RabbitMQ",
+    "wire_contract": "Protobuf",
+    "delivery": "at-least-once + Inbox idempotency"
+  }
+}

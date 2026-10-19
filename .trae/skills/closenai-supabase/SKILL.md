@@ -212,8 +212,8 @@ Raw chat messages can be offloaded to Supabase Storage (Pro includes 100GB):
 ### 项目约定
 
 - 依赖：`sqlalchemy>=2.0.0` + `asyncpg>=0.29.0` + `alembic>=1.13.0` + `pgvector>=0.3.0`
-- 依赖必须**同时**写入两处：`pyproject.toml`（Vercel 读取）+ `backend/requirements.txt`（本地开发）
-- 连接串：`DATABASE_URL` 从 `.env` 读取，**Vercel Serverless 用 Transaction pooler（端口 6543）**
+- 依赖必须**同时**写入两处：`backend/requirements.txt`（镜像装包清单）+ `pyproject.toml`（本地/IDE，两边不许漂）
+- 连接串：`DATABASE_URL` 从 `.env` 读取，**生产用 Transaction pooler（端口 6543）**
 - 认证：自建 JWT（HS256），不使用 Supabase Auth
 - 数据库访问：直接走 SQLAlchemy ORM（asyncpg），**不使用 supabase-py REST**
 

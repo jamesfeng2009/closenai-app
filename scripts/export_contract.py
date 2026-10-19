@@ -31,6 +31,28 @@ INCLUDE_RE = re.compile(
     r"app\.include_router\((\w+)\.router,\s*prefix=\"([^\"]+)\""
 )
 
+# 零消费者端点的显式登记（T1-03，2026-10-18）：删掉前端死封装之后，端点本身仍是服务端
+# 能力，「前端调用」列写成 `—（理由）` 而不是光一个 `—`——没有理由的 `—` 分不清
+# 「有意不接」和「漏扫」。登记腐烂也归这里管：登记的键若不再对应零消费者行（或路径写错），
+# 本脚本直接报错，逼登记跟着代码一起改。key = (METHOD 大写, 全路径)。
+SERVER_ONLY_REASONS = {
+    ("POST", "/api/v1/share/life-archive"):
+        "服务端内部能力：档案浏览屏未立项，T1-03·2026-10-18 删除前端死封装 exportLifeArchive",
+    # T5-01·2026-10-18：合规台账 API。客户端「授权管理」界面不在 W5 这三张单的范围里
+    # （T5-01 验收只到 API＋双写），接了等于把两个布尔位的数据源换成第三个还没人核对的显示层。
+    ("GET", "/api/v1/user/consents"):
+        "合规台账只读（Baseline §14.2）：客户端授权管理屏未立项，T5-01·2026-10-18 交付到 API 为止",
+    ("POST", "/api/v1/user/consents"):
+        "合规台账写入：旧 App 继续走 /user/ai-consent 与 /user/analytics-consent（两端已双写本表），T5-01·2026-10-18",
+    # T1-01·2026-10-18 台账重导时暴露：旧的逐路径对账把 `/memories/${id}` 归一成
+    # `/memories/{param}` 后按模式匹配，先命中字母序在前的 `/memories/search`（`s` < `{`），
+    # 于是 search 记成「有调用点」、真正的 GET/DELETE/{memory_id} 记成 `—`。
+    # method 对上之后真相浮现：检索面确实零调用点——那不是漏扫，是 D-G4-1 的口径，
+    # 所以按本表规矩必须带理由登记（闸见 frontend/__tests__/memoriesWiring.test.ts「检索面不复活」）。
+    ("POST", "/api/v1/memories/search"):
+        "语义检索面不复活：D-G4-1 只接创建/详情/版本三条（列表＋删除原有），前端无 /memories/search 封装；登记本体 T1-01·2026-10-18，method 对上后此行才从假绿的「有调用点」显出零消费真相",
+}
+
 DOC_HEADER = """# ClosenAI HTTP 契约基线（N0 契约冻结）
 
 > 本文件由 `.venv/bin/python scripts/export_contract.py` 生成，**不要手改**。
@@ -151,9 +173,33 @@ def response_shape(row: dict) -> str:
         return "SSE 流式"
     if 'media_type="application/pdf"' in body:
         return "PDF 二进制"
+    if 'media_type="application/zip"' in body:
+        return "ZIP 二进制"
     if "return success(" in body or "success(" in body:
         return "JSON 信封"
     return "其他（需人工确认）"
+
+
+def zip_table(rows: list) -> str:
+    """ZIP（数据导出）端点逐条登记：Content-Type 与 handler 里 filename 表达式的原文。
+
+    filename 记「源码怎么写」而不是记一个解析出来的值：这条链上的文件名由服务层拼接，
+    生成器去猜那个值就会和真实响应漂移。
+    """
+    out = [
+        "\n| 端点 | Content-Type | handler 里 filename 的写法 | 出处 |\n"
+        "| --- | --- | --- | --- |\n"
+    ]
+    for r in sorted(rows, key=lambda x: x["path"]):
+        if response_shape(r) != "ZIP 二进制":
+            continue
+        m = re.search(r"filename=([^,\n]+)", r["body"])
+        name = f"`{m.group(1).strip()}`" if m else "（未声明）"
+        out.append(
+            f"| {r['method']} `{r['path']}` | `application/zip` | {name} | "
+            f"`{r['file']}:{r['line']}` |\n"
+        )
+    return "".join(out)
 
 
 def pdf_table(rows: list) -> str:
@@ -175,18 +221,54 @@ def pdf_table(rows: list) -> str:
     return "".join(out)
 
 
-def frontend_calls() -> list[tuple[str, str, int]]:
-    """扫前端调用点：`request<T>('/path')` 与 `${API_BASE}/path`，返回 (原始路径, 文件, 行号)。"""
+def frontend_calls() -> list[tuple[str, str, int, str]]:
+    """扫前端调用点：`request<T>('/path')` 与 `${API_BASE}/path`，返回 (原始路径, 文件, 行号, method)。
+
+    T0-04（2026-10-18）：旧版逐行正则漏掉跨行形状
+    `request<ArrayBuffer>(` 换行后才是反引号路径（如 getLifeArchivePdf + binary:true），
+    台账把已接线端点记成 `—` ⇒ 改全文扫描，行号按路径字面量所在行回推。
+
+    T1-01（2026-10-18）：同一句柄下 `GET`／`POST` 共用一条路径（`/user/export`），
+    只按路径对账会让 POST 的调用点落到 GET 行、POST 行仍是 `—` ⇒ 顺手把 method 一起扫出来，
+    对账时 method 相同者优先。缺 `method:` 选项即 GET，与 `request()` 的默认值同口径。
+    """
     src = ROOT / "frontend" / "src"
     call_re = re.compile(
-        r"(?:request<[^(]*>\(\s*|API_BASE\}[`'\"]?)[`'\"](/[^\s`'\"]*)"
+        r"(?:request<[^(]*>\(\s*|API_BASE\})[`'\"]?(/[^\s`'\"]*)"
     )
+    method_re = re.compile(r"method:\s*['\"](\w+)['\"]")
     found = []
     for p in sorted(src.rglob("*.ts*")):
-        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
-            for m in call_re.finditer(line):
-                found.append((m.group(1), str(p.relative_to(ROOT)), n))
+        text = p.read_text(encoding="utf-8")
+        for m in call_re.finditer(text):
+            line_no = text.count("\n", 0, m.start(1)) + 1
+            g = method_re.search(_options_object(text, m.end(1)))
+            found.append(
+                (m.group(1), str(p.relative_to(ROOT)), line_no, g.group(1).upper() if g else "GET")
+            )
     return found
+
+
+def _options_object(text: str, from_index: int) -> str:
+    """返回路径字面量之后那个选项对象的原文；没有选项对象就返回空串。
+
+    只在选项对象里找 `method:`，窗口才不会越到下一条调用或下一个封装上。
+    """
+    i = from_index
+    while i < len(text) and text[i] in " \t\r\n',\"`":
+        i += 1
+    if i >= len(text) or text[i] != "{":
+        return ""
+    depth, start = 0, i
+    while i < len(text):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+        i += 1
+    return text[start:]
 
 
 def normalize_frontend_path(raw: str) -> str:
@@ -242,7 +324,7 @@ def match_frontend(rows: list) -> tuple[dict, list]:
     used_map = wrapper_is_used(calls)
     by_register: dict = {}
     unmatched = []
-    for raw, file, line in calls:
+    for raw, file, line, method in calls:
         norm = normalize_frontend_path(raw)
         pattern = None
         if "{" in norm:
@@ -255,8 +337,10 @@ def match_frontend(rows: list) -> tuple[dict, list]:
                 if r["path"].startswith(prefix)
             }
             if norm in candidates or (pattern and any(pattern.match(c) for c in candidates)):
-                hit = i
-                break
+                if hit is None or rows[hit]["method"] != method:
+                    hit = i
+                if rows[hit]["method"] == method:
+                    break
         if hit is None:
             unmatched.append(f"`{raw}`（{file}:{line}）")
         else:
@@ -325,6 +409,7 @@ def build_register(rows: list, spec: dict) -> str:
         "| # | 方法 | 路径 | 响应形态 | 鉴权 | 前端调用 | openapi 响应码 | 请求体模型(字段·必填) | 其余参数 | handler |\n"
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
     )
+    registered_used: set = set()
     for i, r in enumerate(rows, 1):
         info = ops[(r["method"], r["path"])]
         fields = "-"
@@ -337,16 +422,40 @@ def build_register(rows: list, spec: dict) -> str:
             fields = "（无声明模型，按 handler 读取）"
         other = ", ".join(info["params"]) or "-"
         auth = "auth" if "get_current_user" in r["body"] else "anon"
-        used = "<br>".join(by_register.get(i, [])) or "—"
+        key = (r["method"], r["path"])
+        front_refs = by_register.get(i, [])
+        if key in SERVER_ONLY_REASONS:
+            if front_refs:
+                raise SystemExit(
+                    f"SERVER_ONLY_REASONS 里登记了 {key} 为零消费者，但前端仍有调用点："
+                    f"{front_refs} ⇒ 要么接线了（撤登记），要么改动路径写法，别让登记和台账各说各话"
+                )
+            used = f"—（{SERVER_ONLY_REASONS[key]}）"
+            registered_used.add(key)
+        else:
+            used = "<br>".join(front_refs) or "—"
         parts.append(
             f"| {i} | {r['method']} | `{r['path']}` | {response_shape(r)} | {auth} | {used} | "
             f"{'+' .join(info['codes'])} | {fields} | {other} | "
             f"`{r['file']}:{r['line']}` `{r['func']}` |\n"
         )
 
+    stale = sorted(set(SERVER_ONLY_REASONS) - registered_used)
+    if stale:
+        raise SystemExit(
+            f"SERVER_ONLY_REASONS 有登记落空：{stale}——登记表里没有这条端点，"
+            "或它已经有前端调用点。删掉过期登记，别让它变成第二份「没人核对的清单」"
+        )
+
     parts.append(SSE_SECTION)
-    parts.append(PDF_SECTION.replace("{pdf_rows}", pdf_table(rows)))
-    parts.append(NOTES_SECTION)
+    parts.append(
+        PDF_SECTION.replace("{pdf_rows}", pdf_table(rows)).replace("{zip_rows}", zip_table(rows))
+    )
+    parts.append(
+        NOTES_SECTION.replace("{endpoint_count}", str(len(rows))).replace(
+            "{router_count}", str(len(rows) - 1)
+        )
+    )
     refs = {i: v for i, v in by_register.items()}
     wired = sum(1 for v in refs.values() if not any("未接线" in r for r in v))
     parts.append(
@@ -402,13 +511,35 @@ SSE_SECTION = """
 """
 
 PDF_SECTION = """
-## 七、二进制（PDF）端点
+## 七、二进制端点
+
+### 7.1 PDF（分享与成长档案）
 
 以下端点返回 `StreamingResponse(iter([pdf]))`，**不是** JSON 信封，前端按字节流落盘：
 `Content-Type: application/pdf` + `Content-Disposition: attachment; filename="<登记值>"`。
 Go 侧接管后必须保持文件名逐字一致（分享/归档链路按文件名展示）。
 
 {pdf_rows}
+
+### 7.2 ZIP（通用数据导出，T1-01）
+
+下载走 `FileResponse`（同样**不是** JSON 信封）；鉴权与 7.1 一致：带 `Authorization` 的
+同一条 `get_current_user` 路径，**不发签名 URL**——本部署没有接通对象存储，公开可转发的
+bearer 链接会把「导出」变成第二次泄露（`backend/services/export_service.py` 模块头第三条口径）。
+
+{zip_rows}
+
+包内形状（`manifest.json` 逐字键名，前端与 Go 都按这一份渲染）：
+
+- `tables/<表名>.ndjson`：一行一个 JSON 对象，键＝列名；表集合＝`PURGE_TARGETS` 减
+  `EXPORT_EXCLUDE_REASONS`（`refresh_tokens`、`receipts`、`inbox_messages` 刻意不在包里）。
+- `manifest.json`：`generated_at`、`job_id`、`scope`、`format`、`tables`（每格是
+  `table`/`rows`/`file` 三键）、`total_rows`、`excluded_tables`、`excluded_columns`、
+  `retention_days`。
+- 文件名：`closenai-export-<job_id>.zip`（拼在 `export_service.resolve_download`）。
+- 失败形状：非 ready 或未过期校验不过走 JSON 信封 409 `40905` EXPORT_NOT_READY；
+  库里写 ready 但盘上没有走 500 `50007` EXPORT_ARTIFACT_MISSING；别人的 job_id 与
+  不存在的 job_id 同形 404 `40401` RESOURCE_NOT_FOUND（§14.1 跨用户隔离）。
 """
 
 FRONTEND_SECTION = """
@@ -419,6 +550,10 @@ FRONTEND_SECTION = """
 - 结果：**{total} 个端点里 {called} 个有前端调用点，其中 {wired} 个的封装确实被屏/hook 接线**。
   「前端调用」列带 `（封装未接线）` 的 = api.ts 里有函数但全仓无人调用
   ⇒ 改这些端点的响应不会立刻炸 App，Go 切流可排在后；无标记的才是 P1 硬约束面。
+- 「前端调用」列写 `—（理由）` 的 = 前端连封装都没有、且理由已在
+  `scripts/export_contract.py` 的 `SERVER_ONLY_REASONS` 里登记（T1-03 起的口径）。
+  裸 `—` 与带理由的 `—` 的区别就是「漏扫」与「有意不接」的区别，所以登记必须带理由；
+  登记落空（端点已删除或已接线）时导出脚本直接报错，不留过期登记。
 - 悬空检查（前端调了但登记表里没有的路径）：
 
 {unmatched}
@@ -431,7 +566,7 @@ FRONTEND_SECTION = """
 NOTES_SECTION = """
 ## 八、登记缺口（带日期，按「发现缺陷不顺手修」只记不补）
 
-- ↳ 2026-10-13 **响应载荷无类型**：全部 98 个端点的 200 响应在 openapi 里都是空 schema
+- ↳ 2026-10-13 **响应载荷无类型**：全部 {endpoint_count} 个端点的 200 响应在 openapi 里都是空 schema
   （`grep -c "response_model=" backend/routers/*.py` = 0，因 handler 返回 `success(dict)`）。
   ⇒ `contracts/openapi.json` 只能冻结**请求侧 + 信封**，`data` 内字段基线只能来自
   `contracts/frontend-compat.md`（前端实际消费面）。归属 N2 建 canonical schema 时用
@@ -439,7 +574,7 @@ NOTES_SECTION = """
 - ↳ 2026-10-13 **业务错误码不在 openapi**：错误只由全局异常处理器产生，规范里查不到 4xx 码。
   本文件第四节是替代基线，Go 侧需逐值复现。
 - ↳ 2026-10-13 **`GET /health`（app 级）与 `GET /api/v1/cron/health` 同名 operationId 前缀**，
-  前者 98 条里唯一不挂 router，故与「97 个 router 端点」计数相差 1 的原因即此（不是漏登记）。
+  前者 {endpoint_count} 条里唯一不挂 router，故与「{router_count} 个 router 端点」计数相差 1 的原因即此（不是漏登记）。
 """
 
 if __name__ == "__main__":

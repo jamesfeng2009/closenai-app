@@ -240,7 +240,9 @@ B2 = GO / "internal/httpapi/batch2.go"
 DC = GO / "internal/domain/curriculum.go"
 LB = GO / "internal/store/legacy_batch2.go"
 MG = GO / "cmd/go-api/main.go"
-SV = GO / "internal/httpapi/server.go"
+# T6-02（2026-10-19）：注册面从 server.go 抽成了 internal/httpapi/routes.go 的声明表，
+# 所以下面四格的靶文件换这一份——判的还是同一件事（这条注册在不在、挂在哪个开关下）。
+SV = GO / "internal/httpapi/routes.go"
 FX = GO / "testdata/n8_contract.json"
 GS = ROOT / "scripts/gen_n8_contract_goldens.py"
 RC = PY / "routers/curriculum.py"
@@ -552,7 +554,9 @@ KIND_LIT = '\tCurriculumKind = "curriculum"\n'
 FORBID_MSG = 'const forbiddenCardMessage = "无权访问该主题卡"\n'
 CONSENT_MSG = ('const errAIAgreementRequired = "使用 AI 功能前，请先阅读并同意 AI 数据共享说明 / " +\n'
                '\t"Please review and agree to the AI data sharing notice before using AI features"\n')
-BATCH2_GUARD = '\tif s.batch2 != nil {\n'
+BATCH2_GUARD = ('\t{method: "GET", path: "/api/v1/curriculum/week", domain: "curriculum",\n'
+                  '\t\tgated:   func(s *Server) bool { return s.batch2 != nil },\n')
+BATCH2_NOGUARD = ('\t{method: "GET", path: "/api/v1/curriculum/week", domain: "curriculum",\n')
 CFG_CURR = '\t\tCutoverCurriculum:      envInt("CLOSEN_CUTOVER_CURRICULUM", 0),\n'
 CM_CURR = '  CLOSEN_CUTOVER_CURRICULUM: "0"\n'
 ING_CURR = ('          - path: /api/v1/curriculum\n'
@@ -622,7 +626,9 @@ SKIP_NO_STATUS = '\t\tif row.Past {\n'
 INSERT_IN_TX = ('\t\t\tif _, err := tx.Exec(ctx, insertJourneyEvent, id, userID, '
                 'row.Kind, row.DayNo,\n')
 INSERT_AUTOCOMMIT = INSERT_IN_TX.replace("tx.Exec", "p.pool.Exec")
-BATCH3_GUARD = '\tif s.batch3 != nil {\n'
+BATCH3_GUARD = ('\t{method: "GET", path: "/api/v1/journey/events", domain: "journey",\n'
+                  '\t\tgated:   func(s *Server) bool { return s.batch3 != nil },\n')
+BATCH3_NOGUARD = ('\t{method: "GET", path: "/api/v1/journey/events", domain: "journey",\n')
 CFG_JOURNEY = '\t\tCutoverJourney:         envInt("CLOSEN_CUTOVER_JOURNEY", 0),\n'
 # int() 的字符集四支（#91–#94）：全按「最可能顺手写成的 ASCII 版」破坏。
 ND_LOOKUP = '\tlo, ok := ndRunStart(r)\n'
@@ -913,8 +919,12 @@ FX_CONV_ZERO_BAD = r'\"conviction\":0,'
 # 这一条测的是 D-10 那一档的反方向（有键、没 path），既有 k8s 闸只看 path 不看键，
 # 所以下面 223–228 每一格都只有这条新闸看得见。
 CM_MEM_ZERO = '  CLOSEN_CUTOVER_MEMORIES: "0"\n'
-SV_MEM_LIST = '\t\ts.mux.HandleFunc("GET /api/v1/memories", s.handleMemoriesList)\n'
-SV_MEM_DETAIL = '\t\ts.mux.HandleFunc("GET /api/v1/memories/{memory_id}", s.handleMemoryDetail)\n'
+SV_MEM_LIST = ('\t{method: "GET", path: "/api/v1/memories", domain: cutoverMemories,\n'
+                  '\t\tgated:   func(s *Server) bool { return s.batch6 != nil },\n'
+                  '\t\thandler: func(s *Server) http.HandlerFunc { return s.handleMemoriesList }},\n')
+SV_MEM_DETAIL = ('\t{method: "GET", path: "/api/v1/memories/{memory_id}", domain: cutoverMemories,\n'
+                  '\t\tgated:   func(s *Server) bool { return s.batch6 != nil },\n'
+                  '\t\thandler: func(s *Server) http.HandlerFunc { return s.handleMemoryDetail }},\n')
 ING_MEM_GO = ('          - path: /api/v1/memories\n'
               '            pathType: Exact\n'
               '            backend:\n'
@@ -1309,7 +1319,7 @@ MUTATIONS = [
     m(67, "注册挪出「批 2 已接线」开关：机制没接线时 Go 也答这一域，"
           "Ingress 一刀指过来就是 500/空响应，而不是回落到 py-api",
       "pytest", f"{B2_PYTEST}::test_go_registers_both_curriculum_routes", "",
-      backup(SV), patch(SV, BATCH2_GUARD, '\tif true {\n')),
+      backup(SV), patch(SV, BATCH2_GUARD, BATCH2_NOGUARD)),
 
     m(68, "三个登记面的一致性：把 curriculum 的 Ingress backend 改回 py-api，"
           "0% 下**功能没有变化**（Go 本来只逐字转交），但「这一域已交给 Go」在"
@@ -1429,7 +1439,7 @@ MUTATIONS = [
     m(87, "注册挪出「批 3 已接线」开关：机制没接线时 Go 也答这一域，"
           "Ingress 一刀指过来就是 panic/500，而不是回落到 py-api",
       "go", API_TESTS, "TestJourneyRoutesAbsentWithoutBatch3",
-      backup(SV), patch(SV, BATCH3_GUARD, '\tif true {\n')),
+      backup(SV), patch(SV, BATCH3_GUARD, BATCH3_NOGUARD)),
 
     m(88, "journey 灰度默认 100：忘了配键的部署直接把这一域全给 Go，"
           "「部署了但没开灰度」这一安全态就没了（与批 1/批 2 同一条口径）",

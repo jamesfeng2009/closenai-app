@@ -27,7 +27,8 @@ description: "Systematic debugging with root cause chain methodology (5 Whys) fo
   ↓ 为什么？
 原因 B：QStash 重试机制触发
   ↓ 为什么？
-根因：Vercel 函数超时 60s，QStash 认为失败自动重试
+根因（历史案例，Vercel 时代）：函数超时 60s，QStash 认为失败自动重试；
+  2026-10-18 起 VPS 常驻后超时不再是这条链的触发器，但「消费端必须幂等」的教训保留
 ```
 
 **规则**：不停留在表面症状，必须追溯到**根本原因**（即修复后该 Bug 不会再出现）。
@@ -39,8 +40,8 @@ description: "Systematic debugging with root cause chain methodology (5 Whys) fo
 | 假设 | 验证方法 | 预期结果 |
 |------|---------|---------|
 | QStash 重试 | 检查 QStash 日志中的 delivery_attempts | attempts > 1 |
-| 函数超时 | 检查 Vercel 日志中的 duration | duration > 60s |
-| Cron 重复 | 检查 Vercel Cron 执行日志 | 执行间隔 < 1 小时 |
+| 处理超时 | 容器日志（`docker compose logs`）里的 duration | 超出排程预算 |
+| Cron 重复 | 宿主 crontab 执行记录（`grep CRON /var/log/syslog`） | 执行间隔 < 1 小时 |
 
 ### 3. 最小复现
 

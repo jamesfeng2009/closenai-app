@@ -53,11 +53,6 @@ asyncio_mode = "auto"
 testpaths = ["backend/tests"]
 pythonpath = ["."]
 
-# Vercel Python runtime 配置
-# 告诉 Vercel 从 backend.main 模块加载 app 变量（FastAPI 实例）
-[tool.vercel]
-entrypoint = "backend.main:app"
-
 # 构建系统配置（本地开发用 uv 或 pip 均可）
 [build-system]
 requires = ["hatchling"]

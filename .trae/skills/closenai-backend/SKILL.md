@@ -1,24 +1,26 @@
 ---
 name: "closenai-backend"
-description: "ClosenAI backend development with FastAPI, Vercel Serverless, QStash, Redis, SSE streaming, Cron Jobs, APNs/FCM push. Invoke when working on backend API routes, async tasks, push notifications, real-time SSE, or Vercel deployment."
+description: "ClosenAI backend development with FastAPI, QStash, Redis, SSE streaming, host crontab jobs, APNs/FCM push. Invoke when working on backend API routes, async tasks, push notifications, real-time SSE, or VPS deployment/ops (deploy/compose)."
 ---
 
 # ClosenAI Backend Development
 
-ClosenAI 后端开发规范：FastAPI (async) + Vercel Serverless + Supabase PostgreSQL + QStash + Redis + SSE + APNs/FCM
+ClosenAI 后端开发规范：FastAPI (async) + VPS 常驻容器（docker compose）+ Supabase PostgreSQL + QStash + Redis + SSE + APNs/FCM
+
+> 2026-10-18（T0-02）：Vercel 全线下马——`vercel.json` 已删除、`pyproject.toml` 的 `[tool.vercel]` 段已清；现役唯一调度源＝`deploy/schedule/crontab`（宿主 crontab），现役部署形态＝VPS 单机 `deploy/compose/docker-compose.prod.yml`。本文件不得再把 Vercel 写成现役平台。
 
 ## Tech Stack
 
 | Component | Technology | Notes |
 |-----------|-----------|-------|
 | API Framework | FastAPI (async) | Existing, reuse |
-| Deployment | Vercel Serverless | Pro plan, 60s timeout |
+| Deployment | VPS 单机 docker compose（`deploy/compose/docker-compose.prod.yml`＋Caddy） | 常驻 uvicorn 进程，无 Serverless 60s 限制 |
 | Database | Supabase PostgreSQL | asyncpg + SQLAlchemy 2.0 |
 | Task Queue | QStash (Upstash) | Batch LLM dispatch (50 users/chunk) |
-| Cron Jobs | Vercel Cron (hourly GET) + QStash dispatch | Reuse daily_fortune_cron pattern |
+| Cron Jobs | 宿主 crontab（`deploy/schedule/crontab`，GET＋`Authorization: Bearer $CRON_SECRET`）+ QStash dispatch | 单一事实源，改排程只改那一个文件 |
 | Cache | Upstash Redis | Mood check-in cache, etc. |
 | Push | Self-built APNs/FCM provider | push/service.py |
-| Monitoring | PostHog（行为分析 + Error Tracking）+ Vercel logs | `posthog` Python SDK；Sentry 仅用于 App 端崩溃（见 closenai-frontend SKILL）；已移除 Axiom |
+| Monitoring | PostHog（行为分析 + Error Tracking）+ 容器日志（json-file，50m×3） | `posthog` Python SDK；Sentry 仅用于 App 端崩溃（见 closenai-frontend SKILL）；已移除 Axiom |
 
 ## 🔴 文件位置约束（必须遵守）
 
@@ -87,12 +89,12 @@ backend/
 
 ## 🔴 依赖双文件约束（必须遵守）
 
-**依赖必须同时写入两个文件，否则 Vercel 部署会失败：**
+**依赖必须同时写入两个文件，两边不许漂（见 pyproject 内 R3/R5 注释）：**
 
 | 文件 | 用途 | 谁读取 |
 |------|------|--------|
-| `pyproject.toml` `[project.dependencies]` | **Vercel 部署实际读取**（`[tool.vercel] entrypoint`） | Vercel |
-| `backend/requirements.txt` | 本地开发 / IDE | 本地 |
+| `backend/requirements.txt` | **镜像装包唯一清单**（`deploy/Dockerfile.py-api` pip install） | docker compose / 镜像构建 |
+| `pyproject.toml` `[project.dependencies]` | 本地开发 / IDE / 工具链 | 本地 |
 
 新增任何 Python 依赖（如 `sqlalchemy`、`asyncpg`、`alembic`、`pgvector`）时，**两处都要加**。
 
@@ -100,7 +102,7 @@ backend/
 
 - 连接：`backend/database.py` 创建 async engine + `Base` + `get_db`
 - 版本管理：建表/改表走 **Alembic 迁移**（`alembic upgrade head`），禁止手动 SQL Editor
-- 连接串：`DATABASE_URL` 从 `.env` 读取，Vercel 用 **Transaction pooler**（端口 6543）
+- 连接串：`DATABASE_URL` 从 `.env` 读取，生产用 Supabase **Transaction pooler**（端口 6543）
 - 详见表结构约定 → `closenai-supabase` SKILL
 
 ```
@@ -142,7 +144,7 @@ async def stream_chat(request: ChatRequest):
 ### 2. Cron Job + QStash Dispatch (Active Messages)
 
 ```
-Vercel Cron (hourly GET) → FastAPI → Query users in timezone batch
+宿主 crontab (hourly GET /api/v1/cron/*) → FastAPI → Query users in timezone batch
   → QStash dispatch (50 users/chunk)
   → LLM generate message → Store in DB → Send push notification
 
@@ -154,10 +156,10 @@ Timezone batches:
   UTC-8 (Los Angeles)       → Cron 17:00 UTC
 ```
 
-### 3. Cold Start Mitigation
+### 3. 常驻进程的成本档位（原「冷启动缓解」改判）
 
-- Vercel Cron calls `/health` every 5 minutes to keep functions warm
-- Use Gemini 2.5 Flash-Lite for non-real-time tasks (cheaper + faster cold start)
+- 常驻进程无冷启动；`deploy/schedule/crontab` 的 `*/5` 那条打 `/api/v1/cron/health` 兜底探活
+- 非实时任务用 lite 档模型（`settings.*_lite_model`，便宜且快；这条与平台无关，保留）
 - Redis cache for common mood check-in responses
 - `max_tokens=60-100` for short responses (mood check-ins)
 
@@ -279,7 +281,7 @@ user_id 来源（按优先级）：
 
 ## 监控与分析（PostHog）
 
-后端统一使用 **PostHog**（Cloud·EU 区域）做行为分析与错误追踪；**Sentry 仅用于 App 端崩溃**（见 closenai-frontend SKILL）；短期原始日志用 **Vercel Runtime Log**（当天排障）。**已移除 Axiom**。
+后端统一使用 **PostHog**（Cloud·EU 区域）做行为分析与错误追踪；**Sentry 仅用于 App 端崩溃**（见 closenai-frontend SKILL）；短期原始日志用 **容器日志**（`deploy/compose` json-file，50m×3 轮转；当天排障）。**已移除 Axiom**。
 
 ### 依赖与配置
 
@@ -325,10 +327,10 @@ user_id 来源（按优先级）：
 
 ## Important Constraints
 
-- **Vercel Serverless timeout**: Pro plan 60s. Batch LLM calls MUST use QStash chunking
-- **Vercel Cron**: GET requests only. QStash callback uses POST
+- **无常驻超时后仍不许裸跑批**：批量 LLM 调用一律走 QStash 分块（50 users/chunk，口径沿用）
+- **调度只排 GET**（宿主 crontab + Bearer 验签）；QStash 回调保持 POST（豁免登记见 `backend/tests/test_cron_schedule_coverage.py`）
 - **No persistent connections**: No WebSocket. Use SSE for streaming, API polling for sync
-- **Cold start**: 1-3s. Mitigate with /health warming + mini models + Redis cache
+- **冷启动**：VPS 常驻后不再是约束；原 60s/冷启动条款随 Vercel 下线一并作废
 - **QStash cost**: 10K DAU = ~400 chunks/day. Pro plan ($20/month, 100K calls/day) needed
 - **Auth migration**: Supabase Auth → self-signed JWT (HS256). Keep auth logic in one service file
 

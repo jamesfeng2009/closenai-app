@@ -65,6 +65,18 @@ coverage.xml
 *.sqlite3
 *.sqlite
 
+# T1-01 数据导出产物：整包是用户个人数据的全量 zip，本机默认目录就是这里。
+# 误提交＝把用户数据推进仓库，所以这条忽略是边界而不是整洁。
+data/exports/
+
 # 本地工具产物（第三方 agent 的工作目录/评审缓存，不入库）
 .vendor-review/
 .workbuddy/
+
+# 本机 `go build` 落在模块根的产物（28MB/25MB Mach-O，2026-10-19 实测）。
+# 按精确路径忽略而不是通配：`go-core/**/go-api` 会连带吃掉源码目录 `go-core/cmd/go-api`。
+/go-core/go-api
+/go-core/r5interop
+
+# V3 原始资料包：解出来的 docs/00–21 已经入库，再存一份 zip＝仓库里多一个永不衰减的二进制副本。
+/ClosenAI_Personal_Intelligence_Runtime_V3.zip

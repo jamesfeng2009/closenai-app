@@ -83,7 +83,7 @@ VENV_PY = REPO / ".venv" / "bin" / "python"
 ISSUE_MD = REPO / "问题.md"
 MAIN_PY = REPO / "backend" / "main.py"
 CRON_PY = REPO / "backend" / "routers" / "cron.py"
-VERCEL = REPO / "vercel.json"
+CRONTAB = REPO / "deploy" / "schedule" / "crontab"  # T0-02 起的唯一调度源（vercel.json 已退役）
 SHARE_PY = REPO / "backend" / "services" / "share_service.py"
 MEMORY_PY = REPO / "backend" / "services" / "memory_service.py"
 SAFETY_PY = REPO / "backend" / "ai" / "safety.py"
@@ -200,29 +200,27 @@ MUTATIONS: list[tuple] = [
     ),
     (
         "W5",
-        "把 /health 的 docstring 改回「由 Vercel Cron " + LIE_FIVE_MIN + " GET 保热」："
-        "vercel.json 一条 /health 都没有（W6 逐条数过），而这句谎会直接烤进 openapi.json、"
-        "再烤进对接文档。红的是那句措辞，不是端点行为",
+        "把 /health 的 docstring 改回「由退役调度源 " + "Vercel" + " Cron 保热」：T0-02 之后"
+        "backend 运行时面（含注释）再把 Vercel 时代当现役口径就是谎话登记，而这句会直接烤进 "
+        "openapi.json、再烤进对接文档。红的是那句措辞，不是端点行为",
         [(MAIN_PY, "健康检查端点（供外部探活/手动调用）。",
-          "健康检查端点（供 Vercel Cron " + LIE_FIVE_MIN + " GET 保热）。")],
-        "pytest", f"{WORDING_PY}::test_health_endpoint_stops_claiming_a_minutely_cron", "",
-        "又写了分钟级保热",
+          "健康检查端点（由 Vercel Cron " + LIE_FIVE_MIN + " GET 保热）。")],
+        "pytest", f"{WORDING_PY}::test_vercel_cron_wording_is_gone_from_backend_runtime_sources",
+        "", "调度口径又写回 Vercel 时代",
     ),
     (
         "W6",
-        "反向：真的往 vercel.json 加一条 /health 排程。这时那句措辞不再是谎，"
-        "闸必须在这里红并要求**连 docstring 与本闸一起改写**——口径闸不许把「现在对了」"
-        "悄悄记成「一直对」",
-        [(VERCEL, '  "crons": [\n    {\n      "path": "/api/v1/cron/daily-message",',
-          '  "crons": [\n    {\n      "path": "/api/v1/health",\n      "schedule": "*/5 * * * *"\n'
-          '    },\n    {\n      "path": "/api/v1/cron/daily-message",')],
-        "pytest", f"{WORDING_PY}::test_vercel_schedule_list_has_no_health_and_no_minutely_entry",
-        "", "现在真的排程了 /health",
+        "反向证人：把 crontab 的保热行从 */5 改成 */6。那句「每 5 分钟」的宣称还在、"
+        "排程也还在，但两者已经不同形——T0-02 翻案后 D-G20 钉的就是「宣称必须由排程付账」，"
+        "口径闸不许把「曾经对了」悄悄记成「一直对」",
+        [(CRONTAB, "*/5 * * * * ", "*/6 * * * * ")],
+        "pytest", f"{WORDING_PY}::test_minutely_health_claim_is_now_backed_by_crontab",
+        "", "保热实际是",
     ),
     (
         "W7",
         "从 cron.py 的头注释端点清单里删掉 `curriculum` 那一行——就是 D-G20 实测抓出的那格漏项"
-        "（16 条清单漏 1 条）。12 条／7 条那两个数还是对的、日期还在、句子还像话，"
+        "（16 条清单漏 1 条）。13 条／7 条那两个数还是对的、日期还在、句子还像话，"
         "只有清单少一条 ⇒ 这正是「看起来已核对」的形状",
         [(CRON_PY,
           "    GET  /api/v1/cron/curriculum      — Growth Curriculum 周规划预生成（PRD §5.17）\n", "")],

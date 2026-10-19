@@ -818,16 +818,23 @@ def column_text(value: object) -> str | None:
 
 
 def I(i: int, day_no: int, payload: object, refs: object = None,
-      hour: int = 0, kind: str = "curriculum") -> dict:
+      hour: int = 0, kind: str = "curriculum", status: str = "pending") -> dict:
     """一条 journey_events 播种计划：i＝本地周内第几天（0＝周一）。
 
     payload/refs 给 dict/list 时按 json.dumps 成文本列；给 str 时**原样入库**（坏 JSON、
     空串这些形状只能这么造）；给 None 时该列为 NULL（parse_json 的空值分支）。
+
+    `status` 这一格是 T5-03 之后才需要的：`uq_journey_events_user_kind_day` 是
+    **部分**唯一索引（`WHERE event_kind <> 'commitment_follow_up' AND status <> 'skipped'`），
+    同一个 (用户, kind, day_no) 只许一条非 skipped 行。`curr-over` 要造的正是「同槽 8 行」
+    这个形状，唯一合法的表达就是 T5-03 迁移自己在现网数据上落下的那个形状——最早一条留
+    pending、其余置 skipped、**一行都不删**（迁移里的去重 UPDATE 就是这么写的）。
+    默认值仍是 `pending`，所以除 curr-over 以外的每一张计划字节不变。
     """
     return {"i": i, "day_no": day_no, "payload": payload, "refs": refs,
             "hour": hour, "kind": kind,
             # 批 2 的三条默认值＝当时的 server_default，curriculum 的字节因此不变。
-            "status": "pending", "sent_at": None, "acknowledged": False}
+            "status": status, "sent_at": None, "acknowledged": False}
 
 
 # 每张卡的计划（slug → 卡列表）。窗口的绝对端点由 mk() 按各自时区算出来。
@@ -878,7 +885,15 @@ EVENT_PLAN: dict[str, list[dict]] = {
     ],
     # 52 行落在同一周：每天 8 行、同格 hour 递增 ⇒ scheduled_at 正序的最后一条赢；
     # 第 51、52 条（i=6, hour=2/3）被 LIMIT 50 截掉 ⇒ 第 6 格显示 n=49。
-    "curr-over": [I(n // 8, n // 8, CARD(f"n{n}", f"a{n}", f"q{n}"), hour=n % 8)
+    #
+    # 同槽 8 行在 T5-03 之后只有一个合法形态：每格最早一条（hour=0）留 pending，
+    # 其余 7 条置 skipped——部分唯一索引排除 skipped，而两侧读面都不过滤 status
+    # （Python `journey_repository.list_kind_between` 的四个 where、Go
+    # `store.selectCurriculumWeek` 的同一张网），所以这 52 行仍然全部进响应，
+    # 「LIMIT 50 截断端点」与「同格后写覆盖先写」两条判据的字节一个都不动。
+    # 这不是绕约束：它正是迁移的去重 UPDATE 在现网数据上落下的形状。
+    "curr-over": [I(n // 8, n // 8, CARD(f"n{n}", f"a{n}", f"q{n}"), hour=n % 8,
+                    status="pending" if n % 8 == 0 else "skipped")
                   for n in range(52)],
     "curr-sh": [
         I(0, 0, CARD("上海的周一", "A", "Q")),
