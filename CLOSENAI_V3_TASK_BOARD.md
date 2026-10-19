@@ -49,20 +49,20 @@
 
 `BE` = Python 后端｜`GO` = Go 内核｜`FE` = 前端｜`PLAT` = 平台/DevOps｜`ARCH` = 方案负责人
 
-### 0.5 进度总览（快照 2026-10-19）
+### 0.5 进度总览（快照 2026-10-20）
 
 | 指标 | 值 |
 |---|---|
 | 任务总数 | **34** |
-| `DONE` | **25**（74%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T4-01、T4-02、T4-03、T5-01、T5-02、T5-03、T5-05、T6-01、T6-02） |
-| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **6**（T3-04、T3-05、T4-04、T5-04、T6-03、T6-04） |
+| `DONE` | **26**（76%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T4-01、T4-02、T4-03、T5-01、T5-02、T5-03、T5-05、T6-01、T6-02） |
+| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **5**（T3-05、T4-04、T5-04、T6-03、T6-04） |
 
 | 波次 | 任务范围 | 完成/总数 | 出口标准 |
 |---|---|---|---|
 | W0 编排与治理 | `T0-01`…`T0-06` | 3/6 | 本地 compose 一键起；CI 红一次；台账零失真；调度源单一 |
 | W1 P0 合规 | `T1-01`…`T1-04` | 4/4 | 导出/consent/静默可用；付费交付指标可见 |
 | W2 证据链路 | `T2-01`…`T2-05`＋`T2-06`（2026-10-18 拆自 T2-03 第⑤件，前置 B-08） | 6/6 | 记忆 → source → evidence 跨进程跑通（**2026-10-19 由 T2-04 达成，同日 T2-06 把「来源被删 → 证据退场」的退场段也跑通一次，T2-05 补上死信面的读数与重放工具；三者都跑在测试里，产品流量仍是零**） |
-| W3 洞察纠错 | `T3-01`…`T3-05` | 3/5 | 用户能看到依据并纠正，纠正真落库（**2026-10-19 T3-01/02/03 后：服务端三条链已跨进程跑通到 `/api/v1` 且进契约，但前端仍未消费——「用户能看到」这半句归 T3-04/05**） |
+| W3 洞察纠错 | `T3-01`…`T3-05` | 4/5 | 用户能看到依据并纠正，纠正真落库（**2026-10-20 T3-04 后：「看到依据」这半句到了屏上——canonical 洞察卡逐条给出 excerpt/observed_at/来源标签，空证据不铺结论；「纠正」仍归 T3-05，那半句要等反馈条与纠错输入落屏**） |
 | W4 行动闭环 | `T4-01`…`T4-04` | 3/4 | 洞察→行动→结果一条端到端（**2026-10-19 T4-01/02/03 后：三段的服务端与 `/api/v1` 转发链已各自跨进程跑通并进契约，「端到端」这半句要等 T4-04 的屏**） |
 | W5 隐私与主动消息 | `T5-01`…`T5-05` | 4/5 | 关闭/静默/幂等三闸全绿 |
 | W6 架构收敛 | `T6-01`…`T6-04` | 2/4 | 单一 DDL、单一事实源、隔离生效 |
@@ -94,7 +94,7 @@
 | T3-01 | Go：insights 列表/详情（含证据） | GO | T2-04 | W3 | DONE | 2026-10-19 结案（裁决七-10 按默认值生效后落地）：`GET /internal/v3/insights?status=&limit=&cursor=`＋`GET /internal/v3/insights/{id}` 两条端点只挂内部 mux、`domain` 一律留空（不参与切流，ADR-002）；分层与 N9 逐字同构——`domain/insight_browse.go` 判、`store/insight_browse_read.go` 搬、`httpapi/v3_insights.go` 编码；keyset `(published_at,id) DESC`＋不透明 base64url 游标（**微秒**精度，同一秒两行不跳行）；`limit+1` 判「页外还有行」才发游标，默认 20／上限 100 是包内常量（D-G12 不新增 env 键）；可见集合 `InsightReturnableStatuses` ＝ N9 三态 ∪ `corrected/expired/dismissed`（用户要能回看自己纠错过的），`retracted`／两个 AI 候选态一律不给，状态过滤器与授权集**取交集**不回落全集；闸 G-05「无证据不上线」落在 SQL 三表内连＋`s.status<>'deleted'`（`ListInsightsForBrowsing`，canonical.sql:843），`evidence_count` 一次聚合带回避免 N+1；坏游标显式 400 而不是「当成第一页」，`limit=abc` 400 而不是回默认值，跨用户与不可见回**同一个** 40402。实测 `go test -p 1 ./... -count=1` **17 包全 ok／全仓 746 PASS／0 FAIL**（httpapi 131、domain 218、store 90 含真库集成测、cmd/go-api 22）、`gofmt -l .` 零输出、`go build`／`go vet` 干净；变异 `scripts/mutate_t30x_gates.py` 打红 **37/37**、保持绿 **3/3**、未跑 0、残留 0 |
 | T3-02 | Go：insight 反馈端点（六态） | GO | T3-01 | W3 | DONE | 2026-10-19 结案：`POST /internal/v3/insights/{id}/feedback` 第一次给 `domain.Service.RecordUserFeedback`（`service_outcome.go:306`，六态矩阵早已实现）接上 HTTP 调用方，`domain_caller_ledger_test.go` 的零调用方登记随之移进 `wiredThisBatch`；这一层只做校验与错误映射，本文件不许出现第二张 feedback→状态表；解码 `DisallowUnknownFields`（多一个键就 400）＝「一律不信 body 里的 user_id」唯一的形状证人，`writer.calls==0` 同时断言「挡在解码层而不是领域层」；`correct` 必填正文＋`maxCorrectionText=500`（列上没有 CHECK，上限放在 HTTP 层，前端 T3-05 同值）；错误映射 `ErrDuplicateFeedback`→409、归属与不存在回**同一个** 40402（分成 403 等于替旁人确认这颗 id 存在）；回执四键 `feedback_id/target_status/changed/detail`——`partially_confirm` 永远 `Changed=false`，没有 `detail` 客户端只能猜；`operation_id` 落进 metadata 当幂等键；装配面 `Outcomes: candidateDomain` 必须是**同一个** `*domain.Service`（新增 `TestMainWiresTheInternalSurfaceToTheSameDomainService` 数 `domain.NewService(` 恰好一次，否则乐观锁与版本账本各算一份）；闸 G-06 由真库测 `TestG06CorrectFeedbackWritesAuthoritativeRows` 钉「反馈后 `user_feedback` 有行且 `insights.status` 按矩阵变化」，`corrected` 之后仍出现在列表里也在同一格里。计数与变异自证同 T3-01 结案行（M11–M18、M28、M31、M34–M37 属本票） |
 | T3-03 | Python BFF 代理层（纯转发） | BE | T3-01、T3-02 | W3 | DONE | 2026-10-19 结案（逐格与四件套见详情结案行；**§怎么做.1 的「五个端点」按实测改判为三条**——Go 侧今天没有 `/internal/v3/goals|actions`，接上去是一条永久 503 的死线还会进客户端契约，随 T4-02 一并接）：`backend/services/v3_proxy.py`（`build_headers`＝出站三头唯一构造点、`dial_target`＝配置不齐在**拨号之前** 503、`_client_factory`＝唯一 httpx 构造点、`_unwrap`＝只看信封 `code` 且 HTTP 状态原样带走、`quote(safe="")` 两条 path、`LIST_QUERY_KEYS` 三键白名单）＋`backend/routers/v3.py` 三条端点（query 一律 `str` 原样转发，校验只发生在 Go）＋`main.py:184` 注册；闸 G-03 `backend/tests/test_bff_is_thin.py` 九条（四条反向归零＋五条正向证人），**两处形态由变异自证收紧**（`tier/entitlement/is_pro` 改子串扫、注册证人改行首锚定，理由见裁决七-10-13）；契约重导 **101 paths／109 operations**（`/internal` 零条 ⇒ G-02 首次两侧实测对账），`test_contract_freeze` 计数 105→108；跨进程 E2E 新建（`go-core/tools/v3surface` 起真 `httpapi.NewServer`＋14 条判据＋1 条「跑过的==清单」归零证人，含 §验收 逐字那条「Go 停掉 ⇒ 三条端点都 503 且五键信封」）；部署面 `GO_API_URL` 进 ConfigMap、`GO_SERVICE_TOKEN` 只进 Secret（键面与轮换命令补进 `deploy/README.md`，同批更正 `10-config.yaml` 那条指向不存在 README 的悬空引用）。实测 `test_v3_proxy`＋`test_bff_is_thin`＋`test_contract_freeze`＋`test_v3_proxy_e2e`＋`test_db_commit_boundary`＋`test_k8s_manifests` **80 passed／1 skipped**；变异 `scripts/mutate_t303_gates.py` 打红 **43/43**、保持绿 **3/3**、未跑 0、残留 0（一条等价变异 `if code == 200`→`if False` 在 HTTP 面同形，已剔除并留档） |
-| T3-04 | 前端：证据区 + 状态徽章 | FE | T3-03 | W3 | TODO | — |
+| T3-04 | 前端：证据区 + 状态徽章 | FE | T3-03 | W3 | DONE | 2026-10-20 结案（六档徽章按 Go 的返回集合实现，不是工单字面五档；`postInsightFeedback` 只交付封装、消费归 T3-05） |
 | T3-05 | 前端：反馈条与纠错输入 | FE | T3-04 | W3 | TODO | — |
 | T4-01 | Schema：commitments 加 `goal_id`/`skipped_at` | GO+BE | T6-03（建议） | W4 | DONE | — |
 | T4-02 | Go：goals/actions CRUD 与状态机 | GO | T4-01 | W4 | DONE | 2026-10-19 结案（§怎么做.2 的 `UpdateGoalStatus`／`GetGoalState` 按实况改判为复用既有语句，理由与四件套见详情结案行）：`domain/goal.go`＋`domain/service_goal.go`＋`store/goal_read.go`＋`httpapi/v3_goals.go` 六条内部端点＋BFF 六条转发（兑 T3-03 结案行那笔欠账）；契约重导 **106 paths／115 operations**；真库集成测 6 条、跨进程 e2e 15→19 条；Go **17 包 ok／779 PASS／0 FAIL**＋gofmt 零输出，pytest 全量 **1589 passed／4 skipped／0 failed**；变异 `scripts/mutate_t402_gates.py` 打红 **39/39**、保持绿 **5/5**、未跑 0、残留 0（第一轮 26/28 抓到两条「红点没落在点名判据上」，见详情） |
@@ -763,7 +763,7 @@ Go 停掉 ⇒ `/api/v1/insights` 返回 503 且信封形状正确；BFF 单测�
 
 | 状态 | 负责 | 依赖 | 规模 |
 |---|---|---|---|
-| TODO | FE | T3-03 | L |
+| DONE | FE | T3-03 | L |
 
 **为什么**
 `InsightsScreen.tsx:278-323` 现在只有 `level/正文/期间`，`services/evidence.ts:44-65` 把"当期记忆条数"当依据。Baseline 要求逐条可回溯 + 置信度 + 时间范围。
@@ -782,6 +782,13 @@ Go 停掉 ⇒ `/api/v1/insights` 返回 503 且信封形状正确；BFF 单测�
 
 **验收**
 `__tests__/insightEvidenceWiring.test.ts`：路径逐字、字段逐字消费（防"解析不到即静默丢弃"）、空证据不渲染结论、15 语言键集齐。
+
+> 结案 2026-10-20。**四格**：入口＝`InsightsScreen` 新增「🧭 洞察（来自你自己的数据）」卡（`insights.canonicalTitle`），数据源 `listInsights()`，周报卡原样保留（ADR-003）；执行＝`api.ts` 三条封装（`listInsights`/`getInsight`/`postInsightFeedback`）＋`types/index.ts` 十个形状，字段名逐字取 Go 的 json tag（`v3_insights.go`/`handlers_evidence.go`/`v3_feedback.go`）；交付＝15 语言各补 6 条区文案＋`claim` 7 档＋`status` 6 档＋`sourceType` 8 类，依据折叠区逐条 `excerpt`（≤5）＋`observed_at` 本地日＋来源标签，`truncated` 时说「5／裁剪前总数」；失败恢复＝加载/空/失败/重试四态分离（列表失败与详情失败各一枚 `common.retry`），游客跳过请求落空态而不是失败态。
+> **两处改判**（先写在这里，代码按改判实现）：① §怎么做.4 点名的五档 `confirmed/corrected/retracted/expired/dismissed` 与这一面真会返回的集合不是同一份——`retracted` 由 `evidence_read.go:31-33`＋`insight_browse.go:29-31` 明确不对外（铺出来＝替系统收回撤回声明），而实际会回来的 `published/acknowledged/confirmed` 三态反倒不在点名清单里；按 `InsightReturnableStatuses` 的**六档**实现，闸 ④ 钉的是 Go 的返回集合而不是工单字面。② `postInsightFeedback` 本票只交付封装与形状、不做消费面（归 T3-05），所以契约台账把那条端点登记成 `frontend/src/services/api.ts:538（封装未接线）`——那是 P1 排序的正确形状，不是缺陷。
+> **实测**（计数都来自本票自己跑的命令）：`npx jest` 52 suites／1433 tests 全绿，其中本票闸 `insightEvidenceWiring.test.ts` 49 条全绿；`npx jest __tests__/i18nLocales.test.ts` 107 passed；`npx tsc --noEmit` 退出码 0；`pytest backend/tests` 1598 passed／4 skipped／0 failed（120.32s）；`contracts/endpoints.md` 因 api.ts 插入 66 行而整体漂移 80 行 `api.ts:行号`，一律用 `scripts/export_contract.py` 重导（产物不手改），重导后仍 107 paths／116 operations，`GET /insights` 与 `GET /insights/{id}` 从 `—` 变成有出处。
+> **审校欠账（登记，不算缺陷也不算完成）**：这批 15 语言新键是本轮机器撰写的，**没走 2026-09-30 那一轮母语审校（L2）**；闸只保证「键齐、不与英文同字、占位符一致、非拉丁文真落成该文字」，不保证措辞地道。徽章这类短词最容易生造（fr 的 `claim.observation` 我写的是 "Constat" 而不是 "Observation"，就是为了不撞界面借词口径）。S 桶：洞察面新键待 L2 复核。
+> **变异自证**：`scripts/mutate_t304_gates.py` 红闸 **24/24** 打红（F1…F5 路径与请求体、T1…T5 字段名改名、U1…U9 空证据格／四态／裁剪／旧卡、I1…I5 词表与跨语言）、绿闸 **5/5** 保持绿、未跑 **0**、残留 **0**（靶 7 个文件，串行跑，copy2 备份＋`filecmp(shallow=False)` 逐字节写回，不用 git checkout）。第一轮 `--check` 抓到 5 条 marker 写错（`it.each` 的 `%s` 模板在源文件里不是最终标题），已修——这条纪律的意义就是「靶打歪了也会被 `--check` 拦下，而不是被念成打红」。
+> **缺陷登记（不在本票顺手修）**：① `export_contract.py` 的前端扫描**代码与注释同池**——我在 api.ts 注释里写的一个示例路径字面量被扫成「悬空检查」条目，等于注释能改台账；根因与 T6-03 那笔「口径分散」同源，修法应是只扫代码行（本仓 `codeOnly()` 已有先例）。② **模板串拼查询串打不到台账**：`request` 的第二个实参写成模板串 `` `/insights${tail}` `` 时归一成 `/insights{param}`，一个真在用的端点被登记成「前端没有调用点」；已改成 `('/insights' + tail)` 并在闸 ① 钉住写法，但**任何**这样拼的封装都会静默失联——归 T6-02 的切流排序输入。③ 本票交付物的「屏上真长什么样」本机不可证（RN 屏在 jest 里跑不起来），只有源码闸；真机取证与灰度归 T6-04。④ `contracts/frontend-compat.md` 未含新面字段（旧基线的口径是 `growth_records` 那套），归 T4-04 一并处理。
 
 ---
 
