@@ -41,7 +41,7 @@ type ProactiveAuditRecord struct {
 	BlockReason string
 	// RejectReason 与 BlockReason 是工单 §怎么做.1 那个 `skip_reason` 的真身：
 	// 两侧 DDL 都没有 skip_reason 这一列（backend/models/canonical.py:451-452 与
-	// db/schema/0002_canonical_runtime.sql:362-363），「被挡」与「被拒」本来就有两格。
+	// db/schema/0002_canonical_runtime.sql:366-367），「被挡」与「被拒」本来就有两格。
 	RejectReason   string
 	JourneyEventID string
 	CreatedAt      time.Time

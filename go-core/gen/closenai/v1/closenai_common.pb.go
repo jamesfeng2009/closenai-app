@@ -16,7 +16,7 @@
 //     Candidate / EvidenceCandidate / ProactiveDraft 序列化后放它的 payload 字段）。
 //     形状照 V3 15 §3 逐字——那是 V3 全 22 篇编号文档里**唯一**成文的 protobuf 定义。
 //   · closenai_events.proto 的 `EventEnvelope` ＝ **事件面**的信封，形状照本仓 outbox
-//     的真实列面（go-core/db/schema/0003_outbox_messages.sql:36-55 ＋
+//     的真实列面（go-core/db/schema/0003_outbox_messages.sql:40-59 ＋
 //     go-core/internal/domain/delivery.go:58-70 的 OutboxRow），11 §2 的愿望清单里
 //     本仓没有的列它也不假装有了。
 //   为什么不合一条：合并＝同时改两个契约源，收益只是少一个消息，代价是把 R4 的 outbox
@@ -274,7 +274,7 @@ type Envelope struct {
 	MessageType string                 `protobuf:"bytes,2,opt,name=message_type,json=messageType,proto3" json:"message_type,omitempty"`
 	// string，不是 int：V3 15:44 逐字是 `string schema_version = 3;`。
 	// 本仓取值＝十进制整数字符串（与 outbox 的 `schema_version integer DEFAULT 1`
-	// 对齐，go-core/db/schema/0003_outbox_messages.sql:40 ＋ CHECK :54），
+	// 对齐，go-core/db/schema/0003_outbox_messages.sql:44 ＋ CHECK :58），
 	// 但类型不许改成 int32——那是 15 §7 明令禁止的「同号换类型」。
 	SchemaVersion string                 `protobuf:"bytes,3,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	OccurredAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
