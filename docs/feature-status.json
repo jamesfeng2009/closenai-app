@@ -1,0 +1,333 @@
+{
+  "_comment": "CLOSENAI V3 功能状态台账（T0-05，Baseline §15 六态 / §16 十项验收矩阵）。本文件是唯一事实源；docs/feature-status.md 由 scripts/feature_status.py 生成，禁止手改。state 只能由证据撑起来：判据在 scripts/feature_status.py，闸在 backend/tests/test_feature_status_truth.py。",
+  "generated_from": "Baseline §16 功能验收矩阵（十行）＋§15 六态模型",
+  "matrix_rows": [
+    "反思记录",
+    "历史记录",
+    "记忆管理",
+    "模式/洞察",
+    "主动消息",
+    "第一周成长剧本",
+    "Life Archive PDF",
+    "订阅状态",
+    "数据导出/删除",
+    "隐私/条款"
+  ],
+  "features": [
+    {
+      "id": "reflect.record",
+      "matrix_row": "反思记录",
+      "title": "反思记录（草稿生成 → 保存 → 列表回读）",
+      "spec": "Baseline §16 行 1；§6.1 Reflection",
+      "frontend_entry": "frontend/src/screens/ReflectScreen.tsx:记录入口",
+      "frontend_files": ["frontend/src/screens/ReflectScreen.tsx", "frontend/src/screens/ExploreScreen.tsx"],
+      "api": [
+        "POST /api/v1/reflections/generate",
+        "POST /api/v1/reflections",
+        "GET /api/v1/reflections"
+      ],
+      "frontend_calls": ["generateReflectionDraft", "saveReflection", "listReflections"],
+      "cron": [],
+      "cutover_key": "CLOSEN_CUTOVER_REFLECTIONS",
+      "tests": ["frontend/__tests__/reflectionRepository.test.ts", "backend/tests/test_n8_batch5_contract.py"],
+      "e2e_tests": [],
+      "state": "WIRED",
+      "verified_on": null,
+      "verified_by": null,
+      "next_gap": "§16 必测异常四条（网络失败、重复提交、空内容、越权读取）没有一条端到端闸；N8 灰度键 CLOSEN_CUTOVER_REFLECTIONS 默认 0"
+    },
+    {
+      "id": "growth.history",
+      "matrix_row": "历史记录",
+      "title": "历史记录（列表 / 时间线 / 详情）",
+      "spec": "Baseline §16 行 2",
+      "frontend_entry": "frontend/src/screens/GrowthRecordsScreen.tsx:历史列表",
+      "frontend_files": ["frontend/src/screens/GrowthRecordsScreen.tsx", "frontend/src/screens/InsightsScreen.tsx", "frontend/src/screens/RelationshipTimelineScreen.tsx"],
+      "api": [
+        "GET /api/v1/growth/records",
+        "GET /api/v1/growth/timeline",
+        "GET /api/v1/growth/timeline/day",
+        "GET /api/v1/growth/relationship-timeline"
+      ],
+      "frontend_calls": ["getGrowthRecords", "getTimeline", "getTimelineDay", "getRelationshipTimeline"],
+      "cron": [],
+      "cutover_key": null,
+      "tests": ["frontend/__tests__/growthRecordsWiring.test.ts", "backend/tests/test_growth_ordering.py", "backend/tests/test_growth_service.py"],
+      "e2e_tests": [],
+      "state": "WIRED",
+      "verified_on": null,
+      "verified_by": null,
+      "next_gap": "§16 必测异常「空列表 / 分页边界 / 跨用户读取」未立端到端闸；历史查看率与回访率指标未采"
+    },
+    {
+      "id": "memory.manage",
+      "matrix_row": "记忆管理",
+      "title": "记忆管理（新建 / 详情 / 演化 / 删除）",
+      "spec": "Baseline §16 行 3；§6.1 Memory/Fact",
+      "frontend_entry": "frontend/src/screens/MemoriesScreen.tsx:记忆页",
+      "frontend_files": ["frontend/src/screens/MemoriesScreen.tsx"],
+      "api": [
+        "GET /api/v1/memories",
+        "POST /api/v1/memories",
+        "GET /api/v1/memories/{memory_id}",
+        "POST /api/v1/memories/version",
+        "DELETE /api/v1/memories/{memory_id}",
+        "POST /api/v1/memories/search"
+      ],
+      "frontend_calls": ["listMemories", "createMemory", "getMemory", "versionMemory", "deleteMemory"],
+      "cron": [],
+      "cutover_key": "CLOSEN_CUTOVER_MEMORIES",
+      "tests": ["frontend/__tests__/memoriesWiring.test.ts", "backend/tests/test_memory_service.py", "backend/tests/test_memory_ordering.py", "backend/tests/test_n8_batch6_contract.py"],
+      "e2e_tests": [],
+      "state": "WIRED",
+      "verified_on": null,
+      "verified_by": null,
+      "next_gap": "N8 批 6 的 memories 读路径灰度键 CLOSEN_CUTOVER_MEMORIES 默认 0（管道通了、流量仍是零）；重复候选、矛盾检测失败、空演化三条必测异常未立端到端闸"
+    },
+    {
+      "id": "insight.pattern",
+      "matrix_row": "模式/洞察",
+      "title": "模式/洞察（候选生成 → 证据验证 → 展示）",
+      "spec": "Baseline §16 行 4；§7.1 主链路",
+      "frontend_entry": "frontend/src/screens/InsightsScreen.tsx:洞察与依据区",
+      "frontend_files": ["frontend/src/screens/InsightsScreen.tsx", "frontend/src/screens/ExploreScreen.tsx"],
+      "api": [
+        "GET /api/v1/growth/insights",
+        "GET /api/v1/growth/patterns",
+        "GET /api/v1/discovery/daily"
+      ],
+      "frontend_calls": ["getWeeklyInsight", "getPatternDiscovery"],
+      "cron": ["/api/v1/cron/daily-insight", "/api/v1/cron/weekly-insight"],
+      "cutover_key": "CLOSEN_CUTOVER_DISCOVERY",
+      "tests": ["frontend/__tests__/insightEvidence.test.ts", "frontend/__tests__/insightTier.test.ts", "backend/tests/test_evidence_policy.py", "backend/tests/test_evidence_excerpt_locatable.py"],
+      "e2e_tests": ["backend/tests/test_v3_evidence_e2e.py"],
+      "state": "WIRED",
+      "verified_on": null,
+      "verified_by": null,
+      "next_gap": "证据段（记忆→命令→候选→Go 入站→权威表）2026-10-19 起跨进程真跑通一次（test_v3_evidence_e2e.py，本机真库＋真 broker），但**产品流量仍是零**：候选生产面（R6）没有发射点，「生成 Pattern → 展示」这后半段仍未被任何端到端闸摸过，所以状态不升到 E2E_VERIFIED；证据跨用户/模型超时/用户否认三条必测异常归 W3（T3-01…T3-05）"
+    },
+    {
+      "id": "proactive.message",
+      "matrix_row": "主动消息",
+      "title": "主动消息（设置 → 调度 → 生成 → 投递 → 关闭）",
+      "spec": "Baseline §16 行 5；§14.3 主动消息安全",
+      "frontend_entry": "frontend/src/screens/ProfileScreen.tsx:推送时间/频率/总开关/免打扰四行",
+      "frontend_files": ["frontend/src/screens/ProfileScreen.tsx", "frontend/src/screens/MessagesScreen.tsx"],
+      "api": [
+        "PATCH /api/v1/user/settings",
+        "GET /api/v1/cron/daily-message",
+        "POST /api/v1/cron/process-user"
+      ],
+      "frontend_calls": ["updateUserSettings", "getUserProfile"],
+      "cron": ["/api/v1/cron/daily-message"],
+      "cutover_key": null,
+      "tests": [
+        "backend/tests/test_quiet_hours.py",
+        "backend/tests/test_push_frequency_setting.py",
+        "backend/tests/test_push_enabled_setting.py",
+        "frontend/__tests__/quietHoursWiring.test.ts",
+        "frontend/__tests__/pushFrequencyWiring.test.ts",
+        "frontend/__tests__/pushEnabledWiring.test.ts"
+      ],
+      "e2e_tests": ["backend/tests/test_delivery_off_e2e.py", "backend/tests/test_delivery_off_pg.py", "backend/tests/test_cron_service.py"],
+      "state": "E2E_VERIFIED",
+      "verified_on": "2026-10-18",
+      "verified_by": "pytest test_delivery_off_e2e.py 5 passed＋test_delivery_off_pg.py 2 passed（真 PG 一次性空库，CLOSEN_REQUIRE_PG=1）＋test_cron_service/test_quiet_hours 等合计 50 passed；jest quietHoursWiring 29 passed＋i18nLocales 107 passed；变异 13 红 2 绿（scripts/mutate_w5_gates.py）",
+      "next_gap": "PRODUCTION_ENABLED 还差宿主 VPS 上 `crontab deploy/schedule/crontab` 的安装取证（文件在库里有，装没装只能上机看）"
+    },
+    {
+      "id": "journey.week1",
+      "matrix_row": "第一周成长剧本",
+      "title": "第一周成长剧本（cron → 到期事件 → 投递 → 确认）",
+      "spec": "Baseline §16 行 6；PRD §5.19.3",
+      "frontend_entry": "frontend/src/screens/Week1ReportScreen.tsx:旅程页",
+      "frontend_files": ["frontend/src/screens/Week1ReportScreen.tsx", "frontend/src/screens/HomeScreen.tsx", "frontend/src/screens/OnboardingScreen.tsx"],
+      "api": [
+        "GET /api/v1/journey/events",
+        "POST /api/v1/journey/events/acknowledge",
+        "GET /api/v1/cron/journey"
+      ],
+      "frontend_calls": ["getJourneyEvents", "acknowledgeJourneyEvent"],
+      "cron": ["/api/v1/cron/journey"],
+      "cutover_key": "CLOSEN_CUTOVER_JOURNEY",
+      "tests": ["frontend/__tests__/journey.test.ts", "backend/tests/test_journey.py", "backend/tests/test_idempotency_indexes.py"],
+      "e2e_tests": ["backend/tests/test_journey.py"],
+      "state": "E2E_VERIFIED",
+      "verified_on": "2026-10-18",
+      "verified_by": "pytest test_journey.py 28 passed（含 deliver/dispatch 链）＋test_idempotency_indexes.py 16 passed（journey 日序唯一索引）＋test_cron_schedule_coverage.py 排程对账；jest journey.test.ts 在同批 1325 passed 内",
+      "next_gap": "D1/D7 留存与剧本完成率是产品指标，本机无真实用户数据 ⇒ VALUE_MEASURED 不可宣称；CLOSEN_CUTOVER_JOURNEY 默认 0"
+    },
+    {
+      "id": "life_archive.pdf",
+      "matrix_row": "Life Archive PDF",
+      "title": "Life Archive PDF（权益验证 → 生成 → App 下载）",
+      "spec": "Baseline §16 行 7；§17 P0-B",
+      "frontend_entry": "frontend/src/screens/PaywallScreen.tsx:已购档位与档案领取口",
+      "frontend_files": ["frontend/src/screens/PaywallScreen.tsx", "frontend/src/screens/DemoArchiveScreen.tsx"],
+      "api": [
+        "GET /api/v1/share/life-archive/pdf",
+        "POST /api/v1/share/life-archive",
+        "GET /api/v1/iap/entitlements"
+      ],
+      "frontend_calls": ["getLifeArchivePdf", "getEntitlements"],
+      "cron": ["/api/v1/cron/delivery-audit"],
+      "cutover_key": null,
+      "tests": ["frontend/__tests__/pdfExportWiring.test.ts", "frontend/__tests__/lifeArchiveConfig.test.ts", "backend/tests/test_life_archive.py", "backend/tests/test_delivery_audit.py", "backend/tests/test_delivery_audit_pg.py", "backend/tests/test_delivery_observability.py", "frontend/__tests__/archiveShareTracking.test.ts"],
+      "e2e_tests": ["backend/tests/test_life_archive.py"],
+      "state": "E2E_VERIFIED",
+      "verified_on": "2026-10-18",
+      "verified_by": "pytest test_life_archive.py 17 passed（权益门禁＋生成失败＋重复请求形状）；jest pdfExportWiring＋lifeArchiveConfig 在全量 1325 passed 内；T1-04 追加 pytest test_delivery_audit.py 17 passed＋test_delivery_observability.py 19 passed＋真库 test_delivery_audit_pg.py 2 passed＋jest archiveShareTracking.test.ts 17 passed",
+      "next_gap": "原生（iOS/Android）下载与打开 PDF 的真机取证未做。设备侧的「下载失败」自 2026-10-18（T1-04）起不再是空白：PaywallScreen 上报 archive_share_result{result,reason} 且 PdfUnavailableError 有独立机器码，但那条事件的真机实测（StoreKit 沙盒买一单，看三步事件是否齐）仍未做，且 DELIVERY-ALERT 在 Loki／Alertmanager 的落点没取过证"
+    },
+    {
+      "id": "subscription.iap",
+      "matrix_row": "订阅状态",
+      "title": "订阅状态（IAP 凭证校验 → 服务端 entitlement → 状态同步）",
+      "spec": "Baseline §16 行 8；§4.3 收费承诺门禁",
+      "frontend_entry": "frontend/src/screens/PaywallScreen.tsx:购买与恢复购买",
+      "frontend_files": ["frontend/src/screens/PaywallScreen.tsx", "frontend/src/services/iap.ts"],
+      "api": [
+        "POST /api/v1/iap/verify",
+        "GET /api/v1/iap/status",
+        "GET /api/v1/iap/entitlements",
+        "POST /api/v1/iap/notifications"
+      ],
+      "frontend_calls": ["verifyReceipt", "getSubscriptionStatus", "getEntitlements"],
+      "cron": ["/api/v1/cron/trial-reminder", "/api/v1/cron/delivery-audit"],
+      "cutover_key": null,
+      "tests": ["backend/tests/test_iap_service.py", "backend/tests/test_iap_jws.py", "frontend/__tests__/introOffer.test.ts", "backend/tests/test_delivery_observability.py", "backend/tests/test_delivery_audit.py", "frontend/__tests__/archiveShareTracking.test.ts"],
+      "e2e_tests": [],
+      "state": "WIRED",
+      "verified_on": null,
+      "verified_by": null,
+      "next_gap": "沙箱回执、恢复购买、退款/撤销三条必测异常都要真 StoreKit/Play Billing 事件，本机没有；通知端点 POST /iap/notifications 前端零调用是设计使然（Apple 服务端直连）。2026-10-18（T1-04）补上的是**事件面与每日对账**：iap_verify_started/succeeded/failed 三格都有埋点（含超时与 Apple 非零 status 两个失败出口，reason 只放机器码），`/cron/delivery-audit` 数「付了钱、过了宽限期、库里没有 life_archive 成功行」的用户数并按阈值打 DELIVERY-ALERT；真机沙盒那一跑与 Loki 告警落点仍未取证，所以停在 WIRED"
+    },
+    {
+      "id": "export.data",
+      "matrix_row": "数据导出/删除",
+      "title": "通用数据导出（异步 job → 包 → 下载）",
+      "spec": "Baseline §14.2「导出」；任务板 T1-01",
+      "frontend_entry": "frontend/src/screens/PrivacySecurityScreen.tsx 的「数据导出」块：申请 → 轮询五态 → 取字节 → 系统分享/浏览器下载",
+      "frontend_files": ["frontend/src/screens/PrivacySecurityScreen.tsx"],
+      "api": [
+        "POST /api/v1/user/export",
+        "GET /api/v1/user/export",
+        "GET /api/v1/user/export/{job_id}",
+        "GET /api/v1/user/export/{job_id}/download"
+      ],
+      "frontend_calls": ["postUserExport", "listUserExports", "getUserExport", "getUserExportDownload"],
+      "cron": ["/api/v1/cron/export-jobs"],
+      "cutover_key": null,
+      "tests": [
+        "backend/tests/test_data_export.py",
+        "backend/tests/test_data_export_pg.py",
+        "backend/tests/test_data_lineage_ledger.py",
+        "backend/tests/test_canonical_schema.py",
+        "frontend/__tests__/dataExportWiring.test.ts"
+      ],
+      "e2e_tests": [],
+      "state": "WIRED",
+      "verified_on": null,
+      "verified_by": null,
+      "next_gap": "范围口径 2026-10-18（T1-02）修过一次，方向是**收窄**：`user_consents`／`safety_events`／`push_tokens` 此前跟着 `PURGE_TARGETS` 派生进了用户的 zip，而 `docs/data-lineage.md` 从 T5-01 起就写着它们不进导出——台账升级为双向对账后当场抓住，已补进 `EXPORT_EXCLUDE_REASONS`（变异证人 D3 就是这条漂移）。真库面已补（backend/tests/test_data_export_pg.py 4 passed：pgvector 排除列根本没进 SELECT、CAS 认领真并发只交出去一次、两 worker 同轮只落一个包、注销后库零行盘零文件）。仍欠两条才到 PRODUCTION_ENABLED：① 原生落盘只做过代码面闸（archiveExport.ts 的 Sharing/FileSystem 分支、web 的 Blob 分支），本机跑不了 expo 原生模块，真机「存到文件」没实测；② deploy/schedule/crontab 第 32 行这条 */5 只是声明，现役宿主还没装"
+    },
+    {
+      "id": "account.delete",
+      "matrix_row": "数据导出/删除",
+      "title": "账户注销（软删除 → 异步物理删除 → 孤儿防护）",
+      "spec": "Baseline §14.2「删除」；§17 P0-D",
+      "frontend_entry": "frontend/src/screens/PrivacySecurityScreen.tsx:注销入口（AuthContext.deleteAccount）",
+      "frontend_files": ["frontend/src/screens/PrivacySecurityScreen.tsx", "frontend/src/context/AuthContext.tsx"],
+      "api": [
+        "DELETE /api/v1/user/account",
+        "POST /api/v1/cron/purge-user",
+        "GET /api/v1/cron/purge-deleted-users"
+      ],
+      "frontend_calls": ["deleteAccount"],
+      "cron": ["/api/v1/cron/purge-deleted-users"],
+      "cutover_key": null,
+      "tests": ["frontend/__tests__/accountLifecycleCopy.test.ts", "backend/tests/test_purge_loop.py", "backend/tests/test_posthog_erasure_retry.py", "backend/tests/test_data_lineage_ledger.py"],
+      "e2e_tests": ["backend/tests/test_account_deletion.py", "backend/tests/test_posthog_erasure_retry_pg.py"],
+      "state": "E2E_VERIFIED",
+      "verified_on": "2026-10-18",
+      "verified_by": "pytest test_account_deletion.py 30 passed（软删→物理删→孤儿防护＋「加表不加 purge 即红」的覆盖闸＋豁免的行为证人）＋test_posthog_erasure_retry.py 11 passed＋真库伴生闸 test_posthog_erasure_retry_pg.py 4 passed（一次性空库 alembic upgrade head 到 e5a7b9d1f3a5：跨 session 认领只有一次成功、豁免在迁移出来的库上成立、唯一约束拒绝第二行）＋test_data_lineage_ledger.py 5 passed（43 行台账与 PURGE_TARGETS／export_targets() 双向逐格对账）＋test_purge_loop.py 5 passed＋test_canonical_schema.py 真 PG 23 passed（八步逐级往返）；变异自证 scripts/mutate_t102_lifecycle_gates.py 打红 25/25、保持绿 3/3；jest accountLifecycleCopy.test.ts 23 passed（本批未改前端其余面）",
+      "next_gap": "工作单 T1-02 第②件（登出清 push token）未做——与既有产品裁决冲突：`AuthContext.tsx:106-121` 写明「登出不注销，后端 APNs 410 自清」，`orphanEndpoints.test.ts` 把那句钉成闸；要翻这个决定归 B-04（产品/安全）。另：「删除完成率」指标未采；QStash 回调 POST /cron/purge-user 的公网验签只能在有 QStash 凭据的环境证，本机未跑；PostHog 擦除走的是真值配置还是 stub、以及 7 天 POSTHOG-ERASURE-STUCK 告警在日志面（Loki/Alertmanager）的落点均未取证"
+    },
+    {
+      "id": "consent.ledger",
+      "matrix_row": "隐私/条款",
+      "title": "同意台账（六用途 × 文案版本 × 授予/撤回）",
+      "spec": "Baseline §14.2；任务板 T5-01",
+      "frontend_entry": "（未立项：客户端授权管理屏不存在，旧 App 继续走两个布尔端点，两端已双写本表）",
+      "frontend_files": [],
+      "api": [
+        "GET /api/v1/user/consents",
+        "POST /api/v1/user/consents"
+      ],
+      "frontend_calls": [],
+      "cron": [],
+      "cutover_key": null,
+      "tests": ["backend/tests/test_consent_purposes.py", "backend/tests/test_data_lineage_ledger.py"],
+      "e2e_tests": ["backend/tests/test_consent_purposes.py"],
+      "state": "IMPLEMENTED",
+      "verified_on": null,
+      "verified_by": null,
+      "next_gap": "Baseline §15 末句口径：有后端 API 但前端零调用方只能标 IMPLEMENTED，不能标 WIRED。台账管理屏（六用途逐项开关＋版本原文）另立任务；旧布尔位的双写撤回联动已结案（T5-01，pytest 21 passed）"
+    },
+    {
+      "id": "privacy.terms",
+      "matrix_row": "隐私/条款",
+      "title": "隐私政策与条款（App 内入口＋官网页脚静态页）",
+      "spec": "Baseline §16 行 10；§14.4 产品安全边界",
+      "delivery": "static",
+      "frontend_entry": "frontend/src/screens/PrivacySecurityScreen.tsx:隐私与安全页",
+      "frontend_files": ["frontend/src/screens/PrivacySecurityScreen.tsx", "frontend/src/screens/HelpFeedbackScreen.tsx", "frontend/src/config/links.ts"],
+      "assets": [
+        "site/src/pages/privacy.astro",
+        "site/src/pages/terms.astro",
+        "site/src/pages/zh/privacy.astro",
+        "site/src/pages/zh/terms.astro",
+        "site/src/legal.ts",
+        "site/src/components/Legal.astro"
+      ],
+      "api": [],
+      "frontend_calls": [],
+      "cron": [],
+      "cutover_key": null,
+      "tests": ["backend/tests/test_legal_pages.py"],
+      "e2e_tests": ["backend/tests/test_legal_pages.py"],
+      "state": "E2E_VERIFIED",
+      "verified_on": "2026-10-18",
+      "verified_by": "pytest test_legal_pages.py 29 passed（两端断链闸：URL 非占位、语言覆盖、内容与实际处理一致）；15 语言文案由 jest i18nLocales 107 passed 守",
+      "next_gap": "页面可达率与提审阻断数是线上指标；官网侧没有测试运行器，闸按 test_k8s_manifests.py 先例放本仓"
+    }
+  ],
+  "internal_capabilities": [
+    {
+      "id": "ai.grpc.client",
+      "title": "Go→Python AI 面 gRPC 客户端（embedding / safety 二次校验 / 流式对话）",
+      "spec": "Baseline §10.4「接口已经实现 ≠ 功能已经上线」＋§21「新抽象必须能回答谁是生产调用方」；任务板 T6-01 处置选项 A",
+      "impl": [
+        "go-core/internal/aiclient/aiclient.go",
+        "go-core/internal/aiclient/grpc.go",
+        "go-core/internal/aiclient/sse.go",
+        "go-core/internal/aiclient/breaker.go",
+        "go-core/internal/aiclient/degrade.go",
+        "backend/ai/rpc/server.py",
+        "deploy/k8s/50-ai-rpc.yaml"
+      ],
+      "tests": [
+        "go-core/internal/aiclient/grpc_test.go",
+        "go-core/internal/aiclient/aiclient_test.go",
+        "go-core/internal/aiclient/stream_test.go",
+        "go-core/internal/aiclient/trace_test.go"
+      ],
+      "probe_tools": ["go-core/tools/aiclientprobe/main.go"],
+      "state": "IMPLEMENTED",
+      "reason": "Baseline §10.4：双侧实现齐全但生产零调用方——实测（2026-10-19）引用 internal/aiclient 的非测试 .go 文件只有 tools/aiclientprobe 一个值班工具，cmd/ 与 internal/ 的其余生产包零命中；§21 要的「谁是生产调用方」今天答不出来，所以只能标 IMPLEMENTED。",
+      "review_by": "2027-01-17",
+      "review_action": "到期（2027-01-17）仍无生产调用方 ⇒ 删除 go-core/internal/aiclient 与 deploy/k8s/50-ai-rpc.yaml（T6-01 选项 A 的 90 天条款）；若选 B 接线则改为「insight 发布前 ClassifySafety 二次校验，超时 300ms、失败降级沿用候选安全态并记指标」，并配降级测试＋失败指标才许升态。",
+      "next_gap": "异步面（RabbitMQ）已经承载 observation／candidate 投递，同步 gRPC 面仍是零流量；本条登记由 go-core/internal/aiclient/production_caller_ledger_test.go 与 test_feature_status_truth.py 双侧看住——零调用方这件事一侧消失即红。"
+    }
+  ]
+}
