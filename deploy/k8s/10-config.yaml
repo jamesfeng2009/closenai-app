@@ -1,7 +1,9 @@
 # 非敏感运行时配置。变量名是跨语言契约：go-core/internal/config/config.go 与
 # backend/config.py 读同一批名字，任一侧改名都会破坏互认（见 test_go_auth_interop.py）。
-# 敏感项（DATABASE_URL / JWT_SECRET / CRON_SECRET / provider keys）一律走 Secret
-# closenai-runtime，清单里不出现值——创建命令见本目录 README 段末尾的注释。
+# 敏感项（DATABASE_URL / JWT_SECRET / CRON_SECRET / GO_SERVICE_TOKEN / provider keys）一律走
+# Secret closenai-runtime，清单里不出现值——键面与创建命令见 `deploy/README.md`
+# 「k8s 侧 Secret closenai-runtime 的键面」（2026-10-19 更正：本目录没有 README，
+# 原来那句「见本目录 README」是一条悬空引用）。
 #
 # ── 日志口径（批 T-F，2026-10-17）──────────────────────────────
 # 本 namespace 三个 Deployment（go-api／py-api／ai-rpc）的 stdout 是**唯一日志载体**：
@@ -83,3 +85,15 @@ data:
   # 写进清单是为了让「换区域」是一次配置改动而不是重新出镜像。
   # POSTHOG_API_KEY 属敏感项，只进 Secret closenai-runtime，不进本文件。
   POSTHOG_HOST: "https://eu.i.posthog.com"
+  # ── T3-03：BFF → Go 内部面（/internal/v3/*）的代理目标 ──────────────────
+  # 只有 py-api 读这一个键（backend/config.py 的 go_api_url）。地址给集群内 Service DNS：
+  # 内部面**不走 Ingress**（50-ingress.yaml 没有任何规则覆盖 /internal/v3，公网进不来），
+  # 所以这一跳必须在集群内直达，不能填公网域名——填了会让流量出集群再回来，
+  # 而回来的那一跳在 Ingress 上 404。
+  # 与 CLOSEN_PY_API_URL 互为反向：那条是 Go 灰度期把未切的域转交回 Python，
+  # 这条是 Python 把 canonical 的洞察面转交给 Go。两条都在清单里，方向相反，
+  # 所以任何一次「把整域切给 Go」都不需要临时发明第三条路径。
+  # 留空时 py-api 的三条洞察端点**在拨号之前**回 503（v3_proxy.dial_target），不静默降级。
+  # GO_SERVICE_TOKEN 是敏感项，只进 Secret closenai-runtime（与 Go 侧读的是同一个键名、
+  # 同一个值），不进本文件。
+  GO_API_URL: "http://go-api.closenai.svc.cluster.local:8000"

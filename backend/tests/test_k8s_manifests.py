@@ -423,7 +423,15 @@ def test_env_var_names_do_not_drift_across_languages():
     go_names = set(re.findall(r'env(?:String|Int)\("([A-Z0-9_]+)"', go_src))
 
     py_src = (ROOT / "backend" / "config.py").read_text(encoding="utf-8")
-    py_names = set(re.findall(r"^\s+([A-Z0-9_]+)\s*[:=]", py_src, re.M))
+    # 2026-10-19 按实测更正（T3-03 加 GO_API_URL 时撞出来的）：旧正则
+    # `^\s+([A-Z0-9_]+)\s*[:=]` 只认大写标识符，而 pydantic-settings 的字段全是小写
+    # （`go_api_url: str = ""`），也就是它**从来没匹配过 backend/config.py 的任何一行**。
+    # 那时这条闸实际只在比 Go 的读取面，Python 侧的键名漂移一律看不见——
+    # 「ConfigMap 里写 DATABASE__URL」这种拼错在 Python 侧静默失效，而闸照样绿。
+    # 现在按真实读取方式取：字段名 + pydantic 的大小写不敏感映射（env 名＝字段名大写）。
+    # 只取「名字后紧跟冒号」的注解行，避免把方法体里的赋值当成配置键。
+    py_names = {name.upper() for name in re.findall(
+        r"^\s+([a-z_][a-z0-9_]*)\s*:", py_src, re.M)}
 
     infra_only = {"PYTHONDONTWRITEBYTECODE", "PYTHONUNBUFFERED"}
     unknown = declared - go_names - py_names - infra_only

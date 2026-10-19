@@ -43,6 +43,13 @@ services:
       CLOSEN_AMQP_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/
       QSTASH_TOKEN: ${QSTASH_TOKEN:-}
       POSTHOG_API_KEY: ${POSTHOG_API_KEY:-}
+      # T3-03：洞察面（/api/v1/insights*）代理到 Go 内部面的目标与凭据。
+      # 地址走容器网络直连 go-api，**不走 Caddy**：/internal/v3 在入口面上刻意一条规则
+      # 都没有（ADR-002），出容器再回来就 404。
+      # 两个键缺任何一个 ⇒ 三条端点在拨号之前回 503（判据见 backend/services/v3_proxy.py），
+      # 不会静默降级、也不会拿空串去拨号。
+      GO_API_URL: http://go-api:8000
+      GO_SERVICE_TOKEN: ${GO_SERVICE_TOKEN:?与 go-api 必须是同一个值}
       # T1-01 数据导出归档目录（宿主 crontab 每 5 分钟认领队列并生成到这里）。
       EXPORT_DIR: ${EXPORT_DIR:-/data/exports}
     volumes:
@@ -100,6 +107,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?}
       HTTP_ADDR: ":8000"
       CLOSEN_PY_API_URL: http://py-api:8000
+      # T3-03：内部面（/internal/v3/*）的服务间凭据，与 py-api 必须同值。
+      # 空 ⇒ 这一面在 Go 侧**不注册**（回 404 信封，与"从来没有这个面"同形），
+      # 两侧不对称 ⇒ 每一次拨号都 403。值只从宿主 .env 注入，不进清单文件。
+      GO_SERVICE_TOKEN: ${GO_SERVICE_TOKEN:?与 py-api 必须是同一个值}
       CLOSEN_AMQP_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/
       CLOSEN_OUTBOX_WORKER: ${CLOSEN_OUTBOX_WORKER:-0} # 同上：开关面不在编排里偷偷放量
       CLOSEN_CANDIDATE_WORKER: ${CLOSEN_CANDIDATE_WORKER:-0}

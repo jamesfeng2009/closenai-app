@@ -62,6 +62,28 @@ crontab deploy/schedule/crontab
 - crontab 文件里**永不**出现明文密钥；`$CRON_SECRET` 由每行
   `. /etc/closenai/cron.env` 现场加载。
 
+### k8s 侧 Secret `closenai-runtime` 的键面（T3-03，2026-10-19）
+
+`deploy/k8s/{30-go-api,40-py-api,50-ai-rpc}.yaml` 都是 `envFrom: secretRef`，所以
+**加一个键就两侧同时可见**，不需要改任何 Deployment。代价是这张键面没有清单侧的
+登记表——`10-config.yaml` 头部那句「创建命令见本目录 README」指的 `deploy/k8s/README.md`
+**并不存在**（登记于裁决七-10-14 之外的同一处文档悬空引用），所以键面在此逐条列出：
+
+```bash
+# 值一律现场给，不写进本文件、不入库（同「凭据不入库」口径）。
+kubectl -n closenai create secret generic closenai-runtime \
+  --from-literal=DATABASE_URL=...      --from-literal=JWT_SECRET=... \
+  --from-literal=CRON_SECRET=...       --from-literal=RESEND_API_KEY=... \
+  --from-literal=APP_STORE_SHARED_SECRET=... \
+  --from-literal=GO_SERVICE_TOKEN="$(openssl rand -hex 32)"   # T3-03 新增
+```
+
+- `GO_SERVICE_TOKEN` 是**跨语言共享**键：go-api 用它决定 `/internal/v3/*` 注册与否
+  （空 ⇒ 整面不注册，回 404 信封），py-api 用它作服务间凭据（空 ⇒ 三条洞察端点在
+  **拨号之前**回 503）。两侧不同值＝每一次拨号 403，而它长得像 Go 挂了——
+  所以轮换时两条 Deployment 要同批滚动，`kubectl -n closenai rollout restart deploy/go-api deploy/py-api`。
+- 其余非共享项（`POSTHOG_API_KEY`／provider keys／`APNS_*`）按各自工单口径进同一张 Secret。
+
 ## 日志与排障
 
 - 行尾 `>/dev/null` 只丢 stdout；stderr 与 curl 非零退出仍进 cron 邮件/`/var/log/syslog`

@@ -76,6 +76,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:?dev 也必须给 JWT_SECRET，见 deploy/compose/.env.example}
       CRON_SECRET: ${CRON_SECRET:?同上}
       CLOSEN_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      # T3-03：洞察面代理目标与内部面凭据。dev 默认留空 ⇒ 三条端点在**拨号之前**回 503
+      # （不假装能用，也不空等 5 秒）。想在本机把这一面跑通就在 deploy/compose/.env 里给
+      # GO_SERVICE_TOKEN，并与下面 go-api 那一份取同一个值——不对称＝每一次拨号 403。
+      GO_API_URL: http://go-api:8000
+      GO_SERVICE_TOKEN: ${GO_SERVICE_TOKEN:-}
       # T1-01 数据导出产物目录。不给它就用镜像里的 /app/data/exports，那会落在容器可写层：
       # 重建容器＝用户拿不到自己 7 天内的档案包，而库里还写着 ready。
       EXPORT_DIR: /data/exports
@@ -142,6 +147,10 @@ services:
       # 开关 0 时这个地址无人使用；开 CLOSEN_OUTBOX_WORKER 声明拓扑时必须给，
       # 否则 Go 侧拒绝启动 worker（缺地址只许报错、不许空转，与 Python 侧同形）。
       CLOSEN_AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+      # T3-03：内部面凭据（与上面 py-api 同一个变量名、同一个值）。
+      # 空 ⇒ `/internal/v3/*` 整面**不注册**（404 信封，与"从来没有这个面"同形），
+      # dev 因此默认关；两侧都给了才能打通 py-api → go-api 这一跳。
+      GO_SERVICE_TOKEN: ${GO_SERVICE_TOKEN:-}
       # N8 切流键全 0（与现口径一致）；灰度是运维决策，不在编排里偷偷放量。
       # 唯一例外是开发流程本身：AMQP 拓扑由 Go 独占声明（见 publisher.py 的
       # TopologyMissing 文案「先起带 CLOSEN_OUTBOX_WORKER 的 go-api」），默认仍 0，
