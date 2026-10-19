@@ -18,6 +18,7 @@ import type {
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
   GrowthDashboard, WeeklyInsight, GrowthTimeline,
   GrowthRecordItem, GrowthTopic,
+  InsightListPage, InsightDetail, InsightFeedbackReceipt, InsightFeedbackType,
   LevelDetail, BadgeItem, RelationshipTimeline, TimelineDaySummary,
   PersonalityProfile, PersonalityRefreshResult,
   AssessmentState, AssessmentAnswerResult, ComboReport,
@@ -479,6 +480,71 @@ export async function getGrowthRecords(): Promise<{ records: GrowthRecordItem[];
  */
 export async function getRecommendedTopics(): Promise<{ topics: GrowthTopic[] }> {
   return request<{ topics: GrowthTopic[] }>('/growth/topics');
+}
+
+// ═══ V3 洞察（T3-04：逐条可回溯的依据 + 六态反馈入口）═══
+//
+// 三条都打 `/api/v1/insights…`（BFF 纯转发到 Go 的 `/internal/v3/insights…`，T3-03）。
+// 这一面的查询参数**不校验**：`limit=abc` 由 Go 判成 40001，前端若先拦一遍，
+// 同一个坏请求就有两种说法（而屏上只认一种）。
+
+/** `GET /api/v1/insights` 的三个可选参数（PLAN §5.1-1）。 */
+export interface InsightListQuery {
+  status?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function listInsights(query: InsightListQuery = {}): Promise<InsightListPage> {
+  // 手拼而不是 URLSearchParams：本仓既有查询串都是模板串（`/memories?limit=`…），
+  // 引入第二种构造点会让「哪个参数没带上」在两处各查一遍。
+  const parts: string[] = [];
+  if (query.status) parts.push(`status=${encodeURIComponent(query.status)}`);
+  if (query.limit != null) parts.push(`limit=${encodeURIComponent(String(query.limit))}`);
+  // cursor 是不透明串（base64url），但它会进 URL：逐段编码，不假设它没有保留字符
+  if (query.cursor) parts.push(`cursor=${encodeURIComponent(query.cursor)}`);
+  const tail = parts.length ? `?${parts.join('&')}` : '';
+  // 路径字面量必须是括号里的第一段：契约扫描器（scripts/export_contract.py）按
+  // request 调用的首个字面量取路径，写成模板串会被归一成分形路径，
+  // 结果这条端点在台账里显示成「前端没有调用点」。
+  return request<InsightListPage>('/insights' + tail);
+}
+
+/**
+ * 详情：`statement/claim_type/status/confidence/time_range/evidence_summary/evidence/truncated/patterns`。
+ *
+ * id 走 path，必须编码：这颗 id 来自服务端而不是用户输入，但一旦某行带了 `?`／`#`，
+ * 不编码就会打到另一条端点上（表现为 404，最难归因的一类空）。
+ */
+export async function getInsight(insightId: string): Promise<InsightDetail> {
+  return request<InsightDetail>(`/insights/${encodeURIComponent(insightId)}`);
+}
+
+/**
+ * 六态反馈（`confirm/partially_confirm/reject/correct/outdated/forget_from_model`，
+ * 逐字对 Go 的 `domain.FeedbackTypes`）。
+ *
+ * `correct` 的正文由后端判必填与 500 上限（`v3_feedback.go:26`）——前端只做输入约束，
+ * 不在这里重复一套校验规则，否则同一条「空纠错」会有两种拒绝方式。
+ * 返回的 `target_status` 是**这一条洞察的新状态**，屏上徽章照它改，不自己推。
+ */
+export async function postInsightFeedback(
+  insightId: string,
+  type: InsightFeedbackType,
+  correctionText?: string,
+  operationId?: string,
+): Promise<InsightFeedbackReceipt> {
+  return request<InsightFeedbackReceipt>(
+    `/insights/${encodeURIComponent(insightId)}/feedback`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        type,
+        correction_text: correctionText ?? '',
+        operation_id: operationId ?? '',
+      }),
+    },
+  );
 }
 
 // ═══ Relationship (P0-F04：关系等级 / 徽章 / 时间线) ═══

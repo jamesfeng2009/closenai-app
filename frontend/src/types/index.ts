@@ -164,6 +164,114 @@ export interface GrowthTimeline {
   days: GrowthTimelineDay[];
 }
 
+// ═══ V3 洞察（T3-04：逐条可回溯的依据，PLAN §5.1-1/2）═══
+//
+// 字段名一律取 Go 的 wire 名（snake_case，`httpapi/v3_insights.go` 与
+// `handlers_evidence.go` 的 json tag），不改名：改名就是把「解析不到即静默丢弃」
+// 写成代码——`excerpt` 变成 `text` 之后 TS 不会报错，只是那一栏永远是空的。
+
+/** `evidenceWire.source`（03 §5 八类来源的键落在 `source_records.source_type`）。 */
+export interface InsightEvidenceSource {
+  record_id: string;
+  source_type: string;
+  source_table: string;
+  source_id: string;
+}
+
+/** `memoryRefWire` 三键逐字沿用既有口径（contracts/frontend-compat.md:91）：改名＝依据回链静默消失。 */
+export interface InsightEvidenceMemoryRef {
+  memory_id: string;
+  excerpt: string | null;
+  created_at: string | null;
+}
+
+/** 一条依据：Go 的 `evidenceWire`（handlers_evidence.go:58-67）。 */
+export interface InsightEvidenceItem {
+  evidence_id: string;
+  evidence_type: string;
+  role: string;
+  strength: number | null;
+  excerpt: string | null;
+  observed_at: string | null;
+  source: InsightEvidenceSource;
+  memory_ref: InsightEvidenceMemoryRef | null;
+}
+
+/** `timeRangeWire`。 */
+export interface InsightTimeRange {
+  from: string | null;
+  to: string | null;
+}
+
+/** `summaryWire`：count 是**裁剪前**的活支撑总数，所以 evidence 短于 count 时 truncated 一定为 true。 */
+export interface InsightEvidenceSummary {
+  count: number;
+  withdrawn_count: number;
+  strength: number | null;
+}
+
+/** `patternGroupWire`（本票只在详情类型里在册，呈现归 T4-04）。 */
+export interface InsightPatternGroup {
+  id: string;
+  pattern_type: string;
+  scope: string | null;
+  description: string;
+  status: string;
+  confidence: number | null;
+  evidence_count: number;
+  truncated: boolean;
+  evidence: InsightEvidenceItem[];
+}
+
+/** 列表行：Go 的 `v3InsightListItemWire` 七键。 */
+export interface InsightListItem {
+  id: string;
+  statement: string;
+  claim_type: string;
+  status: string;
+  confidence: number | null;
+  published_at: string;
+  evidence_count: number;
+}
+
+/** `GET /api/v1/insights` 的 data：`{items, next_cursor}`，游标是不透明串。 */
+export interface InsightListPage {
+  items: InsightListItem[];
+  next_cursor: string;
+}
+
+/** 详情：Go 的 `v3InsightDetailPayload` 十键（PLAN §5.1-2 的八字段 ＋ evidence_summary/truncated）。 */
+export interface InsightDetail {
+  id: string;
+  statement: string;
+  claim_type: string;
+  status: string;
+  confidence: number | null;
+  time_range: InsightTimeRange | null;
+  evidence_summary: InsightEvidenceSummary;
+  evidence: InsightEvidenceItem[];
+  truncated: boolean;
+  patterns: InsightPatternGroup[];
+  published_at: string | null;
+}
+
+/** 反馈回执：Go 的 `v3FeedbackPayload` 四键（T3-02；本票在册、T3-05 消费）。 */
+export interface InsightFeedbackReceipt {
+  feedback_id: string;
+  target_status: string;
+  changed: boolean;
+  detail: string;
+}
+
+/** 六态反馈类型：逐字取 Go 的 `domain.FeedbackTypes`（outcome.go:125-136，02:156-163）。 */
+export type InsightFeedbackType =
+  | 'confirm'
+  | 'partially_confirm'
+  | 'reject'
+  | 'correct'
+  | 'outdated'
+  | 'forget_from_model';
+
 // ═══ Relationship (P0-F04：关系等级 / 徽章 / 时间线) ═══
 
 /** 等级信息（/growth/level.current 与 relationship-timeline.level 共用）。 */

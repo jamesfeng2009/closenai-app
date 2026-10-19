@@ -15,12 +15,14 @@ import {
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getWeeklyInsight, getPatternDiscovery, getShareReport, getYearInReview, getTimeline,
-  getUserProfile, getReportPdf, getYearInReviewPdf, getMoodTrend, ApiError,
+  getUserProfile, getReportPdf, getYearInReviewPdf, getMoodTrend, listInsights, getInsight,
+  ApiError,
 } from '../services/api';
 import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
 import { reportPdfFile, YEAR_IN_REVIEW_PDF_FILE, pdfFailureKey } from '../config/pdfFiles';
 import type {
   GrowthTimeline, MoodTrendData, SharePeriod, ShareReport, UserProfile, WeeklyInsight,
+  InsightListItem, InsightDetail,
 } from '../types';
 import { trackFunnelShare } from '../services/funnel';
 import { memoriesWithinDays } from '../services/evidence';
@@ -50,6 +52,12 @@ const HEAT_FULL_DAYS = 365;
 // 为什么不拿 /mood/trend 换掉折线的数据源：它的 labels 是 "%m-%d" 不带年份
 // （mood_service.py:334），与 90 天/整年热力图切换会错位，且同一屏会长出第二个时间真源。
 const TREND_DAYS = 7;
+
+// 依据折叠区一次最多铺几条（工单 T3-04 §怎么做.3）。
+// 条数由这一屏的排版决定，不是后端裁剪判据：`detail.truncated` 与
+// `evidence_summary.count` 才是「裁剪前有多少条」的出处，两者都要显示，
+// 否则用户会以为 5 条就是全部依据。
+const EVIDENCE_MAX = 5;
 
 /** 按日期升序取最近 N 天（后端窗口顺序不做假设，本地排序保证折线/矩阵方向） */
 const recentDays = (days: { date: string; value: number }[], n: number): ChartDay[] =>
@@ -83,6 +91,59 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   // 游客态跳过请求（接口均需登录，游客必 401），展示空态
   // 周报是本页主数据源：它的失败要单独记（不能和「本周还没有周报」共用一句文案）
   const [weeklyFailed, setWeeklyFailed] = useState(false);
+  // T3-04：canonical 洞察面（`GET /api/v1/insights` → Go 的内部面）。它和上面那张周报卡
+  // 是两个真源（一个是 Python 的 growth_records 周报，一个是 Go 的 personal_insights），
+  // 加载/空/失败三态必须各记一份——共用一个 flag 会把「还没有洞察」显示成「加载失败」。
+  const [insights, setInsights] = useState<InsightListItem[] | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(true);
+  const [insightsFailed, setInsightsFailed] = useState(false);
+  // 逐条依据在第二跳（详情端点）里，所以一次只展开一张卡，详情按 id 缓存
+  const [evidenceOpenId, setEvidenceOpenId] = useState<string | null>(null);
+  const [detailById, setDetailById] = useState<Record<string, InsightDetail>>({});
+  const [detailBusyId, setDetailBusyId] = useState<string | null>(null);
+  const [detailFailedId, setDetailFailedId] = useState<string | null>(null);
+
+  const loadInsights = useCallback(async () => {
+    if (!isLoggedIn) {
+      // 游客态：这一面需要 JWT，请求必 401，所以直接落到空态而不是失败态
+      setInsightsLoading(false);
+      return;
+    }
+    try {
+      setInsightsLoading(true);
+      const page = await listInsights();
+      setInsights(page.items);
+      setInsightsFailed(false);
+    } catch {
+      // 失败不是空：两者共用一句文案，用户就分不清「模型还没看够」和「这一屏没连上」
+      setInsightsFailed(true);
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, [isLoggedIn]);
+
+  /** 详情只有这一个调用点：缓存命中就不重复发请求，失败也只标记这一张卡。 */
+  const fetchDetail = useCallback(async (id: string) => {
+    setDetailBusyId(id);
+    setDetailFailedId(null);
+    try {
+      const detail = await getInsight(id);
+      setDetailById((prev) => ({ ...prev, [id]: detail }));
+    } catch {
+      setDetailFailedId(id);
+    } finally {
+      setDetailBusyId(null);
+    }
+  }, []);
+
+  const onToggleEvidence = async (item: InsightListItem) => {
+    if (evidenceOpenId === item.id) {
+      setEvidenceOpenId(null);
+      return;
+    }
+    setEvidenceOpenId(item.id);
+    if (!detailById[item.id]) await fetchDetail(item.id);
+  };
 
   const load = useCallback(async () => {
     if (!isLoggedIn) {
@@ -118,7 +179,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
 
   useEffect(() => {
     load();
-  }, [load]);
+    loadInsights();
+  }, [load, loadInsights]);
 
   const isPro = isProTier(profile?.tier);
 
@@ -322,6 +384,119 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         )}
       </View>
 
+      {/* V3 洞察（T3-04）：逐条可回溯的依据＋状态徽章。
+          周报卡保留在上面（ADR-003：新面不替换旧卡），这一张吃的是 Go 的 canonical 洞察。 */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>🧭 {t('insights.canonicalTitle')}</Text>
+        {insightsLoading && (
+          <ActivityIndicator color={Colors.gold400} style={styles.reportLoading} />
+        )}
+        {!insightsLoading && insightsFailed && (
+          <View style={styles.failRow}>
+            <Text style={styles.emptyText}>{t('common.loadFailed')}</Text>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={loadInsights}
+              accessibilityRole="button"
+            >
+              <Text style={styles.retryText}>{t('common.retry')}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {!insightsLoading && !insightsFailed && !!insights && insights.length === 0 && (
+          <Text style={styles.emptyText}>{t('insights.canonicalEmpty')}</Text>
+        )}
+        {!insightsLoading && !insightsFailed && (insights ?? []).map((item) => (
+          <View key={item.id} style={styles.insightItem}>
+            {item.evidence_count === 0 ? (
+              // 闸 G-05 的 UI 面：没有活支撑就不把结论铺给用户——不是灰一下、也不是留个空壳，
+              // 而是这一格压根不显示 statement（屏上出现的那句话必须是可回溯的）。
+              <Text style={styles.emptyText}>{t('insights.evidenceInsufficient')}</Text>
+            ) : (
+              <>
+                <Text style={styles.bodyText}>{item.statement}</Text>
+                <View style={styles.badgeRow}>
+                  <Text style={styles.claimBadge}>{t(`insights.claim.${item.claim_type}`)}</Text>
+                  <Text style={styles.statusBadge}>{t(`insights.status.${item.status}`)}</Text>
+                  {item.confidence != null && (
+                    <Text style={styles.metaText}>
+                      {t('insights.confidence', { value: Math.round(item.confidence * 100) })}
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  onPress={() => onToggleEvidence(item)}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.refsToggle}>
+                    {t('insights.evidenceToggle', {
+                      n: item.evidence_count,
+                      arrow: evidenceOpenId === item.id ? '▲' : '▾',
+                    })}
+                  </Text>
+                </TouchableOpacity>
+                {evidenceOpenId === item.id && (
+                  <>
+                    {detailBusyId === item.id && (
+                      <ActivityIndicator
+                        color={Colors.gold400}
+                        size="small"
+                        style={styles.reportLoading}
+                      />
+                    )}
+                    {!detailById[item.id] && detailFailedId === item.id && (
+                      <View style={styles.failRow}>
+                        <Text style={styles.emptyText}>{t('common.loadFailed')}</Text>
+                        <TouchableOpacity
+                          style={styles.retryBtn}
+                          onPress={() => fetchDetail(item.id)}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.retryText}>{t('common.retry')}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    {!!detailById[item.id] && (
+                      <>
+                        <Text style={styles.refsNote}>{t('journey.evidenceNote')}</Text>
+                        {detailById[item.id].evidence.slice(0, EVIDENCE_MAX).map((ev) => (
+                          <View key={ev.evidence_id} style={styles.evidenceItem}>
+                            <Text style={styles.refsItem}>
+                              「{ev.excerpt ?? ev.memory_ref?.excerpt ?? ''}」
+                            </Text>
+                            <Text style={styles.evidenceMeta}>
+                              {t(`insights.sourceType.${ev.source.source_type}`)}
+                              {ev.observed_at
+                                ? ` · ${new Date(ev.observed_at).toLocaleDateString()}`
+                                : ''}
+                              {ev.strength != null
+                                ? ` · ${t('insights.confidence', {
+                                  value: Math.round(ev.strength * 100),
+                                })}`
+                                : ''}
+                            </Text>
+                          </View>
+                        ))}
+                        {/* truncated 与裁剪前的总数逐条显示：只给 5 条不说是 5/23，
+                            用户会以为自己的依据就这么多（N9-11 的「如实给 truncated」）。 */}
+                        {detailById[item.id].truncated && (
+                          <Text style={styles.refsNote}>
+                            {t('insights.evidenceTruncated', {
+                              shown: Math.min(EVIDENCE_MAX, detailById[item.id].evidence.length),
+                              total: detailById[item.id].evidence_summary.count,
+                            })}
+                          </Text>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </View>
+        ))}
+      </View>
+
       {/* AI 消息历史入口（P0-F10：每日发现融入主动消息，历史消息在消息中心查看） */}
       <TouchableOpacity
         style={styles.card}
@@ -494,8 +669,24 @@ const styles = StyleSheet.create({
     lineHeight: 18, marginTop: 4, paddingLeft: 8,
     borderLeftWidth: 2, borderLeftColor: 'rgba(255,215,0,0.25)',
   },
+  evidenceItem: { marginTop: Spacing.xs },
+  evidenceMeta: { fontSize: FontSize.xs, color: Colors.textTertiary, marginTop: 2, paddingLeft: 8 },
   entryRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   entryBody: { flex: 1 },
+  // V3 洞察卡（T3-04）：一条洞察一项，徽章行与依据行分开
+  insightItem: {
+    marginTop: Spacing.md, paddingTop: Spacing.md,
+    borderTopWidth: 1, borderTopColor: Colors.borderLight,
+  },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: Spacing.sm, marginTop: 4 },
+  claimBadge: {
+    fontSize: FontSize.xs, fontWeight: '700', color: Colors.gold400,
+    backgroundColor: 'rgba(255,215,0,0.10)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
+  },
+  statusBadge: {
+    fontSize: FontSize.xs, fontWeight: '600', color: Colors.textSecondary,
+    backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
+  },
   entryChevron: { fontSize: FontSize.h3, color: Colors.textTertiary },
   bodyText: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption, marginTop: 4 },
   emptyText: { fontSize: FontSize.md, color: Colors.textTertiary, lineHeight: LineHeight.caption },
