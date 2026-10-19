@@ -585,6 +585,49 @@ func TestCloseQueueMetricsCancelsExitsQuietly(t *testing.T) {
 	}
 }
 
+// TestMainWiresTheInternalSurfaceToTheSameDomainService 是 T3-01／T3-02 的调用点闸，
+// 形状与上面三条同（`httpapi`／`domain` 包的用例都看不见 main，摘掉接线它们照旧全绿）。
+//
+// 它挡的是本票裁决里最贵的一格：ADR 七-10 的 T3-02-5「内部面写口与两个 worker 共用同一个
+// `*domain.Service`」。有人在这里新造一颗 `domain.NewService(...)` 喂给 `Outcomes`，
+// 表现不是报错而是**两份乐观锁与两本版本账本各算各的**——反馈改写了洞察，worker 那边读到
+// 的却还是旧版本，而两侧的用例都是绿的。所以这一条必须数符号而不是只查存在。
+func TestMainWiresTheInternalSurfaceToTheSameDomainService(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(".", "main.go"))
+	if err != nil {
+		t.Fatalf("main.go 读不出：%v", err)
+	}
+	text := string(src)
+	for _, phrase := range []string{
+		"Outcomes: candidateDomain",
+		"Insights: insightBrowser",
+		"domain.NewInsightBrowser(canonical, explainer)",
+		"batch6, v3)",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Errorf("main.go 里没有 %q ⇒ 内部面没接进进程，而 httpapi／domain 两侧的用例照样全绿（假绿）", phrase)
+		}
+	}
+	// canonical 的唯一写入口只许有一个 Service 实例：三颗 worker 加内部面共用同一颗。
+	if n := strings.Count(text, "domain.NewService("); n != 1 {
+		why := "有人造了第二颗 canonical Service，乐观锁与版本账本各算一份"
+		if n == 0 {
+			why = "内部面拿到的是别的来源，写口分叉"
+		}
+		t.Errorf("domain.NewService( 命中 %d 次，期望 1 ⇒ %s", n, why)
+	}
+	if n := strings.Count(text, "Outcomes: candidateDomain"); n != 1 {
+		t.Errorf("Outcomes: candidateDomain 命中 %d 次，期望 1 ⇒ 反馈写口要么没接上，要么长了第二个", n)
+	}
+	// 这一面**不许**有第二个旋钮：开关只有 `GO_SERVICE_TOKEN` 一格（空 ⇒ 不注册）。
+	lower := strings.ToLower(text)
+	for _, banned := range []string{"closen_v3", "closen_internal", "go_internal_enabled", "v3_enabled"} {
+		if strings.Contains(lower, banned) {
+			t.Errorf("main.go 出现了 %q ⇒ 内部面发明了第二个旋钮（D-G12「假旋钮」红线）", banned)
+		}
+	}
+}
+
 // TestCloseQueueMetricsReportsRealError：读数的错误从循环里带回来时必须出声。
 // 静默的那一格表现是「指标连续三天没更新」，而没人知道是循环死了还是根本没起。
 func TestCloseQueueMetricsReportsRealError(t *testing.T) {

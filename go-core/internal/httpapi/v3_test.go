@@ -363,8 +363,39 @@ func TestV3DetailCarriesEvidenceAndPatterns(t *testing.T) {
 	}
 }
 
-// ── 5. 反馈：六种 type、错误映射与「纠错必须有正文」──────────────────────────
+// TestV3DetailOpensTheUserFeedbackStatuses 是「详情面用 Returnable 而不是 N9 的三态」
+// 这一格的**正向证人**（裁决七-10 T3-01-9，工单 §怎么做.5）。
+//
+// 为什么必须单独一条：`ExplainReturnable` 与 `Explain` 只差一个判据函数，
+// 而上面几条详情的断言全用 `published`——把这一支换回 `isVisibleStatus`，
+// 本包与 domain 包的既有闸一条都不会红，只有用户纠错之后打不开自己那条详情时才看得见。
+// 反面那半（`retracted` 仍然不给）也钉在同一格：并集不是「放宽一切」。
+func TestV3DetailOpensTheUserFeedbackStatuses(t *testing.T) {
+	for _, c := range []struct {
+		status     string
+		wantStatus int
+		wantCode   int
+	}{
+		{"corrected", 200, 200}, {"expired", 200, 200}, {"dismissed", 200, 200},
+		{"retracted", 404, apierr.CodeResourceNotFound},
+		{"draft", 404, apierr.CodeResourceNotFound},
+	} {
+		reader := seedReader()
+		reader.insight.Status = c.status
+		browser := domain.NewInsightBrowser(&stubBrowseReader{}, domain.NewInsightExplainer(
+			reader, domain.Policy{Read: domain.ReadPolicy{
+				EvidenceMaxItems: 20, PatternMaxItems: 6}}))
+		srv := newV3Server(t, browser, &stubFeedbackWriter{}, v3Token)
+		status, env := do(t, srv.Handler(), "GET", "/internal/v3/insights/i1",
+			"", v3Headers(v3Token, "u1"))
+		if status != c.wantStatus || env.Code != c.wantCode {
+			t.Errorf("status=%q 的详情 = %d/%d，期望 %d/%d ⇒ 详情面与列表面用了两套可见集合",
+				c.status, status, env.Code, c.wantStatus, c.wantCode)
+		}
+	}
+}
 
+// ── 5. 反馈：六种 type、错误映射与「纠错必须有正文」──────────────────────────
 func TestV3FeedbackSixTypesAllReachDomainAndReturnReceipt(t *testing.T) {
 	for _, ty := range []string{"confirm", "reject", "partially_confirm", "correct",
 		"outdated", "forget_from_model"} {
