@@ -54,8 +54,8 @@
 | 指标 | 值 |
 |---|---|
 | 任务总数 | **34** |
-| `DONE` | **29**（85%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T4-04、T5-01、T5-02、T5-03、T5-04、T5-05、T6-01、T6-02） |
-| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **2**（T6-03、T6-04） |
+| `DONE` | **30**（88%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T4-04、T5-01、T5-02、T5-03、T5-04、T5-05、T6-01、T6-02、T6-03） |
+| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **1**（T6-04） |
 
 | 波次 | 任务范围 | 完成/总数 | 出口标准 |
 |---|---|---|---|
@@ -65,7 +65,7 @@
 | W3 洞察纠错 | `T3-01`…`T3-05` | 5/5 | 用户能看到依据并纠正，纠正真落库（**2026-10-20 T3-05 后两半句都到了屏上：canonical 洞察卡逐条给出 excerpt/observed_at/来源标签、空证据不铺结论，六态反馈条＋纠错 Modal 走 T3-03 那条转发链落 `user_feedback`；「真落库」由 T3-02 的真库测 `TestG06CorrectFeedbackWritesAuthoritativeRows` 钉住。仍是零的是产品流量与真机取证——归 T6-04**） |
 | W4 行动闭环 | `T4-01`…`T4-04` | 4/4 | 洞察→行动→结果一条端到端（**2026-10-20 T4-04 后：那半句「端到端」到了屏上——洞察卡一枚 CTA → 弹层两步写（可先建目标）→ 行动区三分区行内完成/跳过 → 完成后四选一记结果，六条出口全走 T3-03 那条转发链，`truncated` 与 `changed=false` 各有第二句话。仍是零的两项：产品流量（真机 prebuild 未取证）与 `cancel`/`cancelled` 那一格（有词表无入口）**） |
 | W5 隐私与主动消息 | `T5-01`…`T5-05` | 5/5 | 关闭/静默/幂等三闸全绿（**2026-10-20 T5-04 补上第五格：`proactives` 八态从此有一条只读审计面＋CLI，「为什么没发出去」不再靠手抄 SQL**） |
-| W6 架构收敛 | `T6-01`…`T6-04` | 2/4 | 单一 DDL、单一事实源、隔离生效 |
+| W6 架构收敛 | `T6-01`…`T6-04` | 3/4 | 单一 DDL、单一事实源、隔离生效（**2026-10-20 T6-03 把前两句落地：canonical DDL 的属主只剩 `backend/alembic/`，`go-core/db/schema/` 那三份从「手写第二真源」变成「导出器的派生物」，并由 11 条闸（Go 6 离线＋Python 5）分两侧钉住；仍是零的那半句＝隔离生效归 T6-04**） |
 
 > 这是**快照**，会随更新过期。以 `python scripts/task_board.py` 的输出为准（该脚本同时是 `--check` 的判据来源）。
 
@@ -107,7 +107,7 @@
 | T5-05 | 「关闭→不发送」端到端闸 | BE | T5-02、T5-03 | W5 | DONE | 2026-10-18 三红一绿 sqlite＋真库 E2E（dispatch_daily_messages 全链，可重跑）；变异合计 13 红 2 绿 |
 | T6-01 | aiclient gRPC 处置（接线或登记） | GO | T0-01 | W6 | DONE | 2026-10-19 结案（选 A 登记）：台账 `internal_capabilities/ai.grpc.client` 标 IMPLEMENTED＋90 天到期删除条款；Go 侧 AST 实测闸 2 passed（零生产调用方＋probe_tools 与实测集合双向对账）；pytest 台账闸 28 passed；`feature_status.py --check` 零违例；变异 打红 12/12、保持绿 2/2、未跑 0、残留 0 |
 | T6-02 | 切流 path×method 矩阵约束 | GO | — | W6 | DONE | 2026-10-19 结案：三张真源（`50-ingress.yaml` 归属 × `contracts/endpoints.md` 的 path×方法 × `httpapi/routes.go` 声明表）对账，生成 `contracts/cutover-matrix.md`（8 个 `CLOSEN_CUTOVER_*` 键 ↔ 8 行，不可切项带 D-10 原因）；`go test -p 1 ./...` 全绿（cutover 17 PASS、cutover＋httpapi 124 PASS）；`pytest` 受影响面 **84 passed / 1 skipped**；变异自证 **打红 13/13、保持绿 3/3、未跑 0、残留 0**——过程中抓到并修掉两处「判据在真坏料上绿」（Ingress 解析跨规则串味、`gated` 掏空无人判） |
-| T6-03 | 迁移单一化（canonical DDL 去重） | GO+BE | — | W6 | TODO | — |
+| T6-03 | 迁移单一化（canonical DDL 去重） | GO+BE | — | W6 | DONE | 2026-10-20 结案：`scripts/export_pg_schema.py` 重写成唯一生成器（一次性空库 → `alembic upgrade head` → `pg_dump`，表名单从迁移件 `_TABLES` 推导、不再手抄），三份快照＋`body.sha256` 逐字节指纹全部由它产出；新闸 `go-core/db/schema/drift_test.go` 6 条（离线，CI 的 go 作业没有 PG 也能判红）＋`backend/tests/test_pg_schema_snapshot.py` 5 条；head 字面量归零改走 `backend/core/alembic_chain.py` 推导。**按实况改判**：§怎么做.3 那句「0001 只保留 refresh_tokens」实测不可行（摘掉 `public.users` ⇒ sqlc 报 `relation "users" does not exist`，消费点 `db/queries/canonical.sql:503-510`），users 留在 0001 但已从「手写副本」变成「派生物」。实测：Go `go test -p 1 ./...` **20 包 ok／0 FAIL**、`./internal/store -v` **110 PASS**（真库）、backend 全量 **1604 passed／3 skipped／0 failed**、本票两份闸 **30 passed**、`sqlc diff` exit 0；变异自证 `scripts/mutate_t603_gates.py` **打红 21/21、保持绿 6/6、未跑 0、残留 0**；CI 工具链补 pg_dump＋sqlc（否则那两条闸在流水线里只是 skip）。未取证一条：`--check` 摘掉 pg_dump 版本签名两行以挡 CI 与本机 minor 不同，本机没有第二个 pg_dump，只能待流水线首跑核实（反面由 C3／C4 钉住）。 |
 | T6-04 | staging/prod 隔离与切流键闸 | PLAT | T0-01 | W6 | TODO | — |
 
 ---
@@ -1140,7 +1140,7 @@ Baseline §14.2 要求区分六种用途并记录版本与撤回时间；当前�
 
 | 状态 | 负责 | 依赖 | 规模 |
 |---|---|---|---|
-| TODO | GO+BE | — | L |
+| DONE | GO+BE | — | L |
 
 **为什么**
 canonical 22 表 + outbox 在 `backend/alembic/` 与 `go-core/db/schema/` 各写一份；`users` 被 `0001_legacy_auth.sql` 再次建表声明。两份 DDL 漂移＝线上炸库（Baseline §22 风险 1/3）。
@@ -1157,6 +1157,19 @@ canonical 22 表 + outbox 在 `backend/alembic/` 与 `go-core/db/schema/` 各写
 
 **风险/回滚**
 生成器先 dry-run 出 diff，人工确认后再替换文件；迁移历史只追加，不改已应用版本。
+
+> 结案 2026-10-20｜master 工作区（未推）｜**canonical 的 DDL 从此只有一个属主：`go-core/db/schema/` 那三份是导出器的派生物，不是第二份手写**。**四件套**：入口＝一条命令 `scripts/export_pg_schema.py`（默认路径就是「一次性空库 → `alembic upgrade head` → `pg_dump`」，`--check` 是同一条链的 dry-run）；执行＝派生四件（`.sql` × 3 ＋ `body.sha256`）＋ `sqlc generate` 只在生成物变红时手跑一次（§怎么做.5 的口径）；交付＝Go 工具链编译期读的那份 schema 与线上库出自同一条迁移链，改 alembic 的人不需要知道快照长什么样；失败恢复＝「手改快照」「alembic 变了没人重导」「重导了但忘了 `sqlc generate`」三种坏法各有命名判据，并且**离线就能红**（CI 的 go 作业没有 PG）。
+> ① **单一生成器（§怎么做.2）**：`scripts/export_pg_schema.py` 整文件重写。表名单不再抄第二份——0002/0003 直接 import 迁移件读它的 `_TABLES`（加一张 canonical 不需要动本脚本），0001 用一份 `LEGACY_TABLES` 白名单并注明属主件；`--print-targets` 实测 2/21/1；写盘与比较都以 `--\n-- PostgreSQL database dump` 为界只比 DDL 主体；一次性 `\restrict <随机 token>` 剔除，否则每次导出都不同。
+> ② **来路写进文件头（§怎么做.2 那句 DO NOT EDIT）**：12 行表头带 `source:`（走没走重建写明）、`command:`（排序后的 `-t` 白名单逐字）、`captured: 2026-10-20; alembic head revision f6b8d0e2a4c6`、名单来源与两份闸门文件名。表头从 8 行变 12 行 ⇒ **主体行号整体 +4**，已修被点名的两处：`contracts/proto/closenai_common.proto:19`／`:113`（0003 的 `:40-59`、`:44 ＋ CHECK :58`）并重导 `gen/closenai/v1/closenai_common.pb.go`，`go-core/internal/domain/proactive_audit.go:44`（0002 `:362-363` → `:366-367`）。历史登记（`tasks.md:753`、本台账 T5-04 结案行里的旧行号）按登记时点保留，不改写历史。
+> ③ **一笔按实况的改判（§怎么做.3 的字面不可行，本票最大的偏离）**：工单要「`0001_legacy_auth.sql` 只保留 `refresh_tokens`，`users` 不再二次声明」。实测把 `public.users` 从 0001 摘掉 ⇒ `sqlc generate` 当场 `relation "users" does not exist`，消费点是 `go-core/db/queries/canonical.sql:506` 的 `GetUserNotificationPrefs`（sqlc 报在 595:71）——Go 侧确实要读 `users` 的列面，删掉它不是去重而是删掉编译期输入。于是取「保留这张表、消灭这份副本」：`users` 的 DDL 属主仍是 alembic（`41cb43e22901`），0001 里的它由导出器从真库 dump 而来，并被四条闸钉成派生物（名单来自 alembic、逐字节指纹、一张表不许有两个家、导出器名单 ⇄ 0001 内容对账）。
+> ④ **闸面（§怎么做.4 的逐字节比对拆成两侧）**：Go 侧新包 `go-core/db/schema/drift_test.go` **6 条**——① 来路（含表头那条 revision 必须在 `backend/alembic/versions/` 真存在，编不出来）、② `-t` 白名单 ⇄ 文件真的 CREATE 出的表、③ 三份两两不重叠＋合计 24 张的正向证人＋`users` 的家只在 0001、④ DDL 主体 sha256 ⇄ `body.sha256`、⑤ canonical 两份的表集合 ⇄ `_TABLES`、⑥ 导出器 `LEGACY_TABLES` ⇄ 0001。这一包没有一行运行时代码、不连库——本票要拍的坏法（有人手改仓库文本）本来就不该需要 PG。Python 侧 `backend/tests/test_pg_schema_snapshot.py` **5 条**——① alembic 推导列集 ⇄ 快照列集（离线，两侧不同源：一侧是迁移件 DDL 原文，一侧是 pg_dump 渲染）、② 表并集与份数（24／2-21-1）、③ 把 `--check` 当子进程重跑一遍可复现（需 PG）、④ 指纹清单逐份覆盖 ⇄ Go 与 Python 两侧切点常量的对撞、⑤ head 字面量归零＋`head_revision()` 三个消费者的证人。
+> ⑤ **head 单一真源（结掉 T4-01 缺陷①／T4-02 缺陷②／T4-03 缺陷④／T5-04 的同一笔登记）**：新增 `backend/core/alembic_chain.py`（`head_revision()` 多头即抛、`revision_ids()`、`is_ancestor()`、`versions_on_disk()`），`test_data_export_pg.py`／`test_posthog_erasure_retry_pg.py`／`test_delivery_audit_pg.py` 的期望值由字面量换成推导值——两侧仍不同源（期望离线从 versions 目录推、实测从库里读），红了只可能是「库没跟上链」这一个意思。全套闸里唯一保留字面量的是 `test_canonical_schema.py` 的**链形状**锚点 `T401_COMMITMENT_REVISION`：它改成自推导就会变成恒真，于是由 ⑤ 断言它等于推导 head 作为补偿证人。
+> ⑥ **`.sql` ⇄ 生成物两个真源（同上那笔登记）**：按 §怎么做.5 不把 `sqlc generate` 挂进每条 CI，漂移仍由既有 `sqlc diff` 闸兜（`test_canonical_schema.py::test_sqlc_generated_code_matches_queries`），但本票第一次把「快照 → 生成物」这条链钉进变异自证：S4 手改快照一列的类型 ⇒ 红的是 `sqlc diff`，而不是任何 Go 测试。
+> ⑦ **CI 工具链**：`ci.yml` 的 backend 作业与变异抽样作业、`mutation-nightly.yml` 补 `postgresql-client`（pg_dump）＋ `go install sqlc@v1.31.1`——少一样，③ 与 `sqlc diff` 在流水线里只是 `skip`，而 skip 不算绿。`go-core/sqlc.yaml`、`deploy/README.md`、`deploy/compose/docker-compose.dev.yml` 里那句「DDL 双写风险」同步改成「T6-03 已结案，指两份闸」。
+> ⑧ **实测计数**：`gofmt -l .` 零输出、`go build`／`go vet` 干净、`go test -p 1 ./... -count=1` **20 包 ok／0 FAIL**（新包 `db/schema` 逐条 `-v` 6 条全 PASS）、`./internal/store -v -count=1` **110 PASS／0 SKIP／0 FAIL**（真库）、`pytest backend/tests` 带本机实库＋broker **1604 passed／3 skipped／0 failed（138.00s）**（3 条 skip＝2 条 `PG_PASSWORD` 不入库的 docker 互操作、1 条真集群没有 `closenai` 命名空间属部署动作需授权），本票两份闸聚焦 **30 passed**；`sqlc diff` exit 0；`--docker closenai-pg-dev --check` 三份「DDL 主体一致」＋指纹清单绿。**§风险/回滚 那句照做了**：先 `--check` 证明三份主体与提交件逐字节一致，才替换表头，写盘 diff 仅表头（27 增／15 删）。
+> ⑨ **变异自证** `scripts/mutate_t603_gates.py`：**打红 21/21、保持绿 6/6、未跑 0、残留 0**（串行；`copy2` 备份＋`filecmp(shallow=False)` 逐字节写回，不用 git checkout）。§验收 逐字两句各有一条自己的靶：N1 删 alembic `_TABLES` 里 `outcomes.outcome_type` 一行 ⇒ ① 红「快照有而 alembic 没有」；S1 反向手删快照同一列 ⇒ 同一条判据的反方向红。其余按坏法分格：S2/S3/S4/S5 把「只改类型、列名没变」那一格分别钉到 Go ④／Py ④／`sqlc diff`／③（① 比的是列名集合，这一格它看不见，写清了）；S6 只在主体加一行注释也必须红；H1/H2/H3 钉表头来路与白名单；U1/U2 把 `users` 再声明一次钉两侧；E1 钉导出器名单；C1/C2 钉指纹清单的哈希与覆盖；C3/C4 钉环境签名行；K1 钉 head 字面量回归；M1 钉「两侧的切法」那条对撞。六条绿闸分别往导出器／快照表头／指纹清单／`drift_test.go`／快照闸／`_TABLES` 注释区插 15 行注释，照旧全绿（闸判语义不钉排版）。
+> ⑩ **本机不可取证的那一条（按「未跑」登记，不算绿）**：`--check` 比较主体时摘掉 `-- Dumped from database version`／`-- Dumped by pg_dump version` 两行宿主签名——CI runner 用发行版自带的 pg_dump、本机用容器里那一份，minor 版本号天生不同，计入比较就会在换机器时假报漂移。本机造不出第二个 pg_dump，所以「环境真不同时它挡得住误报」这句只能待流水线首跑核实；它的反面已经钉住：C3（Go ④）与 C4（Py ③ 的清单那条腿）证明摘的只是「主体比较」这一条腿，逐字节那条不松。
+> **发现缺陷（本票不顺手修，登记）**：① `sqlc generate` 仍需人跑——快照变了而生成物没跟上时红的是 `sqlc diff`，不会自动重导（按 §怎么做.5 是有意如此，但代价要写明白）；② legacy 那两张表的**列**面没进 ① 那条列集对账（早期迁移里混着裸 `ALTER TABLE`，正则推不干净），它们只由 ③ 的逐字节与 ④ 兜，CI 若缺 pg_dump 就只剩 ④ 一条腿；③ 部署侧 PG minor 若与快照来源（16.15）不同，dump 出的主体格式仍可能按新 minor 重排（版本签名已剔除，格式漂移没有）⇒ 与 staging/prod 的隔离取证一起在 **T6-04** 验。**未跑**：VPS／k3s 上真实的 `alembic upgrade head` 与流水线首跑（本机无 kubeconfig，归 T0-01／T6-04）。
 
 ---
 
