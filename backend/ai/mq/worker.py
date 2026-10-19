@@ -56,12 +56,12 @@ async def _consume_one(
         # 每轮一条日志（工作单 §四 R5-④）：动作＋原因＋全量计数，
         # 让「管道通了但流量是零」这件事在日志里可核对，而不是靠一句口头结论。
         log.info(
-            "queue=%s key=%s action=%s reason=%s stats=%s",
+            "queue=%s key=%s action=%s reason=%s candidates=%s",
             queue_name,
             getattr(message, "routing_key", "?"),
             decision.action,
             decision.reason,
-            decision.candidate.message_id if decision.candidate is not None else "-",
+            ",".join(m.message_id for m in decision.candidates) or "-",
         )
     finally:
         if task is not None:
@@ -130,6 +130,23 @@ async def serve(
             await conn.close()
 
 
+def build_production_registry() -> Registry:
+    """组合根（T2-02）：把生产要用的 handler 注册进一张**新**表。
+
+    两条纪律，缺一不可：
+    ① **不在模块 import 时注册**（``registry.py:55-58`` 的「显式传入」原则）——
+       否则「测试里注册过、生产进程里没注册」会变成靠导入顺序才成立的接线；
+    ② 跨层 import 只有这一处、而且只在函数体里。``backend/ai/`` 的分层闸
+       （``test_ai_boundary.py``）禁的是仓储／模型／数据库，而 worker 进程要按 ``sourceRef``
+       读回那一行原文，那段读库代码归 ``backend/services/`` 侧。写成模块级会让
+       「import 这个模块」连带把 SQLAlchemy 拖进 AI 层的依赖图，
+       也就做不到「开关关 ⇒ 零副作用」（DoD 第 7 条）。
+    """
+    from backend.services.ai_observation import build_registry  # 唯一一处跨层 import
+
+    return build_registry(Registry())
+
+
 async def amain(sw: Switch, registry: Registry | None = None) -> int:
     """给测试与 ``main()`` 共用的协程入口：返回退出码。"""
     if not sw.enabled:
@@ -175,7 +192,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SwitchError as exc:
         log.error("开关配置非法：%s", exc)
         return 2
-    return asyncio.run(amain(sw))
+    # 开关关 ⇒ 连组合根都不构造：不 import services、不碰 SQLAlchemy，
+    # 于是「零副作用」这句在导入面上也成立（不只是「不拨号」）。
+    registry = build_production_registry() if sw.enabled else Registry()
+    return asyncio.run(amain(sw, registry))
 
 
 if __name__ == "__main__":  # pragma: no cover — 进程入口由集成测跑

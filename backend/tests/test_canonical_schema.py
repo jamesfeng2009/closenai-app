@@ -60,6 +60,12 @@ N2_PARENT = "b7d9e1f3a5c8"
 N7_REVISION = "d9b1f3a5c7e9"
 # 批 T-B（工作单 T-2）：outbox_messages.trace_id 列，链上新单头
 TRACE_REVISION = "e7a2c4b6d8f1"
+# W5 合规批（2026-10-18）三件线性挂在 trace 件之上，T1-01 的导出 job 件再挂在 W5 之上
+W5_CONSENT_REVISION = "a1c3e5f7b9d1"  # T5-01 user_consents
+W5_QUIET_REVISION = "b2d4f6a8c0e2"  # T5-02 users.quiet_start/quiet_end
+W5_HEAD_REVISION = "c3e5a7b9d1f2"  # T5-03 chat_messages 幂等键 + journey 日序唯一
+T101_EXPORT_REVISION = "d4f6a8b0c2e4"  # T1-01 data_export_jobs
+T102_ERASURE_REVISION = "e5a7b9d1f3a5"  # T1-02 posthog_erasure_retries（当前 head）
 
 # N2 的 21 张新表（ai_generation_runs 属 O4 已交付，N2 沿用同一份 DDL，不在此列）
 N2_TABLES = (
@@ -186,7 +192,7 @@ def test_ddl_has_no_enum_no_fk_no_cascade_no_jsonb():
 
 
 def test_migration_graph_is_single_head_with_n7_on_top():
-    """27 件迁移（含本批）里出现过并行 head（b3c5d7e9f1a2 就是历史上的合并件），所以这条必须拍。
+    """33 件迁移（含本批）里出现过并行 head（b3c5d7e9f1a2 就是历史上的合并件），所以这条必须拍。
 
     用 alembic 自己的 ScriptDirectory 而不是手搓正则：仓库里 `revision` 有两种写法
     （`revision: str = '...'` 与 `revision = "..."`），首跑的正则漏了后者，把 8 个迁移
@@ -200,9 +206,20 @@ def test_migration_graph_is_single_head_with_n7_on_top():
 
     script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
     heads = script.get_heads()
-    assert heads == [TRACE_REVISION], (
-        f"alembic head = {heads}，批 T-B 之后须是单头 {TRACE_REVISION}"
+    assert heads == [T102_ERASURE_REVISION], (
+        f"alembic head = {heads}，T1-02 之后须是单头 {T102_ERASURE_REVISION}"
     )
+    # 新件必须挂在既有 head 之上（不是另起一条链）：退一件就回到 T1-01 的导出件。
+    assert script.get_revision(T102_ERASURE_REVISION).down_revision == T101_EXPORT_REVISION, (
+        "T1-02 的重试台账件没挂在 T1-01 导出件之上，链形状变了")
+    export_down = script.get_revision(T101_EXPORT_REVISION).down_revision
+    assert export_down == W5_HEAD_REVISION, (
+        f"T1-01 导出件挂在 {export_down}，应为 T5-03 的 {W5_HEAD_REVISION}"
+    )
+    w5_down = script.get_revision(W5_HEAD_REVISION).down_revision
+    assert w5_down == W5_QUIET_REVISION, f"T5-03 件挂在 {w5_down}，应为 T5-02 的 {W5_QUIET_REVISION}"
+    quiet_down = script.get_revision(W5_QUIET_REVISION).down_revision
+    assert quiet_down == W5_CONSENT_REVISION, f"T5-02 件挂在 {quiet_down}，应为 T5-01 的 {W5_CONSENT_REVISION}"
     trace_down = script.get_revision(TRACE_REVISION).down_revision
     assert trace_down == N7_REVISION, f"trace 件挂在 {trace_down}，应为 N7 的 {N7_REVISION}"
     n7_down = script.get_revision(N7_REVISION).down_revision
@@ -285,9 +302,68 @@ def test_idempotency_unique_keys_are_declared():
     assert not (plain_names & unique_index_names), f"唯一索引重复出现在普通清单：{plain_names & unique_index_names}"
 
 
+def test_source_record_upsert_conflicts_on_the_declared_unique_key():
+    """「同一指针只登记一行」这条幂等，**约束与写入口必须成对**（T2-03 §欠的四件之一）。
+
+    上一条闸只证明 UNIQUE 在 DDL 里，它证明不了另一半：``InsertSourceRecord`` 的
+    ``ON CONFLICT`` 目标要是写成别的（``(id)``、漏一列），数据库会把同指针的
+    第二条候选当成 23505 抛出来 ⇒ ``AdmitEvidence`` 得到一个**瞬时**错误 ⇒
+    同一条候选在 30s/2m/10m 阶梯上撞三次库，最后带着空白的 ``error_code`` 进 DLQ。
+    而真库的幂等测（``go-core/internal/store/evidence_integration_test.go``）在没有
+    ``TEST_DATABASE_URL`` 的 CI 作业里是 Skip——所以这一格必须是一条不需要库的文本闸。
+    """
+    declared = re.search(r"UNIQUE \(([^)]*)\)", _all_tables()["source_records"])
+    assert declared, "source_records 里没有 UNIQUE(...) 了：上一条闸会先红，这里是同一格的防线"
+    unique_cols = [col.strip() for col in declared.group(1).split(",")]
+
+    sql = QUERIES_PATH.read_text(encoding="utf-8")
+    stmt = re.search(r"-- name: InsertSourceRecord :one\n(.*?)(?=\n-- name: )", sql, re.DOTALL)
+    assert stmt, "解不出 InsertSourceRecord 那条语句：canonical.sql 的分块写法变了，先修这条闸"
+    conflict = re.search(r"ON CONFLICT \(([^)]*)\)", stmt.group(1))
+    assert conflict, f"InsertSourceRecord 不带 ON CONFLICT 目标了（重跑会变成 23505）：{stmt.group(1)}"
+    conflict_cols = [col.strip() for col in conflict.group(1).split(",")]
+
+    assert conflict_cols == unique_cols, (
+        f"ON CONFLICT {conflict_cols} 与 UNIQUE {unique_cols} 不成对：不匹配的那次重跑"
+        "不复用既有行而是抛唯一冲突，幂等口径就变成了「重跑必失败」"
+    )
+    assert "DO UPDATE" in stmt.group(1), (
+        "同指针复用要的是 DO UPDATE（更新 updated_at 并 RETURNING 既有 id）；"
+        "DO NOTHING 的 RETURNING id 在 PG 里回空行，Go 那边就是 sqlc: no rows in result set"
+    )
+
+
+#: 第二条例外：**只读**。T2-02（2026-10-18）交付 observation 提取的 handler 时，
+#: 工作单点名的三张表全在 canonical 侧——按 `sourceRef` 读回原文之外还要
+#: `user_feedback`（负样本）与 `evidence ⋈ source_records`（24h 成本闸）。
+#: Python 侧当时没有第二条路（R3b 的 gRPC 读面仍未交付，见工作单 §R3b）。
+#: 所以这条例外只扩**读**，并由下面的断言钉住「一个写形态都不许出现」。
+CANONICAL_READ_ONLY: dict[Path, tuple[str, ...]] = {
+    ROOT / "backend" / "services" / "ai_observation.py": ("Evidence", "SourceRecord", "UserFeedback"),
+}
+
+
+def _canonical_write_forms(source: str, names: tuple[str, ...]) -> list[str]:
+    """文件里出现的「对这几个 canonical 类的写形态」（文本级，四种就够覆盖 ORM 的写法）。"""
+    hits: list[str] = []
+    for name in names:
+        forms = {
+            "构造新行": rf"\b{name}\(",
+            "add／merge": rf"\.(?:add|merge|add_all)\(\s*{name}\b",
+            "语句级写": rf"\b(?:insert|update|delete)\(\s*{name}\b",
+            "改字段": rf"\b{name}\.\w+\s*=[^=]",
+        }
+        hits.extend(f"{name}:{label}" for label, pat in forms.items() if re.search(pat, source))
+    return hits
+
+
 def test_python_reaches_canonical_models_only_through_deletion():
-    """V3 06 §5 禁 Python 直连 canonical；D-5 给 purge 开了一次例外，
-    例外面就这两个文件，任何第三个引用点都算扩大。"""
+    """V3 06 §5 禁 Python 直连 canonical；例外只有两格，各自带日期与归属：
+    ① **写**＝`user_service.py` 的 purge 删除路径（D-5）；
+    ② **读**＝`services/ai_observation.py`（T2-02，只读，写形态一条都不许有）。
+    第三个引用点仍算扩大例外 ⇒ 红。名字里的 "deletion" 指的是①，②是 2026-10-18 加的，
+    保留原 nodeid 是因为 `scripts/mutate_n2_gates.py` 按这个名字打红过它（改名将让那条变异空转）。
+    """
     allowed = {
         ROOT / "backend" / "models" / "canonical.py",
         ROOT / "backend" / "models" / "__init__.py",
@@ -296,12 +372,19 @@ def test_python_reaches_canonical_models_only_through_deletion():
     pattern = re.compile(r"from backend\.models\.canonical import|models\.canonical import")
     offenders = []
     for path in (ROOT / "backend").rglob("*.py"):
-        if path in allowed or "/tests/" in str(path):
+        if path in allowed or path in CANONICAL_READ_ONLY or "/tests/" in str(path):
             continue
         if pattern.search(path.read_text(encoding="utf-8")):
             offenders.append(str(path.relative_to(ROOT)))
     assert not offenders, (
-        f"以下模块引用了 canonical 模型，越过 purge 这条唯一例外（V3 06 §5 / D-5）：{offenders}")
+        f"以下模块引用了 canonical 模型，越过那两条登记过的例外（V3 06 §5 / D-5 写 + T2-02 只读）："
+        f"{offenders}")
+    for path, names in CANONICAL_READ_ONLY.items():
+        assert path.exists(), f"只读例外的文件不在了：{path} ⇒ 这条例外该跟着删，不许留着空转"
+        writes = _canonical_write_forms(path.read_text(encoding="utf-8"), names)
+        assert not writes, (
+            f"{path.relative_to(ROOT)} 是**只读**例外，却出现了写形态 {writes}"
+            "（不变量 7：canonical 态只能由 Go 的 domain 改）")
 
 
 @pytest.mark.parametrize("question, names", sorted(MINIMUM_V1_QUERIES.items()))
@@ -444,10 +527,10 @@ def test_live_db_has_no_enum_or_jsonb_or_new_fk():
 
 
 def test_alembic_roundtrip_on_empty_database():
-    """N2/N7/trace 验收的「alembic upgrade/downgrade 隔离库实测」（三件迁移逐级回退）。
+    """N2/N7/trace/W5/T1-01/T1-02 验收的「alembic upgrade/downgrade 隔离库实测」（八件逐级回退）。
 
     指向一个**空的**库（库里连 alembic_version 都没有），用独立 env 变量避免误打
-    共享库：
+    共享库；跑完库里有 alembic_version，所以下一次取证前要重建：
         docker exec closenai-pg-dev psql -U postgres -c 'CREATE DATABASE n2_roundtrip'
         N2_MIGRATE_DATABASE_URL='postgresql://postgres:***@127.0.0.1:55432/n2_roundtrip'
     """
@@ -495,14 +578,83 @@ def test_alembic_roundtrip_on_empty_database():
             engine.dispose()
         return "trace_id" in cols
 
+    def has_columns(table: str, names: set[str]) -> bool:
+        from sqlalchemy import inspect as sa_inspect
+
+        engine = create_engine(sync_url)
+        try:
+            cols = {c["name"] for c in sa_inspect(engine).get_columns(table)}
+        finally:
+            engine.dispose()
+        return names <= cols
+
+    def index_names() -> set[str]:
+        engine = create_engine(sync_url)
+        try:
+            with engine.connect() as conn:
+                return {r[0] for r in conn.execute(text(
+                    "select indexname from pg_indexes where schemaname = 'public'"))}
+        finally:
+            engine.dispose()
+
     alembic("upgrade", "head")
     after_up, head = tables_and_head()
-    assert head == TRACE_REVISION, f"upgrade 后 head = {head}，应为 {TRACE_REVISION}"
+    assert head == T102_ERASURE_REVISION, f"upgrade 后 head = {head}，应为 {T102_ERASURE_REVISION}"
     assert set(CANONICAL_TABLES) <= after_up, (
         f"缺表 {set(CANONICAL_TABLES) - after_up}")
     assert has_trace_col(), "upgrade 后 outbox_messages 应带 trace_id（批 T-B 的正向证人）"
+    assert "user_consents" in after_up, "W5 件没建 user_consents"
+    assert has_columns("users", {"quiet_start", "quiet_end"}), "W5 件没加免打扰两列"
+    assert has_columns("chat_messages", {"idempotency_key"}), "W5 件没加幂等键列"
+    assert {
+        "uq_chat_messages_proactive_key", "uq_journey_events_user_kind_day"
+    } <= index_names(), "W5 件的两条部分唯一索引没建起来"
+    # T1-01 的正向证人：表与两条复合索引（cron 取 queued、GET 按用户看历史）。
+    assert "data_export_jobs" in after_up, "T1-01 件没建 data_export_jobs"
+    assert {
+        "ix_data_export_jobs_user_created", "ix_data_export_jobs_status_created"
+    } <= index_names(), "T1-01 件的两条索引没建起来"
+    # T1-02 的正向证人：重试台账表＋user_id 唯一（防叠行）＋next_attempt_at 索引（cron 的扫法）。
+    assert "posthog_erasure_retries" in after_up, "T1-02 件没建 posthog_erasure_retries"
+    assert {
+        "uq_posthog_erasure_retries_user_id", "ix_posthog_erasure_retries_next_attempt"
+    } <= index_names(), "T1-02 件的唯一约束/索引没建起来"
 
-    # 逐级回退：先退 trace 件（只该走一列），再退 N7 件（表整个走），最后退 N2 件（21 张全走）。
+    # 逐级回退：先退 T1-02 重试台账（表整个走），再退 T1-01 导出件（表整个走），
+    # 然后退 W5 三件（T5-03 → T5-02 → T5-01），
+    # 接着退 trace 件（只该走一列），最后退 N7 件（表整个走）与 N2 件（21 张全走）。
+    alembic("downgrade", "-1")
+    after_down_t102, head = tables_and_head()
+    assert head == T101_EXPORT_REVISION, f"退 T1-02 后 head = {head}，应回到 {T101_EXPORT_REVISION}"
+    assert "posthog_erasure_retries" not in after_down_t102, "T1-02 的表没退干净"
+    assert "data_export_jobs" in after_down_t102, "退 T1-02 带走了 T1-01 的表——迁移边界没切开"
+
+    alembic("downgrade", "-1")
+    after_down_t101, head = tables_and_head()
+    assert head == W5_HEAD_REVISION, f"退 T1-01 后 head = {head}，应回到 {W5_HEAD_REVISION}"
+    assert "data_export_jobs" not in after_down_t101, "T1-01 的表没退干净"
+    assert "user_consents" in after_down_t101 and set(CANONICAL_TABLES) <= after_down_t101, (
+        "退 T1-01 带走了别人的表——迁移边界没切开")
+
+    alembic("downgrade", "-1")
+    _, head = tables_and_head()
+    assert head == W5_QUIET_REVISION, f"退 T5-03 后 head = {head}"
+    left_t503 = {"uq_chat_messages_proactive_key", "uq_journey_events_user_kind_day"} & index_names()
+    assert not left_t503, f"退掉 T5-03 仍残留幂等索引 {left_t503}"
+    assert not has_columns("chat_messages", {"idempotency_key"}), "T5-03 的列没退掉"
+
+    alembic("downgrade", "-1")
+    _, head = tables_and_head()
+    assert head == W5_CONSENT_REVISION, f"退 T5-02 后 head = {head}"
+    assert not has_columns("users", {"quiet_start", "quiet_end"}), "T5-02 的两列没退掉"
+
+    alembic("downgrade", "-1")
+    after_down_w5, head = tables_and_head()
+    assert head == TRACE_REVISION, f"退 T5-01 后 head = {head}，应回到 {TRACE_REVISION}"
+    assert "user_consents" not in after_down_w5, "T5-01 的表没退干净"
+    assert set(CANONICAL_TABLES) <= after_down_w5, (
+        "退 W5 三件把不该动的表也带走了——迁移边界没切开")
+
     alembic("downgrade", "-1")
     after_down_t, head = tables_and_head()
     assert head == N7_REVISION, f"退 trace 件后 head = {head}，应回到 {N7_REVISION}"

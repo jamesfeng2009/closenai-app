@@ -91,14 +91,23 @@ def stack():
         "py": f"postgresql+psycopg://{pg_creds}",
     }
     handles = {}
+    ports = {"go": _free_port(), "py": _free_port()}
     for key, image in (("go", GO_IMAGE), ("py", PY_IMAGE)):
-        port = _free_port()
-        run = _docker(
-            "run", "-d", "--name", f"closenai-{key}-interop-{os.getpid()}",
-            "-p", f"{port}:8000",
+        port = ports[key]
+        env = [
             "-e", f"DATABASE_URL={urls[key]}",
             "-e", f"JWT_SECRET={SMOKE_SECRET}",
             "-e", "ENVIRONMENT=development",
+        ]
+        if key == "go":
+            # N8 守卫：切流比例 <100% 时 go-api 拒绝在缺 CLOSEN_PY_API_URL 的情况下起动。
+            # 本闸只测两服务各自起动＋token/信封互操作，不走委托路径，给到 py 容器的
+            # 宿主映射地址即可满足起动校验（host.docker.internal＝Docker Desktop 惯例）。
+            env += ["-e", f"CLOSEN_PY_API_URL=http://host.docker.internal:{ports['py']}"]
+        run = _docker(
+            "run", "-d", "--name", f"closenai-{key}-interop-{os.getpid()}",
+            "-p", f"{port}:8000",
+            *env,
             image,
         )
         if run.returncode != 0:
@@ -238,7 +247,7 @@ def test_both_runtimes_serve_the_frozen_health_envelope(stack):
     assert go_health.body["data"] == py_health.body["data"], "GET /health 必须逐字一致"
     assert list(go_health.body)[:3] == ["code", "message", "data"]
 
-    # /healthz 是 Go 侧新增的进程就绪探针，不在 98 条契约登记里，Python 侧本就不该有。
+    # /healthz 是 Go 侧新增的进程就绪探针，不在 105 条契约登记里，Python 侧本就不该有。
     z = _call(base["go"], "/healthz")
     assert z.status == 200 and z.body["data"]["status"] == "ok"
     pz = _call(base["py"], "/healthz", allow_error=True)

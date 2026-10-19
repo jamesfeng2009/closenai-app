@@ -43,6 +43,7 @@ from backend.models.schemas import AuthResponse, AuthUserResponse
 from backend.models.user import User
 from backend.repositories import auth_repository, user_repository
 from backend.services.email_service import send_verification_code
+from backend.services.consent_service import consent_service
 from backend.services.user_service import user_service
 
 logger = get_logger("closenai.auth_service")
@@ -178,6 +179,9 @@ class AuthService:
             if await user_repository.get_by_email(db, email):
                 raise AppException(ErrorCode.EMAIL_ALREADY_USED, "该邮箱已注册 / Email already used")
             raise AppException(ErrorCode.USERNAME_ALREADY_USED, "用户名已被占用 / Username already used")
+        # 注册默认同意（T5-01）：只有 core_service 随注册自动 granted，
+        # 其余五项留空行——Baseline §11.2 末句禁止用模糊文案推定同意。
+        await consent_service.grant_registration_consents(db, user.id)
         return await self._issue_tokens(db, user)
 
     # ── 密码登录 ──
@@ -292,6 +296,7 @@ class AuthService:
                 email_verified=True,
                 referred_by_code=normalize_referral_code(ref),
             )
+            await consent_service.grant_registration_consents(db, user.id)
         elif user.email_verified_at is None:
             await user_repository.mark_email_verified(db, user.id)
             user.email_verified_at = utc_now()
@@ -336,6 +341,8 @@ class AuthService:
                 user = await user_repository.get_by_email(db, _email)
             if not user:
                 raise
+        # 首次 Apple 登录即建号：注册默认同意同样只给 core_service（幂等，重复登录不刷新）
+        await consent_service.grant_registration_consents(db, user.id)
         return await self._issue_tokens(db, user)
 
     # ── refresh 轮转 ──

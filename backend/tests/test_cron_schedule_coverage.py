@@ -1,45 +1,52 @@
-"""批1 G1 调度覆盖闸：防「端点写好了、调度那一刀没人落」再复发。
+"""调度覆盖闸：防「端点写好了、调度那一刀没人落」再复发（2026-10-18 起唯一调度源＝`deploy/schedule/crontab`）。
 
 被验对象两个，都现场推导、不抄名单：
-- `vercel.json` 的 `crons`（现役生产的调度源；Vercel Cron 只发 GET），
+- `deploy/schedule/crontab` 的排程行（T0-02 起这是唯一调度声明源；
+  `vercel.json` 同日退役——批 1 时代它才是现役源，闸若不改靶就会继续「保护」一个不存在的文件），
 - `backend.main` 里挂在 `/api/v1/cron/` 下的真实路由。
 
-根因（2026-10-17 实测）：`dispatch_journey_events` 的唯一调用方是
-`GET /api/v1/cron/journey`，而清单里 11 条 cron 恰好漏了它 ⇒ 代码全对、
-从调度面不可达，第一周剧本 D0–D7 永不出货，pending 事件永不清零
-（连带把每日主动消息也一起按住了）。这比「没实现」更难发现，所以闸立在这里。
+根因（2026-10-17 立项时实测）：`dispatch_journey_events` 的唯一调用方是
+`GET /api/v1/cron/journey`，而当时清单恰好漏了它 ⇒ 代码全对、从调度面不可达，
+第一周剧本 D0–D7 永不出货（连带把每日主动消息也按住了）。迁移到宿主 crontab 时
+这条形状原样保留：15 条排程（7 条整点每小时、4 条按日、2 条按周、2 条 */5——
+/cron/health 保热与 T1-01 的 /cron/export-jobs 队列认领；T1-04 的 /cron/delivery-audit
+是每日那条 0 4 * * *），
+3 条 POST 是 QStash 回调、不排程、带理由豁免。
 
 判据：
 1. 每个 GET `/cron/*` 必须被排程，或在 `EXEMPT` 里带理由登记；
-2. `vercel.json` 每条 cron 的 path 必须是真实存在的 GET 路由（改名后静默 404）；
-3. 端点 docstring 宣称的节律（「Vercel Cron 每小时/每日/每周…」）必须与 cron 表达式同形。
+2. crontab 每行必须能打「5 字段＋curl 本机 URL」，path 必须是真实存在的 GET 路由，
+   且 `vercel.json` 不许复活（双源＝同一条消息可能被触发两次）；
+3. 端点 docstring 宣称的节律（「宿主 crontab 每小时/每日/每周/每 5 分钟…」）
+   必须与 crontab 表达式同形。
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
 from backend.main import app
 
 ROOT = Path(__file__).resolve().parents[2]
-VERCEL_JSON = ROOT / "vercel.json"
+CRONTAB = ROOT / "deploy" / "schedule" / "crontab"
 CRON_PREFIX = "/api/v1/cron/"
 
 # 不排程的端点必须在这里带理由登记（理由为空即打红）。
-# 两条口径分开：POST 收不了 Vercel Cron 的 GET；GET 不排程就是本批那类漏项。
+# 三条 POST 的共同形状：QStash 公网回调（验签 Upstash-Signature），调度在投递侧，
+# 不是宿主 crontab——`/cron/health` 从 T0-02 起已被排程，不再是豁免条目。
 EXEMPT: dict[str, str] = {
-    "POST /api/v1/cron/process-user": "Vercel Cron 只发 GET；本端点是 QStash 分块回调，调度在 cron_service 投递侧",
-    "POST /api/v1/cron/follow-up": "Vercel Cron 只发 GET；由 cron_service.register_follow_up_schedule 经 QStash 每日调度",
-    "POST /api/v1/cron/purge-user": "Vercel Cron 只发 GET；注销后由 QStash 异步回调，兜底见 GET /cron/purge-deleted-users",
-    "GET /api/v1/cron/health": "纯保热、无生产副作用；未排程（settings.health_check_interval 无消费方，归 tasks.md T 桶）",
+    "POST /api/v1/cron/process-user": "宿主 crontab 不排 POST；本端点是 QStash 分块回调（验签），调度在 cron_service 投递侧",
+    "POST /api/v1/cron/follow-up": "宿主 crontab 不排 POST；由 cron_service.register_follow_up_schedule 经 QStash 每日调度（验签）",
+    "POST /api/v1/cron/purge-user": "宿主 crontab 不排 POST；注销后由 QStash 异步回调（验签），兜底见 GET /cron/purge-deleted-users",
 }
 
 CRON_FIELD_RE = re.compile(r"^\*(/\d+)?$|^\d+(-\d+)?(/\d+)?(,\d+(-\d+)?(/\d+)?)*$")
-CADENCE_WORDS = ("每小时", "每日", "每周")
+CADENCE_WORDS = ("每小时", "每日", "每周", "每 5 分钟")
 WEEKLY_RE = re.compile(r"每周")
-# 「Vercel Cron 每小时触发」＝宣称；「Vercel Cron 只发 GET」＝解释，不算宣称。
-CRON_CLAIM_RE = re.compile(r"Vercel Cron[^\n。】]{0,20}?(?:触发|调用)")
+# 「宿主 crontab 每小时触发」＝宣称；「三条 POST 不在宿主 crontab 里」＝解释，不算宣称。
+CRON_CLAIM_RE = re.compile(r"crontab[^\n。】]{0,20}?(?:触发|调用)")
+ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+CMD_URL_RE = re.compile(r"http://127\.0\.0\.1:8000(/[^\s]+)")
 
 
 def _flat_routes() -> list[tuple[str, set[str], str]]:
@@ -86,9 +93,22 @@ def endpoint_docs() -> dict[str, str]:
 
 
 def crons() -> list[dict]:
-    manifest = json.loads(VERCEL_JSON.read_text(encoding="utf-8"))
-    entries = manifest.get("crons")
-    assert isinstance(entries, list), "vercel.json 里没有 crons 数组"
+    """解析宿主 crontab：跳过注释/env 赋值行，命令行取前 5 字段＋curl 的本机 path。
+
+    解析形状本身就是判据——「5 字段＋一个敲得进 `127.0.0.1:8000/api/v1/cron/*` 的 URL」，
+    写成别的形式（比如 URL 用变量拼）闸就瞎了，所以这里 assert 而不是正则宽容匹配。
+    """
+    entries: list[dict] = []
+    for raw in CRONTAB.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or ENV_ASSIGN_RE.match(line):
+            continue
+        parts = line.split(None, 5)
+        assert len(parts) >= 6, f"crontab 行不是「5 字段＋命令」：{raw!r}"
+        match = CMD_URL_RE.search(line)
+        assert match, f"crontab 命令行里敲不出本机 API URL：{raw!r}"
+        entries.append({"path": match.group(1), "schedule": " ".join(parts[:5])})
+    assert entries, "deploy/schedule/crontab 一条排程都没有，闸空转"
     return entries
 
 
@@ -103,15 +123,15 @@ def fields(schedule: str) -> list[str]:
 
 
 def claimed_cadence(doc: str) -> str | None:
-    """取「Vercel Cron」之后出现的第一个节律词。
+    """取「crontab」之后出现的第一个节律词。
 
-    只看这个词之后：`每日主动消息生成（Vercel Cron 触发）` 里的「每日」是业务语义
+    只看这个词之后：`每日主动消息生成（宿主 crontab 每小时触发）` 里的「每日」是业务语义
     （按最佳发送小时分桶 ⇒ 确实每小时跑一次），不是调度宣称，不能拿它打红。
     """
-    marker = doc.find("Vercel Cron")
+    marker = doc.find("crontab")
     if marker < 0:
         return None
-    tail = doc[marker + len("Vercel Cron") :]
+    tail = doc[marker + len("crontab") :]
     hits = [(tail.find(word), word) for word in CADENCE_WORDS if word in tail]
     if not hits:
         return None
@@ -127,6 +147,18 @@ def test_route_derivation_covers_the_whole_cron_router():
     decorators = len(re.findall(r'^@router\.(?:get|post)\("/cron', source, re.M))
     derived = len(cron_entries())
     assert derived == decorators, f"装饰器 {decorators} 条、推导只拿到 {derived} 条，路由摊平逻辑漏了"
+
+
+def test_vercel_manifest_stays_retired():
+    """单一调度源：`vercel.json` 若复活（哪怕带一条 cron），同一条消息就有双触发形状。
+
+    T0-02（B-02 默认删除）之后仓库里不该再有这份「第二调度声明」；
+    真要回滚 Vercel 排程，必须连本闸与 crontab 一起改判，不许悄悄并存两份清单。
+    """
+    assert not (ROOT / "vercel.json").exists(), (
+        "vercel.json 又回到仓库根——它已被 T0-02 退役，现役唯一调度源是 "
+        "deploy/schedule/crontab；双源并存＝消息可能被触发两次"
+    )
 
 
 def test_every_get_cron_route_is_scheduled_or_exempt():
@@ -147,35 +179,46 @@ def test_every_get_cron_route_is_scheduled_or_exempt():
 
 
 def test_scheduled_paths_are_live_get_routes():
-    """判据 2：清单指向不存在的路径 = 每小时 404，而 cron 侧只会静默重试。"""
+    """判据 2：清单指向不存在的路径 = 每小时静默 404，cron 侧只会看到非零退出码。"""
     routes = cron_routes()
     bad = []
     for entry in crons():
         path = entry.get("path", "")
         if "GET" not in routes.get(path, set()):
             bad.append(f"{path} -> {entry.get('schedule')!r}")
-    assert not bad, f"vercel.json 里排程了不存在的 GET 路由：{bad}"
+    assert not bad, f"crontab 里排程了不存在的 GET 路由：{bad}"
 
 
 def test_cron_expressions_are_valid():
-    """判据 2 附：表达式逐段合法且无重复 path（重复的那条 Vercel 会照单全收）。"""
+    """判据 2 附：表达式逐段合法、命令都带 CRON_SECRET、无重复 path。"""
     seen: list[str] = []
+    raw_lines = CRONTAB.read_text(encoding="utf-8").splitlines()
     for entry in crons():
         path = entry.get("path", "")
         assert path.startswith(CRON_PREFIX), f"cron path 越界：{path}"
-        assert path not in seen, f"vercel.json 重复排程 {path}"
+        assert path not in seen, f"crontab 重复排程 {path}"
         seen.append(path)
         for name, value in zip(
             ("minute", "hour", "day-of-month", "month", "day-of-week"),
             fields(entry.get("schedule", "")),
         ):
             assert CRON_FIELD_RE.match(value), f"{path} 的 {name} 段非法：{value!r}"
+    command_lines = [
+        line
+        for line in raw_lines
+        if line.strip()
+        and not line.strip().startswith("#")
+        and not ENV_ASSIGN_RE.match(line.strip())
+    ]
+    assert command_lines and all("$CRON_SECRET" in line for line in command_lines), (
+        "crontab 命令行必须都从宿主 env 读 CRON_SECRET（密钥不写进 crontab 本身）"
+    )
 
 
 def claims_cron_trigger(doc: str) -> bool:
-    """docstring 是否在宣称「本端点由 Vercel Cron 触发/调用」。
+    """docstring 是否在宣称「本端点由宿主 crontab 触发/调用」。
 
-    必须跟触发类动词才算宣称：`Vercel Cron 只发 GET，所以走 QStash` 这种解释性
+    必须跟触发类动词才算宣称：`宿主 crontab 不排 POST，所以走 QStash` 这种解释性
     提法不该把豁免条目打红。
     """
     return bool(CRON_CLAIM_RE.search(doc))
@@ -189,7 +232,7 @@ def test_docstring_cadence_claim_matches_manifest():
             continue
         schedules = schedule_of(path)
         if not schedules:
-            mismatches.append(f"{path} 宣称被 Vercel Cron 触发，清单里却没排程")
+            mismatches.append(f"{path} 宣称被宿主 crontab 触发，清单里却没排程")
             continue
         claim = claimed_cadence(doc)
         if claim is None:
@@ -201,6 +244,8 @@ def test_docstring_cadence_claim_matches_manifest():
                 ok = fixed_minute and hour == "*" and dow == "*"
             elif claim == "每日":
                 ok = fixed_minute and hour.isdigit() and dow == "*"
+            elif claim == "每 5 分钟":
+                ok = minute == "*/5"
             else:
                 ok = fixed_minute and hour.isdigit() and dow.isdigit()
             if not ok:

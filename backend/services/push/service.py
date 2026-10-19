@@ -18,7 +18,8 @@ from typing import Dict, List, Optional
 import httpx
 
 from backend.config import settings
-from backend.repositories import push_token_repository
+from backend.core.time_utils import user_in_quiet_hours
+from backend.repositories import push_token_repository, user_repository
 
 logger = logging.getLogger("closenai.push")
 
@@ -159,7 +160,16 @@ class PushService:
         body: str,
         data: Optional[Dict] = None,
     ) -> Dict[str, int]:
-        """向用户全部设备推送。返回 {sent: n, failed: n}。"""
+        """向用户全部设备推送。返回 {sent: n, failed: n}。
+
+        免打扰时段（T5-02）在这一层再兜一道：cron 的每日主动消息在自己的入口就跳过，
+        但剧本事件、里程碑、连续负面关心、承诺回访这九处投递点都汇聚到这里——
+        把窗口只写在 cron 里，用户设了免打扰仍会在凌晨被剧本叫醒。
+        """
+        user = await user_repository.get_user(db, user_id)
+        if user is not None and user_in_quiet_hours(user):
+            logger.info("免打扰时段命中，跳过设备推送 user=%s type=%s", user_id, (data or {}).get("type"))
+            return {"sent": 0, "failed": 0}
         tokens = await push_token_repository.list_for_user(db, user_id)
         if not tokens:
             return {"sent": 0, "failed": 0}

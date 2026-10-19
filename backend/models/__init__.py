@@ -36,6 +36,9 @@ from backend.models.canonical import (  # noqa: F401
     UserFeedback,
 )
 from backend.models.chat import ChatMessage
+from backend.models.consent import CONSENT_PURPOSES, ConsentPurpose, UserConsent
+from backend.models.erasure import PostHogErasureRetry
+from backend.models.export import EXPORT_STATUSES, DataExportJob
 from backend.models.generation_run import AiGenerationRun
 from backend.models.growth import GrowthRecord, UserMilestone
 from backend.models.journey import (
@@ -71,4 +74,9 @@ __all__ = [
     "User",
     "UserEntitlement",
     "UserMilestone",
+    "UserConsent",
+    "ConsentPurpose",
+    "PostHogErasureRetry",
+    "DataExportJob",
+    "EXPORT_STATUSES",
 ]

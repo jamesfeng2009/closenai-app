@@ -9,10 +9,19 @@
 禁止：在此层中编写业务逻辑、业务规则。
 """
 from backend.repositories.chat_repository import ChatRepository, chat_repository
+from backend.repositories.consent_repository import (
+    ConsentRepository,
+    consent_repository,
+)
 from backend.repositories.entitlement_repository import (
     EntitlementRepository,
     entitlement_repository,
 )
+from backend.repositories.erasure_repository import (
+    ErasureRepository,
+    erasure_repository,
+)
+from backend.repositories.export_repository import ExportRepository, export_repository
 from backend.repositories.growth_repository import GrowthRepository, growth_repository
 from backend.repositories.journey_repository import (
     JourneyRepository,
@@ -51,8 +60,14 @@ from backend.repositories.user_repository import UserRepository, user_repository
 __all__ = [
     "ChatRepository",
     "chat_repository",
+    "ConsentRepository",
+    "consent_repository",
     "EntitlementRepository",
     "entitlement_repository",
+    "ErasureRepository",
+    "erasure_repository",
+    "ExportRepository",
+    "export_repository",
     "GrowthRepository",
     "growth_repository",
     "JourneyRepository",

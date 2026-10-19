@@ -11,6 +11,7 @@ from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import utc_now
@@ -61,7 +62,18 @@ class JourneyRepository:
             ),
         )
         db.add(event)
-        await db.flush()
+        try:
+            async with db.begin_nested():
+                await db.flush()
+        except IntegrityError:
+            # T5-03：并发预写撞上 (user_id,event_kind,day_no) 的部分唯一索引时，
+            # 「已存在」就是成功——回滚到 savepoint 后返回既有行，调用方无需处理 500。
+            # dedupe=False 的承诺回访不在该索引范围内（同一日多条不同承诺合法），
+            # 因此这个分支只会命中 dedupe=True 的路径。
+            existing = await self.get_by_kind(db, user_id, event_kind, day_no)
+            if existing is None:
+                raise
+            return existing
         return event
 
     async def get_by_kind(

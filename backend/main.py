@@ -16,6 +16,7 @@ from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
 from backend.services.cron_service import cron_service
+from backend.services.source_events import close_producer
 
 # 初始化日志系统（统一格式：trace_id / user_id 透传）
 setup_logging("DEBUG" if settings.debug else "INFO")
@@ -67,6 +68,9 @@ async def _purge_sweep_once() -> int:
 
     独立成函数：lifespan 循环只做调度，扫描/提交口径与
     /cron/purge-deleted-users 一致（同一 service 方法，逐用户 SAVEPOINT）。
+    顺带跑 PostHog 擦除重试（T1-02）：本仓的既有判断是宿主 crontab 不可保证
+    （见 test_cron_schedule_coverage 的排程对账），如果重试只挂在 cron 上，
+    「外部平台残留」就会退化成「装了 crontab 才有解」——那正是本批要修的那一半承诺。
     """
     from backend.database import SessionLocal
     from backend.services.user_service import user_service
@@ -76,6 +80,11 @@ async def _purge_sweep_once() -> int:
             session, stale_hours=PURGE_STALE_HOURS
         )
         await session.commit()
+    async with SessionLocal() as session:
+        erasure = await user_service.retry_pending_erasures(session)
+        await session.commit()
+    if erasure["checked"]:
+        logger.info("进程内 PostHog 擦除重试：%s", erasure)
     return len(purged)
 
 
@@ -83,7 +92,7 @@ async def _purge_sweeper() -> None:
     """进程内注销数据物理删除兜底循环。
 
     注销链路是「软删除即时失效 + 异步 purge」：QStash 投递失败 / 未配置 /
-    Vercel Cron 未生效时，软删记录会永久残留（个人数据留存 = 合规风险）。
+    宿主 crontab 未生效时，软删记录会永久残留（个人数据留存 = 合规风险）。
     本循环每 10 分钟扫一次 stale 软删用户，与 /cron/purge-deleted-users 复用
     同一实现（已删表 rowcount=0 天然幂等），多 worker 并发扫描无副作用，
     外部 cron 保留作第二道。
@@ -121,6 +130,11 @@ async def lifespan(_app: FastAPI):
             purge_task.cancel()
             with suppress(asyncio.CancelledError):
                 await purge_task
+        # T2-06：事件生产者那条长连接。开关关时进程压根没建过它，close_producer()
+        # 自己是 no-op，所以这一格不需要读开关——读开关只会多一条「日志里没有但代码里
+        # 有分支」的形状。
+        with suppress(Exception):
+            await close_producer()
         logger.info("lifespan 已停止进程内 purge 兜底循环")
 
 
@@ -171,11 +185,11 @@ app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
 async def health_check():
     """健康检查端点（供外部探活/手动调用）。
 
-    2026-10-17 复核：这一句原文自称由 Vercel Cron 按分钟定时保热，但 `vercel.json` 的 crons
-    里**没有**本路径（12 条排程全是 `/api/v1/cron/*`），`settings.health_check_interval`
-    也没有消费方。今天真的在调它的是 k3s 的存活/就绪探针（`deploy/k8s/40-py-api.yaml:32-41`）。
-    排程口径归 `tests/test_cron_schedule_coverage.py` 看住，无消费方的键按 tasks.md 的 T 桶
-    「只登记不顺手删」——别在这里写成「已定时」。
+    2026-10-18 复核（T0-02）：现役调度源是 `deploy/schedule/crontab`——13 条排程里
+    `/api/v1/cron/health` 有一条每 5 分钟保热，`vercel.json` 同日退役。本路径自身
+    不在 crontab 里，今天真的在调它的是 k3s 的存活/就绪探针
+    （`deploy/k8s/40-py-api.yaml:32-41`）。无消费方的 `settings.health_check_interval`
+    按 tasks.md 的 T 桶「只登记不顺手删」；排程口径归 `tests/test_cron_schedule_coverage.py`。
     """
     from backend.core.response import success
 

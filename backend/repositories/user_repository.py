@@ -5,7 +5,7 @@
 - get_or_create_user：按需创建用户（开发态 anonymous，无鉴权时使用）
 - Streak / 关系等级 / 配额 / 语言 / 推送 Token 的读写
 """
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from typing import Optional
 
 from sqlalchemy import case, select, update
@@ -184,6 +184,20 @@ class UserRepository:
         )
         await db.flush()
         return await self.get_user(db, user_id)
+
+    async def set_quiet_hours(
+        self, db: AsyncSession, user_id: str, start: Optional[time], end: Optional[time]
+    ) -> None:
+        """成对写入免打扰起止（T5-02）；两者同为 None 即关闭。
+
+        刻意不并进 update_settings 的「非 None 才写」语义：关闭这一档必须能把两列
+        真的写回 NULL，而 Optional 参数分不清「未提供」和「置空」——这正是
+        quiet_hours_enabled=false 这个显式开关存在的原因。
+        """
+        await db.execute(
+            update(User).where(User.id == user_id).values(quiet_start=start, quiet_end=end)
+        )
+        await db.flush()
 
     async def update_streak(
         self,

@@ -33,7 +33,8 @@ if settings.database_url.startswith("postgresql+psycopg"):
 elif settings.database_url.startswith("postgresql+asyncpg"):
     _connect_args["statement_cache_size"] = 0
 
-# 异步 engine：Vercel Serverless 场景使用 Transaction pooler 连接串
+# 异步 engine：生产走 Supabase Transaction pooler（端口 6543）连接串——2026-10-18 起
+# 形态为 VPS 常驻容器（docker compose），原 Vercel Serverless 场景已下线。
 engine = create_async_engine(
     settings.database_url,
     pool_pre_ping=True,

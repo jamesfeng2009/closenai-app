@@ -35,14 +35,18 @@ FORBIDDEN_SYMBOLS = ("SessionLocal", "get_db", "APIRouter")
 GEN_ROOT = "backend.gen"
 
 # 靶子清单：改名或删文件会让 test_gate_has_targets 红，防止「扫不到文件＝通过」
-# mq/* 九个文件是 R5（2026-10-16）加进来的；反向登记由
-# backend/tests/test_ai_mq_contract.py::test_mq_files_are_registered_in_the_boundary_gate 守，
+# mq/* 九个文件是 R5（2026-10-16）加进来的；prompts/* 与 mq/handlers/* 是 T2-02（2026-10-18）
+# 加进来的。**递归**反向登记由
+# backend/tests/test_ai_mq_contract.py::test_mq_files_are_registered_in_the_boundary_gate 守
+# （它 rglob ``mq/`` 与 ``prompts/`` 两棵树），
 # 因为本清单的判据是子集——新文件不写进来不会让这里红，只会让禁令静默少扫一个文件。
 EXPECTED_FILES = {
     "__init__.py",
     "llm.py",
     "safety.py",
     "rpc/__init__.py",
+    "prompts/__init__.py",
+    "prompts/observation.py",
     "mq/__init__.py",
     "mq/config.py",
     "mq/topology.py",
@@ -52,6 +56,8 @@ EXPECTED_FILES = {
     "mq/publisher.py",
     "mq/consumer.py",
     "mq/worker.py",
+    "mq/handlers/__init__.py",
+    "mq/handlers/observation.py",
 }
 
 

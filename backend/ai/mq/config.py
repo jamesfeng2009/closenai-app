@@ -95,3 +95,47 @@ def load_switch(getenv: Callable[[str], str | None] | Mapping[str, str] = os.get
         ),
         max_body_bytes=_positive_int(ENV_MAX_BODY, lookup(ENV_MAX_BODY), DEFAULT_MAX_BODY_BYTES),
     )
+
+
+# ── 事件生产者（T2-06，HTTP 进程侧，**默认关**）───────────────────────────────
+#
+# 为什么不并进上面的 `Switch`：那张表描述的是**一个 worker 进程**（预取、超时、排水），
+# 而这里的三格描述的是「HTTP 进程要不要连 broker」。并成一个 dataclass 后，
+# `CLOSEN_MQ_WORKER=1` 会让生产者跟着一起开——那正是「AI 进程与权威写面可分进程」
+# 这层边界要避免的连带（`backend/tests/test_ai_boundary.py` 管的就是这类）。
+# 两个开关共用 `CLOSEN_AMQP_URL` 与 `CLOSEN_MQ_MAX_BODY_BYTES`：地址与字节上限是
+# 传输事实，进程角色才是开关该分开的东西。
+
+ENV_SOURCE_EVENTS = "CLOSEN_SOURCE_EVENTS"
+
+
+@dataclass(frozen=True)
+class ProducerSwitch:
+    enabled: bool
+    url: str
+    max_body_bytes: int
+
+
+def load_producer_switch(
+    getenv: Callable[[str], str | None] | Mapping[str, str] = os.getenv,
+) -> ProducerSwitch:
+    """读事件生产侧的两格；关⇒**零副作用**（不拨号、不声明、不投递）。
+
+    默认关是本批唯一的灰度形状：现网没人接线时，删一条记忆的 HTTP 行为必须与今天
+    逐字相同（多一个连接、多一次 await 都算行为变更）。
+    """
+    lookup = getenv.get if isinstance(getenv, Mapping) else getenv
+    enabled = _flag(lookup(ENV_SOURCE_EVENTS))
+    url = (lookup(ENV_URL) or "").strip()
+    if enabled and not url:
+        raise SwitchError(
+            f"{ENV_SOURCE_EVENTS} 开了但 {ENV_URL} 为空 ⇒ 删除事件会全部落在发布失败那一支，"
+            "拒绝启动这种配置"
+        )
+    return ProducerSwitch(
+        enabled=enabled,
+        url=url,
+        max_body_bytes=_positive_int(
+            ENV_MAX_BODY, lookup(ENV_MAX_BODY), DEFAULT_MAX_BODY_BYTES
+        ),
+    )

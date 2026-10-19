@@ -1,4 +1,5 @@
-"""R5 · AI handler 的注册表（D-R5-12：本批**只交付注册表**，四个域的真候选生产归 R6）。
+"""R5 · AI handler 的注册表（D-R5-12：R5 只交付这张表，四个域的真候选生产归 R6；
+T2-02（2026-10-18）交付了 ``observation`` 那一格，其余三类仍归 R6——见下面的日期段）。
 
 为什么 R5 不写四个 handler：
   ① R3 结案口径逐字是「handler 只做 decode/encode 不内嵌业务分支」；
@@ -7,16 +8,25 @@
      最容易漂的那格），要么把仓储 import 进来（``test_ai_boundary.py:28-33`` 禁的就是这一类）；
   ③ 用户口径「发现的缺陷不顺手修」＋灰度 0 时现网响应字节不许变。
 
-所以本批的结案口径是**管道通了，流量仍是零**：空注册表 ⇒ 任何命令都按 permanent 拒绝、
+所以 R5 的结案口径是**管道通了，流量仍是零**：当时空注册表 ⇒ 任何命令都按 permanent 拒绝、
 进 DLQ、日志逐字点出「R5 交管道、R6 交生产者」。这条不是占位——它让「谁把命令投进来了但
 没人处理」变成一条可观测的记录，而不是一个静默的积压。
 
-handler 的签名（R6 要实现的）：
+**2026-10-18（T2-02）改了这一格的一半**：``observation`` 有了 handler（
+``backend/ai/mq/handlers/observation.py``），生产注册面由组合根
+``backend/services/ai_observation.py:build_registry`` 在**函数体里**装配，不在模块 import 时发生。
+「流量仍是零」这句结论没变，但理由换了——现在缺的是第一段的**发射点**（Go 的
+``task_chain.go:followUpAfter`` 没有指向 ``AITaskObservation`` 的边），不是没人接命令。
+另三类（pattern／insight／proactive）仍按上面那条 permanent 拒绝走，判据见
+``backend/tests/test_go_task_command_body_accepted.py`` 的最后一格。
+
+handler 的签名（pattern／insight／proactive 三类仍要 R6 实现）：
 
     async def handler(command: Command) -> Proposal | Sequence[Proposal] | None
 
 返回 ``None``/空＝「这次没什么可提案」（ACK 掉，不 requeue）；返回**一条**候选；返回多条
-按 D-R5-5 的 id 派生规则会撞 inbox，``pipeline`` 直接以 ``multi_candidate_unsupported`` 拒。
+只在**每条都声明了 ``item_key``** 时放行（T2-02 定的序号规则，见 ``Proposal``），
+否则 ``pipeline`` 按 ``multi_candidate_unsupported`` 拒——两条没有身份的观测本来就该先说清是谁。
 """
 from __future__ import annotations
 
@@ -31,10 +41,17 @@ from backend.ai.mq.contract import (
 
 #: 一个 AI 任务的产出：routing key 用哪个 kind（fact/pattern/insight/evidence/proactive），
 #: body 用 ``closenai.v1.*`` 的 protojson 形态。领域校验不在这里（见 contract 的 docstring）。
+#:
+#: ``item_key``＝D-R5-5 留给「生产者的那一批」定的**同一次生成内的稳定序号**（T2-02 定案）：
+#: 一次命令出多条候选时，它参与派生 ``message_id`` 的尾巴（``contract.candidate_message_id``），
+#: 规则是「这条观测自己的内容」而不是输出顺序、也不是 uuid——重跑同一条命令、模型给出同样
+#: 的观测，id 必须一模一样，否则 inbox 拦不住重复。留空＝这次生成的全部产出只有一条，
+#: id 与 D-R5-5 首稿逐字相同。
 @dataclass(frozen=True)
 class Proposal:
     kind: str
     body: Mapping[str, Any]
+    item_key: str = ""
 
 
 Handler = Callable[["Any"], Awaitable[object]]

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import re
+
+from go_route_table import go_ops, go_table_ops, normalize_param, route_row
 import shutil
 import subprocess
 from pathlib import Path
@@ -100,7 +102,7 @@ def test_deployment_selector_matches_pods_and_service(app: str):
 
 
 def test_probe_paths_match_what_each_runtime_serves():
-    # Go 的 /healthz 是进程就绪探针，不在 98 条契约登记内；Python 的 /health 是契约端点。
+    # Go 的 /healthz 是进程就绪探针，不在 105 条契约登记内；Python 的 /health 是契约端点。
     go = _container(_deployment("go-api"))
     py = _container(_deployment("py-api"))
     assert go["readinessProbe"]["httpGet"]["path"] == "/healthz"
@@ -142,9 +144,7 @@ def test_ingress_is_at_zero_percent_rollout():
     """
     ing = _one("Ingress", "closenai")
     cm = _one("ConfigMap", "closenai-config")
-    go_routes = (ROOT / "go-core" / "internal" / "httpapi" / "server.go").read_text(
-        encoding="utf-8"
-    )
+    registered = go_ops()
 
     go_bound: list[tuple[str, str]] = []
     fallbacks: dict[str, str] = {}
@@ -167,8 +167,8 @@ def test_ingress_is_at_zero_percent_rollout():
         # 这个错位由 test_go_bound_contract_paths_are_registered_in_go 兜住。
         domain = path[len("/api/v1/") :].split("/")[0]
         # 清单声称这个域归 Go，Go 侧就得真有这个域的路由，不然上线即 404。
-        assert f"/api/v1/{domain}" in go_routes, (
-            f"Ingress 把 {path} 指向 go-api，但 server.go 里没有该域的注册路由"
+        assert any(pp.startswith(f"/api/v1/{domain}") for _, pp in registered), (
+            f"Ingress 把 {path} 指向 go-api，但 Go 的声明表里没有该域的任何路由"
         )
         key = f"CLOSEN_CUTOVER_{domain.upper().replace('-', '_')}"
         assert key in cm["data"], f"{path} 指向 go-api 却没有 {key}：灰度无法回滚到 0"
@@ -199,6 +199,8 @@ def _ingress_entries() -> list[dict]:
         for rule in ing["spec"]["rules"]
         for p in rule["http"]["paths"]
     ]
+
+
 
 
 def _matches(entry: dict, contract_path: str) -> bool:
@@ -255,19 +257,17 @@ def test_go_bound_contract_operations_are_registered_in_go():
     """
     entries = _ingress_entries()
     operations = _operations()
-    go_routes = (ROOT / "go-core" / "internal" / "httpapi" / "server.go").read_text(
-        encoding="utf-8")
+    registered = go_ops()
 
     go_answered: list[tuple[str, str]] = []
     for method, path in operations:
         winner = _route(path, entries)
         assert winner, f"{path} 不被任何一条 Ingress 规则覆盖＝生产里根本进不来"
         if winner["backend"] == "go-api":
-            # server.go 的注册形状是 `"GET /api/v1/mood/history"`：
-            # 方法与路径**一起**比，少一个方法就是 405。
-            assert f'"{method} {path}"' in go_routes, (
+            # 方法与路径**一起**比，少一个方法就是 405（真源见 go_registered_ops 的注释）。
+            assert (method, normalize_param(path)) in registered, (
                 f"{method} {path} 被 {winner['path']}（{winner['pathType']}）判给 go-api，"
-                f"但 server.go 没注册这个操作"
+                f"但 Go 没注册这个操作"
             )
             go_answered.append((method, path))
     assert go_answered, "没有任何一个契约操作归 go-api：切流机制在清单上不成立"
@@ -318,7 +318,11 @@ def test_cutover_keys_without_ingress_path_stay_unrouted():
            下一刀的人会按「这个域已经有入口规则了」去改百分比；
         3. 契约面上该域的**每一个方法**（含 Go 没实现的 POST/DELETE）按最长前缀模拟
            仍落 py-api——D-10 的实质不是「GET 不切」，是「整条 path 不切」；
-        4. Go 侧该域的每一个 **GET** 已在 server.go 带方法注册：前三格全绿也可能是
+        4. Go 侧该域的每一个 **GET** 已在声明表里带方法注册。**两侧各读一遍**：
+           生成物 `contracts/cutover-matrix.md`（T6-02 起的对外事实源）＋ 源码
+           `go-core/internal/httpapi/routes.go` 的声明表。只读生成物会漏掉
+           「改了源码没重跑生成器」这一步（2026-10-19 由 mutate_n8_gates 的
+           #227／#228 抓到，两侧同读才是这条的本意）：前三格全绿也可能是
            实现被删（键、值、path 都没变），这一条把那个退路显形。
         5. **本文件盯不到的一格，靠 Go 侧那条闸补**：键进了 ConfigMap 不等于进了
            `cmd/go-api/main.go` 传给 `cutover.New` 的 gate map，而 `cutover.go:91` 对
@@ -332,8 +336,8 @@ def test_cutover_keys_without_ingress_path_stay_unrouted():
     cm = _one("ConfigMap", "closenai-config")
     entries = _ingress_entries()
     operations = _operations()
-    go_routes = (ROOT / "go-core" / "internal" / "httpapi" / "server.go").read_text(
-        encoding="utf-8")
+    registered = go_ops()
+    table = go_table_ops()
 
     def domain_of(key: str) -> str:
         return key[len("CLOSEN_CUTOVER_"):].lower().replace("_", "-")
@@ -376,14 +380,20 @@ def test_cutover_keys_without_ingress_path_stay_unrouted():
                 f"{domain} 是 D-10 的「只声明不上刀」档，本批一条方法都不该切"
             )
             if method == "GET":
-                assert f'"GET {path}"' in go_routes, (
-                    f"GET {path} 在 server.go 没有带方法的注册：{domain} 的读面没实现，"
+                assert ("GET", normalize_param(path)) in registered, (
+                    f"GET {path} 在 Go 的声明表里没有带方法的注册：{domain} 的读面没实现，"
                     "D-10 的理由（只等同 path 的写侧）不成立，这一格得重新谈"
+                )
+                # 同一句话的**源码侧**读法：删了声明但没重跑生成器时，上面那条看不见
+                #（它读的是生成物）。2026-10-19 由 mutate_n8_gates 的 #227／#228 抓到。
+                assert ("GET", normalize_param(path)) in table, (
+                    f"GET {path} 在 routes.go 的声明表里找不到（域键带上的那种形状）："
+                    "生成物还写着它 ⇒ md 已过期，重跑 `cd go-core && go run ./tools/cutovermatrix -write`"
                 )
 
 
 def test_contract_paths_are_routed():
-    """契约面只有两类入口：/api/v1/* 与 app 级 /health（N0 计数的 98 = 97 + 1）。
+    """契约面只有两类入口：/api/v1/* 与 app 级 /health（N0 计数的 105 = 104 + 1）。
 
     N8 之后 /api/v1 之下允许**整段域前缀**（切流一刀），但不得出现别的入口形态。
     """

@@ -4,7 +4,8 @@ N0 契约冻结验收测试。
 被验对象：`contracts/openapi.json`（HTTP 契约基线）与 `contracts/endpoints.md`（端点登记表），
 二者由 `.venv/bin/python scripts/export_contract.py` 生成。
 
-验收口径（tasks.md N0）：**端点清单条数 == router 装饰器计数（97），无未登记端点**。
+验收口径（tasks.md N0）：**端点清单条数 == router 装饰器计数 + 1 条 app 级路由，无未登记端点**
+（条数逐批写在 `test_register_count_equals_decorator_count` 的变更说明里，改路由就要同步）。
 这里把「无未登记」做成集合相等（既不漏也不多），并额外锁三条 Go 侧最容易改坏的事实：
 SSE 端点唯一且事件名齐、PDF 端点按源码计数、业务错误码与 `ErrorCode` 逐值一致。
 改了路由没重跑生成脚本 ⇒ 本文件失败，而不是等到 App 上线才发现契约漂移。
@@ -84,12 +85,18 @@ def test_openapi_baseline_is_current():
 
 
 def test_register_count_equals_decorator_count():
-    """N0 验收：清单条数 == 97 个 router 端点 + app 级路由。"""
+    """N0 验收：清单条数 == 104 个 router 端点 + app 级路由。
+
+    97 → 99：W5 T5-01（2026-10-18）新增 GET/POST /user/consents 两条合规台账端点。
+    99 → 104：T1-01（2026-10-18）新增 /user/export 申请·列表·状态·下载四条，
+    外加 GET /cron/export-jobs 一条队列认领（每 5 分钟）。
+    104 → 105：T1-04（2026-10-18）新增 GET /cron/delivery-audit 一条每日交付审计。
+    """
     router_ops, app_ops = count_decorators()
-    assert router_ops == 97, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
+    assert router_ops == 105, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
     assert app_ops == 1, f"app 级路由应为 1（GET /health），实得 {app_ops}"
     rows = table_rows("## 五、端点登记表")
-    assert len(rows) == router_ops + app_ops == 98
+    assert len(rows) == router_ops + app_ops == 106
 
 
 def test_no_unregistered_or_stale_endpoint():

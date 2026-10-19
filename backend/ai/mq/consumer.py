@@ -199,8 +199,10 @@ class CommandConsumer:
             # 变异靶 M1：把这一行挪到 publish 之前＝永久丢候选（17:91-112）。
             # 到这里的唯一路径是「候选已确认」或「本来就没的可提案」。
             self._stats.acked += 1
-            if decision.candidate is not None:
-                self._stats.produced += 1
+            if decision.candidates:
+                # 一条命令出 N 条候选时逐条计数：`produced` 的口径是「真正确认过的候选条数」，
+                # 把它按「命令条数」记会让「一次生成三条证据」在指标里少算两条。
+                self._stats.produced += len(decision.candidates)
             await message.ack()
             return
 

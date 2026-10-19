@@ -339,11 +339,37 @@ class UserProfileResponse(BaseModel):
     # PATCH 写得进、读不出，界面无法显示开关的真实位置，用户只能盲设。
     # 同样追加在末尾，不打动上面已有字段的序列化顺序。
     push_enabled: bool = False
+    # 免打扰时段（T5-02）：两列为 NULL 即关闭。追加在末尾同样是为了不打动已有字段的
+    # 序列化顺序（切流面逐字比字节序）；GET 不回显就等于「PATCH 写得进、读不出」，
+    # 与上面 push_frequency / push_enabled 两处同一个病，这里一次补齐。
+    quiet_start: Optional[str] = None
+    quiet_end: Optional[str] = None
 
 
 class AIConsentUpdate(BaseModel):
     """AI 数据共享同意更新（5.1.2(i)：用户可随时同意/撤回）。"""
     consent: bool
+
+
+class ConsentUpdate(BaseModel):
+    """单项同意表态（T5-01，Baseline §14.2）。
+
+    `purpose` 用裸 str 而不是 Literal：合法集合只有一处定义（models/consent.py 的
+    ConsentPurpose），写第二份枚举到本文件就是造第二个真源，由 service 层按枚举校验。
+    """
+    purpose: str = Field(..., description="用途键：core_service | ai_processing | proactive_push | analytics | data_export | model_training")
+    granted: bool = Field(..., description="true=授予（刷新 granted_at、清 revoked_at）；false=撤回")
+    version: Optional[str] = Field(None, description="表态所依据的文案版本，缺省为当前版本")
+
+
+class ExportRequest(BaseModel):
+    """通用数据导出申请（T1-01，Baseline §2.2-6「带走」）。
+
+    `scope` 用裸 str＋可选：合法集合在服务层按 `EXPORT_SCOPES` 校验（与 ConsentUpdate
+    同一口径，避免第二份枚举）。省略即 `all`，所以老客户端不发体也能申请——本批不新增
+    必填字段，契约面是纯加法。
+    """
+    scope: Optional[str] = Field(None, description="导出范围，当前只有 all")
 
 
 class UserSettingsUpdate(BaseModel):
@@ -358,6 +384,13 @@ class UserSettingsUpdate(BaseModel):
     mbti_type: Optional[str] = None  # 引导流程中用户已知的 MBTI 类型（P1-F05）
     conversation_style: Optional[str] = None  # AI 对话风格（P1-F04）：warm | rational | philosophical
     enneagram_type: Optional[str] = None  # 九型人格编号 1-9（P0-F06：用户主动输入）
+    # ── 免打扰时段（T5-02）──
+    # 起止都是用户本地 HH:MM；两列任一为 NULL 即关闭（in_quiet_hours 的口径）。
+    # 关闭必须能表达：本文件的 Optional 语义是「未提供」而不是「置空」，所以关这一档
+    # 走 quiet_hours_enabled=false（service 把两列一起写 NULL），不靠传 null 蒙混。
+    quiet_start: Optional[str] = None
+    quiet_end: Optional[str] = None
+    quiet_hours_enabled: Optional[bool] = None
 
     @field_validator("enneagram_type")
     @classmethod
@@ -413,6 +446,33 @@ class UserSettingsUpdate(BaseModel):
         if hour > 23 or minute > 59:
             raise ValueError(f"push_time 时分越界: {v}")
         return v
+
+    @field_validator("quiet_start", "quiet_end")
+    @classmethod
+    def _validate_quiet_moment(cls, v: Optional[str]) -> Optional[str]:
+        """免打扰起止时刻：HH:MM 且时分合法（口径同 push_time）。"""
+        if v is None:
+            return v
+        if not re.fullmatch(r"\d{2}:\d{2}", v):
+            raise ValueError(f"免打扰时刻必须为 HH:MM 格式: {v}")
+        hour, minute = int(v[:2]), int(v[3:])
+        if hour > 23 or minute > 59:
+            raise ValueError(f"免打扰时刻时分越界: {v}")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_quiet_window(self) -> "UserSettingsUpdate":
+        """窗口自身的两条硬规则（T5-02）：start≠end；开启时起止必须齐。
+
+        start==end 会让窗口退化成「全天」或「全不」——取决于实现，这种歧义值不能进库。
+        跨零点（22:00–08:00）是合法输入，不在这里拒绝。
+        """
+        if self.quiet_start is not None and self.quiet_end is not None:
+            if self.quiet_start == self.quiet_end:
+                raise ValueError("免打扰起止时刻不能相同（窗口会退化成全天或全不）")
+        if self.quiet_hours_enabled and (self.quiet_start is None or self.quiet_end is None):
+            raise ValueError("开启免打扰必须同时提供 quiet_start 与 quiet_end")
+        return self
 
 
 class PushTokenRequest(BaseModel):

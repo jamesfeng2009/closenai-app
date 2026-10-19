@@ -5,6 +5,8 @@
 - get_user / get_by_email / get_by_apple_id / list_all：过滤 deleted 用户
 - get_or_create_user：deleted 用户抛 USER_NOT_FOUND（不建 orphan、不 PK 冲突）
 - purge_user：物理删除幂等（二次调用 rowcount 全 0）
+- T1-02 对账闸：Base.metadata 每张带 user_id 的表 ∈ PURGE_TARGETS ∪ PURGE_EXEMPT_TABLES，
+  且豁免逐条带理由；豁免表的行为证人＝purge_user 刚写的重试行不会被自己删掉
 - 同标识符注销后可重新注册：逻辑层查重跳过 deleted（partial unique index 行为靠 PG 验证）
 
 注：sqlite 测试库用 Base.metadata.create_all 建表，不执行 alembic 迁移的
@@ -25,7 +27,7 @@ from backend.models.generation_run import AiGenerationRun
 from backend.models.memory import Memory
 from backend.models.push import PushToken
 from backend.models.user import User
-from backend.repositories import auth_repository, user_repository
+from backend.repositories import auth_repository, erasure_repository, user_repository
 from backend.services.user_service import user_service
 
 
@@ -176,20 +178,55 @@ async def test_purge_user_idempotent(db):
 
 
 def test_purge_covers_every_user_scoped_table():
-    """闸门：Base.metadata 里每张带 user_id 的表都必须在 PURGE_TARGETS 登记。
+    """闸门：Base.metadata 里每张带 user_id 的表都必须在 PURGE_TARGETS 或显式豁免表里。
 
     建表时漏登记 = 注销后残留用户数据（2026-10-13 实测 O4 的 ai_generation_runs 就漏过一次），
     所以按元数据逐表对账，而不是靠人记得改 purge 循环。
+
+    T1-02 加的第二段判据跟第一段一样重要：豁免表 `PURGE_EXEMPT_TABLES` 是这句话的反面，
+    所以它自己也要被核——每一格必须是真实存在、确实带 user_id、且没同时出现在删除清单里，
+    理由不许留空。否则「加一张漏登记的表」只要顺手写个空理由就能过闸，这条闸就白立了。
     """
     import backend.models  # noqa: F401  触发全部 ORM 模型注册进 Base.metadata
     from backend.database import Base
-    from backend.services.user_service import PURGE_TARGETS
+    from backend.services.user_service import PURGE_EXEMPT_TABLES, PURGE_TARGETS
 
-    user_scoped = {t.name for t in Base.metadata.tables.values() if "user_id" in t.columns}
+    tables = Base.metadata.tables
+    user_scoped = {t.name for t in tables.values() if "user_id" in t.columns}
     covered = {key for _, key in PURGE_TARGETS} - {"users"}
-    assert user_scoped == covered, (
-        f"仅表有={sorted(user_scoped - covered)} 仅清单有={sorted(covered - user_scoped)}"
+    assert user_scoped == covered | set(PURGE_EXEMPT_TABLES), (
+        f"仅表有={sorted(user_scoped - covered - set(PURGE_EXEMPT_TABLES))} "
+        f"仅清单有={sorted((covered | set(PURGE_EXEMPT_TABLES)) - user_scoped)}"
     )
+    # 豁免的每一格都得是「真的带 user_id 的表 + 一个非空理由」
+    for name, reason in PURGE_EXEMPT_TABLES.items():
+        assert name in user_scoped, f"豁免表 {name} 根本不带 user_id，豁免无意义（该删掉这格）"
+        assert name not in covered, f"{name} 既在删除清单又在豁免表：两条判据互相抵消"
+        assert isinstance(reason, str) and len(reason.strip()) >= 20, (
+            f"豁免表 {name} 的理由太短或为空——豁免必须说清为什么允许残留"
+        )
+    # 正向证人：删除清单不是空集，且点名两张必须删的表（防「清单被清空后本闸恒绿」）
+    assert {"chat_messages", "users"} <= {key for _, key in PURGE_TARGETS}
+    assert len(PURGE_TARGETS) >= 40, f"删除清单只剩 {len(PURGE_TARGETS)} 项，不像真的"
+
+
+async def test_purge_user_does_not_delete_its_own_erasure_retry_row(db, monkeypatch):
+    """豁免不是纸面声明：purge_user 跑完后，它刚写的重试行必须还在。
+
+    这条是 PURGE_EXEMPT_TABLES 唯一的行为证人——顺序侥幸（循环在前、写行在后）在
+    「先写行后删循环」这种重构下会静默变成残留丢失，所以按真实调用链断言而不是只看清单。
+    """
+
+    async def failing_erase(distinct_id: str) -> dict:
+        return {"erased": False, "reason": "http_500"}
+
+    monkeypatch.setattr("backend.services.user_service.erase_person_data", failing_erase)
+    user = await _make_user(db)
+    counts = await user_service.purge_user(db, user.id)
+
+    assert counts["users"] == 1
+    assert await user_repository.get_user_any_status(db, user.id) is None
+    assert await erasure_repository.pending_user_ids(db) == [user.id]
 
 
 async def test_purge_user_deletes_related_data(db):

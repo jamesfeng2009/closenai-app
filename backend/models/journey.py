@@ -9,7 +9,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, false, func
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, false, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -33,6 +33,11 @@ JOURNEY_STATUSES = ("pending", "sent", "seen", "skipped")
 
 # 危机转介命中类别（§5.16 ④ 两类；规范 §二）
 SAFETY_HIT_KINDS = ("self_harm", "relationship_violence")
+
+# 日序唯一索引的谓词（T5-03）：迁移件 c3e5a7b9d1f2 里是同一句，改一边就得改另一边。
+_USER_KIND_DAY_PREDICATE = text(
+    "event_kind <> 'commitment_follow_up' AND status <> 'skipped'"
+)
 
 
 class JourneyEvent(Base):
@@ -64,12 +69,23 @@ class JourneyEvent(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    # 幂等：预写/重试前先按 (user_id, event_kind, day_no) 查重（仓库层判定）。
-    # 不在表上加唯一约束——承诺回访同一日可能有多条不同承诺，且与 register_push_token
-    # 既有约定一致：避免历史脏数据阻塞迁移，靠事务内查重保证。
+    # 幂等：预写/重试前先按 (user_id, event_kind, day_no) 查重（仓库层判定），
+    # 表上另有**部分**唯一索引兜底（T5-03，迁移件 c3e5a7b9d1f2）：
+    #   · 排除 commitment_follow_up——§5.18 同一日回访不同承诺是合法形状
+    #     （journey_repository.schedule 的 dedupe=False 分支）；
+    #   · 排除 status='skipped'——去重时多余行置 skipped、永不删行，继续占键。
     __table_args__ = (
         Index("ix_journey_events_status_scheduled", "status", "scheduled_at"),
         Index("ix_journey_events_user_kind_day", "user_id", "event_kind", "day_no"),
+        Index(
+            "uq_journey_events_user_kind_day",
+            "user_id",
+            "event_kind",
+            "day_no",
+            unique=True,
+            postgresql_where=_USER_KIND_DAY_PREDICATE,
+            sqlite_where=_USER_KIND_DAY_PREDICATE,
+        ),
     )
 
 

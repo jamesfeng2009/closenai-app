@@ -3,9 +3,9 @@
 
 对应 P0-F04 Streak + 关系等级、配额、订阅档位。
 """
-from datetime import date, datetime
+from datetime import date, datetime, time
 
-from sqlalchemy import Boolean, Date, DateTime, Integer, String, false, func
+from sqlalchemy import Boolean, Date, DateTime, Integer, String, Time, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -31,6 +31,11 @@ class User(Base):
     push_frequency: Mapped[str] = mapped_column(String(10), default="daily")
     # 推送总开关（P1-F05 引导默认关闭）
     push_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 免打扰时段（T5-02）：用户本地时区的起止时刻，跨零点合法（22:00–08:00）。
+    # 任一列为 NULL == 关闭（in_quiet_hours 的口径）；两列必须成对写或成对清空，
+    # 由 user_service.update_settings 保证（PATCH 的 quiet_hours_enabled=false 走清空）。
+    quiet_start: Mapped[time | None] = mapped_column(Time, nullable=True)
+    quiet_end: Mapped[time | None] = mapped_column(Time, nullable=True)
     # 特殊事件推送月度计数（P1-F01 §6：里程碑/关心类推送每月 ≤4 次，按用户本地月跨月重置）
     special_push_count: Mapped[int] = mapped_column(Integer, default=0)
     special_push_month: Mapped[str | None] = mapped_column(String(7), nullable=True)

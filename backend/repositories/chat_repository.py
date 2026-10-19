@@ -9,6 +9,7 @@ from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.time_utils import local_day_start_utc
@@ -27,8 +28,13 @@ class ChatRepository:
         message_type: str = "reply",
         ai_generated: bool = False,
         memory_ids: Optional[List[str]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> ChatMessage:
-        """写入一条消息。"""
+        """写入一条消息（低层写入，撞唯一约束会抛）。
+
+        主动消息的幂等写入请用 `create_idempotent`；这里保持"抛"的语义，
+        因为对话回复等路径本就该让错误浮出来。
+        """
         message = ChatMessage(
             id=str(uuid4()),
             user_id=user_id,
@@ -37,10 +43,55 @@ class ChatRepository:
             content=content,
             ai_generated=ai_generated,
             memory_ids=",".join(memory_ids) if memory_ids else None,
+            idempotency_key=idempotency_key,
         )
         db.add(message)
         await db.flush()
         return message
+
+    async def create_idempotent(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        role: str,
+        content: str,
+        message_type: str,
+        idempotency_key: str,
+        ai_generated: bool = False,
+        memory_ids: Optional[List[str]] = None,
+    ) -> tuple[ChatMessage, bool]:
+        """带幂等键写入；返回 (行, 是否本次新建)。
+
+        撞 uq_chat_messages_proactive_key（并发双写 / QStash 重试 / 多实例）时回滚到
+        savepoint 并返回既有行、created=False——调用方据此判定「已发送」，
+        不能抛 500（Baseline 不变量 9：重复触达是幂等成功，不是故障）。
+        """
+        try:
+            async with db.begin_nested():
+                message = await self.create(
+                    db,
+                    user_id,
+                    role,
+                    content,
+                    message_type=message_type,
+                    ai_generated=ai_generated,
+                    memory_ids=memory_ids,
+                    idempotency_key=idempotency_key,
+                )
+            return message, True
+        except IntegrityError:
+            existing = await self.get_by_idempotency_key(db, idempotency_key)
+            if existing is None:
+                raise
+            return existing, False
+
+    async def get_by_idempotency_key(
+        self, db: AsyncSession, idempotency_key: str
+    ) -> Optional[ChatMessage]:
+        result = await db.execute(
+            select(ChatMessage).where(ChatMessage.idempotency_key == idempotency_key)
+        )
+        return result.scalars().first()
 
     async def get_history(
         self, db: AsyncSession, user_id: str, limit: int = 20

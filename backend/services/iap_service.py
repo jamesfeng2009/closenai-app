@@ -31,6 +31,7 @@ from backend.repositories import (
     subscription_repository,
     user_repository,
 )
+from backend.services.delivery_service import DeliveryEvent, emit
 from backend.services.journey_service import journey_service
 
 logger = logging.getLogger("closenai.iap")
@@ -231,11 +232,60 @@ class IAPService:
         2. Sandbox → sandbox.itunes.apple.com；Production → buy.itunes.apple.com
         3. 校验通过 → 写入 subscriptions + receipts → 更新用户 tier
         4. 校验失败 → 拒绝
+
+        三步各留一条交付事件（T1-04）：started / succeeded / failed。
+        为什么在 `verify` 这层而不是 `_validate` 里各处埋点：`verify` 是外部唯一入口，
+        「付款成功了但后面没出货」的那条链要从这里数起才不会漏掉异常出口——
+        `_validate` 抛 AppException（超时、收据跨账号）时根本没有返回体，
+        只在 return 分支埋点就会把最该告警的那几种失败数成 0。
         """
-        result = await self._validate(db, user_id, receipt_data, product_id, is_sandbox)
+        emit(
+            DeliveryEvent.IAP_VERIFY_STARTED,
+            user_id=user_id,
+            source="iap",
+            action="verify",
+            tier=_map_tier(product_id),
+        )
+        try:
+            result = await self._validate(db, user_id, receipt_data, product_id, is_sandbox)
+        except AppException as exc:
+            await self._emit_verify_failed(db, user_id, f"app_error_{exc.code}")
+            raise
+        except Exception as exc:  # noqa: BLE001 - 只为数清失败，异常原样上抛、不改控制流
+            await self._emit_verify_failed(db, user_id, f"unexpected_{type(exc).__name__}")
+            raise
         if not result.get("valid"):
+            # reason 取自 _validate 的机器码，绝不取 message：message 是给人看的文案，
+            # 可能带 Apple 状态原文，进了事件就等于把自由文本推到分析平台。
+            await self._emit_verify_failed(db, user_id, result.get("reason") or "invalid")
             return result
+        user = await user_repository.get_user(db, user_id)
+        emit(
+            DeliveryEvent.IAP_VERIFY_SUCCEEDED,
+            user=user,
+            source="iap",
+            action="verify",
+            result="ok",
+            tier=str(result.get("tier") or ""),
+        )
         return result
+
+    async def _emit_verify_failed(self, db, user_id: str, reason: str) -> None:
+        """收据校验没走通：数一条 failed，同时尽量把 consent 判定拿到。
+
+        用户行可能已经不存在（校验一个不存在账号的收据），那种情况 `emit` 只会写日志、
+        回报 `relay=no_user`——不把"没中继"说成"已中继"，与 D-G18 同一口径。
+        """
+        user = await user_repository.get_user(db, user_id)
+        emit(
+            DeliveryEvent.IAP_VERIFY_FAILED,
+            user=user,
+            user_id=user_id,
+            source="iap",
+            action="verify",
+            result="failed",
+            reason=reason,
+        )
 
     async def _validate(
         self,
@@ -284,7 +334,15 @@ class IAPService:
                 )
                 await user_repository.update_tier(db, user_id, result["tier"])
                 return result
-            return {"valid": False, "tier": "free", "expires_at": None, "is_trial": False, "message": "IAP 未配置共享密钥"}
+            return {
+                "valid": False,
+                "tier": "free",
+                "expires_at": None,
+                "is_trial": False,
+                # reason 是给交付事件用的机器码；message 给人看，两条通道各留各的口径。
+                "reason": "not_configured",
+                "message": "IAP 未配置共享密钥",
+            }
 
         url = VERIFY_SANDBOX_URL if is_sandbox else VERIFY_PROD_URL
         payload = {
@@ -309,7 +367,7 @@ class IAPService:
             ) from exc
         except httpx.HTTPError as exc:
             logger.error("App Store 校验请求失败: %s", exc)
-            return {"valid": False, "message": "App Store 校验服务不可用"}
+            return {"valid": False, "reason": "apple_unavailable", "message": "App Store 校验服务不可用"}
 
         status = data.get("status")
 
@@ -333,10 +391,20 @@ class IAPService:
                     "App Store 校验超时，请稍后再试",
                 ) from exc
             except httpx.HTTPError:
-                return {"valid": False, "message": "App Store 校验服务不可用"}
+                return {
+                    "valid": False,
+                    "reason": "apple_unavailable_on_retry",
+                    "message": "App Store 校验服务不可用",
+                }
 
         if status != 0:
-            return {"valid": False, "message": f"App Store 校验失败 ({status})"}
+            return {
+                "valid": False,
+                # Apple 的 status 是数字机器码（21007 之类），可以直接进事件；
+                # 换成 message 里的自由文本就变成把外部原文往分析平台推。
+                "reason": f"apple_status_{status}",
+                "message": f"App Store 校验失败 ({status})",
+            }
 
         # 解析收据内全部交易（买断 + 订阅共存）
         transactions = _collect_transactions(data)
@@ -350,7 +418,11 @@ class IAPService:
         ]
         if not subscription_tx:
             if not entitlements:
-                return {"valid": False, "message": "收据内无有效交易"}
+                return {
+                    "valid": False,
+                    "reason": "no_transactions",
+                    "message": "收据内无有效交易",
+                }
             # 收据内只有买断 → 不进入订阅链路（不改 tier），仅留审计收据行
             await subscription_repository.create_receipt(
                 db,

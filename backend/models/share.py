@@ -11,6 +11,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
 
+# `share_exports.period` 的 Life Archive 取值（String(20) 内）。
+# 放这里而不是只放 share_service：交付审计（delivery_service）要按同一格筛行，
+# 而它不能 import share_service——share_service 反过来要 import 审计侧的事件发射器，
+# 常量留在服务层就是一条循环 import，抄一份字面量就是第二个真源。
+LIFE_ARCHIVE_PERIOD = "life_archive"
+
 
 class ShareExport(Base):
     __tablename__ = "share_exports"

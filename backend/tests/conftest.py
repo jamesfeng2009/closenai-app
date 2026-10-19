@@ -133,6 +133,7 @@ _TIME_PATCH_TARGETS = {
     "backend.services.memory_service": ("local_day_start_utc", "utc_now"),
     "backend.services.mood_service": ("local_day_start_utc", "local_today"),
     "backend.services.user_service": ("local_today", "utc_now"),
+    "backend.services.export_service": ("utc_now",),
     "backend.services.personality_service": ("local_day_start_utc", "local_now", "utc_now"),
     "backend.services.growth_service": ("local_day_start_utc", "local_now", "local_today", "utc_now"),
     "backend.services.bedtime_service": ("local_day_start_utc", "local_today"),

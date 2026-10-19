@@ -63,10 +63,12 @@ class ErrorCode(IntEnum):
     SUBSCRIPTION_ALREADY_EXISTS = 40902
     EMAIL_ALREADY_USED = 40903  # 邮箱已被注册
     USERNAME_ALREADY_USED = 40904  # 用户名已被占用
+    EXPORT_NOT_READY = 40905  # T1-01：job 还在排队/生成中，或产物已过期——下载路径的状态冲突
     # 限流
     LLM_RATE_LIMITED = 42901
     EMAIL_SEND_RATE_LIMITED = 42902  # 验证码发送频率超限（60s 冷却 / 日上限）
     SHARE_RESOLVE_RATE_LIMITED = 42903  # 公开端点 /share/resolve 单 IP 超窗口次数（防批量探测）
+    EXPORT_REQUEST_TOO_FREQUENT = 42904  # T1-01：同一用户 24h 内已有未失败的导出 job
 
     # ── 5xx 服务端 ──
     INTERNAL_ERROR = 500
@@ -78,6 +80,7 @@ class ErrorCode(IntEnum):
     PUSH_FAILED = 50004
     IAP_VERIFY_FAILED = 50005
     IAP_VERIFY_TIMEOUT = 50006  # B7：App Store 校验应用级超时（asyncio.wait_for 兜底）
+    EXPORT_ARTIFACT_MISSING = 50007  # T1-01：库里说 ready、盘上却没有文件（卷没挂对的那一种）
 
 
 class AppException(Exception):

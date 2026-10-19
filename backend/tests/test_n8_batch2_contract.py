@@ -36,6 +36,8 @@ import yaml
 from backend.main import app
 from backend.services import curriculum_service as curriculum_module
 
+from go_route_table import go_ops, route_row
+
 ROOT = Path(__file__).resolve().parents[2]
 GO = ROOT / "go-core"
 FIXTURE = GO / "testdata" / "n8_contract.json"
@@ -287,12 +289,22 @@ def test_go_registers_both_curriculum_routes():
     注册串带方法前缀（stdlib ServeMux 的 `GET /path` 模式），所以这里比的是整条模式，
     不只是 path——少了方法前缀会退化成「任意方法都收」，那是另一种契约。
     """
-    src = _go("internal/httpapi/server.go")
-    assert 's.mux.HandleFunc("GET /api/v1/curriculum/week"' in src
-    assert 's.mux.HandleFunc("POST /api/v1/curriculum/{event_id}/read"' in src
-    # 两条都必须在 batch2 != nil 的保护块里：机制没接线时 Go 不该抢先回答这一域。
-    guard = re.search(r"if s\.batch2 != nil \{(.*?)\n\t\}", src, re.S)
-    assert guard and "curriculum" in guard.group(1), "curriculum 路由没挂在批 2 的接线开关下"
+    # T6-02 起注册面住在 `internal/httpapi/routes.go` 的声明表里（域键与批次开关都是表字段），
+    # 所以这里比的是**表里的形状**：方法＋路径＋域键＋挂在哪个批次开关下，逐字段核。
+    # 「两条都必须在批 2 开关下」这句话没有放松：gated 是这条声明的一部分，比不出来就是红。
+    for method, path in (
+        ("GET", "/api/v1/curriculum/week"),
+        ("POST", "/api/v1/curriculum/{event_id}/read"),
+    ):
+        assert route_row(method, path, "curriculum", "s.batch2 != nil"), (
+            f"声明表里 {method} {path} 不是「domain=curriculum 且 gated 批 2」的形状："
+            "域键错＝切流矩阵把它算进别的域；开关丢＝机制没接线时 Go 会抢先回答这一域"
+        )
+    # 反向证人：生成物（Go 从同一张表生成、并由 path_method_matrix_test.go 钉住与现账同源）
+    # 里这两条也在。两侧不同源（一侧源码表字段，一侧生成物表格），漂了会红。
+    assert {("GET", "/api/v1/curriculum/week"),
+            ("POST", "/api/v1/curriculum/{}/read")} <= go_ops(), (
+        "矩阵里没有这两条 ⇒ routes.go 与 contracts/cutover-matrix.md 不同源（重跑生成器）")
 
 
 def test_fixture_curriculum_group_covers_the_branches():

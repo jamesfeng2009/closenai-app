@@ -9,7 +9,7 @@
     POST   /api/v1/memories/version        — 信念演变记录
     DELETE /api/v1/memories/{memory_id}    — 删除记忆（合规：用户数据删除权）
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.auth import get_current_user
@@ -22,6 +22,7 @@ from backend.models.schemas import (
 )
 from backend.repositories import memory_repository
 from backend.services.memory_service import MemoryService, memory_service
+from backend.services.source_events import schedule_source_deleted
 
 router = APIRouter(route_class=CommitBeforeResponseRoute)
 
@@ -122,11 +123,18 @@ async def version_memory(
 @router.delete("/memories/{memory_id}")
 async def delete_memory(
     memory_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
 ):
-    """删除单条记忆（合规：用户可随时删除自己的数据）。"""
+    """删除单条记忆（合规：用户可随时删除自己的数据）。
+
+    T2-06：`source_records` 是薄指针，删掉这一行**不会**让已入账的依据自己失效，
+    所以这里登记一条 `source.deleted`，由路由层在提交之后投给 Go 的传播面。
+    顺序是有判据的：投在提交前＝Go 读到的还是翻转前的自己。
+    """
     deleted = await memory_repository.delete(db, memory_id, user_id)
     if not deleted:
         raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在 / Memory not found")
+    schedule_source_deleted(request, user_id=user_id, source_id=memory_id)
     return success({"deleted": True})

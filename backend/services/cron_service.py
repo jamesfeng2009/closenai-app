@@ -1,11 +1,11 @@
 """
 定时任务服务 (P0-F01/P0-F03/P0-F07/P1-F01)。
 
-管理 Vercel Cron 触发的定时任务：主动消息生成、签到轻提醒、周洞察生成、
+管理 宿主 crontab 触发的定时任务：主动消息生成、签到轻提醒、周洞察生成、
 连续负面关心推送、事件后 3-7 天主动跟进（QStash 每日调度）。
 
 触发模型（PRD P0-F01）：
-- Vercel Cron 每小时触发一次
+- 宿主 crontab 每小时触发一次
 - 对每个用户，仅当其「本地时区当前小时 == push_time（默认 9:00）+ 每用户确定性抖动
   （hash(user_id+日期) % 31 - 15 分钟）所在小时」才生成，±15 分钟抖动把全量用户
   打散到不同 cron 批次；QStash 模式下再用 Upstash-Delay 把分钟级落点精确到目标时刻
@@ -34,11 +34,13 @@ from backend.config import settings
 from backend.core import copy
 from backend.ai.llm import llm
 from backend.core.time_utils import (
+    in_quiet_hours,
     local_day_start_utc,
     local_now,
     local_today,
     safe_zoneinfo,
     utc_now,
+    user_in_quiet_hours,
 )
 from backend.models.user import User
 from backend.repositories import (
@@ -144,7 +146,7 @@ class CronService:
     """定时任务管理服务。"""
 
     async def dispatch_daily_messages(self, db: AsyncSession, timezone_group: str) -> Dict[str, Any]:
-        """主动消息生成分发（Vercel Cron 每小时触发）。
+        """主动消息生成分发（宿主 crontab 每小时触发）。
 
         按用户本地时区窗口过滤：只有本地时间命中「最佳发送小时（默认 push_time，
         活跃时段优化后可为活跃中位小时）± 每用户确定性抖动」所在小时的用户
@@ -190,7 +192,17 @@ class CronService:
         user_ids = [u.id for u, _ in due_users]
         batches = [user_ids[i:i + BATCH_SIZE] for i in range(0, len(user_ids), BATCH_SIZE)]
 
-        result = {"processed": 0, "success": 0, "failed": 0, "skipped_silent": 0, "skipped_already_sent": 0}
+        result = {
+            "processed": 0,
+            "success": 0,
+            "failed": 0,
+            "skipped_silent": 0,
+            "skipped_already_sent": 0,
+            # 免打扰命中（T5-02）／频率 off（T5-05）：聚合里必须有这两个键，否则
+            # `for key in result` 的累加循环会把它们当成不存在、批处理里数到的用户从响应里消失。
+            "skipped_quiet": 0,
+            "skipped_off": 0,
+        }
         for batch in batches:
             r = await self.process_batch(db, batch)
             for key in result:
@@ -206,7 +218,7 @@ class CronService:
     async def dispatch_journey_events(
         self, db: AsyncSession, limit: int = JOURNEY_BATCH_SIZE
     ) -> Dict[str, Any]:
-        """第一周剧本调度（架构方案 §二 M2，Vercel Cron 每小时触发）。
+        """第一周剧本调度（架构方案 §二 M2，宿主 crontab 每小时触发）。
 
         扫描 `scheduled_at <= now AND status = pending` 的到期事件，逐事件交给
         journey_service.deliver 做频控判定 + 模板渲染 + 投递；内容零 LLM。
@@ -360,6 +372,8 @@ class CronService:
         failed = 0
         skipped_silent = 0
         skipped_already_sent = 0
+        skipped_quiet = 0
+        skipped_off = 0
         for uid in user_ids:
             try:
                 status = await self._process_user(db, uid)
@@ -368,6 +382,10 @@ class CronService:
                     success += 1
                 elif status == "already_sent":
                     skipped_already_sent += 1
+                elif status == "skipped_quiet":
+                    skipped_quiet += 1
+                elif status == "skipped_off":
+                    skipped_off += 1
                 else:
                     skipped_silent += 1
             except Exception as exc:  # noqa: BLE001
@@ -380,12 +398,14 @@ class CronService:
             "failed": failed,
             "skipped_silent": skipped_silent,
             "skipped_already_sent": skipped_already_sent,
+            "skipped_quiet": skipped_quiet,
+            "skipped_off": skipped_off,
         }
 
     async def _process_user(self, db: AsyncSession, uid: str) -> str:
         """为单个用户生成并下发主动消息（事务边界由调用方控制）。
 
-        返回 "sent" / "already_sent" / "skipped"。
+        返回 "sent" / "already_sent" / "skipped" / "skipped_quiet" / "skipped_off"。
 
         行锁串行化：加载用户时即对用户行加 FOR UPDATE，确保「今日已发去重检查」
         与「消息写入」在同一事务内串行完成，防止 QStash 回调超时重试时两个事务
@@ -397,6 +417,20 @@ class CronService:
         # 合规：未同意 AI 数据共享的用户不生成/推送 AI 内容（5.1.2(i)）
         if not user.ai_consent:
             return "skipped"
+        # 免打扰时段（T5-02）：命中即整轮跳过，**先于配额与写库**。
+        # 放在 push 之前是不够的：那样消息照样落库、当日配额照样被吃掉，用户第二天
+        # 打开 App 会看到"昨晚那条"并少掉一次主动触达机会——静默变成了顺延而不是取消。
+        if user_in_quiet_hours(user, local_now(user.timezone)):
+            logger.info("免打扰时段命中，本轮不生成不投递 user=%s", uid)
+            return "skipped_quiet"
+        # 频率档 off（T5-05）：用户文案承诺的是「不再主动发消息」（pushFreqHint.off），
+        # 而它此前只拦在推送那一步——消息每天照样落库、当日配额照样吃掉，关掉开关第二天
+        # 打开 App 还是能看到 AI 开场。与免打扰同一形状的病，同一处置：门在写库与配额之前。
+        # push_enabled 不在这里拦：该列**默认 False**，把它当成「不生成」会把从未碰过这个
+        # 开关的存量用户整体静音；它管的是投递（见下面发送门）。这一处口径差异已登记任务板。
+        if user.push_frequency == "off":
+            logger.info("频率档 off，本轮不生成不投递 user=%s", uid)
+            return "skipped_off"
         language = user.language or "en"
 
         # ── 今日已发去重：cron 重复触发/多实例并发不重复发送 ──
@@ -438,9 +472,15 @@ class CronService:
             if message is None:
                 return "skipped"
 
-        chat_msg = await chat_repository.create(
-            db, uid, "assistant", message, message_type="proactive", ai_generated=True
+        # 幂等键（T5-03）：`proactive:<user_id>:<本地日>:<slot>`。slot 恒 0 是刻意的——
+        # 一天一条 AI 开场是 §5.19.3 的铁律，槽位多了就等于允许一天多条。
+        key = f"proactive:{uid}:{local_today(user.timezone).isoformat()}:0"
+        chat_msg, created = await chat_repository.create_idempotent(
+            db, uid, "assistant", message, "proactive", key, ai_generated=True
         )
+        if not created:
+            # 并发/重试的另一路已经写过同一键：本轮视为已发送，不再推第二遍
+            return "already_sent"
         # 人格化推送：按频率档位 + 特殊事件月度上限过滤（PRD P1-F01 §6）
         if user.push_enabled and user.push_frequency != "off":
             milestone = self._milestone_day(user)
@@ -497,7 +537,7 @@ class CronService:
         )
 
     async def dispatch_mood_reminders(self, db: AsyncSession) -> Dict[str, Any]:
-        """签到轻提醒分发（PRD P0-F03 §7，Vercel Cron 每小时触发）。
+        """签到轻提醒分发（PRD P0-F03 §7，宿主 crontab 每小时触发）。
 
         触发窗口：用户本地「push_time + 2 小时」且当日仍未签到 → 推送轻提醒。
         提醒是纯推送（静态模板，非 LLM 内容）：不计配额、不写对话流、
@@ -547,7 +587,7 @@ class CronService:
         return "sent"
 
     async def dispatch_bedtime_reminders(self, db: AsyncSession) -> Dict[str, Any]:
-        """睡前复盘提醒分发（PRD §5.16 S1，Vercel Cron 每小时触发）。
+        """睡前复盘提醒分发（PRD §5.16 S1，宿主 crontab 每小时触发）。
 
         本地 22:00–23:30 固定窗口：用户本地 22 点桶推送一次（每小时 cron 命中
         一桶，天然每日一条）。门控：推送偏好（daily 档）、近 24h 危机命中停推、
@@ -598,7 +638,7 @@ class CronService:
         return "sent"
 
     async def dispatch_curriculum_generation(self, db: AsyncSession) -> Dict[str, Any]:
-        """Growth Curriculum 周规划分发（PRD §5.17，Vercel Cron 每小时触发）。
+        """Growth Curriculum 周规划分发（PRD §5.17，宿主 crontab 每小时触发）。
 
         用户本地周日 21 点桶预生成下周 7 张主题卡（Rule 优先 + LLM 周规划）。
         拉取式消费：只落 journey_events 首页池，不推送。素材不足/已生成的用户
@@ -635,7 +675,7 @@ class CronService:
         }
 
     async def dispatch_trial_reminders(self, db: AsyncSession) -> Dict[str, Any]:
-        """试用到期提醒分发（PRD P1-F02 §4，Vercel Cron 每日触发）。
+        """试用到期提醒分发（PRD P1-F02 §4，宿主 crontab 每日触发）。
 
         扫描「未来 trial_remind_hours（默认 24h）内到期且未提醒」的试用订阅，
         推送提醒（按用户语言）；每条订阅只提醒一次（trial_reminder_sent 标记，

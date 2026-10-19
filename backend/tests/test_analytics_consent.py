@@ -4,6 +4,10 @@
 users 表一直有独立的 analytics_consent 列、后端按它整批丢弃上报，但接口不返回它、
 也没有修改入口 —— 界面上的「数据共享」只能显示 ai_consent 一个布尔，
 用户既看不见自己同意了几件事，也没有地方撤回分析那一项。
+
+2026-10-18 T5-01：写台账与 PostHog 擦除的真源搬到了 consent_service（旧端点改为代理），
+下面的 monkeypatch 点跟着搬——patch 仍打在 user_service 上会静默打空：擦除没被拦住、
+`posthog_erased` 恒 False，撤回这条合规判据就再也证不了。
 """
 import pytest
 from fastapi import FastAPI
@@ -16,7 +20,7 @@ from backend.repositories import user_repository
 from backend.routers import analytics as analytics_router
 from backend.routers import user as user_router
 from backend.services import analytics_service as analytics_module
-from backend.services import user_service as user_service_module
+from backend.services import consent_service as consent_service_module
 from backend.services.user_service import user_service
 
 
@@ -67,7 +71,7 @@ async def test_profile_analytics_consent_defaults_false(app, db, make_user):
 async def test_set_analytics_consent_on_does_not_erase(app, db, make_user, monkeypatch):
     calls = []
     monkeypatch.setattr(
-        user_service_module, "erase_person_data",
+        consent_service_module, "erase_person_data",
         _make_recording_erase(calls),
     )
     await make_user("u1", analytics_consent=False)
@@ -83,7 +87,7 @@ async def test_revoke_analytics_consent_erases_person_data(app, db, make_user, m
     """撤回必须真的把已上报的抹掉：只翻标志位不叫可撤回。"""
     calls = []
     monkeypatch.setattr(
-        user_service_module, "erase_person_data",
+        consent_service_module, "erase_person_data",
         _make_recording_erase(calls, erased=True),
     )
     await make_user("u1", analytics_consent=True)
@@ -104,7 +108,7 @@ async def test_revoke_survives_erase_failure_and_says_so(app, db, make_user, mon
     async def pending_erase(distinct_id: str) -> dict:
         return {"erased": False, "reason": "not_configured"}
 
-    monkeypatch.setattr(user_service_module, "erase_person_data", pending_erase)
+    monkeypatch.setattr(consent_service_module, "erase_person_data", pending_erase)
     await make_user("u1", analytics_consent=True)
 
     resp = await _request(app, "POST", "/api/v1/user/analytics-consent", {"consent": False})
@@ -117,7 +121,7 @@ async def test_revoke_survives_erase_failure_and_says_so(app, db, make_user, mon
 async def test_revoke_analytics_does_not_touch_ai_consent(app, db, make_user, monkeypatch):
     """两项同意互不牵连：撤分析不能让 AI 功能一起停用（反之亦然）。"""
     monkeypatch.setattr(
-        user_service_module, "erase_person_data",
+        consent_service_module, "erase_person_data",
         _make_recording_erase([]),
     )
     await make_user("u1", ai_consent=True, analytics_consent=True)
@@ -134,7 +138,7 @@ async def test_revoke_analytics_does_not_touch_ai_consent(app, db, make_user, mo
 async def test_batch_after_revoke_is_dropped(app, db, make_user, monkeypatch):
     await make_user("u1", analytics_consent=True)
     monkeypatch.setattr(
-        user_service_module, "erase_person_data",
+        consent_service_module, "erase_person_data",
         _make_recording_erase([], erased=True),
     )
     await _request(app, "POST", "/api/v1/user/analytics-consent", {"consent": False})

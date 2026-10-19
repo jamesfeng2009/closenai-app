@@ -30,7 +30,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Mapping
 
 # ── 内容类型（14 §5 要求 protobuf；今天线上是 JSON，见模块 docstring）──────────
@@ -76,6 +78,13 @@ REASON_HANDLER_UNREGISTERED = "handler_unregistered"
 REASON_MULTI_CANDIDATE = "multi_candidate_unsupported"
 #: 候选没拿到 broker 确认（17:91-112 的反面）：这不是契约错，是**瞬时**错，走 requeue。
 REASON_PUBLISH_UNCONFIRMED = "candidate_unconfirmed"
+#: T2-02 新增：候选体里出现了对应 proto 消息没有的顶层键。
+#: 为什么 Python 侧要自己判：对面 `inbound/candidate_decode.go:17-20` 逐字
+#: 「protojson 默认**拒绝未知字段**」，多一个键＝这条提案永远解码失败，
+#: 而它落在 Go 侧的码是 `candidate_payload_invalid`——同一个错在对面留下一条
+#: 「Python 发的字节不对」的 DLQ 记录，排查要从权威侧倒推回能力侧。在这里判，
+#: reason 直接点出是哪个键、哪张表没有这一列。
+REASON_CANDIDATE_FIELD_UNKNOWN = "candidate_field_unknown"
 
 
 class ContractError(Exception):
@@ -111,6 +120,85 @@ ROUTING_KEY_TO_TASK_TYPE: Mapping[str, str] = {
 #: 消息体里承载 ``TaskType`` 的键（protojson 形态）。
 TASK_TYPE_FIELD = "taskType"
 SCHEMA_VERSION_FIELD = "schemaVersion"
+
+# ── 命令体的来源指针（T2-01）───────────────────────────────────────────────────
+#
+# 为什么要新加一对键而不是复用 ``sourceRecordIds``／``sources``：那两样指的是**已经投影成
+# ``source_records`` 的行**，而 ``ai.observation.requested`` 要表达的是投影**之前**的那一行原文。
+# 今天体里只有 ``sourceMessageId``（＝「候选入库后请下一段」），第一段没有候选可指，
+# 于是「记忆 → 证据」这条链的入口在契约上就写不出来（工作单 T2-01 §为什么）。
+#
+# 三条口径与 Go 侧 ``internal/domain/task_chain.go`` 逐字同源，由
+# ``TestSourceRefVocabularyIsTheSameOnBothSides`` 比对：
+#   1. 形状＝四张表之一 + ``:`` + 36 位 uuid；
+#   2. 本期只启用 ``memories``（ADR-003），其余三张**永久拒绝**（重试不会让没开的来源变开）；
+#   3. ``sourceOccurredAt`` 必须跟着 ``sourceRef`` 出现——单独一个发生时刻没有归属的主体，
+#      下游只能拿消费时刻兜底，而「最近 30 天」的窗口会把重放的老消息算成新近证据。
+
+SOURCE_REF_FIELD = "sourceRef"
+SOURCE_OCCURRED_AT_FIELD = "sourceOccurredAt"
+
+SOURCE_REF_PATTERN = re.compile(r"^(memories|reflections|mood_checkins|chat_messages):[0-9a-f-]{36}$")
+
+#: 表名 → 本期是否启用。扩来源只改这一张表，``validate_source_ref`` 的判据不动。
+SOURCE_REF_TABLES: Mapping[str, bool] = {
+    "memories": True,
+    "reflections": False,
+    "mood_checkins": False,
+    "chat_messages": False,
+}
+
+REASON_SOURCE_REF_SHAPE = "invalid_source_ref"
+REASON_SOURCE_TYPE_NOT_ENABLED = "source_type_not_enabled"
+REASON_SOURCE_OCCURRED_AT = "invalid_source_occurred_at"
+
+
+def validate_source_ref(source_ref: str, source_occurred_at: str) -> None:
+    """判命令体那两个来源键；两个都空＝合法（这一段没有体外来源，仍由 ``sourceMessageId`` 承载）。
+
+    非法一律 ``ContractError``＝永久拒绝（进 DLQ 并留 reason），不 requeue。
+    """
+    if not source_ref:
+        if source_occurred_at:
+            raise ContractError(
+                REASON_SOURCE_OCCURRED_AT,
+                f"带了 {SOURCE_OCCURRED_AT_FIELD}={source_occurred_at!r} 却没带 {SOURCE_REF_FIELD}"
+                "：发生时刻没有归属的主体，只能拿消费时刻兜底 ⇒ 重放的老消息会被算成新近证据",
+            )
+        return
+    if not SOURCE_REF_PATTERN.match(source_ref):
+        raise ContractError(
+            REASON_SOURCE_REF_SHAPE,
+            f"{SOURCE_REF_FIELD}={source_ref!r} 不是一条来源指针：形状必须是 "
+            f"{SOURCE_REF_PATTERN.pattern}（四表之一 + 冒号 + 36 位 uuid）",
+        )
+    table = source_ref.split(":", 1)[0]
+    if not SOURCE_REF_TABLES.get(table, False):
+        raise ContractError(
+            REASON_SOURCE_TYPE_NOT_ENABLED,
+            f"{SOURCE_REF_FIELD} 指向 {table!r}，本期启用的来源是 "
+            f"{sorted(k for k, v in SOURCE_REF_TABLES.items() if v)}；扩来源改 SOURCE_REF_TABLES",
+        )
+    if source_occurred_at:
+        try:
+            datetime.fromisoformat(source_occurred_at)
+        except ValueError as exc:
+            raise ContractError(
+                REASON_SOURCE_OCCURRED_AT,
+                f"{SOURCE_OCCURRED_AT_FIELD}={source_occurred_at!r} 不是 RFC3339：{exc}",
+            ) from exc
+
+
+def split_source_ref(source_ref: str) -> tuple[str, str]:
+    """把 ``memories:<uuid>`` 拆成 ``(表名, 行 id)``。
+
+    调用前必须已经过 ``validate_source_ref``（形状＋启用面都判过）：这里不再判，
+    因为判一次由 ``parse_command`` 负责，handler 拿到的是已经进过门的 ``Command.body``。
+    拆出来是给两条边用的——Python 侧按它读原文（T2-02），Go 侧按它落 ``source_records``
+    的 ``(source_table, source_id)``（T2-03），两侧必须是同一次切分而不是各写一遍 ``split(":")``。
+    """
+    table, _, row_id = source_ref.partition(":")
+    return table, row_id
 
 
 @dataclass(frozen=True)
@@ -295,6 +383,13 @@ def parse_command(
             f"{HEADER_USER_ID}，两处不一致时宁可拒",
         )
 
+    # T2-01：来源指针的判据排在**体内身份之后**——一条同时写了别人 user_id 和 sourceRef 的
+    # 消息，先按跨用户拒掉才是该出现在日志里的那条 reason（`foreign_user_id` 比形状错更严重）。
+    validate_source_ref(
+        _as_str(parsed.get(SOURCE_REF_FIELD)).strip(),
+        _as_str(parsed.get(SOURCE_OCCURRED_AT_FIELD)).strip(),
+    )
+
     attempt_raw = _as_str(table.get(HEADER_ATTEMPT_COUNT))
     attempt = int(attempt_raw) if attempt_raw.isdigit() else 0
     return Command(
@@ -344,8 +439,70 @@ CANDIDATE_KIND_TO_PROTO_KIND: Mapping[str, str] = {
 
 CANDIDATE_MESSAGE_FIELD = "kind"
 
+# ── 每种候选**体里允许的顶层键**（T2-02）───────────────────────────────────────
+#
+# 这张表是**对面 proto 消息的字段面**抄过来的一份，由
+# `backend/tests/test_ai_mq_contract.py::test_candidate_body_keys_match_the_proto_message`
+# 与 `contracts/proto/registry.json` 逐键比对（少一键／多一键都红）。
+# 为什么要抄一份并且对着注册表判：Python 侧不许 import 生成物
+# （`test_ai_boundary.py` 的③，生成物只能出现在 `rpc/`），于是这里没有类型可依赖；
+# 而没有这张表时，「体里多写了 proto 没有的键」要到对面解码失败才看得见。
+#
+# ⚠️ **`evidence` 这一格没有 `safety`**，这不是漏写：
+# `EvidenceCandidate`（`contracts/proto/closenai_ai.proto:243-283`）的字段面里没有这一列，
+# 而 Go 的解码默认拒未知字段 ⇒ 「所有候选都必须显式带 safety」这条 D-8 口径套到 evidence 上，
+# 会把**每一条**正常的证据提案打成永久拒绝。safety 的语义变更（不是删除）：
+# evidence 侧的判定照样在 handler 里跑（`backend/ai/mq/handlers/observation.py` 的
+# `safety_service.check_text_tri`），危机/越界 ⇒ **不产候选**，判定不上线是因为契约上没有承载它的列。
+CANDIDATE_BODY_KEYS: Mapping[str, frozenset[str]] = {
+    "fact": frozenset(
+        {
+            "schemaVersion", "kind", "origin", "subjectKey", "predicate", "objectValue",
+            "confidence", "detectorVersion", "evidenceIds", "patternIds",
+            "windowFrom", "windowTo", "generationRunId", "generationModel", "generationVer",
+            "safety",
+        }
+    ),
+    "pattern": frozenset(
+        {
+            "schemaVersion", "kind", "patternType", "scope", "description", "fingerprint",
+            "confidence", "detectorVersion", "evidenceIds", "patternIds",
+            "windowFrom", "windowTo", "generationRunId", "generationModel", "generationVer",
+            "safety",
+        }
+    ),
+    "insight": frozenset(
+        {
+            "schemaVersion", "kind", "statement", "claimType",
+            "confidence", "detectorVersion", "evidenceIds", "patternIds",
+            "windowFrom", "windowTo", "generationRunId", "generationModel", "generationVer",
+            "safety",
+        }
+    ),
+    "evidence": frozenset(
+        {
+            "schemaVersion", "sourceKind", "source", "evidenceType", "role",
+            "observation", "excerpt", "metadataJson", "explicitness", "specificity",
+            "generationRunId", "proposedIndependentIds",
+        }
+    ),
+    "proactive": frozenset(
+        {
+            "schemaVersion", "candidateId", "triggerType", "triggerSource", "message",
+            "confidence", "evidenceIds", "refIds", "anchorRefType", "anchorRefId",
+            "journeyEventId", "scheduledAt", "expiresAt",
+            "generationRunId", "generationModel", "generationVer", "safety",
+        }
+    ),
+}
 
-def candidate_message_id(command_message_id: str) -> str:
+#: D-8「跨进程后 safety 不许省略」的**适用面**＝proto 里真有这一列的那四种候选。
+KINDS_CARRYING_SAFETY: frozenset[str] = frozenset(
+    kind for kind, keys in CANDIDATE_BODY_KEYS.items() if "safety" in keys
+)
+
+
+def candidate_message_id(command_message_id: str, item_key: str = "") -> str:
     """D-R5-5：由**命令的** message_id 确定性派生候选 id。
 
     ``"cand-" + sha256(命令 message_id)[:40]``；不含时间、不含随机。
@@ -355,15 +512,25 @@ def candidate_message_id(command_message_id: str) -> str:
     Go 的 ``inbox_messages`` 唯一键 ``(message_id, consumer)``（``18:91-96``）**永远撞不上**
     ⇒ 重复生效，而 inbox 那侧看起来一切正常。
 
-    ⚠️ 这条规则的连带后果（如实登记，不粉饰）：一条命令只能有**一条**候选。R6 的 handler 若要
-    从一次命令产出多条候选，必须由 R6 先定「同一次生成内的稳定序号」怎么来（不许拿输出顺序、
-    更不许拿 uuid），改完连带更新 ``test_ai_mq_consumer.py`` 里那条钉住本后果的断言。
+    ``item_key``（T2-02 定的「同一次生成内的稳定序号」，`registry.Proposal.item_key`）：
+    一条命令出**多条**候选时，全部拿同一个 id ＝ 第二条起被 inbox 判成重复而静默丢掉
+    （这正是 D-R5-5 当初把多候选拒掉的原因）。这里的规则是
+    ``"-" + sha256(命令 id + "\\n" + item_key)[:8]``——序号来自**这条观测自己的内容**
+    （来源行 + 类型 + 摘录摘要），既不是输出顺序（重跑时模型换一下顺序就换号，同一条观测
+    会被记成两条新证据），也不是 uuid（每次生成都新 id，幂等直接失效）。
+    留空＝这条候选就是这次生成的全部产出，id 与 D-R5-5 首稿**逐字相同**，
+    老字节与钉住它的断言都不受影响。
     """
     mid = _as_str(command_message_id).strip()
     if mid == "":
         raise ContractError(REASON_MISSING_MESSAGE_ID, "命令 message_id 为空，派生不出候选 id")
     digest = hashlib.sha256(mid.encode("utf-8")).hexdigest()
-    return f"cand-{digest[:40]}"
+    base = f"cand-{digest[:40]}"
+    key = _as_str(item_key).strip()
+    if not key:
+        return base
+    tail = hashlib.sha256(f"{mid}\n{key}".encode("utf-8")).hexdigest()[:8]
+    return f"{base}-{tail}"
 
 
 @dataclass(frozen=True)
@@ -392,6 +559,7 @@ def encode_candidate(
     body: Mapping[str, Any],
     exchange: str,
     max_body_bytes: int,
+    item_key: str = "",
 ) -> CandidateMessage:
     """组装一条候选（校验＋确定性派生 id＋属性面），不碰连接。
 
@@ -406,6 +574,16 @@ def encode_candidate(
             f"候选 kind={kind!r} 不在映射表里 {sorted(CANDIDATE_KIND_TO_ENTRY)}；"
             "按 D-R5-8，表里没有的 candidate.* 两侧都拒",
         )
+    allowed = CANDIDATE_BODY_KEYS[kind]
+    extra = sorted(k for k in body if k not in allowed)
+    if extra:
+        raise ContractError(
+            REASON_CANDIDATE_FIELD_UNKNOWN,
+            f"candidate.{kind} 的体里有 {extra}，而 "
+            f"{CANDIDATE_KIND_TO_MESSAGE[kind]} 的字段面是 {sorted(allowed)}；"
+            "对面 protojson 默认拒未知字段（candidate_decode.go:17-20）⇒ 这一条永远进 DLQ。"
+            "要加列先改契约（contracts/proto）并重导，别在这里补",
+        )
     proto_kind = CANDIDATE_KIND_TO_PROTO_KIND.get(kind)
     if proto_kind is not None:
         got = _as_str(body.get(CANDIDATE_MESSAGE_FIELD)).strip()
@@ -418,14 +596,19 @@ def encode_candidate(
     # D-8：跨进程后 safety 不许省略——省略＝UNSPECIFIED＝Go 侧 fail-closed
     # （candidate.go:65 逐字「nil 视为判定缺失 → fail-closed」）。
     # 在这里拦的理由不是「Go 会拒」，而是让 Go 拒会让这条 DLQ 看起来像权威侧的错。
-    safety = body.get("safety")
-    status = _as_str((safety or {}).get("status") if isinstance(safety, Mapping) else safety).strip()
-    if status in ("", "SAFETY_STATUS_UNSPECIFIED"):
-        raise ContractError(
-            REASON_MISSING_SAFETY,
-            f"candidate.{kind} 的 safety.status 缺失或 UNSPECIFIED；"
-            "没问题要显式写 SAFETY_STATUS_OK（contracts/proto/closenai_common.proto:84-101）",
-        )
+    # ⚠️ 适用面是 KINDS_CARRYING_SAFETY：EvidenceCandidate 契约上就没有这一列
+    # （见 CANDIDATE_BODY_KEYS 上方那段），要求它＝把每条证据提案变成解码失败。
+    if kind in KINDS_CARRYING_SAFETY:
+        safety = body.get("safety")
+        status = _as_str(
+            (safety or {}).get("status") if isinstance(safety, Mapping) else safety
+        ).strip()
+        if status in ("", "SAFETY_STATUS_UNSPECIFIED"):
+            raise ContractError(
+                REASON_MISSING_SAFETY,
+                f"candidate.{kind} 的 safety.status 缺失或 UNSPECIFIED；"
+                "没问题要显式写 SAFETY_STATUS_OK（contracts/proto/closenai_common.proto:84-101）",
+            )
 
     serialised = json.dumps(body, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     raw = serialised.encode("utf-8")
@@ -453,11 +636,132 @@ def encode_candidate(
     return CandidateMessage(
         exchange=exchange,
         routing_key=f"candidate.{kind}",
-        message_id=candidate_message_id(command.message_id),
+        message_id=candidate_message_id(command.message_id, item_key),
         message_type=f"candidate_{kind}",
         content_type=CONTENT_TYPE_JSON,
         body=raw,
         correlation_id=command.correlation_id or command.message_id,
         causation_id=command.message_id,
+        headers=headers,
+    )
+
+
+# ── 事件面（Python → Go，T2-06）──────────────────────────────────────────────
+#
+# 方向与候选面相反：候选是「Python 产了东西请 Go 入账」，这里是「Python 那一行业务数据
+# 没了，请 Go 把已经入过的账改过来」。四个串的对侧是
+# ``go-core/internal/messaging/inbound/source_deleted.go``，由
+# ``test_ai_mq_contract.py::test_source_deleted_wire_constants_match_go`` 逐字比对。
+#
+# ⚠️ ``SOURCE_DELETED_CONSUMER`` 与候选面的 ``go.core.candidate`` **必须不同**：
+# Go 的 inbox 幂等键是 ``(message_id, consumer)``，并成一个串就等于让
+# 「候选面已经吃过这条 id」替事件面宣告「我也吃过了」⇒ 那条删除永远不传播。
+# 这一格是变异靶（M3）。
+SOURCE_DELETED_ROUTING_KEY = "source.deleted"
+SOURCE_DELETED_MESSAGE_TYPE = "source_deleted"
+SOURCE_DELETED_QUEUE = "go.source.deleted"
+SOURCE_DELETED_CONSUMER = "go.core.source"
+
+#: 事件体的四个键＝对侧 ``sourceDeletedBody`` 的 json tag（少一键多一键都会撞上
+#: ``DisallowUnknownFields``，而那一撞是永久拒绝：字节进 DLQ，账面停在翻转前）。
+SOURCE_DELETED_BODY_KEYS: frozenset[str] = frozenset(
+    {"schemaVersion", "userId", "sourceTable", "sourceId"}
+)
+
+#: 本期唯一启用的事件来源表＝命令面 ``SOURCE_REF_TABLES`` 里启用的那张（ADR-003）。
+#: 生产侧先判它，理由与候选面同一条：让 Go 拒会把「生产者发了一张没开的表」记成
+#: 权威侧的拒绝码，排查要从能力侧倒推；在这里拦，reason 直接点出该改哪张表。
+SOURCE_DELETED_TABLE = "memories"
+
+#: 只有生产侧会有的码：指针少一半。对侧的同类拒绝是 Go 的
+#: ``candidate_payload_invalid``（那里要解生成物，这里不解）。
+REASON_SOURCE_POINTER_INCOMPLETE = "source_pointer_incomplete"
+
+
+def source_deleted_message_id(user_id: str, source_table: str, source_id: str) -> str:
+    """由**指针本身**确定性派生事件 id（同 D-R5-5 的纪律：不含时间、不含随机）。
+
+    为什么这里能用「内容哈希」而候选面要用「命令 id 哈希」：候选的重复投递是
+    「同一次生成的两次重试」，必须靠同一个上游 id 归一；删除事件的唯一身份就是那一行
+    （谁的、哪张表的、哪一行），同一次删除投两次本来就该判成同一件事。
+    ``\n`` 分隔而不是直接拼接：``("ab","c")`` 与 ``("a","bc")`` 拼起来同串，
+    那是两条不同删除共享一个幂等键的形状。
+    """
+    joined = "\n".join(_as_str(x).strip() for x in (user_id, source_table, source_id))
+    digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()
+    return f"srcdel-{digest[:40]}"
+
+
+def encode_source_deleted(
+    *,
+    user_id: str,
+    source_id: str,
+    exchange: str,
+    max_body_bytes: int,
+    source_table: str = SOURCE_DELETED_TABLE,
+    trace_id: str = "",
+    causation_id: str = "",
+) -> CandidateMessage:
+    """组装一条 ``source.deleted``（校验＋确定性 id＋属性面），不碰连接。
+
+    归属仍然只住在 header（``x-user-id``，15:49 的 Envelope 口径），体里那个 ``userId``
+    只是给 DLQ 值班留的对账痕迹——两侧同值由下面这一行钉住，而对侧
+    ``source_deleted.go:119`` 拿到之后判的是「头和体不一致就永久拒绝」。
+    """
+    uid = _as_str(user_id).strip()
+    if uid == "":
+        raise ContractError(
+            REASON_MISSING_USER_ID,
+            "source.deleted 没有 user_id：归属只有 header 一个来源，"
+            "空值等于让 Go 去猜「这条删除是谁的」，而猜错就是替别人销账",
+        )
+    table, row = _as_str(source_table).strip(), _as_str(source_id).strip()
+    if table == "" or row == "":
+        raise ContractError(
+            REASON_SOURCE_POINTER_INCOMPLETE,
+            f"source.deleted 的指针少一半（source_table={table!r} source_id={row!r}）："
+            "指针不全就回查不到登记行，而「把它当没发生过」与「传播错了别人的账」"
+            "在这条消息上长得一样",
+        )
+    if table != SOURCE_DELETED_TABLE:
+        raise ContractError(
+            REASON_SOURCE_TYPE_NOT_ENABLED,
+            f"事件面的来源表是 {sorted({SOURCE_DELETED_TABLE})}（ADR-003），收到 {table!r}；"
+            "扩来源要同时改命令面 SOURCE_REF_TABLES、Go 的 AdmissibleSourceTables 与这一格",
+        )
+
+    body = {
+        SCHEMA_VERSION_FIELD: next(iter(SUPPORTED_SCHEMA_VERSIONS)),
+        "userId": uid,
+        "sourceTable": table,
+        "sourceId": row,
+    }
+    raw = json.dumps(body, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
+    if len(raw) > max_body_bytes:
+        raise ContractError(
+            REASON_TOO_LARGE,
+            f"source.deleted 序列化后 {len(raw)} 字节超过上限 {max_body_bytes}"
+            "（对侧 transportGate 同一条阈值：超限它在入站侧也是永久拒绝）",
+        )
+    headers: dict[str, Any] = {
+        HEADER_SCHEMA_VERSION: next(iter(SUPPORTED_SCHEMA_VERSIONS)),
+        HEADER_USER_ID: uid,
+    }
+    if causation_id:
+        headers[HEADER_CAUSATION_ID] = causation_id
+    if trace_id:
+        headers[HEADER_TRACE_ID] = trace_id
+    mid = source_deleted_message_id(uid, table, row)
+    return CandidateMessage(
+        exchange=exchange,
+        routing_key=SOURCE_DELETED_ROUTING_KEY,
+        message_id=mid,
+        message_type=SOURCE_DELETED_MESSAGE_TYPE,
+        content_type=CONTENT_TYPE_JSON,
+        body=raw,
+        correlation_id=mid,
+        causation_id=causation_id,
         headers=headers,
     )

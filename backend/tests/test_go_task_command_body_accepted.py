@@ -9,15 +9,22 @@ Python 的 `parse_command` 真会点头——它有一串带次序的判据（�
 用户永远等不到那条洞察，而两侧单测全绿。所以这里**真的调用** `parse_command`，
 输入全部由 Go 源码现推，不许在本文件里抄一份「我以为 Go 写成什么样」。
 
-第三格（`...CarriesExactlyTheThreeAgreedFields`）与下面的
+第三格（`...CarriesExactlyTheAgreedFields`，T2-01 起是五键）与下面的
 `...WithAnyUserIdentityFormIsRejected` 是**配对着写**的：只测「Go 没写 user_id」
 会放过一个空实现（把 `TaskRequestBody` 写成 `{}` 照样绿），只测「写了就拒」
 则管不住 Go 侧今天到底写没写。两条合起来才钉住那条约束。
 
-最后一格（`TheProducerSideIsStillUnregistered`）把自己也钉住：`events.md` 的口径写的是
-「命令体合法但注册表为空 ⇒ 流量仍是零」。这句话必须可判，否则下一个读台账的人
-会把「入队口有了调用点」读成「异步面已通」。R6 真注册 handler 的那天，这条闸会红，
-而它红正是该红——改口径的人必须连着改文档。
+T2-01 那一组（`test_go_body_with_a_memory_source_ref_*` 起四格）管的是**来源指针**：
+Go 写得出来、对面读得懂、非法形状永久拒，且两侧的正则／开关表／reason 词表逐字同一份。
+体是 JSON 而号位在 proto 上，所以「号位没被复用」由 `gen_proto.py --check` 与
+`contracts/proto/registry.json` 那一头管，本文件不重复发明一套号位判据。
+
+最后一格（`...ZeroTrafficForTwoMeasurableReasons`）把自己也钉住：`events.md` 的口径写的是
+「命令体合法但**第一段没有发射点**、另三类没有 handler ⇒ 流量仍是零」。这句话必须可判，
+否则下一个读台账的人会把「入队口有了调用点」读成「异步面已通」。
+2026-10-18（T2-02）之前这一格判的是「注册表为空」，那是**刚 new 出来的对象**、
+与进程接线无关，属于装饰性断言（结案时勘误，见该格的 docstring）；
+现在判的是生产组合根的注册面＋Go 的链表，两边都是真事实。
 """
 from __future__ import annotations
 
@@ -39,14 +46,20 @@ from backend.ai.mq.contract import (
     REASON_HANDLER_UNREGISTERED,
     REASON_MESSAGE_TYPE_MISMATCH,
     REASON_MISSING_USER_ID,
+    REASON_SOURCE_OCCURRED_AT,
+    REASON_SOURCE_REF_SHAPE,
+    REASON_SOURCE_TYPE_NOT_ENABLED,
     REASON_TASK_TYPE_MISMATCH,
     ROUTING_KEY_TO_TASK_KIND,
     ROUTING_KEY_TO_TASK_TYPE,
+    SOURCE_OCCURRED_AT_FIELD,
+    SOURCE_REF_FIELD,
     TASK_TYPE_FIELD,
     Command,
     ContractError,
     parse_command,
 )
+from backend.services import ai_observation
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 TASK_CHAIN_GO = ROOT / "go-core" / "internal" / "domain" / "task_chain.go"
@@ -57,12 +70,26 @@ INBOUND_GO = ROOT / "go-core" / "internal" / "messaging" / "inbound" / "inbound.
 INBOUND_FOLLOWUP_TEST_GO = (
     ROOT / "go-core" / "internal" / "messaging" / "inbound" / "inbound_followup_test.go"
 )
+#: 由 `topology.go` 的 Document() 生成；本文件最后一格拿它做「口径↔代码」的影子证人。
+EVENTS_MD = ROOT / "contracts" / "events.md"
 
 #: 与 `config.DEFAULT_MAX_BODY_BYTES` 同值；本闸只喂几十字节的体，取默认口径即可。
 MAX_BODY = 64 * 1024
 
 #: 与 `delivery.go` 的 `outboxSchemaVersion`（N7-5 默认 1）同值：publisher 把它写进 header。
 GO_SCHEMA_VERSION = "1"
+
+#: 命令体约定的键集（批 3 的三键 ＋ T2-01 的两个来源指针键，后者**恒写**）。
+AGREED_BODY_FIELDS = (
+    TASK_TYPE_FIELD,
+    "sourceKind",
+    "sourceMessageId",
+    SOURCE_REF_FIELD,
+    SOURCE_OCCURRED_AT_FIELD,
+)
+
+#: 一条合法的 uuid（36 字符，正好落在 `[0-9a-f-]{36}` 上）。
+SAMPLE_UUID = "0f1e2d3c-4b5a-4968-8a7b-9c0d1e2f3a4b"
 
 
 def _read(path: pathlib.Path) -> str:
@@ -110,13 +137,24 @@ def _go_follow_up_edges() -> dict[str, str]:
     return {kinds[name]: task for name, task in pairs}
 
 
-def _go_body_field_names() -> tuple[str, ...]:
-    """`TaskRequestBody` 写出的键名，逐字取自 Go 源码（不在本文件抄第二份）。"""
+def _go_body_fields() -> dict[str, str]:
+    """`TaskRequestBody` 的键 → 值的**表达式来源**（Go 源码逐字）。"""
     src = _read(TASK_CHAIN_GO)
-    names = re.findall(r'"([A-Za-z]+)":\s*(?:stage\.TaskType\(\)|string\(admitted\)|sourceMessageID)',
-                       _block(src, "func TaskRequestBody", None))
-    assert names, "TaskRequestBody 的写法变了：本闸要的是「Go 实际写了哪几个键」，空跑不算测"
-    return tuple(names)
+    pairs = re.findall(
+        r'"([A-Za-z]+)":\s*([A-Za-z][A-Za-z().]*),', _block(src, "func TaskRequestBody", None)
+    )
+    assert pairs, "TaskRequestBody 的写法变了 ⇒ 本闸的比对对象没了"
+    return dict(pairs)
+
+
+#: Go 侧值表达式 → 本镜像的取值槽。表里没有的表达式＝红，不许默默少写一个键。
+GO_BODY_VALUE_SOURCES: dict[str, str] = {
+    "stage.TaskType()": "task_type",
+    "string(admitted)": "admitted",
+    "sourceMessageID": "source_message_id",
+    "sourceRef": "source_ref",
+    "sourceOccurredAt": "source_occurred_at",
+}
 
 
 def go_routing_key(kind: str) -> str:
@@ -139,20 +177,34 @@ def go_message_type(kind: str) -> str:
     return f"ai_{kind}_requested"
 
 
-def go_command_body(stage_kind: str, admitted_kind: str, source_message_id: str) -> bytes:
+def go_command_body(stage_kind: str, admitted_kind: str, source_message_id: str,
+                    source_ref: str = "", source_occurred_at: str = "") -> bytes:
     """Go `TaskRequestBody` 的**等价物**：同键、同值来源、同排序规则。
 
     Go 用 `json.Marshal(map[string]string{...})`，Go 的 map 序列化按键名升序 ⇒
     这里用 `sort_keys=True` 复现。这条等价性由 `TestTaskRequestBodyIsByteStable`
     （Go 侧）与下面的键名比对共同兜住：两侧任何一边换了写法，其中一条闸先红。
+
+    键集不是抄在本文件里的常量，而是从 Go 源码现推（`_go_body_fields`）：Go 写了一个
+    本镜像认不出的值来源时，这里直接 assert 红，而不是悄悄产出一个三键的假体。
     """
     task_types = _go_task_types()
     kind_value = _go_kind_values()[stage_kind]
-    fields = dict(zip(
-        _go_body_field_names(),
-        [task_types[stage_kind], admitted_kind, source_message_id],
-        strict=True,
-    ))
+    values = {
+        "task_type": task_types[stage_kind],
+        "admitted": admitted_kind,
+        "source_message_id": source_message_id,
+        "source_ref": source_ref,
+        "source_occurred_at": source_occurred_at,
+    }
+    fields: dict[str, str] = {}
+    for key, expr in _go_body_fields().items():
+        slot = GO_BODY_VALUE_SOURCES.get(expr)
+        assert slot is not None, (
+            f"Go 的 TaskRequestBody 给 {key} 写的值来源是 {expr!r}，本镜像的表不认识它"
+            " ⇒ 两侧对「体的形状」已经各写一套，把这条表达式补进 GO_BODY_VALUE_SOURCES 再放行"
+        )
+        fields[key] = values[slot]
     return json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()
 
 
@@ -228,18 +280,105 @@ def test_every_command_kind_on_the_face_is_decodable() -> None:
         assert command.task_type == ROUTING_KEY_TO_TASK_TYPE[go_routing_key(kind_value)]
 
 
-def test_body_carries_exactly_the_three_agreed_fields() -> None:
-    """体的形状：三个键，一个不多。
+def test_body_carries_exactly_the_agreed_fields() -> None:
+    """体的形状：五个键，一个不多。
+
+    三键是批 3 的链表（`taskType`/`sourceKind`/`sourceMessageId`），两键是 T2-01 的来源指针
+    （`sourceRef`/`sourceOccurredAt`，**恒写**，空串＝这一段没有体外来源）。
 
     多了 `schemaVersion` ⇒ 与 header 形成第二个可能不一致的来源（`TaskRequestBody` 的
     注释就是为这个不写的）；多了任何身份键 ⇒ 被 `foreign_user_id` 永久拒绝。
     """
-    assert _go_body_field_names() == (TASK_TYPE_FIELD, "sourceKind", "sourceMessageId"), (
-        "Go 的 `TaskRequestBody` 实际写出的键名不再是本批约定的三键 ⇒ 两侧对「体的形状」各写一套"
+    assert set(_go_body_fields()) == set(AGREED_BODY_FIELDS), (
+        "Go 的 `TaskRequestBody` 实际写出的键名不再是本批约定的五键 ⇒ 两侧对「体的形状」各写一套"
     )
     parsed = json.loads(go_command_body("Insight", "pattern", "cnd-1"))
-    assert set(parsed) == {TASK_TYPE_FIELD, "sourceKind", "sourceMessageId"}, parsed
+    assert set(parsed) == set(AGREED_BODY_FIELDS), parsed
+    assert parsed[SOURCE_REF_FIELD] == "" and parsed[SOURCE_OCCURRED_AT_FIELD] == "", parsed
     assert not any(k.lower().replace("_", "") == "userid" for k in parsed), parsed
+
+
+# ── T2-01：来源指针两键——Go 写得出、对面读得懂、非法就永久拒 ─────────────────
+
+
+def test_go_body_with_a_memory_source_ref_is_decoded_and_echoed() -> None:
+    """`observation` 那一段带上 `memories:<uuid>` 时，真解码器要**原样**读出这两个键。
+
+    断言取的是读出来的值而不是「没抛异常」：`body` 是 handler 唯一的输入面
+    （`contract.py` 的口径是「原样透传，不裁剪不补全」），这里丢一个键
+    就等于 T2-02 的 handler 拿不到来源行、静默产零候选。
+    """
+    ref = f"memories:{SAMPLE_UUID}"
+    occurred = "2026-10-18T09:00:00Z"
+    command = deliver(
+        go_command_body("Observation", "fact", "cnd-1", ref, occurred),
+        routing_key=go_routing_key("observation"),
+        kind="observation",
+        message_id="task-" + "5" * 40,
+    )
+    assert command.body[SOURCE_REF_FIELD] == ref, command.body
+    assert command.body[SOURCE_OCCURRED_AT_FIELD] == occurred, command.body
+    # 第一段用的还是同一张链表外的键：`sourceKind` 在 observation 这一格没有语义，
+    # 但契约不许两侧各发明一套（Go 写什么 Python 就读什么），所以这里只钉「读得到」。
+    assert command.task_type == ROUTING_KEY_TO_TASK_TYPE["ai.observation.requested"]
+
+
+def test_body_without_the_two_new_keys_still_decodes() -> None:
+    """老形状（两键根本不写）必须照旧读通。
+
+    Go 今天恒写空串，但体是 JSON、生产者不止 `TaskRequestBody` 一处
+    （取证驱动器 `tools/r5interop` 自己拼）。把「缺键」判成非法＝把批 3 那两条边
+    现网正在发的字节打成红，而那条红与 T2-01 要证的件事无关。
+    """
+    legacy = json.dumps(
+        {
+            TASK_TYPE_FIELD: ROUTING_KEY_TO_TASK_TYPE["ai.pattern.requested"],
+            "sourceKind": "fact",
+            "sourceMessageId": "cnd-1",
+        },
+        sort_keys=True,
+    ).encode()
+    command = deliver(
+        legacy, routing_key=go_routing_key("pattern"), kind="pattern",
+        message_id="task-" + "6" * 40,
+    )
+    assert command.body.get(SOURCE_REF_FIELD, "") == "", command.body
+
+
+@pytest.mark.parametrize(
+    "ref,occurred,reason",
+    [
+        # 表名不在四表里：形状判据先拦住（这条若放到 enabled 表去判，会出现
+        # 「拼错表名报的是未启用」，值班照着开关表找半天）。
+        (f"orders:{SAMPLE_UUID}", "", REASON_SOURCE_REF_SHAPE),
+        (f"memories:{SAMPLE_UUID[:35]}", "", REASON_SOURCE_REF_SHAPE),
+        ("memories:" + SAMPLE_UUID.upper(), "", REASON_SOURCE_REF_SHAPE),
+        # 形状合法、本期没开（ADR-003：只启用 memories）。
+        (f"reflections:{SAMPLE_UUID}", "", REASON_SOURCE_TYPE_NOT_ENABLED),
+        (f"mood_checkins:{SAMPLE_UUID}", "", REASON_SOURCE_TYPE_NOT_ENABLED),
+        (f"chat_messages:{SAMPLE_UUID}", "", REASON_SOURCE_TYPE_NOT_ENABLED),
+        # 发生时刻的两种错法：没有主体、写法不是 RFC3339。
+        ("", "2026-10-18T09:00:00Z", REASON_SOURCE_OCCURRED_AT),
+        (f"memories:{SAMPLE_UUID}", "2026年10月18日", REASON_SOURCE_OCCURRED_AT),
+    ],
+    ids=["unknown_table", "uuid_short", "uuid_uppercase", "reflections_off", "mood_checkins_off",
+         "chat_messages_off", "occurred_without_ref", "occurred_not_rfc3339"],
+)
+def test_illegal_source_ref_is_permanently_rejected(ref: str, occurred: str, reason: str) -> None:
+    """非法来源指针＝永久拒绝（进 DLQ 留 reason），不是 requeue、也不是「读成空」。
+
+    这一格是工作单 §验收点名的变异靶（「把 Python 的白名单去掉 ⇒ 非法 ref 用例红」）：
+    白名单一旦摘掉，`reflections:<uuid>` 会被 handler 当成 memories 去查库——
+    查到的那一行确实属于这个用户，于是**跨表串语义**的候选能安静入库。
+    """
+    with pytest.raises(ContractError) as exc:
+        deliver(
+            go_command_body("Observation", "fact", "cnd-1", ref, occurred),
+            routing_key=go_routing_key("observation"),
+            kind="observation",
+            message_id="task-" + "7" * 40,
+        )
+    assert exc.value.reason == reason, (ref, occurred, exc.value.reason)
 
 
 # ── 反例：把 Go 的约束拆掉之后，对面确实会拒（否则那条约束是装饰）────────────
@@ -386,20 +525,40 @@ def test_command_ids_match_the_literals_pinned_in_the_go_test() -> None:
 # ── 调用点还在，但对面没人接：口径「流量仍是零」的可判版本 ───────────────────
 
 
-def test_the_producer_side_is_still_unregistered_so_traffic_is_zero() -> None:
-    """命令体合法 ≠ 有人处理：注册表今天仍为空 ⇒ 每条真投出来的命令走 `handler_unregistered`。
+def test_the_producer_side_is_still_zero_traffic_for_two_measurable_reasons() -> None:
+    """口径「流量仍是零」的可判版本——**T2-02（2026-10-18）之后理由换了，这条测跟着换**。
 
-    `contracts/events.md` 与 `topology.go` 的 Document() 写的就是这个口径。
-    R6 把 handler 注册进去那天这条会红——那是**要求改文档**的红，不是故障。
+    旧写法判的是「刚 ``Registry()`` 出来的空表」。那不是生产事实：它永远为空，
+    注册接线删掉一半也不会红，是一条装饰性的闸（2026-10-18 结案时勘误）。
+    现在判两格，各自指着 `contracts/events.md` 口径头里的一条：
+
+    ① Python 的**生产注册面**恰好只有 ``observation``（组合根真跑了一遍），
+       ``pattern``／``insight``／``proactive`` 仍按 ``handler_unregistered`` 永久拒绝 ⇒ 口径③；
+    ② Go 侧的第一段没有发射点：链表里没有任何一条边指向 ``OBSERVATION``，
+       而候选入库是生产侧唯一的 ``RequestAITask`` 调用点 ⇒ 口径②。
+
+    R6/T2-03 把发射点接上那天，②会红——那是**要求改文档**的红，不是故障。
     """
-    reg = registry_module.Registry()
-    assert len(reg) == 0, reg.registered()
-    assert reg.registered() == ()
+    registered = ai_observation.build_registry(registry_module.Registry()).registered()
+    assert registered == ("observation",), f"生产注册面变了：{registered}（同步改 events.md 口径②③）"
     assert registry_module.KNOWN_TASK_KINDS == tuple(sorted(ROUTING_KEY_TO_TASK_KIND.values()))
-    for kind in registry_module.KNOWN_TASK_KINDS:
+    for kind in ("pattern", "insight", "proactive"):
         with pytest.raises(ContractError) as exc:
-            reg.handler_for(kind)
+            registry_module.Registry().handler_for(kind)  # 另三类至今没人接
         assert exc.value.reason == REASON_HANDLER_UNREGISTERED, kind
+
+    # 链表：谁入库会请谁。判据取「下一段里没有 OBSERVATION」而不是「边数是 2」——
+    # 加一条指向首段的边同样意味着第一段有了发射点，那种改动就该让这条红。
+    edges = _go_follow_up_edges()
+    assert set(edges.values()) == {"Pattern", "Insight"}, (
+        f"候选入库后请的任务变了：{edges}（先改 events.md 的②，再改这条）"
+    )
+    # 文档侧证人：口径②③的措辞与上面两个代码事实指着同一件事
+    # （没装 go 工具链的机器上，`contract_drift_test.go` 跑不到，这条是它在 pytest 侧的影子）。
+    doc = _read(EVENTS_MD)
+    assert "第一段命令没有发射点" in doc and "三个原因各自独立" in doc, (
+        "events.md 还在写旧口径（「注册表仍为空」）⇒ 与本文件这两格脱钩了"
+    )
 
 
 def test_the_inbound_caller_is_still_wired_in_source() -> None:

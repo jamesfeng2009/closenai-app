@@ -4,7 +4,7 @@
 管理用户信息、Streak、关系等级、里程碑徽章、Streak 冻结券、推送 Token。
 所有方法均注入 `db: AsyncSession` 进行真实数据访问。
 """
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import delete, select
@@ -38,7 +38,10 @@ from backend.models.canonical import (
     UserFeedback,
 )
 from backend.models.chat import ChatMessage
+from backend.models.consent import UserConsent
+from backend.models.erasure import PostHogErasureRetry
 from backend.models.generation_run import AiGenerationRun
+from backend.models.export import DataExportJob
 from backend.models.growth import GrowthRecord, UserMilestone
 from backend.models.journey import (
     JourneyEvent,
@@ -61,11 +64,13 @@ from backend.models.user import User
 from backend.repositories import (
     auth_repository,
     chat_repository,
+    erasure_repository,
     journey_repository,
     milestone_repository,
     user_repository,
 )
 from backend.services.analytics_service import erase_person_data
+from backend.services.consent_service import consent_service
 from backend.services.quota_service import quota_service
 from backend.config import settings
 
@@ -87,6 +92,8 @@ PURGE_TARGETS = (
     (AiGenerationRun, "ai_generation_runs"),
     (UserMilestone, "user_milestones"),
     (PushToken, "push_tokens"),
+    # T5-01 同意台账：审计记录也是用户数据，注销必须一起删净
+    (UserConsent, "user_consents"),
     (ShareExport, "share_exports"),
     (Receipt, "receipts"),
     (Subscription, "subscriptions"),
@@ -94,6 +101,10 @@ PURGE_TARGETS = (
     (JourneyEvent, "journey_events"),
     (OnboardingProfile, "onboarding_profiles"),
     (SafetyEvent, "safety_events"),
+    # T1-01 通用数据导出：job 行本身是用户数据（申请时刻、范围、产物路径）。
+    # 表由 PURGE_TARGETS 删行，盘上的 zip 由下面的 purge_user 先取路径再删——
+    # 反过来说，导出靶正是从这份清单派生的，所以新表登记进这里就自动进导出。
+    (DataExportJob, "data_export_jobs"),
     # ── N2 canonical 权威表（Go 是唯一写入口，Python 只负责注销清理）──
     # 无外键、无级联（D-5），所以关联表必须自己出现在清单里，否则永远删不净。
     (FactEvidence, "fact_evidence"),
@@ -123,6 +134,23 @@ PURGE_TARGETS = (
     (RefreshToken, "refresh_tokens"),
     (User, "users"),
 )
+
+# 带 `user_id` 却**刻意不进** `PURGE_TARGETS` 的表 → 理由。`test_purge_covers_every_user_scoped_table`
+# 把这里当作唯一合法的豁免出口：新表既不在删除清单也不在这里，闸当场红。
+#
+# 豁免必须逐条带理由，是因为这条闸的原始目的正是「注销后不许残留用户数据」，而豁免就是它的
+# 反面。目前只有一张表配得上这个反面：
+PURGE_EXEMPT_TABLES = {
+    # T1-02：这张表的**存在意义**就是「users 行已经删掉了，外部平台还没删干净」。
+    # 把它登记进 PURGE_TARGETS 等于让 purge_user 在写出这一行的同一段事务里把它删掉
+    # （循环在前、写行在后，靠顺序侥幸），重试线索当场消失。所以它由自己的生命周期管：
+    # 擦除成功即删行，超过 settings.posthog_erasure_retry_max_days 打 ERROR 告警后也删行
+    # ——不永久留存「谁注销了」的旁证，与 J4 的墓碑表裁决同源（举证在日志，不在表）。
+    "posthog_erasure_retries": (
+        "注销后的外部平台重试台账：由 retry_pending_erasures 自我销毁（成功即删、超龄告警后删），"
+        "不进 purge 循环否则 purge_user 刚写的重试行会被自己抹掉"
+    ),
+}
 
 
 class UserService:
@@ -197,12 +225,18 @@ class UserService:
             push_frequency=user.push_frequency if user.push_frequency in ("daily", "important", "off") else "daily",
             # 推送总开关（D-G6）：列非空、迁移带 server_default=false，但仍旧给 bool() 兜一层
             push_enabled=bool(user.push_enabled),
+            # 免打扰时段（T5-02）：DB 存 TIME，API 一律回 HH:MM 串；两列任一为空即关闭
+            quiet_start=user.quiet_start.strftime("%H:%M") if user.quiet_start else None,
+            quiet_end=user.quiet_end.strftime("%H:%M") if user.quiet_end else None,
         )
 
     async def set_ai_consent(self, db: AsyncSession, user_id: str, consent: bool) -> bool:
-        """设置 AI 数据共享同意状态（5.1.2(i)：同意后可使用 AI 功能，撤回后立即停用）。"""
-        await self._require_user(db, user_id)
-        await user_repository.set_ai_consent(db, user_id, consent)
+        """设置 AI 数据共享同意状态（5.1.2(i)：同意后可使用 AI 功能，撤回后立即停用）。
+
+        T5-01 之后这里是**代理**：真源是 consent_service——旧端点若继续只写
+        users.ai_consent，台账就会漏记每一次表态，「在哪个版本同意了哪一项」又答不出来。
+        """
+        await consent_service.set_consent(db, user_id, "ai_processing", consent)
         return consent
 
     async def set_analytics_consent(self, db: AsyncSession, user_id: str, consent: bool) -> dict:
@@ -213,13 +247,11 @@ class UserService:
         - 已中继到 PostHog 的历史事件由 erase_person_data 抹除——只翻标志位
           等于「同意的瞬间收过数据，撤回后数据照旧留着」，那不叫可撤回。
         erase 失败只回状态、不阻断撤回（分析平台抖动不能让合规动作卡住）。
+
+        T5-01 后写台账＋擦除都在 consent_service.set_consent 里，本方法只保持响应形状。
         """
-        await self._require_user(db, user_id)
-        await user_repository.set_analytics_consent(db, user_id, consent)
-        if not consent:
-            erased = await erase_person_data(user_id)
-            return {"analytics_consent": False, "posthog_erased": bool(erased.get("erased"))}
-        return {"analytics_consent": True, "posthog_erased": False}
+        result = await consent_service.set_consent(db, user_id, "analytics", consent)
+        return {"analytics_consent": consent, "posthog_erased": bool(result.get("posthog_erased"))}
 
     async def require_ai_consent(self, db: AsyncSession, user_id: str) -> None:
         """校验 AI 数据共享同意；未同意则抛 403 AI_CONSENT_REQUIRED（合规 5.1.2(i)）。"""
@@ -253,7 +285,41 @@ class UserService:
         )
         if not user:
             user = await self._require_user(db, user_id)
+        # 推送总开关也是同意台账的一项（proactive_push）：PATCH 写得动布尔位、
+        # 台账却记不到，等于「用户自己关掉的推送在合规记录里查无此事」。
+        if settings_update.push_enabled is not None:
+            await consent_service.note_consent(
+                db, user_id, "proactive_push", settings_update.push_enabled
+            )
+        quiet = self._resolve_quiet_window(settings_update)
+        if quiet is not None:
+            await user_repository.set_quiet_hours(db, user_id, *quiet)
         return await self.get_profile(db, user_id)
+
+    @staticmethod
+    def _resolve_quiet_window(
+        update: UserSettingsUpdate,
+    ) -> "tuple[time | None, time | None] | None":
+        """把 PATCH 的免打扰输入折算成 (start, end)，None 表示这次没动这一档。
+
+        规则（T5-02）：
+        - quiet_hours_enabled=False ⇒ 成对清空（关闭）；
+        - 起止都给 ⇒ 成对写入（跨零点合法，start>end 不在这里判）；
+        - 只给一个 ⇒ 400，半开窗口不入库（要么全天要么全不，实现不同结果不同）。
+        """
+        if update.quiet_hours_enabled is False:
+            return (None, None)
+        if update.quiet_start and update.quiet_end:
+            return (
+                time.fromisoformat(update.quiet_start),
+                time.fromisoformat(update.quiet_end),
+            )
+        if update.quiet_start or update.quiet_end:
+            raise AppException(
+                ErrorCode.INVALID_PARAMS,
+                "免打扰时段必须同时给出 quiet_start 与 quiet_end（或 quiet_hours_enabled=false 关闭）",
+            )
+        return None
 
     async def get_language(self, db: AsyncSession, user_id: str) -> str:
         """读取用户语言偏好（默认 en）。"""
@@ -431,21 +497,31 @@ class UserService:
         覆盖全部用户数据表，确保无残留：
         对话 / 情绪签到 / 记忆 / 性格画像 / 性格评估 / 成长记录 / 里程碑徽章 / 推送令牌 /
         分享导出 / 订阅与收据 / 买断权益 / 第一周剧本事件 / 初读卡档案 / 危机命中审计 /
-        用户本体。
+        同意台账 / 数据导出任务 / 用户本体。
         已删除的表 rowcount=0，天然幂等（QStash 重试安全）。
         表删完后调用 analytics_service.erase_person_data 抹除 PostHog 侧残留；
-        该调用失败只告警、不影响本方法返回（分析平台抖动不能让注销卡在半途）。
+        该调用失败只告警、不影响本方法返回（分析平台抖动不能让注销卡在半途），但失败会写一行
+        `posthog_erasure_retries` 交给 `retry_pending_erasures` 重试（T1-02）——这张表是
+        `PURGE_EXEMPT_TABLES` 的豁免项，它的活恰恰发生在 users 行已经删掉之后。
 
         删除举证走日志而不是墓碑表（J4 收口）：墓碑表要成立得有个消费方能拿新
         user_id 关联到旧 user_id，而重新注册是全新 id、两者之间没有任何合法关联键
         —— 一张只有孤立 id 的表谁都读不到，只会多留一份「谁注销了」的数据，
         与「注销即删干净」的承诺相反。所以取证口径是：删前取 deleted_at、
-        删后打一行结构化 INFO（user_id + 时间戳 + 各表 rowcount + PostHog 结果）。
+        删后打一行结构化 INFO（user_id + 时间戳 + 各表 rowcount + 导出产物文件数 + PostHog 结果）。
+        盘上的导出 zip 不属任何表，靠 `PURGE_TARGETS` 删不干净，所以在删行之前先按
+        `file_path` 删文件（T1-01）。
         """
         # 必须在 DELETE 之前读：删完就再也拿不到注销时刻了
         deleted_at = (
             await db.execute(select(User.deleted_at).where(User.id == user_id))
         ).scalar_one_or_none()
+        # 盘上的导出产物先删：file_path 只存在于 data_export_jobs 的行里，行删完文件就变成
+        # 库上无记录的孤儿，而「注销即删干净」的取证口径是**盘上也找不到**（T1-01）。
+        # 惰性 import：export_service 在模块级读本文件的 PURGE_TARGETS，顶层互引会成环。
+        from backend.services.export_service import export_service
+
+        artifacts = await export_service.delete_user_artifacts(db, user_id)
         counts: dict = {}
         for table, key in PURGE_TARGETS:
             result = await db.execute(delete(table).where(table.user_id == user_id)
@@ -456,11 +532,17 @@ class UserService:
         # 放在 flush 之后、且不并入 counts——counts 的口径是「各表 rowcount」，
         # 幂等测试按 all(v == 0) 断言，塞入非数值键会让它恒假。
         posthog = await erase_person_data(user_id)
+        if not posthog.get("erased"):
+            # 失败不抛是设计（分析平台抖动不能把注销卡在半途），但「不抛」不等于「没人管」：
+            # users 行已删，/cron/purge-deleted-users 的谓词是 status='deleted'，扫不到这个用户，
+            # 于是 PostHog 侧的行为事件残留会永久无人认领。写一行重试台账把这件事交回给 cron。
+            await self.record_erasure_retry(db, user_id=user_id, reason=str(posthog.get("reason", "?")))
         logger.info(
-            "purge 举证 user_id=%s deleted_at=%s total_rows=%d posthog=%s counts=%s",
+            "purge 举证 user_id=%s deleted_at=%s total_rows=%d export_files=%d posthog=%s counts=%s",
             user_id,
             deleted_at.isoformat() if deleted_at else '-',
             sum(counts.values()),
+            artifacts,
             'erased' if posthog.get('erased') else f"pending:{posthog.get('reason', '?')}",
             ','.join(f'{k}={v}' for k, v in counts.items()),
         )
@@ -483,6 +565,109 @@ class UserService:
             except Exception as exc:  # noqa: BLE001  单用户失败不连锁
                 logger.warning("purge_deleted_users 失败 user=%s: %s", user.id, exc)
         return results
+
+    async def record_erasure_retry(
+        self, db: AsyncSession, *, user_id: str, reason: str
+    ) -> None:
+        """把「PostHog 侧还没擦干净」写成一行为可重试的活（T1-02）。
+
+        为什么由 purge_user 调而不是让 cron 去猜：唯一知道这次擦除失败了的人就是发起它的
+        purge_user。事后没有任何读路径能把「已删用户的 PostHog 残留」反查出来——
+        `/cron/purge-deleted-users` 的谓词是 `users.status='deleted'`，而这些用户的行已经没了。
+        """
+        now = utc_now()
+        await erasure_repository.record_failure(
+            db,
+            row_id=str(uuid4()),
+            user_id=user_id,
+            reason=reason,
+            now=now,
+            next_attempt_at=now + timedelta(
+                minutes=settings.posthog_erasure_retry_interval_minutes
+            ),
+        )
+
+    async def retry_pending_erasures(self, db: AsyncSession) -> dict:
+        """重试外部平台擦除：到点的行逐个再擦一次（T1-02 的第 3 件）。
+
+        三个出口，都保证这一行不会永远留着：
+        - 擦成功 ⇒ 删行（这条承诺到此完成，库里不留终态历史，取证看日志）；
+        - 又失败 ⇒ 推后 `posthog_erasure_retry_interval_minutes`，attempts 记账；
+        - 超过 `posthog_erasure_retry_max_days` ⇒ 打一条 ERROR（这是给人看的告警，
+          不是给机器重试的信号）后删行。留在表里只会变成一份「谁注销了」的旁证，
+          而那正是 J4 否掉墓碑表时给出的理由。
+
+        退避取固定间隔而不是指数：这张表的行数由「成功即删 + 超龄即删」天然封顶，一小时
+        一次的对外调用便宜到不需要保护，而指数退避会多一个要被解释的时刻算法。
+        逐行 SAVEPOINT（与 purge_deleted_users 同口径）：一行擦除抛错不能把整批带回滚。
+        """
+        now = utc_now()
+        deadline = now - timedelta(days=settings.posthog_erasure_retry_max_days)
+        rows = await erasure_repository.due_rows(
+            db, now, limit=settings.posthog_erasure_retry_batch
+        )
+        out = {"checked": len(rows), "erased": 0, "pending": 0, "alerted": 0, "skipped": 0}
+        for row in rows:
+            # SQLite 把 DateTime(timezone=True) 读成 naive，naive 一律按 UTC 解释——
+            # 与本仓其余时刻比较同一口径（export_service._aware 等）。
+            first_failed = row.first_failed_at
+            if first_failed is not None and first_failed.tzinfo is None:
+                first_failed = first_failed.replace(tzinfo=timezone.utc)
+            try:
+                async with db.begin_nested():
+                    if first_failed is not None and first_failed <= deadline:
+                        logger.error(
+                            "POSTHOG-ERASURE-STUCK user_id=%s attempts=%d first_failed_at=%s "
+                            "last_reason=%s：超过 %d 天仍未擦除，已放弃重试并删除台账行，需人工处理",
+                            row.user_id,
+                            row.attempts,
+                            row.first_failed_at,
+                            row.last_reason,
+                            settings.posthog_erasure_retry_max_days,
+                        )
+                        await erasure_repository.delete(db, row.id)
+                        out["alerted"] += 1
+                        continue
+                    # CAS 认领放在对外调用之前：拿不到行就说明别的 worker 已经把它推走了，
+                    # 再打一次 PostHog 是重复删除请求，不是幂等重试。
+                    if not await erasure_repository.claim(
+                        db,
+                        row.id,
+                        now=now,
+                        next_attempt_at=now
+                        + timedelta(minutes=settings.posthog_erasure_retry_interval_minutes),
+                    ):
+                        out["skipped"] += 1
+                        continue
+                    posthog = await erase_person_data(row.user_id)
+                    if posthog.get("erased"):
+                        await erasure_repository.delete(db, row.id)
+                        out["erased"] += 1
+                        logger.info(
+                            "erasure 重试成功 user_id=%s attempts=%d", row.user_id, row.attempts
+                        )
+                    else:
+                        await erasure_repository.reschedule(
+                            db,
+                            row.id,
+                            reason=str(posthog.get("reason", "?")),
+                            attempts=row.attempts + 1,
+                        )
+                        out["pending"] += 1
+                        logger.warning(
+                            "erasure 重试未成功 user_id=%s attempts=%d reason=%s",
+                            row.user_id,
+                            row.attempts,
+                            posthog.get("reason"),
+                        )
+            except Exception as exc:  # noqa: BLE001  单行失败不连锁（SAVEPOINT 已回滚本行）
+                logger.warning("retry_pending_erasures 失败 user=%s: %s", row.user_id, exc)
+        if out["checked"]:
+            logger.info(
+                "erasure 重试批次 checked=%d erased=%d pending=%d alerted=%d skipped=%d",
+                out["checked"], out["erased"], out["pending"], out["alerted"], out["skipped"],
+            )
+        return out
 
     def get_relationship_level(self, active_days: int) -> tuple:
         """根据累计活跃天数计算关系等级（PRD P0-F05）。"""

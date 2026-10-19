@@ -92,6 +92,41 @@ class AioCandidatePublisher:
         )
 
 
+class AioEventPublisher:
+    """T2-06 · 事件面出网：把 ``source.deleted`` 投进 ``closenai.events``。
+
+    与 ``AioCandidatePublisher`` 分家而不是共用一个 publish：两条面的**确认语义**
+    是同一条（拿不到 Basic.Ack 就不许往下走），但调用方不是同一个进程——候选面住在
+    AI worker，事件面住在 HTTP 进程。共用会让「谁在什么进程里等确认」这件事
+    在栈里读不出来，而排查一条「删了但依据还在」恰恰要先读这一格。
+    """
+
+    def __init__(self, exchange: AbstractExchange) -> None:
+        self._exchange = exchange
+
+    @property
+    def exchange(self) -> str:
+        return self._exchange.name
+
+    async def publish(self, message: CandidateMessage) -> None:
+        # 与候选面同一条地基：publisher_confirms=True 时 publish 会等 Basic.Ack，
+        # 而 ``on_return_raises=True`` 让「没人绑定这个键」当场抛。
+        # 摘掉这里的 await 就是变异靶：删除事件会变成「发了但没确认」。
+        await self._exchange.publish(
+            aio_pika.Message(
+                body=message.body,
+                headers=dict(message.headers),
+                content_type=message.content_type,
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                message_id=message.message_id,
+                type=message.message_type,
+                correlation_id=message.correlation_id,
+                timestamp=datetime.now(timezone.utc),
+            ),
+            message.routing_key,
+        )
+
+
 class AioDeadLetterPublisher:
     """把一条消息**原样**改投 ``closenai.dlq`` 的某一格（重试层或终态面）。
 
@@ -142,13 +177,26 @@ async def open_publishers(channel: AbstractChannel) -> tuple[AioCandidatePublish
     return AioCandidatePublisher(candidates), AioDeadLetterPublisher(dlq)
 
 
+async def open_event_publisher(channel: AbstractChannel) -> AioEventPublisher:
+    """事件面（T2-06）的 passive 声明：只断言 ``closenai.events`` 在。
+
+    为什么 HTTP 进程要用同一个函数而不是自己 ``declare_exchange``：D-R5-3 的地基是
+    「参数面只有 Go 一份事实源」。这里若写成非 passive，Python 就成了第二套表，
+    下一个 Go worker 启动时撞 406（R4 实测过）。
+    """
+    events = await declare_passive(channel, topology.EXCHANGE_EVENTS, kind="事件面")
+    return AioEventPublisher(events)
+
+
 __all__ = [
     "AioCandidatePublisher",
     "AioDeadLetterPublisher",
+    "AioEventPublisher",
     "HEADER_REJECT_DETAIL",
     "HEADER_REJECT_REASON",
     "TopologyMissing",
     "declare_passive",
     "declare_queue_passive",
+    "open_event_publisher",
     "open_publishers",
 ]

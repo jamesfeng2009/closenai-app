@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     # QStash 回调验签密钥（Signing Keys，支持轮换：current 验不过再试 next）
     qstash_current_signing_key: str = ""
     qstash_next_signing_key: str = ""
-    # 后端公网基础 URL（QStash publish 的回调目标，如 https://your-app.vercel.app）
+    # 后端公网基础 URL（QStash publish 的回调目标，如 https://api.closenai.app）
     backend_base_url: str = ""
 
     # 推送
@@ -182,6 +182,49 @@ class Settings(BaseSettings):
     # 每日 cron 生成「上次你提到...现在怎么样了？」式跟进消息（默认 3-7 天）
     follow_up_window_start_days: int = 3
     follow_up_window_end_days: int = 7
+
+    # 通用数据导出（T1-01，Baseline §2.2-6「带走」／§3 P0「数据导出入口真实可用」）。
+    # 空 ⇒ 落在仓库根的 data/exports（宿主上由 compose/k8s 挂卷覆盖，见 EXPORT_DIR）。
+    # 这一层默认值给的是「开发机能跑」，不是「生产能持久」——生产的目录必须在编排里显式给。
+    export_dir: str = ""
+    # 单 job 产物上限（Baseline §16 的失败形状：超限要显式 failed，不能让 zip 悄悄截断）
+    export_max_bytes: int = 200 * 1024 * 1024
+    # ready 之后保留天数；到期由 /cron/export-jobs 置 expired 并删文件（§14.2「保存周期」
+    # 要在隐私政策里说清楚的那一个数字，两边必须同值）
+    export_retention_days: int = 7
+    # 限频：同一用户在 window 小时数内只允许一个未失败的 job（判据见 export_service.create_job）
+    export_request_window_hours: int = 24
+    # cron 侧的失败重试上限：attempts 满这个数才置 failed（重启后还得算，所以落库不算内存）
+    export_max_attempts: int = 3
+    # running 超过这个分钟数视为进程崩在半路：退回 queued 或直接 failed
+    export_stale_running_minutes: int = 30
+
+    # PostHog 侧擦除重试（T1-02）：purge_user 里 erase_person_data 失败会写
+    # posthog_erasure_retries 一行，由 /cron/purge-deleted-users（每小时）与进程内
+    # 兜底循环（每 10 分钟）重试。两个数字都是这张表的「存活边界」：
+    # 退避决定多久再试一次，上限决定多久放弃并告警（超上限打 ERROR 后删行，终态只留日志）。
+    posthog_erasure_retry_interval_minutes: int = 60
+    posthog_erasure_retry_max_days: int = 7
+    # 一轮重试最多处理多少行。上限存在的理由很实际：一次 cron 不能因为积压把 HTTP 请求
+    # 变成分钟级的对外调用串（同一 CommitBeforeResponseRoute 口径，见 T1-01 的长事务理由）。
+    posthog_erasure_retry_batch: int = 50
+
+    # 付费交付审计（T1-04，Baseline §4.3「线上监控能发现付款成功但交付失败」）。
+    # grace_hours ＝ 付费后给多久宽限：买断当天没点导出属正常，不足以判成"交付失败"；
+    # 过了这个点还没有任何成功导出行，才进审计的未交付计数。
+    delivery_audit_grace_hours: int = 24
+    # 告警阈值按「超过 N 人才红」理解：默认 0 ⇒ 一个人付费却没拿到交付就告警。
+    # 独立运营期没有"容忍若干失败"这回事，把阈值调高只会把信号调成噪声。
+    delivery_audit_alert_threshold: int = 0
+
+    @property
+    def export_dir_path(self) -> Path:
+        """导出产物的落盘目录（唯一取法，别在业务代码里各自拼 Path）。
+
+        与 `share_landing_url` 同一个理由：消费方读属性而不是读裸字段，未配置时才会
+        得到一个确定的可写默认值，而不是空串拼出来的相对路径（相对谁取决于启动目录）。
+        """
+        return Path(self.export_dir) if self.export_dir else BASE_DIR.parent / "data" / "exports"
 
     # PostHog（行为分析 + 错误追踪，Cloud·EU；生产才启用，key 为空则服务内 no-op）
     posthog_api_key: str = ""

@@ -1,16 +1,22 @@
 """
 定时任务路由 (P0-F01/P0-F03/P0-F07/P1-F01)。
 
-调度面（2026-10-17 逐条数 `vercel.json`；原文一句「全部每小时触发」带过，那是不实口径）：
-    12 条排程里只有 7 条是整点每小时（daily-message / journey / mood-reminder / bedtime /
-    curriculum / care-push / purge-deleted-users）；另 5 条按日或按周——daily-insight
+调度面（2026-10-18 逐条数 `deploy/schedule/crontab`；旧源 `vercel.json` 同日退役——
+    批 4 那句「全部每小时触发」的失真口径就是当时数它数出来的，B-02 判默认删除；
+    T1-01 加了一条 */5 导出认领后为 14 条，T1-04 再加一条每日交付审计 ⇒ 15 条）：
+    15 条排程里只有 7 条是整点每小时（daily-message / journey / mood-reminder / bedtime /
+    curriculum / care-push / purge-deleted-users）；另 6 条按日或按周——daily-insight
     `0 15 * * *`、trial-reminder `0 12 * * *`、cleanup-tokens `0 3 * * *`、
-    weekly-insight `0 0 * * 0`、weekly-drift `0 2 * * 0`。
-    Vercel Cron 只发 GET，所以三条 POST（process-user / follow-up / purge-user）
-    由 QStash 回调触发，本来就不在排程表里；分块分发也在这条回调链上，不是 cron 表达式做的。
+    delivery-audit `0 4 * * *`、weekly-insight `0 0 * * 0`、weekly-drift `0 2 * * 0`；
+    再 2 条 `*/5 * * * *`——
+    /cron/health 保热（「每 5 分钟」这句到 T0-02 才第一次成立，此前没有任何清单排过它）
+    与 /cron/export-jobs（T1-01 导出队列认领：产物等不起每小时的整点）。
+    三条 POST（process-user / follow-up / purge-user）不在宿主 crontab 里：它们是
+    QStash 公网回调（验签 Upstash-Signature，密钥走投递侧而非 CRON_SECRET），调度在
+    投递侧注册；分块分发也在这条回调链上，不是排程表达式做的。
     逐条对账由 `backend/tests/test_cron_schedule_coverage.py` 负责（含端点 docstring 的节律宣称）。
 
-端点（16 条，与上面 `@router.*` 装饰器同日点数一致；原文漏了 curriculum）：
+端点（18 条，与上面 `@router.*` 装饰器同日点数一致；原文漏了 curriculum）：
     GET  /api/v1/cron/daily-message   — 主动消息生成（按时区分组）
     GET  /api/v1/cron/journey         — 第一周剧本 D0–D7 到期事件投递（P1-B02）
     GET  /api/v1/cron/curriculum      — Growth Curriculum 周规划预生成（PRD §5.17）
@@ -26,6 +32,8 @@
     POST /api/v1/cron/purge-user      — QStash 回调：注销用户物理删除（验签，幂等）
     GET  /api/v1/cron/purge-deleted-users — 兜底清理：软删除超 1h 用户批量物理删除
     GET  /api/v1/cron/cleanup-tokens  — 清理过期 refresh token（防表无限增长）
+    GET  /api/v1/cron/export-jobs     — 数据导出队列：认领生成＋回收卡死＋到期清理（T1-01）
+    GET  /api/v1/cron/delivery-audit  — 付费交付审计：买断未交付计数＋阈值告警（T1-04）
     GET  /api/v1/cron/health          — 保热端点
 """
 import base64
@@ -43,6 +51,8 @@ from backend.core.response import success
 from backend.database import get_db
 from backend.repositories import auth_repository
 from backend.services.cron_service import CronService, cron_service
+from backend.services import delivery_service
+from backend.services.export_service import ExportService, export_service
 from backend.services.user_service import UserService, user_service
 
 router = APIRouter(route_class=CommitBeforeResponseRoute)
@@ -54,6 +64,10 @@ def get_cron_service() -> CronService:
 
 def get_user_service() -> UserService:
     return user_service
+
+
+def get_export_service() -> ExportService:
+    return export_service
 
 
 def verify_cron_secret(request: Request):
@@ -96,7 +110,7 @@ async def daily_message(
     service: CronService = Depends(get_cron_service),
 ):
     """
-    每日主动消息生成（Vercel Cron 触发）。
+    每日主动消息生成（宿主 crontab 每小时触发）。
 
     1. 按用户时区分组（UTC+8, UTC+7, UTC+0）
     2. 对每组用户，通过 QStash 分块分发（每块 50 用户）
@@ -114,7 +128,7 @@ async def journey_dispatch(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """第一周剧本调度（PRD §5.19.3 P1-B02 / 架构方案 §二 M2，Vercel Cron 每小时触发）。
+    """第一周剧本调度（PRD §5.19.3 P1-B02 / 架构方案 §二 M2，宿主 crontab 每小时触发）。
 
     扫描 scheduled_at<=now 且 status=pending 的剧本事件并按日序投递：D0–D5 与 D7 报告
     全部模板直出（零 LLM），仅 D2 走推送，其余只进 App 内红点。
@@ -153,7 +167,7 @@ async def mood_reminder(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """签到轻提醒（PRD P0-F03 §7，Vercel Cron 每小时触发）。
+    """签到轻提醒（PRD P0-F03 §7，宿主 crontab 每小时触发）。
 
     对用户本地「push_time + 2 小时」仍未签到的用户推送轻提醒；
     纯推送（非 LLM 内容），不写对话流、不计配额。
@@ -169,7 +183,7 @@ async def bedtime_reminder(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """睡前复盘提醒（PRD §5.16 S1，Vercel Cron 每小时触发）。
+    """睡前复盘提醒（PRD §5.16 S1，宿主 crontab 每小时触发）。
 
     用户本地 22:00–23:30 固定窗口推送复盘入口；危机命中 24h 内停推、
     当日已完成复盘不打扰。纯推送（模板文案），不写对话流、不计配额。
@@ -185,7 +199,7 @@ async def curriculum_generation(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """Growth Curriculum 周规划（PRD §5.17，Vercel Cron 每小时触发）。
+    """Growth Curriculum 周规划（PRD §5.17，宿主 crontab 每小时触发）。
 
     用户本地周日 21 点桶预生成下周 7 张主题卡（Rule 优先 + LLM 周规划）。
     拉取式消费：只落 journey_events 首页池，不推送、不计配额。
@@ -201,7 +215,7 @@ async def trial_reminder(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """试用到期提醒（PRD P1-F02 §4，Vercel Cron 每日触发）。
+    """试用到期提醒（PRD P1-F02 §4，宿主 crontab 每日触发）。
 
     对 24 小时内试用到期的用户推送提醒（按用户语言），每条订阅只提醒一次。
     """
@@ -216,7 +230,7 @@ async def care_push(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """连续负面 3 天关心推送（PRD P1-F01 §6，Vercel Cron 每小时触发）。
+    """连续负面 3 天关心推送（PRD P1-F01 §6，宿主 crontab 每小时触发）。
 
     对最近连续 3 天负面签到的用户在最佳发送小时推送关心文案；
     属特殊事件，每用户每月 ≤4 次，超限静默跳过。
@@ -233,7 +247,7 @@ async def daily_insight(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """每日洞察生成（P0-F07 §1）：仅为当日活跃用户（当日有签到或对话）生成，prompt 喂入当日对话。"""
+    """每日洞察生成（P0-F07 §1，宿主 crontab 每日 `0 15 * * *` 触发）：仅为当日活跃用户（当日有签到或对话）生成，prompt 喂入当日对话。"""
     verify_cron_secret(request)
     result = await service.generate_daily_insights(db)
     return success(result)
@@ -245,7 +259,7 @@ async def weekly_insight(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """周洞察生成（每周日凌晨触发）。"""
+    """周洞察生成（宿主 crontab 每周日凌晨触发）。"""
     verify_cron_secret(request)
     result = await service.generate_weekly_insights(db)
     return success(result)
@@ -257,7 +271,7 @@ async def weekly_drift(
     db: AsyncSession = Depends(get_db),
     service: CronService = Depends(get_cron_service),
 ):
-    """渐变漂移周检测（spec memory-layer §3，每周日凌晨触发）。
+    """渐变漂移周检测（spec memory-layer §3，宿主 crontab 每周日凌晨触发）。
 
     对每用户 current 且 conviction≥0.4 的记忆做近 7 天 vs 前 7 天消息
     embedding 趋势分析，相似度下降 > 0.15 时写 drift_score 并生成 drift_alert。
@@ -317,12 +331,18 @@ async def purge_deleted_users(
 ):
     """兜底清理：物理删除软删除超 1 小时的用户（QStash 投递失败/未配置时）。
 
-    Vercel Cron 定时触发（建议每小时）；逐用户独立 SAVEPOINT，单用户失败不影响批次。
+    宿主 crontab 每小时触发；逐用户独立 SAVEPOINT，单用户失败不影响批次。
     stale_hours=1 给 QStash 正常重试留窗口，避免与异步任务重复删除。
+
+    同一条端点顺带重试 PostHog 侧擦除（T1-02）。为什么不新开一条 cron：这两件事的消费者
+    是同一个「注销还没走完」状态，而 `posthog_erasure_retries` 的行恰恰在 users 行删除之后
+    才出现——拆成两条排程就会出现「purge 已跑、重试要等下一班车」的空档，而那正是残留
+    被永久留下的形状。少一条排程也少一条要在 deploy/schedule/crontab 对账的登记项。
     """
     verify_cron_secret(request)
     results = await service.purge_deleted_users(db, stale_hours=1)
-    return success({"purged": len(results), "users": results})
+    erasure = await service.retry_pending_erasures(db)
+    return success({"purged": len(results), "erasure_retry": erasure, "users": results})
 
 
 @router.get("/cron/cleanup-tokens")
@@ -330,7 +350,7 @@ async def cleanup_tokens(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """清理过期 refresh token（Vercel Cron 每日触发）。
+    """清理过期 refresh token（宿主 crontab 每日 `0 3 * * *` 触发）。
 
     过期 token 已无认证价值，物理删除防 refresh_tokens 表无限增长；
     已吊销未过期 token 保留（重放检测依赖吊销记录）。
@@ -340,12 +360,53 @@ async def cleanup_tokens(
     return success({"deleted": deleted})
 
 
+@router.get("/cron/export-jobs")
+async def export_jobs(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    service: ExportService = Depends(get_export_service),
+):
+    """通用数据导出：认领 queued job 生成 zip ＋ 回收卡死 ＋ 到期清理（T1-01）。
+
+    宿主 crontab 每 5 分钟触发。一条端点做完三件事而不是拆三条，是因为这三件事共享
+    同一张表的同一批状态：分开排程就会出现「已过期但还没生成完」的中间态，而那种态
+    除了让 job 卡在 ready 与 expired 之间反复，对用户没有任何意义。
+    逐 job 独立 SAVEPOINT（与 purge-deleted-users 同口径）：一个用户导出失败不能把整批
+    带回滚，更不能让这条 HTTP 变成 500——那样下一个 5 分钟也没人来认领。
+    """
+    verify_cron_secret(request)
+    return success(await service.process_jobs(db))
+
+
+@router.get("/cron/delivery-audit")
+async def delivery_audit(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """付费交付审计（T1-04，Baseline §4.3「线上监控能发现付款成功但交付失败」）。
+
+    宿主 crontab 每日 `0 4 * * *` 触发（UTC，落在 cleanup-tokens 之后一小时：两条都是
+    只读/清理类作业，错开一小时是为了让日志里各自的行不混在同一分钟的批次噪声里）。
+
+    为什么判据读库不读事件：`archive_*` / `iap_*` 那些交付事件有四种正当理由落不到
+    分析平台（未装 SDK、未配 key、用户没给分析同意、中继前进程就崩了）。把告警建在
+    事件计数上，等于让"平台没配"看起来像"交付一切正常"。权益行与导出行不会因此消失，
+    所以这条端点数的是库。
+
+    返回体只给计数与阈值，不给 user_id 清单：告警要的是"有没有、多少个"，
+    具体是谁由运维按 metric 行的计数去库里查——把付费用户名单写进一条 HTTP 响应，
+    是本批最不该新造的那类泄漏面。
+    """
+    verify_cron_secret(request)
+    return success(await delivery_service.audit_paid_delivery(db))
+
+
 @router.get("/cron/health")
 async def health():
-    """保热端点（供外部探活/手动调用）。
+    """保热端点（宿主 crontab 每 5 分钟 GET 触发；2026-10-18 逐条数
+    `deploy/schedule/crontab`，这句从 T0-02 起才第一次成立）。
 
-    调度清单（vercel.json）并未排程本路径，`settings.health_check_interval`
-    也没有消费方——这两条口径由 tests/test_cron_schedule_coverage.py 与
-    tasks.md 的 T 桶看住，别在这里写成「已定时」。
+    排程逐条对账归 tests/test_cron_schedule_coverage.py；`settings.health_check_interval`
+    仍无代码消费方（tasks.md T 桶「只登记不顺手删」），别把它做成旋钮。
     """
     return success({"status": "ok", "warmed": True})

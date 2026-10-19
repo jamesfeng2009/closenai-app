@@ -21,9 +21,25 @@ from backend.services.commitment_service import commitment_service
 from backend.services.journey_service import journey_service, load_template
 from backend.services.memory_service import memory_service
 
-# 冻结时间取未来日期（晚于真实墙钟）：chat 行 created_at 走 SQLite CURRENT_TIMESTAMP
-# 真实时间，若冻结在过去会被 count_today 误判"今日已有主动消息"（test_journey 同口径）
-FROZEN_NOW = datetime(2026, 10, 8, 12, 0, tzinfo=timezone.utc)  # 周四
+# 冻结时间必须晚于真实墙钟：chat 行的 created_at 走 DB 的 CURRENT_TIMESTAMP（真实时间），
+# 而 count_today／weekly_sent_count 是开区间（>= 起点，没有上界）。冻结点一旦落到真实墙钟
+# 之后，"今日已有主动消息"就会把真实时间写进去的那几行算进来（2026-10-18 实测红过一次：
+# 原本锚在 2026-10-08 的周四被真实墙钟越过，第二条回访被误顺延）。
+# 所以整个冻结周按整周前滚：周四→周五→周六与 +7 天顺延这些关系保持不变。
+_ANCHOR = datetime(2026, 10, 5, tzinfo=timezone.utc)  # 冻结周所在周的周一
+_ROLL = timedelta(weeks=(datetime.now(timezone.utc) - _ANCHOR) // timedelta(weeks=1) + 2)
+
+
+def _f(month: int, day: int, hour: int = 12, minute: int = 0) -> datetime:
+    """把文件里写的绝对日期整体前滚到真实墙钟之后（整周，星期不变）。"""
+    return datetime(2026, month, day, hour, minute, tzinfo=timezone.utc) + _ROLL
+
+
+def _d(month: int, day: int) -> date:
+    return (datetime(2026, month, day, tzinfo=timezone.utc) + _ROLL).date()
+
+
+FROZEN_NOW = _f(10, 8)  # 周四
 
 USER_KW = dict(
     timezone="UTC", language="zh", ai_consent=True,
@@ -85,10 +101,10 @@ async def test_capture_zh_habit_intent(db, make_user, time_travel):
     events = await _pending_commitments(db, "u1")
     assert len(events) == 1
     assert events[0].day_no == 7
-    assert _as_utc(events[0].scheduled_at) == _window(date(2026, 10, 15))
+    assert _as_utc(events[0].scheduled_at) == _window(_d(10, 15))
     payload = json.loads(events[0].payload)
     assert payload["memory_id"] == memory_id
-    assert payload["captured_day"] == "2026-10-08"
+    assert payload["captured_day"] == FROZEN_NOW.date().isoformat()
 
 
 async def test_capture_event_intent_schedules_next_day(db, make_user, time_travel):
@@ -105,7 +121,7 @@ async def test_capture_event_intent_schedules_next_day(db, make_user, time_trave
     events = await _pending_commitments(db, "u1")
     assert len(events) == 1
     assert events[0].day_no == 1
-    assert _as_utc(events[0].scheduled_at) == _window(date(2026, 10, 9))
+    assert _as_utc(events[0].scheduled_at) == _window(_d(10, 9))
 
 
 async def test_plain_message_captures_nothing(db, make_user, time_travel):
@@ -178,7 +194,7 @@ async def test_deliver_renders_follow_up_with_evidence(db, make_user, time_trave
     assert msg.message_type == "proactive"
     assert msg.ai_generated is False
     assert "我想开始跑步" in msg.content  # ② 承诺回放
-    assert "10/8" in msg.content  # 捕获日期
+    assert f"{FROZEN_NOW.month}/{FROZEN_NOW.day}" in msg.content  # 捕获日期（随 _ROLL 前滚）
     # memory_refs 硬不变量：正文引用了原话 ⟺ refs 非空且归属该用户
     refs = json.loads(event.memory_refs)
     assert [r["memory_id"] for r in refs] == [memory_id]
@@ -210,8 +226,8 @@ async def test_negative_reply_mutes_and_stops_follow_ups(db, make_user, time_tra
     row = await memory_repository.get(db, memory_id, "u1")
     assert json.loads(row.labels)["commitment"]["muted"] is True
 
-    time_travel.set(datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc))
-    await _touch(db, "u1", datetime(2026, 10, 22, 9, 0, tzinfo=timezone.utc))
+    time_travel.set(_f(10, 22, 12, 0))
+    await _touch(db, "u1", _f(10, 22, 9, 0))
     second.scheduled_at = FROZEN_NOW - timedelta(minutes=1)
     assert await journey_service.deliver(db, second.id) == "skipped"
     history = await chat_repository.get_history(db, "u1")
@@ -242,27 +258,27 @@ async def test_weekly_quota_defers_third_follow_up(db, make_user, time_travel, m
     assert len(events) == 3
 
     # 周四发第一条
-    time_travel.set(datetime(2026, 10, 8, 12, 0, tzinfo=timezone.utc))
+    time_travel.set(_f(10, 8, 12, 0))
     e1 = next(e for e in events if "跑步" in (e.payload or ""))
-    e1.scheduled_at = datetime(2026, 10, 8, 11, 59, tzinfo=timezone.utc)
+    e1.scheduled_at = _f(10, 8, 11, 59)
     assert await journey_service.deliver(db, e1.id) == "sent"
 
     # 周五发第二条（不同本地日，避开"每日一条"门）
-    time_travel.set(datetime(2026, 10, 9, 12, 0, tzinfo=timezone.utc))
-    await _touch(db, "u1", datetime(2026, 10, 9, 9, 0, tzinfo=timezone.utc))
+    time_travel.set(_f(10, 9, 12, 0))
+    await _touch(db, "u1", _f(10, 9, 9, 0))
     e2 = next(e for e in events if "面试" in (e.payload or ""))
-    e2.scheduled_at = datetime(2026, 10, 9, 11, 59, tzinfo=timezone.utc)
+    e2.scheduled_at = _f(10, 9, 11, 59)
     assert await journey_service.deliver(db, e2.id) == "sent"
 
     # 周六第三条 → 周频控命中（本周已发 2 条）→ 顺延一周
-    time_travel.set(datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc))
-    await _touch(db, "u1", datetime(2026, 10, 10, 9, 0, tzinfo=timezone.utc))
+    time_travel.set(_f(10, 10, 12, 0))
+    await _touch(db, "u1", _f(10, 10, 9, 0))
     e3 = next(e for e in events if "奶茶" in (e.payload or ""))
-    e3.scheduled_at = datetime(2026, 10, 10, 11, 59, tzinfo=timezone.utc)
+    e3.scheduled_at = _f(10, 10, 11, 59)
     assert await journey_service.deliver(db, e3.id) == "deferred"
     await db.refresh(e3)
     assert e3.status == "pending"
-    assert _as_utc(e3.scheduled_at) == datetime(2026, 10, 17, 11, 59, tzinfo=timezone.utc)
+    assert _as_utc(e3.scheduled_at) == _f(10, 17, 11, 59)
 
 
 async def test_same_commitment_max_two_follow_ups(db, make_user, time_travel):
@@ -272,17 +288,17 @@ async def test_same_commitment_max_two_follow_ups(db, make_user, time_travel):
     memory_id = await commitment_service.on_user_message(db, "u1", "我想开始跑步")
     (first,) = await _pending_commitments(db, "u1")
 
-    time_travel.set(datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc))
-    await _touch(db, "u1", datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc))
-    first.scheduled_at = datetime(2026, 10, 15, 11, 59, tzinfo=timezone.utc)
+    time_travel.set(_f(10, 15, 12, 0))
+    await _touch(db, "u1", _f(10, 15, 9, 0))
+    first.scheduled_at = _f(10, 15, 11, 59)
     assert await journey_service.deliver(db, first.id) == "sent"
     (second,) = await _pending_commitments(db, "u1")
     assert second.day_no == 14
-    assert _as_utc(second.scheduled_at) == _window(date(2026, 10, 22))
+    assert _as_utc(second.scheduled_at) == _window(_d(10, 22))
 
-    time_travel.set(datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc))
-    await _touch(db, "u1", datetime(2026, 10, 22, 9, 0, tzinfo=timezone.utc))
-    second.scheduled_at = datetime(2026, 10, 22, 11, 59, tzinfo=timezone.utc)
+    time_travel.set(_f(10, 22, 12, 0))
+    await _touch(db, "u1", _f(10, 22, 9, 0))
+    second.scheduled_at = _f(10, 22, 11, 59)
     assert await journey_service.deliver(db, second.id) == "sent"
 
     row = await memory_repository.get(db, memory_id, "u1")

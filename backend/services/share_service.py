@@ -41,6 +41,7 @@ from backend.core.time_utils import (
     utc_now,
 )
 from backend.ai.safety import safety_service
+from backend.models.share import LIFE_ARCHIVE_PERIOD
 from backend.models.user import User
 from backend.repositories import (
     chat_repository,
@@ -59,6 +60,7 @@ from backend.services.growth_service import (
     growth_service,
 )
 from backend.services.first_read_service import first_read_service
+from backend.services.delivery_service import DeliveryEvent, alert, emit
 from backend.services.personality_service import personality_service
 from backend.services.quota_service import FREE_TIER
 
@@ -143,8 +145,6 @@ def _as_aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-# share_exports.period 取值（String(20) 内）
-LIFE_ARCHIVE_PERIOD = "life_archive"
 # 三档导出窗口：1y=近 365 天，all=全量，legacy=全量 + 跨年对比 + 里程碑全史
 LIFE_ARCHIVE_SCOPES = ("1y", "all", "legacy")
 LIFE_ARCHIVE_WINDOW_DAYS = {"1y": 365, "all": None, "legacy": None}
@@ -814,28 +814,82 @@ class ShareService:
         - 持有 ≥ scope 档买断 → 放行，缓存键 = scope（同档幂等，不重复渲染）
         - Pro/Pro+ 订阅期内 → 每月 1 次免费生成（联动权益），缓存键带 YYYY-MM
         - 两者都不满足 → 40304 ENTITLEMENT_REQUIRED
+
+        交付事件（T1-04）：档位非法不计——那是客户端传错参数，不是"付了钱没出货"。
+        从这里开始到落库为止的每一条出口都要有一条 succeeded/failed，因为审计的
+        判据（`delivery_service.audit_paid_delivery`）读的是 `share_exports` 有没有行，
+        而"生成过程抛错"正是留不下行的那一种失败。
         """
         if scope not in LIFE_ARCHIVE_SCOPES:
             raise AppException(
                 ErrorCode.INVALID_PARAMS, f"无效的导出档位: {scope} / Invalid archive scope"
             )
         user = await user_repository.require_user(db, user_id)
-        period_key, gate = await self._life_archive_gate(db, user, scope)
-
-        cached = await share_repository.get_cached(
-            db, user_id, LIFE_ARCHIVE_PERIOD, period_key
+        emit(
+            DeliveryEvent.ARCHIVE_GENERATE_STARTED,
+            user=user,
+            source="life_archive",
+            feature=scope,
+            action="generate",
+            language=language or "en",
         )
-        if cached is not None and not regenerate:
-            payload = json.loads(cached.payload)
-            payload["from_cache"] = True
-            return payload
+        try:
+            period_key, gate = await self._life_archive_gate(db, user, scope)
 
-        archive = await self._build_life_archive(db, user, scope, language, gate)
-        raw = json.dumps(archive, ensure_ascii=False)
-        if cached is not None:
-            await share_repository.overwrite(db, cached, raw)
-        else:
-            await share_repository.save(db, user_id, LIFE_ARCHIVE_PERIOD, period_key, raw)
+            cached = await share_repository.get_cached(
+                db, user_id, LIFE_ARCHIVE_PERIOD, period_key
+            )
+            if cached is not None and not regenerate:
+                payload = json.loads(cached.payload)
+                payload["from_cache"] = True
+                emit(
+                    DeliveryEvent.ARCHIVE_GENERATE_SUCCEEDED,
+                    user=user,
+                    source="life_archive",
+                    feature=scope,
+                    action="generate",
+                    result="cache",
+                )
+                return payload
+
+            archive = await self._build_life_archive(db, user, scope, language, gate)
+            raw = json.dumps(archive, ensure_ascii=False)
+            if cached is not None:
+                await share_repository.overwrite(db, cached, raw)
+            else:
+                await share_repository.save(db, user_id, LIFE_ARCHIVE_PERIOD, period_key, raw)
+        except AppException as exc:
+            # 40304（无权益）与 40001 都归到 reason=rejected_<码>：审计要看的是
+            # "付费用户为什么没拿到东西"，被门禁拒了也是一种没拿到。
+            emit(
+                DeliveryEvent.ARCHIVE_GENERATE_FAILED,
+                user=user,
+                source="life_archive",
+                feature=scope,
+                action="generate",
+                result="failed",
+                reason=f"rejected_{exc.code}",
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 - 数完照原样上抛，不改控制流
+            emit(
+                DeliveryEvent.ARCHIVE_GENERATE_FAILED,
+                user=user,
+                source="life_archive",
+                feature=scope,
+                action="generate",
+                result="failed",
+                reason=f"generate_error_{type(exc).__name__}",
+            )
+            raise
+        emit(
+            DeliveryEvent.ARCHIVE_GENERATE_SUCCEEDED,
+            user=user,
+            source="life_archive",
+            feature=scope,
+            action="generate",
+            result="ok",
+        )
         return archive
 
     async def export_life_archive_pdf(
@@ -846,19 +900,54 @@ class ShareService:
         language: str = "en",
         regenerate: bool = False,
     ) -> bytes:
-        """导出 Life Archive（PDF）。复用 JSON 导出缓存，权益判定同走一次。"""
-        archive = await self.export_life_archive(db, user_id, scope, language, regenerate)
-        # aigc=True：档案含已落库的 LLM 章节 → 隐式标识进元数据（显式逐章标注另见正文）
-        # 不给 brand：Life Archive 是付费私人交付物，带引流二维码会让它转发时变成广告
-        runs = await generation_run.summarize_runs(
-            db, generation_run.collect_run_ids(archive.get("generation_run_ids"))
+        """导出 Life Archive（PDF）。复用 JSON 导出缓存，权益判定同走一次。
+
+        `archive_download_requested` 在进入时记（用户确实点了下载），排版抛错时补一条
+        failed + 一行 `DELIVERY-ALERT`：这一段失败落在 `share_exports` 之后，库里已经有
+        成功行，所以**每日审计数不到它**——只有日志面能看见"付费用户点了下载却拿到一个错"。
+        """
+        user = await user_repository.require_user(db, user_id)
+        emit(
+            DeliveryEvent.ARCHIVE_DOWNLOAD_REQUESTED,
+            user=user,
+            source="life_archive",
+            feature=scope,
+            action="download",
+            language=language or "en",
         )
-        return self._render_pdf(
-            self._life_archive_title(archive),
-            self._life_archive_lines(archive),
-            aigc=True,
-            aigc_runs=runs,
-        )
+        try:
+            archive = await self.export_life_archive(db, user_id, scope, language, regenerate)
+            # aigc=True：档案含已落库的 LLM 章节 → 隐式标识进元数据（显式逐章标注另见正文）
+            # 不给 brand：Life Archive 是付费私人交付物，带引流二维码会让它转发时变成广告
+            runs = await generation_run.summarize_runs(
+                db, generation_run.collect_run_ids(archive.get("generation_run_ids"))
+            )
+            return self._render_pdf(
+                self._life_archive_title(archive),
+                self._life_archive_lines(archive),
+                aigc=True,
+                aigc_runs=runs,
+            )
+        except AppException:
+            # 权益/参数类失败已由 export_life_archive 数过（reason=rejected_*），
+            # 这里再数一次就会把同一次"没拿到"在指标里算两遍。
+            raise
+        except Exception as exc:  # noqa: BLE001 - 排版炸了：数完原样上抛
+            emit(
+                DeliveryEvent.ARCHIVE_GENERATE_FAILED,
+                user=user,
+                source="life_archive",
+                feature=scope,
+                action="download",
+                result="failed",
+                reason=f"pdf_render_failed_{type(exc).__name__}",
+            )
+            alert(
+                "event=archive_pdf_render_failed",
+                scope=scope,
+                reason=type(exc).__name__,
+            )
+            raise
 
     async def _life_archive_gate(
         self, db: AsyncSession, user: User, scope: str

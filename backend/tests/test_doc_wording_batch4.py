@@ -14,14 +14,20 @@
   各 0 命中；`anniversary` 在 `services/push/`、`cron_service.py`、`message_generator.py`
   各 0 命中（唯一出现处是 `share_service.py` 的记忆卡文案键）；
   `exportLifeArchive` 在 `frontend/` 只剩定义行。
+  ↳ 2026-10-18 追记：批 T1-03 把这条零调用封装删掉了（连同 `LifeArchiveResult`），
+  端点转为「服务端能力＋登记理由」，所以下面那条对账的期望从「只剩 api.ts 一处定义」
+  改成「`frontend/src` 零命中」——登记不许因为代码没了就一起消失。
 - **D-G16** `go-core/internal/domain/proactive.go:209` 的注释宣称有 `DayNo` 字段，
   而 `ProactiveCandidate`（:189-222）没有这个字段、`decodeProactive` 也不赋值。
   `DayNo` 是 curriculum/journey 那一族的字段（`domain/curriculum.go:37`），不是候选的。
-- **D-G20** `backend/main.py:172` 的 `/health` docstring 自称由 Vercel Cron 按分钟保热，
-  而 `vercel.json` 的 12 条排程全是 `/api/v1/cron/*`，一条 `/health` 都没有；
+- **D-G20** `backend/main.py:172` 的 `/health` docstring 宣称有 Vercel Cron 按分钟保热，
+  而当时 `vercel.json` 的 12 条排程全是 `/api/v1/cron/*`，一条 `/health` 都没有；
   `backend/routers/cron.py:4` 的模块头又把所有 cron 说成同一节奏、且清单漏了 `curriculum`。
-  `settings.health_check_interval`（`config.py:177`）按 D-G20 的默认值**只登记不删**，
-  留 tasks.md 的 T 桶——所以这里钉的是「它没有代码消费方」，不是「它该消失」。
+  ↳ **2026-10-18 T0-02 改判**：调度源已迁到 `deploy/schedule/crontab`（迁移当时 13 条，
+  T1-01 起 14 条、T1-04 起 15 条（每日交付审计 `0 4 * * *`），`/cron/health` 与 `/cron/export-jobs` 两条都是 `*/5`），`vercel.json` 同日退役——
+  「每 5 分钟」从谎话变成实测，本文件 D-G20 那组闸随之从「把措辞归零」翻成「**宣称必须由排程付账**」（宣称侧与排程侧
+  共存亡）。`settings.health_check_interval`（`config.py:177`）按 D-G20 的默认值
+  **只登记不删**，留 tasks.md 的 T 桶——这里钉的仍是「它没有代码消费方」，不是「它该消失」。
 
 两套判据**分文件、分函数**（§六.2）：本文件是口径闸，只看注释/文档面；
 剥掉注释后判代码面的那条（`health_check_interval` 的消费方）单独走 `ast`，不混进字符串比对。
@@ -41,16 +47,18 @@ PROACTIVE_GO = ROOT / "go-core" / "internal" / "domain" / "proactive.go"
 CURRICULUM_GO = ROOT / "go-core" / "internal" / "domain" / "curriculum.go"
 CRON_PY = ROOT / "backend" / "routers" / "cron.py"
 MAIN_PY = ROOT / "backend" / "main.py"
-VERCEL = ROOT / "vercel.json"
+VERCEL = ROOT / "vercel.json"  # T0-02 起这个路径必须不存在（单源判据在下面）
+CRONTAB = ROOT / "deploy" / "schedule" / "crontab"
 OPENAPI = ROOT / "contracts" / "openapi.json"
 
 REVIEW_DATE = "2026-10-17"
+MIGRATION_DATE = "2026-10-18"
 
 # 三句被收掉的失真措辞——拼出来写，理由见模块 docstring 末段。
 LIE_PRD_ALL_DONE = "PRD 未实现功能已全部" + "实现"
 LIE_SECTION_ALL_DONE = "（✅ 全部" + "已实现"
-LIE_FIVE_MINUTE = "每" + " 5 分钟"
-LIE_ALL_HOURLY = "通过 Vercel Cron 每小时" + " GET 触发"
+LIE_FIVE_MINUTE = "每" + " 5 分钟"  # T0-02 起这句成立——闸翻成正向证人（见下）
+VERCEL_CLAIM = "Vercel" + " Cron"  # 调度源已退役，不许在 backend 运行时面当现役口径
 
 SKIP_PARTS = {"gen", "__pycache__", "node_modules", "testdata", ".git", "dist", "build"}
 
@@ -133,10 +141,20 @@ def test_the_four_reviewed_zero_claims_still_match_the_code():
         "整个 backend/services 都搜不到 anniversary：多半是我改错了 grep 而不是它没实现"
     )
 
+    # T1-03（2026-10-18）之后这里必须是**零命中**：封装删掉了，登记搬到契约的「前端调用」列。
+    # 反向闸配正向证人——同一把 grep 必须在契约与脚本两侧命中，否则「0 命中」只是扫错了根。
     frontend_hits = _in_tree(ROOT / "frontend" / "src", "exportLifeArchive", impl_only=True)
-    assert frontend_hits == ["frontend/src/services/api.ts"], (
-        f"exportLifeArchive 的消费者集合变了：{frontend_hits}——"
-        "已接线就回去改 D-G15 第 4 项，未接线也不许把它挪出 api.ts 后不再登记"
+    assert frontend_hits == [], (
+        f"exportLifeArchive 又回到前端实现面：{frontend_hits}——"
+        "已接线就回去改 D-G15 第 4 项与契约登记；只是注释里带上这个名字也不行，"
+        "这条闸扫的是整个 frontend/src，注释会让「零命中」变成永远数不清的软判据"
+    )
+    assert _in_tree(ROOT / "contracts", "exportLifeArchive"), (
+        "契约台账里没有这个名字 ⇒ T1-03 的「服务端能力＋登记理由」被抹掉了，"
+        "这条端点会退回成看起来像漏扫的裸 `—`"
+    )
+    assert _in_tree(ROOT / "scripts", "exportLifeArchive"), (
+        "scripts/ 里的登记表 SERVER_ONLY_REASONS 没有这条 ⇒ 台账与登记脚本脱钩"
     )
     assert len(_in_tree(ROOT / "frontend" / "src", "getLifeArchivePdf")) >= 2, (
         "getLifeArchivePdf 只剩定义行 ⇒ 批 1 G2 接的 PDF 领取口又被摘掉了，"
@@ -163,54 +181,138 @@ def test_proactive_candidate_no_longer_advertises_a_dayno_field():
 
 # ── D-G20：健康检查的节律宣称 ──────────────────────────────────────────
 
-def _vercel_crons() -> list[dict]:
-    entries = json.loads(VERCEL.read_text(encoding="utf-8")).get("crons")
-    assert isinstance(entries, list) and entries, "vercel.json 的 crons 数组空了，本闸失去靶"
-    return entries
+def _crontab_entries() -> list[tuple[str, str]]:
+    """crontab 行的迷你解析：(path, 5 字段表达式)。
+
+    与 `test_cron_schedule_coverage.py` 同形但**独立实现**——§六.2 要求口径闸与覆盖闸
+    分文件分函数，两处不许共用一把解析尺，否则一次解析写坏会让两条闸一起变绿。
+    """
+    out: list[tuple[str, str]] = []
+    for raw in CRONTAB.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", line):
+            continue
+        parts = line.split(None, 5)
+        assert len(parts) >= 6, f"crontab 行不是「5 字段＋命令」：{raw!r}"
+        m = re.search(r"http://127\.0\.0\.1:8000(/[^\s]+)", line)
+        assert m, f"crontab 命令行里敲不出本机 API URL：{raw!r}"
+        out.append((m.group(1), " ".join(parts[:5])))
+    assert out, "deploy/schedule/crontab 一条排程都没有，本闸失去靶"
+    return out
 
 
-def test_health_endpoint_stops_claiming_a_minutely_cron():
-    for path in (MAIN_PY, CRON_PY):
-        assert LIE_FIVE_MINUTE not in path.read_text(encoding="utf-8"), (
-            f"{path.relative_to(ROOT).as_posix()} 又写了分钟级保热——"
-            "vercel.json 里没有 /health 这条排程（下面那条闸逐条数过）"
+def test_vercel_manifest_is_retired_and_pyproject_follows():
+    """T0-02 单一调度源：`vercel.json` 回来就是「双源⇒双触发」形状。
+
+    存在性判据的正主是覆盖闸（`test_vercel_manifest_stays_retired`）；这里钉的是**配套面**：
+    `pyproject.toml` 的 `[tool.vercel]` 段必须一并清掉，免得下一个人按它找第二个运行入口。
+    """
+    assert not VERCEL.exists(), (
+        "vercel.json 又回到仓库根 ⇒ 双调度源形状回来了；要么删掉它，要么两条闸的口径一起改判"
+    )
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "[tool.vercel]" not in pyproject, "pyproject.toml 里还挂着 [tool.vercel] 段"
+
+
+# 现役配置面（2026-10-18 用户拍板「不走 Vercel」后逐条清过）——这些文件里再出现
+# vercel 就是配置回流，不是历史记述。历史面（crontab/README/工作单）的「vercel.json 已退役」
+# 勘误记述是取证证据，不归本闸管，所以下面用正向证人而不是全仓归零。
+ACTIVE_VERCEL_FREE_FILES = [
+    ROOT / "pyproject.toml",
+    ROOT / "backend" / ".env.example",
+    ROOT / ".github" / "CODEOWNERS",
+    ROOT / "deploy" / "Dockerfile.py-api",
+    ROOT / "go-core" / "Dockerfile",
+    ROOT / "Makefile",
+]
+
+
+def test_active_config_surface_has_no_vercel_platform_left():
+    """Vercel 下马口径的配置面判据：现役装包/部署/归属配置里不许再出现 vercel。
+
+    反向归零闸配正向证人：同一把小写 grep 必须还能在历史文档里命中
+    （`AI进程面工作单-2026-10-16.md` 记着退役前的事实），否则「0 命中」分不清
+    是配置真清干净了还是我把扫描清单写空了。
+    """
+    for path in ACTIVE_VERCEL_FREE_FILES:
+        text = path.read_text(encoding="utf-8").lower()
+        assert "vercel" not in text, (
+            f"{path.relative_to(ROOT)} 又出现 vercel——2026-10-18 拍板不走 Vercel，"
+            "现役配置面要清出去（历史勘误记述请写在文档面，不写进这些文件）"
         )
-    rel = OPENAPI.read_text(encoding="utf-8")
-    assert LIE_FIVE_MINUTE not in rel, (
-        "生成的契约里还留着那句谎 ⇒ 改完 docstring 要跑 scripts/export_contract.py"
-        "（openapi.json 不可手改，这条按整份文件扫，免得把断言绑在某个 JSON 路径上）"
-    )
+    witness = (ROOT / "AI进程面工作单-2026-10-16.md").read_text(encoding="utf-8").lower()
+    assert "vercel" in witness, "正向证人失联：历史工作单里都搜不到 vercel ⇒ 扫描口径可疑"
 
 
-def test_vercel_schedule_list_has_no_health_and_no_minutely_entry():
-    """把「那句措辞为什么不成立」写成可重算的判据，而不是让人回去读 vercel.json。"""
-    entries = _vercel_crons()
-    paths = [e.get("path", "") for e in entries]
-    assert not [p for p in paths if p.rstrip("/").endswith("/health")], (
-        f"vercel.json 现在真的排程了 /health：{paths} ⇒ 那句措辞不再是谎，"
-        "本闸与 main.py 的 docstring 一起改写"
+def test_vercel_cron_wording_is_gone_from_backend_runtime_sources():
+    """调度口径：backend 运行时面（含注释、剥掉测试面）不许再把 Vercel 时代当现役口径。
+
+    归零闸配正向证人——同一把 grep 必须在历史文档里命中，否则「0 命中」分不清
+    是「口径真退役了」还是「我扫描根写错了」。
+    """
+    hits = _in_tree(ROOT / "backend", VERCEL_CLAIM, impl_only=True)
+    assert not hits, f"调度口径又写回 Vercel 时代：{hits}"
+    for path in (CRON_PY, MAIN_PY):
+        assert VERCEL_CLAIM not in path.read_text(encoding="utf-8")
+    witness = [
+        h
+        for h in _in_tree(ROOT, VERCEL_CLAIM)
+        if h.startswith(("closenai-prd/", "tasks.md", ".trellis/")) or h.endswith("工作单-2026-10-17.md")
+    ]
+    assert witness, f"历史文档里也搜不到 {VERCEL_CLAIM} ⇒ 多半是我改错了 grep，不是口径退役干净"
+
+
+def test_minutely_health_claim_is_now_backed_by_crontab():
+    """D-G20 靶在 T0-02 后的翻案：那句「每 5 分钟」从谎话变成承诺——宣称与排程共存亡。
+
+    排程在、宣称没了 ⇒ 没人替这个承诺说话，闸失去对象（红）；
+    宣称在、排程被摘 ⇒ 话又悬空（红）。两个方向都得有证人。
+    """
+    health = [s for p, s in _crontab_entries() if p.endswith("/cron/health")]
+    assert len(health) == 1, f"/cron/health 的保热排程应恰好一条，实际 {health}"
+    assert health[0].split()[0] == "*/5", (
+        f"crontab 的保热实际是 {health[0]!r}，而 docstring 宣称「每 5 分钟」⇒ 那句又悬空了"
     )
-    assert not [e for e in entries if e.get("schedule", "").split()[0].startswith("*/")], (
-        "出现分钟步长排程 ⇒ D-G20 的前提（Vercel Cron 无分钟级条目）变了"
+    claims = [
+        path.name
+        for path in (MAIN_PY, CRON_PY, OPENAPI)
+        if LIE_FIVE_MINUTE in path.read_text(encoding="utf-8")
+    ]
+    assert claims, (
+        f"「{LIE_FIVE_MINUTE}」在 main.py/cron.py/契约里都消失了——crontab 还在排 */5，"
+        "却没人把这条口径说成话 ⇒ 本闸失去对象，随 docstring 一起改写"
     )
 
 
 def test_cron_module_header_states_the_measured_cadence_and_lists_every_route():
-    """模块头注释两处失真：把 12 条排程说成一个节奏、清单漏一条端点。"""
+    """模块头注释两处失真：把所有排程说成一个节奏、清单漏一条端点。
+
+    T0-02 把被数的源换成了 crontab，两个计数随之 12→13、整点每小时仍是 7——钉死它们
+    的是本闸，不是我的记性。
+    T1-01（2026-10-18）加了 `*/5` 的导出队列认领 ⇒ 总数 13→14、`*/5` 由 1 条变 2 条，
+    整点每小时仍是 7；头注释里这三个数与本闸同源。
+    T1-04（2026-10-18）加了每日的付费交付审计 ⇒ 总数 14→15、按日由 3 条变 4 条，
+    整点每小时与 `*/5` 都没动；「按日」这一档以前只写在头注释里没人头数过，
+    所以这一批把它也钉住——否则新增一条每日排程只有总数会变，红的时候说不出是
+    「哪一档多了一条」。
+    """
     from backend.main import app
 
     header = ast.get_docstring(ast.parse(CRON_PY.read_text(encoding="utf-8"))) or ""
-    assert LIE_ALL_HOURLY not in header, "cron.py 头注释又把全部 cron 说成同一个节奏"
-    assert REVIEW_DATE in header, "头注释的实测口径没带日期"
+    assert MIGRATION_DATE in header, "头注释的实测口径没带 2026-10-18 迁移日期"
 
-    entries = _vercel_crons()
-    hourly = [e for e in entries if e["schedule"] == "0 * * * *"]
-    assert len(entries) == 12 and len(hourly) == 7, (
-        f"vercel.json 的排程形状已变（共 {len(entries)} 条，整点每小时 {len(hourly)} 条），"
+    entries = _crontab_entries()
+    hourly = [s for _p, s in entries if s == "0 * * * *"]
+    daily = [s for s in (x[1] for x in entries) if re.fullmatch(r"\d+ \d+ \* \* \*", s)]
+    five_minute = [s for _p, s in entries if s == "*/5 * * * *"]
+    assert len(entries) == 15 and len(hourly) == 7, (
+        f"crontab 的排程形状已变（共 {len(entries)} 条，整点每小时 {len(hourly)} 条），"
         "头注释里那两个数要跟着改"
     )
+    assert len(daily) == 4, f"按日排程应是 4 条（daily-insight/trial-reminder/cleanup-tokens/delivery-audit），实得 {len(daily)} 条"
+    assert len(five_minute) == 2, f"`*/5` 应是保热＋导出队列两条，实得 {len(five_minute)} 条"
 
-    # 清单以**冻结契约**为源（98 条里 `/cron/*` 的 16 条），不靠手数装饰器。
+    # 清单以**冻结契约**为源（105 条里 `/cron/*` 的 17 条），不靠手数装饰器。
     registered = sorted(p for p in app.openapi()["paths"] if "/cron/" in p)
     assert registered, "契约里一条 /cron/* 路径都没有，本闸空转"
     names = [p.split("/cron/", 1)[1] for p in registered]

@@ -21,6 +21,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core.time_utils import utc_now
 from backend.repositories import user_repository
 
 logger = logging.getLogger("closenai.analytics")
@@ -42,6 +43,10 @@ ALLOWED_PROPERTY_KEYS = frozenset(
         "source",
         "trigger",
         "result",
+        # 失败原因的**机器码**（`iap_verify_failed`／`pdf_render_failed` 这类，T1-04）。
+        # 注册进来的代价是"多一个可以出网的键"，所以口径必须是枚举值而非自由文本：
+        # 自由文本会把异常消息（可能含用户内容）带进分析平台，那就踩了上面那条红线。
+        "reason",
         "duration_ms",
         "count",
         "value",
@@ -57,10 +62,14 @@ ALLOWED_PROPERTY_KEYS = frozenset(
 )
 
 
-def _anonymize(properties: dict | None) -> dict:
+def anonymize_properties(properties: dict | None) -> dict:
     """匿名化：仅保留白名单内的行为属性，其余（含内容字段）一律丢弃。
 
     值为 None 的属性同样剔除，避免空字段污染分析数据。
+
+    公开成函数名（T1-04）：付费交付事件要写日志，而日志面和 PostHog 面必须共用
+    **同一张**白名单。留着 `_anonymize` 私有，第二条通道就只能自己抄一份键集——
+    抄出来的那份一旦漂移，红线就退化成"两处各自守着一个不同的名单"。
     """
     if not properties:
         return {}
@@ -109,6 +118,22 @@ def _relay_to_posthog(
         logger.warning("posthog 中继失败: %s", exc)
         return False
     return True
+
+
+def relay_server_event(distinct_id: str, event: str, properties: dict) -> bool:
+    """服务端业务事件的中继入口（T1-04 付费交付可观测用）。
+
+    与 `relay_batch` 的区别只在"谁发起"：前端那批带着自己的 occurred_at，服务端这条
+    就用当前时刻；两者共用同一条 `_relay_to_posthog` 与**同一张**白名单。
+    为什么不新开一条直连 SDK 的路：那样就等于让服务端事件绕开匿名化，
+    而"只有行为元数据能出网"这条红线不该因为发起方是服务端就少一道闸。
+
+    consent 判定不在这里：调用方手里已经有 user 行（`analytics_consent` 是 users 列），
+    由调用方决定是否把 user 传进来——没有同意就不该走到这个函数。
+    """
+    return _relay_to_posthog(
+        distinct_id, event, anonymize_properties(properties), utc_now()
+    )
 
 
 async def erase_person_data(distinct_id: str) -> dict:
@@ -177,7 +202,7 @@ class AnalyticsService:
             return {"relayed": 0, "dropped": len(events)}
         relayed = 0
         for ev in events:
-            props = _anonymize(ev.properties)
+            props = anonymize_properties(ev.properties)
             if _relay_to_posthog(user_id, ev.event, props, ev.occurred_at):
                 relayed += 1
         return {"relayed": relayed, "dropped": len(events) - relayed}

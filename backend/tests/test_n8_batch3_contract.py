@@ -41,6 +41,8 @@ import yaml
 
 from backend.main import app
 
+from go_route_table import go_ops, route_row
+
 ROOT = Path(__file__).resolve().parents[2]
 GO = ROOT / "go-core"
 FIXTURE = GO / "testdata" / "n8_contract.json"
@@ -119,11 +121,18 @@ def test_go_registers_both_journey_routes_under_the_batch3_switch():
     两个 handler 各调一次 `Gate.Delegate(…, "journey", userID)`：域名字符串错了
     不是编译错误，而是「这一域永远 0%、永远只多一跳代理」——放量时才被发现。
     """
-    src = _go("internal/httpapi/server.go")
-    assert 's.mux.HandleFunc("GET /api/v1/journey/events"' in src
-    assert 's.mux.HandleFunc("POST /api/v1/journey/events/acknowledge"' in src
-    guard = re.search(r"if s\.batch3 != nil \{(.*?)\n\t\}", src, re.S)
-    assert guard and guard.group(1).count("journey") == 2, "两条 journey 路由没同时挂在批 3 开关下"
+    # T6-02 起注册面是 `routes.go` 的声明表：逐字段核「方法＋路径＋域键＋批次开关」，
+    # 而不是在源码里找一整串 `s.mux.HandleFunc("GET …")`（那个形状已经不存在了）。
+    for method, path in (
+        ("GET", "/api/v1/journey/events"),
+        ("POST", "/api/v1/journey/events/acknowledge"),
+    ):
+        assert route_row(method, path, "journey", "s.batch3 != nil"), (
+            f"声明表里 {method} {path} 不是「domain=journey 且 gated 批 3」的形状"
+        )
+    assert {("GET", "/api/v1/journey/events"),
+            ("POST", "/api/v1/journey/events/acknowledge")} <= go_ops(), (
+        "生成物矩阵里没有这两条 ⇒ routes.go 与 contracts/cutover-matrix.md 不同源（重跑生成器）")
 
     for rel in ("internal/httpapi/journey_events.go", "internal/httpapi/journey_ack.go"):
         assert _go(rel).count('Gate.Delegate(w, r, "journey", userID)') == 1, (
