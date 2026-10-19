@@ -64,16 +64,29 @@ type fakeDomain struct {
 	consumed   map[string]string // message_id → processed|failed
 	consumeCtx []context.Context // 每次消费的 ctx，用来验在途那一条的收尾预算
 
-	admits     []domain.Candidate
-	evidences  []domain.EvidenceCandidate
-	proactive  []domain.ProactiveCandidate
-	tasks      []domain.AITaskRequest
-	taskStores []domain.Store
-	admitErr   error
-	evidenceEr error
-	proactErr  error
-	taskErr    error
-	fnCalls    int
+	admits    []domain.Candidate
+	evidences []domain.EvidenceCandidate
+	proactive []domain.ProactiveCandidate
+	// T2-06 事件面：进来的指针与那条门的返回错误。
+	sources   []domain.SourcePointer
+	sourceErr error
+	// consumers 记每次消费拿到的幂等名。`wantConsumer` 那道门只保证「不对就报错」，
+	// 而这一串是 `(message_id, consumer)` 的另一半：两条面共用一个串时，
+	// 候选面的「吃过了」会替事件面宣告「我也吃过了」，删除永远不传播。
+	// 没有这一列，「名字确实传对了」就没有证人（判据两侧不许同源）。
+	consumers []string
+	// wantConsumer 是 fake 认的那个幂等名。事件面（T2-06）用的是**另一个**名字，
+	// 所以这里不许写死成包常量 `Consumer`：写死了就等于第二条链永远测不了，
+	// 而「consumer 用错了名字」恰恰是 T2-06 要防的那件事（共用一个串 ⇒ 候选面
+	// 的「吃过了」替事件面宣告「我也吃过了」，删除永远不传播）。
+	wantConsumer string
+	tasks        []domain.AITaskRequest
+	taskStores   []domain.Store
+	admitErr     error
+	evidenceEr   error
+	proactErr    error
+	taskErr      error
+	fnCalls      int
 	// 在事务**里**取的 ctx 快照：Handle 之后会 cancel 收尾 ctx，事后再问 Err()
 	// 问到的永远是 canceled，判不了「停机有没有打断在途那一条」。
 	ctxErrAtHold error
@@ -84,22 +97,34 @@ type fakeDomain struct {
 }
 
 func newFakeDomain() *fakeDomain {
-	return &fakeDomain{consumed: map[string]string{}}
+	return &fakeDomain{consumed: map[string]string{}, wantConsumer: Consumer}
 }
+
+// key 是幂等位在 fake 里的键。**必须带 consumer**：真约束是
+// `UNIQUE (message_id, consumer)`（18 §7），只按 message_id 去重等于把
+// 「两条面各有各的幂等 namespace」这件事做没了——而那正是 T2-06 唯一会踩的坑
+// （事件面复用候选面的串 ⇒ 一条删除被候选面的「吃过了」吞掉，账永远不改，
+// 且两侧测试全绿）。
+func (m idemKey) string() string { return m.consumer + "\x00" + m.messageID }
+
+type idemKey struct{ messageID, consumer string }
 
 func (f *fakeDomain) ConsumeIdempotent(ctx context.Context, msg domain.InboundMessage,
 	fn func(context.Context, domain.Store) error) (domain.ConsumeResult, error) {
 	f.mu.Lock()
 	f.consumeCtx = append(f.consumeCtx, ctx)
-	if msg.Consumer != Consumer {
+	f.consumers = append(f.consumers, msg.Consumer)
+	// wantConsumer 为空＝两条面共用的 fake（跨面幂等位那两条用例的形状）。
+	if f.wantConsumer != "" && msg.Consumer != f.wantConsumer {
 		f.mu.Unlock()
-		return domain.ConsumeResult{}, fmt.Errorf("fake: consumer=%q，本队列只认 %q", msg.Consumer, Consumer)
+		return domain.ConsumeResult{}, fmt.Errorf("fake: consumer=%q，本队列只认 %q", msg.Consumer, f.wantConsumer)
 	}
 	if msg.MessageID == "" {
 		f.mu.Unlock()
 		return domain.ConsumeResult{}, errors.New("fake: 没有 message_id 就占不了幂等位")
 	}
-	if state, ok := f.consumed[msg.MessageID]; ok {
+	key := idemKey{msg.MessageID, msg.Consumer}.string()
+	if state, ok := f.consumed[key]; ok {
 		f.mu.Unlock()
 		switch state {
 		case "processed":
@@ -126,12 +151,12 @@ func (f *fakeDomain) ConsumeIdempotent(ctx context.Context, msg domain.InboundMe
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err == nil {
-		f.consumed[msg.MessageID] = "processed"
+		f.consumed[key] = "processed"
 		return domain.ConsumeResult{Status: domain.ConsumeProcessed, Ack: true}, nil
 	}
 	var rej domain.PermanentRejection
 	if errors.As(err, &rej) {
-		f.consumed[msg.MessageID] = "failed"
+		f.consumed[key] = "failed"
 		return domain.ConsumeResult{Status: domain.ConsumeRejected, Ack: true, Detail: rej.Code}, err
 	}
 	return domain.ConsumeResult{Status: domain.ConsumeTransient, Ack: false}, err
@@ -157,6 +182,15 @@ func (f *fakeDomain) AdmitProactive(_ context.Context, c domain.ProactiveCandida
 	defer f.mu.Unlock()
 	f.proactive = append(f.proactive, c)
 	return domain.ProactiveResult{}, f.proactErr
+}
+
+// InvalidateSource 记录事件面（T2-06）进来的指针。返回值里的 SourceRecordID
+// 取自指针之外的字段＝这里给一个固定串，只用于「Handle 只看 ConsumeResult」这一条。
+func (f *fakeDomain) InvalidateSource(_ context.Context, p domain.SourcePointer) (domain.SourceInvalidation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sources = append(f.sources, p)
+	return domain.SourceInvalidation{SourceRecordID: "sr-fake"}, f.sourceErr
 }
 
 // fakeInboxStore 只当**身份标记**用：它内嵌一个永远为 nil 的 domain.Store，
@@ -973,6 +1007,118 @@ func TestErrUnknownSignalBecomesPermanent(t *testing.T) {
 	}
 	if err := call2(context.Background(), dm2); err == nil || errors.Is(err, domain.ErrPermanentMessage) {
 		t.Errorf("DB 抖动被读成永久拒绝：%v ⇒ 阶梯上的重投才是它的正确归宿", err)
+	}
+}
+
+// 来源指针的三条永久码紧接上面那条「哨兵⇒永久」的同一家族（T2-03）。
+func TestSourcePointerSentinelsBecomePermanent(t *testing.T) {
+	// T2-03：来源指针的三种非法各自**永久**成一个码。判错方向的代价不对称：
+	// 当成瞬态 ⇒ 一条永远不会变合法的候选撞满 30s/2m/10m 三层才进 DLQ，
+	// 而 inbox.error_code 那一格是空的（运维只看得到「重试过」）；
+	// 当成永久 ⇒ 一次真 DB 抖动被记成契约非法，重投的机会都没有。
+	if len(sourcePointerRejections) != 3 {
+		t.Fatalf("来源指针表有 %d 行：domain 的三个哨兵必须逐个有码，"+
+			"少一行就等于把那条非法读成瞬态", len(sourcePointerRejections))
+	}
+	seen := map[string]bool{}
+	for _, item := range sourcePointerRejections {
+		t.Run(item.code, func(t *testing.T) {
+			if seen[item.code] {
+				t.Fatalf("码 %q 重复：两种来源失败共用一个码，账面上分不出是谁", item.code)
+			}
+			seen[item.code] = true
+			d := delivery(nil, func(d *Delivery) {
+				d.RoutingKey = "candidate.evidence"
+				d.MessageType = "candidate_evidence"
+				d.Body = []byte(`{"source":{"sourceTable":"memories","sourceId":"m-1"}}`)
+			})
+			call, rej := Decode(d, DefaultMaxBodyBytes)
+			if rej != nil {
+				t.Fatalf("契约面不该拦这条（来源判定在领域侧）：%+v", rej)
+			}
+			dm := newFakeDomain()
+			dm.evidenceEr = fmt.Errorf("domain: 回查: %w: source_id=m-1", item.sentinel)
+			err := call(context.Background(), dm)
+			var pr domain.PermanentRejection
+			if !errors.As(err, &pr) || pr.Code != item.code {
+				t.Fatalf("哨兵 %v 没转成码 %q，got %v", item.sentinel, item.code, err)
+			}
+			if !errors.Is(err, domain.ErrPermanentMessage) {
+				t.Errorf("永久拒绝不满足 errors.Is(ErrPermanentMessage) ⇒ classifyFailure 认不出：%v", err)
+			}
+			// Detail 里要留着「是哪一格」：只有码没有句柄，排查时得回头猜哨兵。
+			if !strings.Contains(pr.Detail, item.sentinel.Error()) {
+				t.Errorf("detail=%q 不含哨兵原文 %q", pr.Detail, item.sentinel.Error())
+			}
+		})
+	}
+
+	// 反向证人：表外的那种错（库抖动）仍然走瞬态。少了这条，
+	// 「把一切错误都转成永久」这种改法能同时骗过上面三个子测。
+	d := delivery(nil, nil)
+	call, rej := Decode(d, DefaultMaxBodyBytes)
+	if rej != nil {
+		t.Fatalf("合法载荷：%+v", rej)
+	}
+	dm := newFakeDomain()
+	dm.admitErr = errors.New("pgx: conn closed")
+	if err := call(context.Background(), dm); err == nil ||
+		errors.Is(err, domain.ErrPermanentMessage) {
+		t.Errorf("DB 抖动被读成了永久拒绝：%v", err)
+	}
+}
+
+// 候选形状面与来源面同属「哨兵⇒永久」家族，但**另起一闸**（T2-04 §口径.3）：
+// 来源表加一行是「domain 多了哨兵而这里少接线」，这张表加一行是「永久码多了」，
+// 两件事的红不该互相代打，所以各有 `len(...)` 计数闸。
+func TestShapeSentinelsBecomePermanent(t *testing.T) {
+	if len(shapeRejections) != 1 {
+		t.Fatalf("形状表有 %d 行：domain.ErrCandidateShape 只有一个码，"+
+			"多一行说明永久码在漂，少一行说明那条非法会被读成瞬态", len(shapeRejections))
+	}
+	for _, item := range shapeRejections {
+		t.Run(item.code, func(t *testing.T) {
+			d := delivery(nil, func(d *Delivery) {
+				d.RoutingKey = "candidate.evidence"
+				d.MessageType = "candidate_evidence"
+				d.Body = []byte(`{"excerpt":"` + strings.Repeat("e", 501) + `"}`)
+			})
+			call, rej := Decode(d, DefaultMaxBodyBytes)
+			if rej != nil {
+				t.Fatalf("长度上限住在 domain 而不是契约面，这里不该拦：%+v", rej)
+			}
+			dm := newFakeDomain()
+			dm.evidenceEr = fmt.Errorf("domain: 校验: %w: excerpt 超上限", item.sentinel)
+			err := call(context.Background(), dm)
+			var pr domain.PermanentRejection
+			if !errors.As(err, &pr) || pr.Code != item.code {
+				t.Fatalf("哨兵 %v 没转成码 %q，got %v", item.sentinel, item.code, err)
+			}
+			if !errors.Is(err, domain.ErrPermanentMessage) {
+				t.Errorf("永久拒绝不满足 errors.Is(ErrPermanentMessage)：%v", err)
+			}
+			if !strings.Contains(pr.Detail, item.sentinel.Error()) {
+				t.Errorf("detail=%q 不含哨兵原文 %q", pr.Detail, item.sentinel.Error())
+			}
+		})
+	}
+
+	// 反面的证人（工单 §口径.3 里明确**不挂**哨兵的那一格）：`occurred_at` 晚于当下是时序，
+	// 时钟追上来就能重投；把它转成永久等于把一条迟早合法的观测永久拒死。
+	d := delivery(nil, func(d *Delivery) {
+		d.RoutingKey = "candidate.evidence"
+		d.MessageType = "candidate_evidence"
+		d.Body = []byte(`{"source":{"sourceTable":"memories","sourceId":"m-1"}}`)
+	})
+	call, rej := Decode(d, DefaultMaxBodyBytes)
+	if rej != nil {
+		t.Fatalf("合法载荷：%+v", rej)
+	}
+	dm := newFakeDomain()
+	dm.evidenceEr = errors.New("domain: evidence.occurred_at 晚于当下")
+	if err := call(context.Background(), dm); err == nil ||
+		errors.Is(err, domain.ErrPermanentMessage) {
+		t.Errorf("观测时刻晚于当下被读成了永久拒绝：%v ⇒ 它该上阶梯", err)
 	}
 }
 

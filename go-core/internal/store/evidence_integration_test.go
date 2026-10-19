@@ -6,7 +6,9 @@
 //  3. 「同一天」在库上确实只顶一条独立观测（03 §6:161-163 的 or 关系），
 //     从而把推断事实压在 candidate；
 //  4. 重算读的是 evidence.role 而不是 insight_evidence.role，撤回/过期分别写进
-//     insights 的哪几列、事件与版本行留没留痕。
+//     insights 的哪几列、事件与版本行留没留痕；
+//  5. 来源指针的归属回查打在 legacy `memories` 实表上（T2-03）：三种失败各自成一种
+//     哨兵，且「读不到」确实来自「没有这一行」。
 //
 // 未设 TEST_DATABASE_URL 时跳过，与 N2/N3 的 store 集成测同口径。
 package store
@@ -14,6 +16,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -24,11 +27,14 @@ import (
 
 // extractionCandidate 是「AI 从明确文本抽出一条具体观察」——03 §5 表里最正常的一档。
 // Metadata 里故意带 llm_confidence：它是提案方的自信度，**不得**成为落库分数。
+//
+// ⚠️ sourceID 必须是 plantMemory 真种下去、且属于 userID 的那一行：T2-03 起
+// AdmitEvidence 会回查来源行归属，编一个 id 会得到 ErrUnknownSourceRow。
 func extractionCandidate(userID, sourceID string, occurred time.Time,
 	independent []string) domain.EvidenceCandidate {
 	return domain.EvidenceCandidate{
 		UserID: userID, SourceKind: domain.SourceAIExtraction,
-		SourceTable: "memories", SourceID: sourceID, OccurredAt: occurred,
+		SourceTable: domain.SourceTableMemories, SourceID: sourceID, OccurredAt: occurred,
 		EvidenceType: "direct",
 		Observation:  "User wrote: stood up three times during the night.",
 		Excerpt:      "night log",
@@ -57,7 +63,7 @@ func TestAdmitEvidenceScoresInDBAndKeepsProvenance(t *testing.T) {
 
 	now := time.Now().UTC()
 	observed, _ := utcDayPair(now)
-	sourceID := newID()
+	sourceID := plantMemory(t, pool, userID)
 	svc := serviceFor(pool)
 
 	res, err := svc.AdmitEvidence(context.Background(),
@@ -120,7 +126,7 @@ func TestAdmitEvidenceRejectsForeignIndependentReference(t *testing.T) {
 	ownerChain := plantUser(t, pool, ownerUser)
 	svc := serviceFor(pool)
 	_, err := svc.AdmitEvidence(context.Background(), extractionCandidate(attackerUser,
-		newID(), time.Now().UTC().Add(-time.Hour), nil))
+		plantMemory(t, pool, attackerUser), time.Now().UTC().Add(-time.Hour), nil))
 	if err != nil {
 		t.Fatalf("首条提案: %v", err)
 	}
@@ -128,7 +134,8 @@ func TestAdmitEvidenceRejectsForeignIndependentReference(t *testing.T) {
 	sourceBefore := countWhere(t, pool, `SELECT count(*) FROM source_records WHERE user_id = $1`, attackerUser)
 
 	if _, err := svc.AdmitEvidence(context.Background(), extractionCandidate(attackerUser,
-		newID(), time.Now().UTC().Add(-2*time.Hour), []string{ownerChain.evidenceIDs[0]})); err == nil {
+		plantMemory(t, pool, attackerUser), time.Now().UTC().Add(-2*time.Hour),
+		[]string{ownerChain.evidenceIDs[0]})); err == nil {
 		t.Fatal("引用别人的证据必须报错，而不是静默少算一条")
 	}
 	// 事务回滚面：核验失败前写入的 source 登记也不许留下。
@@ -138,6 +145,108 @@ func TestAdmitEvidenceRejectsForeignIndependentReference(t *testing.T) {
 	if n := countWhere(t, pool, `SELECT count(*) FROM source_records WHERE user_id = $1`, attackerUser); n != sourceBefore {
 		t.Errorf("source_records=%d（原本 %d），越权提案不该留下登记", n, sourceBefore)
 	}
+}
+
+// T2-04 §怎么做.2 的真库面：终局分越出 [0,1] 时**整笔事务**回滚。
+//
+// 只有真库能答这一格：domain 单测里的 fake 刻意不回滚权威行
+// （service_test.go:241-242），所以「strength 越界 ⇒ 连先写入的 source 登记也不留」
+// 在单测里恒等于看不见。而这一格偏偏排在 UpsertSourceRecord **之后**——
+// 终局分要算出来才判得动——所以它是准入校验里唯一一笔「已经动过库」的拒绝。
+func TestAdmitEvidenceRejectsOutOfRangeStrengthInDB(t *testing.T) {
+	pool := poolForTest(t)
+	const userID = "t204-ev-strength-range"
+	defer func() { cleanupCanonical(t, pool, userID) }()
+	ctx := context.Background()
+
+	// 对面那格证人：默认策略下同一条必须正常入账（否则下面的「被拒」可以是
+	// 「谁都进不了」那种坏接线，闸就成了一只扫空集的眼睛）。
+	if _, err := serviceFor(pool).AdmitEvidence(ctx,
+		extractionCandidate(userID, plantMemory(t, pool, userID),
+			time.Now().UTC().Add(-time.Hour), nil)); err != nil {
+		t.Fatalf("默认策略下该入账: %v", err)
+	}
+	sourceBefore := countWhere(t, pool,
+		`SELECT count(*) FROM source_records WHERE user_id = $1`, userID)
+
+	// 把可靠度改成 >1：几何平均后 strength ≈ 1.12，越出定义域。
+	// 这不是「构造一个不可能的输入」——因子表正是 G-5 那个 env 覆盖面对象，
+	// 一个手抖的 3.0 就能写出来，而它要进的是用户看得见的置信度百分比。
+	poisoned := domain.DefaultPolicy()
+	poisoned.Evidence.ReliabilityExtraction = 3
+	svc := domain.NewService(NewCanonical(pool), poisoned)
+	c := extractionCandidate(userID, plantMemory(t, pool, userID),
+		time.Now().UTC().Add(-2*time.Hour), nil)
+	if _, err := svc.AdmitEvidence(ctx, c); !errors.Is(err, domain.ErrCandidateShape) {
+		t.Fatalf("err=%v，越界分必须挂 ErrCandidateShape 转永久（瞬态重投不会让因子表回到定义域）", err)
+	}
+	if n := countWhere(t, pool, `SELECT count(*) FROM evidence WHERE user_id = $1`, userID); n != 1 {
+		t.Errorf("evidence=%d，期望仍然只有证人那一条", n)
+	}
+	if n := countWhere(t, pool, `SELECT count(*) FROM source_records WHERE user_id = $1`, userID); n != sourceBefore {
+		t.Errorf("source_records=%d（原本 %d），越界提案不得留下登记", n, sourceBefore)
+	}
+}
+
+// T2-03 的真库面：来源指针的三种失败各回各的哨兵，且一律不留半状态。
+//
+// domain 的单测证明的是判据，这里只证明**只有真库能答**的那件事：
+// `SELECT user_id FROM memories WHERE id = $1` 对着 legacy 实表读得动，
+// 而「读不到」确实来自 pgx.ErrNoRows 而不是列名写错那种错——后者会被
+// 伪装成「这一行不存在」，把每条正常候选都永久拒绝。
+func TestAdmitEvidenceChecksSourceRowOwnership(t *testing.T) {
+	pool := poolForTest(t)
+	const ownerUser, attackerUser = "t203-ev-owner", "t203-ev-attacker"
+	defer func() {
+		cleanupCanonical(t, pool, ownerUser)
+		cleanupCanonical(t, pool, attackerUser)
+	}()
+	ctx := context.Background()
+	svc := serviceFor(pool)
+	at := time.Now().UTC().Add(-time.Hour)
+
+	own := plantMemory(t, pool, ownerUser)
+
+	// 证人：自己的行必须**进得了库**。少了这一条，下面三条「被拒」可以来自
+	// 「谁都进不了」这种坏接线，闸就成了一只扫空集的眼睛。
+	res, err := svc.AdmitEvidence(ctx, extractionCandidate(ownerUser, own, at, nil))
+	if err != nil {
+		t.Fatalf("自己的来源行必须入账: %v", err)
+	}
+	if res.ID == "" || res.SourceRecordID == "" {
+		t.Fatalf("入账结果缺 id：%+v", res)
+	}
+
+	t.Run("别人的行 → ErrForeignSource", func(t *testing.T) {
+		if _, err := svc.AdmitEvidence(ctx, extractionCandidate(attackerUser, own, at, nil)); !errors.Is(err,
+			domain.ErrForeignSource) {
+			t.Fatalf("err=%v，期望 ErrForeignSource", err)
+		}
+		if n := countWhere(t, pool, `SELECT count(*) FROM evidence WHERE user_id = $1`, attackerUser); n != 0 {
+			t.Errorf("evidence=%d，越权提案不得留行", n)
+		}
+		if n := countWhere(t, pool, `SELECT count(*) FROM source_records WHERE user_id = $1`, attackerUser); n != 0 {
+			t.Errorf("source_records=%d，越权提案不得留登记", n)
+		}
+	})
+
+	t.Run("没有这一行 → ErrUnknownSourceRow", func(t *testing.T) {
+		if _, err := svc.AdmitEvidence(ctx, extractionCandidate(attackerUser, newID(), at, nil)); !errors.Is(err,
+			domain.ErrUnknownSourceRow) {
+			t.Fatalf("err=%v，期望 ErrUnknownSourceRow（它与越权分开是运维需要：一个指时序，一个指引用面出 bug）", err)
+		}
+	})
+
+	t.Run("没开的表 → 连回查都不发起", func(t *testing.T) {
+		c := extractionCandidate(ownerUser, own, at, nil)
+		c.SourceTable = "journal_entries"
+		if _, err := svc.AdmitEvidence(ctx, c); !errors.Is(err, domain.ErrUnsupportedSourceTable) {
+			t.Fatalf("err=%v，期望 ErrUnsupportedSourceTable", err)
+		}
+		if n := countWhere(t, pool, `SELECT count(*) FROM evidence WHERE user_id = $1`, ownerUser); n != 1 {
+			t.Errorf("evidence=%d，期望仍然只有证人那一条", n)
+		}
+	})
 }
 
 // 03 §6:161-163：同源或同日**各自**都只算一次独立观测（组合键 source|day 是错的）。
@@ -152,7 +261,7 @@ func TestAdmitEvidenceSameDayCountsOnce(t *testing.T) {
 	svc := serviceFor(pool)
 
 	base, err := svc.AdmitEvidence(context.Background(),
-		extractionCandidate(userID, newID(), previousDay, nil))
+		extractionCandidate(userID, plantMemory(t, pool, userID), previousDay, nil))
 	if err != nil {
 		t.Fatalf("AdmitEvidence 1: %v", err)
 	}
@@ -161,7 +270,7 @@ func TestAdmitEvidenceSameDayCountsOnce(t *testing.T) {
 	}
 
 	across, err := svc.AdmitEvidence(context.Background(),
-		extractionCandidate(userID, newID(), first, []string{base.ID}))
+		extractionCandidate(userID, plantMemory(t, pool, userID), first, []string{base.ID}))
 	if err != nil {
 		t.Fatalf("AdmitEvidence 2: %v", err)
 	}
@@ -171,7 +280,7 @@ func TestAdmitEvidenceSameDayCountsOnce(t *testing.T) {
 	}
 
 	sameDay, err := svc.AdmitEvidence(context.Background(),
-		extractionCandidate(userID, newID(), laterSameDay, []string{across.ID}))
+		extractionCandidate(userID, plantMemory(t, pool, userID), laterSameDay, []string{across.ID}))
 	if err != nil {
 		t.Fatalf("AdmitEvidence 3: %v", err)
 	}

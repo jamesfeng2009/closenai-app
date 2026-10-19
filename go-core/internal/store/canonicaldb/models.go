@@ -326,6 +326,8 @@ type User struct {
 	ConversationStyle      string
 	ReferralCode           pgtype.Text
 	ReferredByCode         pgtype.Text
+	QuietStart             pgtype.Time
+	QuietEnd               pgtype.Time
 }
 
 type UserFeedback struct {

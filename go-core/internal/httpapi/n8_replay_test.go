@@ -212,7 +212,7 @@ func newN8Server(t *testing.T, users UserProfileReader, moods MoodReader, relay 
 		30*time.Minute, 30*24*time.Hour)
 	// 这两条路由不碰 auth.Service；灰度闸留 nil＝全量由 Go 回答（见 cutover.Selected）。
 	return NewServer(cfg, signer, nil, nil, &Batch1{Users: users, Moods: moods, Relay: relay},
-		batch2, batch3, batch4, batch5, batch6)
+		batch2, batch3, batch4, batch5, batch6, nil)
 }
 
 // replayN8Case 把一个夹具用例打回 Go 侧，并把响应压到与录制同样的口径。

@@ -94,9 +94,16 @@ func TestContractStatesTheUnboundEventSideInPlainWords(t *testing.T) {
 	}
 	// 反向：旧口径不许悄悄留在文档里。「今天零调用者」在 D-G14-② 之后是假话，
 	// 而假话比缺话更难发现——它会一直绿着骗人。
-	for _, stale := range []string{"今天零调用者", "生产者（谁下发任务）是 R6。"} {
+	// 「handler 注册表仍为空」在 T2-02（2026-10-18）之后同样是假话：Python 侧注册了
+	// `observation`，零流量的真理由是上面那格②（第一段没有发射点）。
+	for _, stale := range []string{
+		"今天零调用者",
+		"生产者（谁下发任务）是 R6。",
+		"handler 注册表仍为空",
+		"两个原因各自独立",
+	} {
 		if strings.Contains(doc, stale) {
-			t.Errorf("文档里还留着旧口径 %q ⇒ 批 3 之后的事实是「有调用点、无流量」", stale)
+			t.Errorf("文档里还留着旧口径 %q ⇒ 批 3 / T2-02 之后的事实已经不是这个", stale)
 		}
 	}
 }

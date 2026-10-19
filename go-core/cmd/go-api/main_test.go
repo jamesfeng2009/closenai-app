@@ -19,8 +19,10 @@ import (
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/dispatch"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/dlq"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/inbound"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/outbox"
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/obs"
 )
 
 // blockingSession 的 Close 一直不返回：用来造「worker 卡在收尾里出不来」的形态。
@@ -220,6 +222,13 @@ func (noopDomain) RequestAITask(context.Context, domain.Store, domain.AITaskRequ
 	return errors.New("main_test: 退出路径不该入队命令")
 }
 
+// T2-06 事件面同一条理由：这几条用例只验停机编排，删除传播若在其中被跑起来，
+// 就是「开关关着却翻了 source_records」。
+func (noopDomain) InvalidateSource(context.Context,
+	domain.SourcePointer) (domain.SourceInvalidation, error) {
+	return domain.SourceInvalidation{}, errors.New("main_test: 退出路径不该翻登记行状态")
+}
+
 // TestMainSpawnsTheCandidateWorker 是 R5-② 的调用点闸。
 //
 // inbound 包那二十来条闸判的是 Runner 的行为，它们**看不见 main**：
@@ -251,6 +260,129 @@ func TestMainSpawnsTheCandidateWorker(t *testing.T) {
 	// 否则出箱先等完，入站刚产生的那批 outbox 行要多等一个租约周期。
 	if strings.Index(text, "defer closeWorker(") > strings.Index(text, "defer closeInbound(") {
 		t.Error("closeInbound 登记在 closeWorker 之前 ⇒ 停机顺序反了：入站会在出箱收尾之后才开始写 outbox 行")
+	}
+}
+
+// TestMainSpawnsTheSourceDeletedWorker 是 T2-06 的调用点闸，形状与上面那条同。
+//
+// 为什么必须单独一条：`inbound` 包的用例判的是 Runner 与 `DecodeEvent`，它们**看不见 main**。
+// 把 `inbound.NewSource(...)` 那一段删掉，事件面的每一条闸都还是绿的——而现网的表现是
+// 「Python 投了 source.deleted，Go 的 `go.source.deleted` 里堆着没人认领，证据永远不失效」，
+// 这正是 18 §13 点名要防的那种静默。
+//
+// 五格各挡一种「看起来接了其实没接」：
+//   - `inbound.NewSource(` ⇒ 起的是事件面那条 Runner，不是又起了一个候选面；
+//   - `sourceEvents.Run(sourceCtx)` ⇒ 循环真起起来了（只 New 不 Run 是本包最省事的假接线）；
+//   - `defer closeInbound(sourceEvents` ⇒ 退出路径等它收尾；
+//   - `Domain: candidateDomain,` 出现**两次** ⇒ 两条面共用同一个 canonical Service，
+//     没有第二个领域入口来源；
+//   - defer 登记顺序 ⇒ 事件面登记在候选面之后（因而先执行），候选面登记在出箱之前。
+func TestMainSpawnsTheSourceDeletedWorker(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(".", "main.go"))
+	if err != nil {
+		t.Fatalf("main.go 读不出：%v", err)
+	}
+	text := string(src)
+	for _, phrase := range []string{
+		"inbound.NewSource(",
+		"sourceEvents.Run(sourceCtx)",
+		"defer closeInbound(sourceEvents",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Errorf("main.go 里没有 %q ⇒ 事件面没接上进程，而 inbound 包与 domain 包的用例照样全绿（假绿）", phrase)
+		}
+	}
+	if n := strings.Count(text, "Domain: candidateDomain,"); n != 2 {
+		t.Errorf("Domain: candidateDomain, 命中 %d 次，期望 2（候选面＋事件面）⇒ "+
+			"少一次是没接上，多一次是有人新造了第二个领域入口来源", n)
+	}
+	iWorker := strings.Index(text, "defer closeWorker(")
+	iCand := strings.Index(text, "defer closeInbound(candidates")
+	iSrc := strings.Index(text, "defer closeInbound(sourceEvents")
+	if iWorker < 0 || iCand < 0 || iSrc < 0 {
+		t.Fatalf("defer 锚找不到：closeWorker=%d candidates=%d sourceEvents=%d", iWorker, iCand, iSrc)
+	}
+	if !(iWorker < iCand && iCand < iSrc) {
+		t.Errorf("defer 登记顺序不是 closeWorker→candidates→sourceEvents（%d/%d/%d）⇒ "+
+			"LIFO 下停机顺序反了：删除传播写出的 outbox 行会在出箱 worker 收尾之后才产生", iWorker, iCand, iSrc)
+	}
+	// kill switch：事件面**不许**有第二个 env 键（本批的裁决，理由在 NewSource 注释里）。
+	lower := strings.ToLower(text)
+	for _, banned := range []string{"closen_source_worker", "closen_event_worker", "closen_source_deleted"} {
+		if strings.Contains(lower, banned) {
+			t.Errorf("main.go 出现了 %q ⇒ 事件面发明了第二个旋钮，与「两共用一个 kill switch」的裁决冲突", banned)
+		}
+	}
+}
+
+// TestMainSpawnsTheQueueMetrics 是 T2-05 的调用点闸，形状与上面两条同。
+//
+// `dlq` 包那三十二道闸判的是「巡检会不会算错账」，`obs` 那八道判的是「日志形状对不对」，
+// 两边都**看不见 main**：把这段接线整段删掉，它们一条都不会红。而现网的表现是
+// 「消息在死信里堆着，值班查不到有没有人看」——18 §13 点名的正是这种静默。
+//
+// 五格各挡一种「看起来接了其实没接」：
+//   - `queueMetricsTarget(sws, inboundSw)` ⇒ 起不起由**两个既有 kill switch** 决定，不是第三个旋钮；
+//   - `metricsDone <- obs.RunQueueMetrics(metricsCtx, newQueueReader(url))` ⇒ 循环真起起来了，
+//     而且取数口拿的是同一个地址（只 New 不 Run 是本包最省事的假接线）；
+//   - `defer closeQueueMetrics(` ⇒ 退出路径收掉它；
+//   - `dlq.ListAll(ctx, dlq.NewBrokerAdapter(sess.Channel()), nil)` ⇒ 复用 Session 里那条
+//     **已经在 confirm 模式**的通道，且一次 `Declare` 都不做（巡检改了拓扑参数 ⇒ 下一次
+//     worker 启动撞 PRECONDITION_FAILED，而那天没人改过代码）；
+//   - `"queue metrics 未启动"` ⇒ 关着的时候在启动日志上交代一句，形状与两个 worker 的「未启动」一致。
+//
+// defer 登记顺序也钉住：指标面登记在三个 worker **之后** ⇒ LIFO 下它**先**停；它只读不写，
+// 先停不欠任何补偿，反过来则会白白多占一次停机预算。
+func TestMainSpawnsTheQueueMetrics(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(".", "main.go"))
+	if err != nil {
+		t.Fatalf("main.go 读不出：%v", err)
+	}
+	text := string(src)
+	for _, phrase := range []string{
+		"queueMetricsTarget(sws, inboundSw)",
+		"metricsDone <- obs.RunQueueMetrics(metricsCtx, newQueueReader(url))",
+		"defer closeQueueMetrics(",
+		"dlq.ListAll(ctx, dlq.NewBrokerAdapter(sess.Channel()), nil)",
+		"queue metrics 未启动",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Errorf("main.go 里没有 %q ⇒ 异步指标没接上进程，而 dlq 与 obs 两个包的用例照样全绿（假绿）", phrase)
+		}
+	}
+	// 巡检面**不改拓扑**：`amqp.Declare(` 在装配点出现一次都不许。
+	// 顺手声明一遍拓扑的代价不在今天——它把参数改了，下一次 worker 启动撞 PRECONDITION_FAILED，
+	// 而那天没人改过代码，最难查。（正向证人：下面那条 Dial 计数读的是同一个文件、同一个计数函数，
+	// 它此刻是 3；于是「扫到 0」不是因为脚本没读到内容。）
+	if n := strings.Count(text, "amqp.Declare("); n != 0 {
+		t.Errorf("main.go 里有 %d 处 amqp.Declare( ⇒ 巡检或装配动了拓扑，判据见上", n)
+	}
+	// 三处拨号逐字对应三个面：出箱 worker（:156 的拨号辅助）、入站 worker（:199）、巡检每轮重拨。
+	// 多出来一处＝有人给某一面开了第二条会话；少一处＝那一面没接上。两侧不同源：这里数源码，
+	// 期望值是 2026-10-19 数出来的字面量，不是从 main.go 里读回来的。
+	if n := strings.Count(text, "amqp.Dial("); n != 3 {
+		t.Errorf("amqp.Dial( 命中 %d 次，期望 3（出箱／入站／巡检各一处）⇒ 会话数与接线面数已经不一致", n)
+	}
+	iSrc := strings.Index(text, "defer closeInbound(sourceEvents")
+	iMetrics := strings.Index(text, "defer closeQueueMetrics(")
+	if iSrc < 0 || iMetrics < 0 {
+		t.Fatalf("defer 锚找不到：sourceEvents=%d closeQueueMetrics=%d", iSrc, iMetrics)
+	}
+	if iMetrics < iSrc {
+		t.Errorf("closeQueueMetrics 登记在事件面之前（%d<%d）⇒ LIFO 下它最后停，只读面白白占着停机预算", iMetrics, iSrc)
+	}
+	// kill switch：指标面**不许**有第二个 env 键（D-G12「键存在但没人读＝假旋钮」）。
+	lower := strings.ToLower(text)
+	for _, banned := range []string{
+		"closen_queue_metrics", "closen_dlq_metrics", "closen_async_metrics", "closen_metrics_interval",
+	} {
+		if strings.Contains(lower, banned) {
+			t.Errorf("main.go 出现了 %q ⇒ 指标面发明了第二个旋钮，与「复用两个 worker 的 kill switch ＋ CLOSEN_AMQP_URL」的裁决冲突", banned)
+		}
+	}
+	// 巡检周期是包内常量，注释里写明**不是 env 键**：装配点若去读它，就是给一条会漂的常量开口子。
+	if strings.Contains(text, "QueueMetricsEvery()") {
+		t.Error("main.go 调了 obs.QueueMetricsEvery() ⇒ 周期从包内常量变成了可拨的面，本批的裁决是它不读 env")
 	}
 }
 
@@ -339,4 +471,145 @@ func onInboundSwitch() inbound.Switch {
 	sw.DialTimeout = time.Second
 	sw.DrainTimeout = time.Second
 	return sw
+}
+
+// ── T2-05：异步指标的接线面 ─────────────────────────────────────────────
+
+// TestQueueMetricsTargetTruthTable 判「该不该起、拿哪个地址」这四条边。
+//
+// 这一格是那段接线里唯一会**改变现网行为**的判据：两个 worker 都关着（＝灰度 0）时，
+// 进程必须像这段代码不存在一样——不拨号、不打点。写反了的表现不是报错，是每分钟白拨一次号
+// 并在 Loki 里造出一堆与任何真实流量无关的读数。
+func TestQueueMetricsTargetTruthTable(t *testing.T) {
+	cases := []struct {
+		name      string
+		outbox    dispatch.Switch
+		candidate inbound.Switch
+		wantURL   string
+		wantOn    bool
+	}{
+		{"两个都关（现网默认）⇒ 不起", dispatch.Switch{}, inbound.Switch{}, "", false},
+		{"只开出箱 ⇒ 用出箱的地址", dispatch.Switch{Enabled: true, URL: "amqp://o/"}, inbound.Switch{}, "amqp://o/", true},
+		{"只开入站 ⇒ 地址退回入站的键", dispatch.Switch{}, inbound.Switch{Enabled: true, URL: "amqp://i/"}, "amqp://i/", true},
+		{"两个都开 ⇒ 出箱优先（同一条链同一个 broker）",
+			dispatch.Switch{Enabled: true, URL: "amqp://o/"}, inbound.Switch{Enabled: true, URL: "amqp://i/"}, "amqp://o/", true},
+		{"开着但地址是空白 ⇒ 不起，也不拿空白去拨号",
+			dispatch.Switch{Enabled: true, URL: "   "}, inbound.Switch{Enabled: true, URL: ""}, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			url, ok := queueMetricsTarget(c.outbox, c.candidate)
+			if ok != c.wantOn || url != c.wantURL {
+				t.Errorf("queueMetricsTarget = (%q, %v)，期望 (%q, %v)", url, ok, c.wantURL, c.wantOn)
+			}
+		})
+	}
+}
+
+// TestQueueStatsFromCarriesEveryField 是搬运面的闸：`obs` 不认识 AMQP、`dlq` 不认识日志形状，
+// 两个结构之间的对应只有这一格，字段漏一个的表现是 Loki 里那一栏永远是 0 或 null。
+//
+// 断言两侧不同源：左边是手写的 dlq.Summary 字面量，右边是手写的 obs.QueueStat 字面量，
+// 不是「拿同一个 struct 比它自己」那种恒真。
+func TestQueueStatsFromCarriesEveryField(t *testing.T) {
+	got := queueStatsFrom([]dlq.Summary{
+		{
+			Queue: "dlq.ai.observation.extract", Purpose: "ai.observation.extract", Kind: "dlq",
+			Depth: 7, Consumers: 0, OldestAgeSeconds: 900.5, OldestKnown: true,
+			Deaths: []dlq.DeathEntry{{Queue: "ai.observation.extract"}},
+		},
+		{
+			Queue: "retry.30s.go.candidate.accept", Purpose: "go.candidate.accept", Kind: "retry",
+			Depth: 0, Consumers: 3, OldestAgeSeconds: 0, OldestKnown: false,
+			OldestUnknown: "queue has consumers",
+		},
+	})
+	want := []obs.QueueStat{
+		{Queue: "dlq.ai.observation.extract", Kind: "dlq", Depth: 7, Consumers: 0,
+			OldestAgeSecs: 900.5, OldestAgeKnown: true},
+		{Queue: "retry.30s.go.candidate.accept", Kind: "retry", Depth: 0, Consumers: 3,
+			OldestAgeSecs: 0, OldestAgeKnown: false},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("搬了 %d 条，期望 %d：%+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("第 %d 条搬运不符：\n got %+v\nwant %+v", i, got[i], want[i])
+		}
+	}
+	// 空入参必须回空切片而不是 nil 里带 panic 风险：`tick` 直接 range，这一格是它的第一道依赖。
+	if n := len(queueStatsFrom(nil)); n != 0 {
+		t.Errorf("queueStatsFrom(nil) 回了 %d 条", n)
+	}
+}
+
+// TestNewQueueReaderAgainstUnreachableBrokerErrorsNotEmpty 是失败恢复那一格：
+// 拨号失败**必须回错误**，绝不能回「零条读数 + nil」。
+//
+// 表现差别在汇总行上：回错误时循环打的是 `queue_metrics_read_failed`（值班看得见「读不到」），
+// 回空读数时打的是 `queue_metrics queues_scanned=0 queue_depth=0`——那是一条**假的健康记录**，
+// 而 broker 挂着的时候恰恰是最需要有人知道的时候。
+//
+// 端口 1 上没有监听，所以这条不需要本机有 broker，也不会依赖 `CLOSEN_AMQP_URL` 有没有设。
+func TestNewQueueReaderAgainstUnreachableBrokerErrorsNotEmpty(t *testing.T) {
+	read := newQueueReader("amqp://127.0.0.1:1/")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	stats, err := read(ctx)
+	if err == nil {
+		t.Fatalf("拨号失败却回了 nil 错误（%d 条读数）⇒ 巡检会把 broker 挂了读成一切正常", len(stats))
+	}
+	if stats != nil {
+		t.Errorf("回了错误还带 %d 条读数，调用方该信哪一个：%+v", len(stats), stats)
+	}
+}
+
+// TestCloseQueueMetricsCancelsExitsQuietly 判正常收尾：取消被调用、循环回来就收、
+// 而 `context.Canceled` 这个**预期内**的退出理由不许打成错误。
+func TestCloseQueueMetricsCancelsExitsQuietly(t *testing.T) {
+	canceled := false
+	done := make(chan error, 1)
+	done <- context.Canceled
+	logs := logToBuffer(t, func() {
+		closeQueueMetrics(func() { canceled = true }, done)
+	})
+	if !canceled {
+		t.Error("没取消 ctx ⇒ 循环会一直跑到进程被 SIGKILL，停机顺序变成运气问题")
+	}
+	if strings.Contains(logs, "没退出") {
+		t.Errorf("循环明明回来了却说放弃等待：%q", logs)
+	}
+	if strings.Contains(logs, "带回错误") {
+		t.Errorf("把预期内的取消打成了错误，值班会被一条假告警叫醒：%q", logs)
+	}
+}
+
+// TestCloseQueueMetricsReportsRealError：读数的错误从循环里带回来时必须出声。
+// 静默的那一格表现是「指标连续三天没更新」，而没人知道是循环死了还是根本没起。
+func TestCloseQueueMetricsReportsRealError(t *testing.T) {
+	done := make(chan error, 1)
+	done <- errors.New("amqp: dial: connection refused")
+	logs := logToBuffer(t, func() { closeQueueMetrics(func() {}, done) })
+	if !strings.Contains(logs, "带回错误") || !strings.Contains(logs, "connection refused") {
+		t.Errorf("退出带回的错误没被打进日志：%q", logs)
+	}
+}
+
+// TestCloseQueueMetricsGivesUpOnBudget：卡在最后一次读数上时**放弃等待**，不挂退出路径。
+// 这条的正确性依据同时写进日志：peek 用的是 nack(requeue=true)，通道一关那条消息由 broker
+// 自动回队 ⇒ 放弃等待不丢消息，也不需要任何补偿动作。
+func TestCloseQueueMetricsGivesUpOnBudget(t *testing.T) {
+	done := make(chan error) // 永远不放值：造「循环出不来」
+	started := time.Now()
+	logs := logToBuffer(t, func() { closeQueueMetrics(func() {}, done) })
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Errorf("closeQueueMetrics 等了 %v ⇒ 一秒预算没生效，退出路径会挂死到 gracePeriod 被 SIGKILL", elapsed)
+	}
+	if !strings.Contains(logs, "没退出") {
+		t.Errorf("超时却不说放弃等待，运维读到的是一次静默停机：%q", logs)
+	}
+	if !strings.Contains(logs, "回队") {
+		t.Errorf("放弃等待没交代那条 peek 出来的消息去哪：%q", logs)
+	}
 }

@@ -26,7 +26,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
 )
 
 // followUpAfter 是那张链表。键是**已入库的候选 kind**，值是下一段要请对面做的任务。
@@ -83,11 +88,27 @@ func DeriveTaskOperationID(stage AITaskKind, sourceMessageID string) string {
 //
 // map 的 json.Marshal 按键名排序 ⇒ 同一个输入永远得到同一个字节串，
 // 幂等重放与夹具都比得出。
-func TaskRequestBody(stage AITaskKind, admitted Kind, sourceMessageID string) (string, error) {
+//
+// T2-01 起体里多两个键（`sourceRef`／`sourceOccurredAt`），**恒写**、空串表示
+// 「这一段没有体外来源」（今天 fact→pattern、pattern→insight 两条边就是这种形态，
+// 来源仍由 `sourceMessageId` 承载）。为什么不条件写：条件写会让同一个函数产出两种
+// 键集，而两侧对「体的形状」的闸比的正是键集——形状不确定，闸就成了摆设。
+func TaskRequestBody(
+	stage AITaskKind,
+	admitted Kind,
+	sourceMessageID string,
+	sourceRef string,
+	sourceOccurredAt string,
+) (string, error) {
+	if err := ValidateSourceRef(sourceRef, sourceOccurredAt); err != nil {
+		return "", err
+	}
 	body, err := json.Marshal(map[string]string{
-		"taskType":        stage.TaskType(),
-		"sourceKind":      string(admitted),
-		"sourceMessageId": sourceMessageID,
+		"taskType":         stage.TaskType(),
+		"sourceKind":       string(admitted),
+		"sourceMessageId":  sourceMessageID,
+		"sourceRef":        sourceRef,
+		"sourceOccurredAt": sourceOccurredAt,
 	})
 	if err != nil {
 		// 不 panic：这条路径在入站消费者里，一个 panic 会打断整个 worker 的循环，
@@ -95,4 +116,73 @@ func TaskRequestBody(stage AITaskKind, admitted Kind, sourceMessageID string) (s
 		return "", fmt.Errorf("domain: 组装 %s 的命令体：%w", stage.RoutingKey(), err)
 	}
 	return string(body), nil
+}
+
+// sourceRefPattern 是命令体 `sourceRef` 的取值面（T2-01）：四张来源表之一 ＋ `:` ＋ 36 位 uuid。
+//
+// 表名写死在正则里而不是「任意标识符」，是因为对面 `parse_command` 拿同一个形状判非法：
+// 一边放行 `orders:xxx` 另一边拒，就是一条永久进 DLQ 的命令，而两侧单测各自全绿。
+// 号段用 `[0-9a-f-]{36}`（uuid 的规范长度）而不是 `.{36}`：多宽一点就把
+// 「拼错了的表名撞上巧是 36 个字符」放成合法。
+var sourceRefPattern = regexp.MustCompile(
+	`^(memories|reflections|mood_checkins|chat_messages):[0-9a-f-]{36}$`,
+)
+
+// enabledSourceTables 是本期真启用的来源（ADR-003）。
+//
+// 形状合法但这里没开的表走 `source_type_not_enabled` **永久拒绝**（不是 requeue）：
+// 重试不会让一个没开的来源变开，只会把队列填满。扩来源＝往这张表加一行，判据不动——
+// 这是工作单点名要的「只改一个开关表」。
+var enabledSourceTables = map[string]bool{"memories": true}
+
+// 三条 reason 与 Python `contract.py` 的 `REASON_*` 逐字同值：拒绝日志与
+// `rejects_by_reason` 计数两侧要能对着同一串排查。
+const (
+	ReasonSourceRefShape          = "invalid_source_ref"
+	ReasonSourceTypeNotEnabled    = "source_type_not_enabled"
+	ReasonSourceOccurredAtInvalid = "invalid_source_occurred_at"
+)
+
+var (
+	ErrSourceRefShape          = errors.New(ReasonSourceRefShape)
+	ErrSourceTypeNotEnabled    = errors.New(ReasonSourceTypeNotEnabled)
+	ErrSourceOccurredAtInvalid = errors.New(ReasonSourceOccurredAtInvalid)
+)
+
+// ValidateSourceRef 判命令体那两个来源键；两个都空＝合法（这一段没有体外来源）。
+//
+// `sourceOccurredAt` 单独出现是非法的：一个没有来源行的发生时刻，下游只能拿消费时刻兜底，
+// 而「最近 30 天」这类窗口一旦用消费时刻，重放的老消息就被算成新近证据。
+func ValidateSourceRef(sourceRef, sourceOccurredAt string) error {
+	if sourceRef == "" {
+		if sourceOccurredAt != "" {
+			return fmt.Errorf("%w: 带了 %s 却没带 source_ref，发生时刻没有归属的主体",
+				ErrSourceOccurredAtInvalid, sourceOccurredAt)
+		}
+		return nil
+	}
+	if !sourceRefPattern.MatchString(sourceRef) {
+		return fmt.Errorf("%w: %q（形状＝memories|reflections|mood_checkins|chat_messages 之一 + 冒号 + 36 位 uuid）",
+			ErrSourceRefShape, sourceRef)
+	}
+	table := sourceRef[:strings.Index(sourceRef, ":")]
+	if !enabledSourceTables[table] {
+		return fmt.Errorf("%w: %s（本期只开 %v，扩来源改 enabledSourceTables）",
+			ErrSourceTypeNotEnabled, table, enabledTableNames())
+	}
+	if sourceOccurredAt != "" {
+		if _, err := time.Parse(time.RFC3339, sourceOccurredAt); err != nil {
+			return fmt.Errorf("%w: %q 不是 RFC3339", ErrSourceOccurredAtInvalid, sourceOccurredAt)
+		}
+	}
+	return nil
+}
+
+func enabledTableNames() []string {
+	names := make([]string, 0, len(enabledSourceTables))
+	for name := range enabledSourceTables {
+		names = append(names, name)
+	}
+	sort.Strings(names) // map 遍历无序：日志与夹具都要比得出
+	return names
 }

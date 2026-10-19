@@ -112,6 +112,10 @@ type InsightStatusRow struct {
 
 // AdmitEvidence 是 evidence 表的唯一写入口：核验 → 算分 → 落库。
 //
+// 核验有两格且都在写入之前：来源指针的归属（source_pointer.go，T2-03）与
+// 被引用观测的独立性（verifyIndependent）。前者管「这条观察说它来自哪一行，
+// 那一行是不是这个用户的」，后者管「拿来撑重复的证据是不是他的」，两格不重叠。
+//
 // 落库口径：
 //   - source 指针按 (user_id, source_table, source_id) 复用既有行（08 §3 幂等），
 //     重跑管道不产生第二条登记；
@@ -127,6 +131,9 @@ func (s *Service) AdmitEvidence(ctx context.Context, c EvidenceCandidate) (Evide
 		// 核验在前、写在后：越权引用必须**在任何写入之前**报错，否则会留下
 		// 一条指向别人业务行的 source 登记（事务会回滚，但「先写后判」的次序
 		// 本身违反不变量 9，也让单测里的半状态看不见）。
+		if err := s.verifySourceOwnership(ctx, st, c); err != nil {
+			return err
+		}
 		cited, err := s.verifyIndependent(ctx, st, c)
 		if err != nil {
 			return err
@@ -149,6 +156,21 @@ func (s *Service) AdmitEvidence(ctx context.Context, c EvidenceCandidate) (Evide
 		}, s.gate.Policy.Evidence, s.now())
 		if err != nil {
 			return err
+		}
+		// 终局分的定义域闸（工单 T2-04 §怎么做.2 的 `strength ∈ [0,1]`，口径按 §口径.1）。
+		//
+		// 为什么排在算分之后而不是核验那一格：它判的**不是提案的合法性**（候选体根本没有
+		// strength 这一键，终局分由这里算），而是五因子表与衰减式自己有没有被改坏。
+		// 越界必须由 InTx 整笔回滚——`evidence.strength` 是要进「为何相信这条」的账面数字，
+		// 一个 1.7 或 -0.2 落库之后，读路径的百分比文案会把 bug 说成置信度。
+		// 报永久而不是瞬态：重试不会让因子表回到定义域内，而多撞三次阶梯只把一次配置错误
+		// 洗成「看起来像抖动」。
+		// 写成 `!(0 <= x && x <= 1)` 而不是 `x < 0 || x > 1`：因子被改坏到负数时几何平均
+		// 走 math.Pow 得到 NaN，而后一种写法对 NaN 两个比较都为 false，等于放行。
+		// NaN 落进 evidence.strength 比 1.7 更糟——读路径会把它打印成空白置信度。
+		if !(scored.Strength >= 0 && scored.Strength <= 1) {
+			return fmt.Errorf("%w: strength=%v 落在 [0,1] 之外（因子表或衰减式被改坏，"+
+				"五因子取值见 %s）", ErrCandidateShape, scored.Strength, scored.Detail)
 		}
 		metadata, err := evidenceMetadata(c.Metadata, scored, independent, dropped)
 		if err != nil {
@@ -180,20 +202,51 @@ func (s *Service) AdmitEvidence(ctx context.Context, c EvidenceCandidate) (Evide
 	return result, nil
 }
 
+// MaxExcerptChars 是 `evidence.excerpt` 的产物面上限（工单 T2-04 §怎么做.2 那句
+// 「excerpt 长度 ≤ 500」，口径与「这不是列宽」的实测见台账 §口径.2：DDL 里 excerpt 是
+// TEXT，`c8a2e4b6d0f2:138`，所以 500 不是数据库给的边界而是我们给用户的可读边界）。
+//
+// 对面那一格住在 `backend/ai/prompts/observation.py:MAX_EXCERPT_CHARS`，两侧由
+// `test_ai_mq_contract.py` 比成同值——生产者在出网前就该丢条，让 Go 拒等于把一条
+// 永远非法的候选投上网络再进 DLQ。
+const MaxExcerptChars = 500
+
+// ErrCandidateShape 是「这条候选永远非法」那一类的哨兵（工单 T2-04 §口径.3）。
+//
+// 为什么必须有它：`checkEvidenceCandidate` 的判据里有六个「重投一万次也不会变成合法」
+// 的面（缺必填、词表外、role 非法、metadata 不是 JSON、超列宽、摘录超限），而
+// `inbound.classify` 只认哨兵——裸 error 会被读成瞬态，于是这些候选撞完 30s/2m/10m
+// 三次库才进 DLQ，且 `inbox.error_code` 是空白。值班看到的那一行写着「重试过」，
+// 而真相是「这条消息的形状从来就不对」。
+//
+// 反方向也要钉住：`occurred_at 晚于当下` **不挂这个哨兵**（那是时序，晚一点重投就合法），
+// DB 抖动/连接/租约更不是。由 `inbound_test.go` 的表与计数闸各自看住一侧。
+var ErrCandidateShape = errors.New("domain: evidence candidate shape invalid")
+
+// shapeRejectf 给形状类拒绝挂上哨兵，文案原样保留（Detail 要能指回是哪一格）。
+func shapeRejectf(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrCandidateShape, fmt.Sprintf(format, args...))
+}
+
 // checkEvidenceCandidate 把畸形提案挡在写库之前（01 §25 LLM Failure Containment）。
 // 列宽取 N2 DDL：超长会被数据库拒绝，先在这里判成可解释的错误。
 func (s *Service) checkEvidenceCandidate(c EvidenceCandidate) error {
 	p := s.gate.Policy
 	switch {
 	case c.UserID == "":
-		return errors.New("domain: evidence.user_id is required")
+		return shapeRejectf("evidence.user_id is required")
 	case c.SourceTable == "":
-		return errors.New("domain: evidence.source_table is required")
+		return shapeRejectf("evidence.source_table is required")
 	case c.SourceID == "":
-		return errors.New("domain: evidence.source_id is required")
+		return shapeRejectf("evidence.source_id is required")
 	case c.GenerationRunID == "":
 		// 不变量 8：没有留痕号的 AI 产出不可追溯，不接受入表。
-		return errors.New("domain: evidence.generation_run_id is required")
+		return shapeRejectf("evidence.generation_run_id is required")
+	}
+	// 表名白名单排在读库之前（source_pointer.go:13-17 的次序理由）：不认的表连
+	// 回查都做不了，放在事务里只会得到「查库失败」这种指错方向的 reason。
+	if err := verifySourceTable(c); err != nil {
+		return err
 	}
 	if _, ok := p.Evidence.reliability(c.SourceKind); !ok {
 		return fmt.Errorf("%w: source_kind=%q", ErrUnknownSignal, c.SourceKind)
@@ -205,16 +258,24 @@ func (s *Service) checkEvidenceCandidate(c EvidenceCandidate) error {
 		return fmt.Errorf("%w: specificity=%q", ErrUnknownSignal, c.Specificity)
 	}
 	if !contains(allowedOrigins, c.EvidenceType) {
-		return fmt.Errorf("domain: evidence_type=%q 不在 02 §3 的六值集合", c.EvidenceType)
+		return shapeRejectf("evidence_type=%q 不在 02 §3 的六值集合", c.EvidenceType)
 	}
 	if c.Role != "" && c.Role != "supporting" && c.Role != "contradicting" {
-		return fmt.Errorf("domain: role=%q 只允许 supporting|contradicting（03 §7:186-187）", c.Role)
+		return shapeRejectf("role=%q 只允许 supporting|contradicting（03 §7:186-187）", c.Role)
 	}
 	if len(c.Metadata) > 0 {
 		var probe json.RawMessage
 		if err := json.Unmarshal(c.Metadata, &probe); err != nil {
-			return fmt.Errorf("domain: evidence.metadata 不是合法 JSON: %w", err)
+			return shapeRejectf("evidence.metadata 不是合法 JSON: %v", err)
 		}
+	}
+	// 摘录上限排在列宽循环之前：它要的是一条自己的判据（工单 §怎么做.2），
+	// 而下面那张表按「DDL 的列宽」说话，excerpt 是 TEXT 没有宽度可言。
+	// 按**字符**数而不是字节：一条 500 字的中文摘录是 1500 字节，按字节会把
+	// 一条该收下的观察判成非法，而那正是用户能看见的那句话。
+	if utf8.RuneCountInString(c.Excerpt) > MaxExcerptChars {
+		return shapeRejectf("excerpt 长 %d 字符，超产物面上限 %d（T2-04 §口径.2）",
+			utf8.RuneCountInString(c.Excerpt), MaxExcerptChars)
 	}
 	for _, item := range []struct {
 		name, value string
@@ -225,7 +286,7 @@ func (s *Service) checkEvidenceCandidate(c EvidenceCandidate) error {
 		{"generation_run_id", c.GenerationRunID, 36},
 	} {
 		if utf8.RuneCountInString(item.value) > item.max {
-			return fmt.Errorf("domain: %s 长 %d，超列宽 %d",
+			return shapeRejectf("%s 长 %d，超列宽 %d",
 				item.name, utf8.RuneCountInString(item.value), item.max)
 		}
 	}

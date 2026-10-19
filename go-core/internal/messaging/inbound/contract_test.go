@@ -117,6 +117,7 @@ func TestReasonCodesAreStableIdentifiers(t *testing.T) {
 		ReasonUnknownRoutingKey, ReasonContentType, ReasonBodyTooLarge, ReasonMessageTypeMismatch,
 		ReasonSchemaVersion, ReasonMissingUserID, ReasonMissingMessageID, ReasonNotJSON,
 		ReasonPayloadInvalid, ReasonKindMismatch, ReasonMetadataNotJSON, ReasonUnknownDomainValue,
+		ReasonSourceTypeNotEnabled, ReasonForeignSource, ReasonUnknownSourceRow,
 	}
 	seen := map[string]bool{}
 	snake := regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -132,8 +133,12 @@ func TestReasonCodesAreStableIdentifiers(t *testing.T) {
 		}
 		seen[c] = true
 	}
-	if len(codes) != 12 {
-		t.Errorf("码面有 %d 条，与 Python 侧 contract.py 的 REASON_* 面（12 条）不齐", len(codes))
+	// 计数证人：这张手写的名单必须跟着码面一起改。名单扫空或漏一条都不会红，
+	// 而漏掉的那一条恰好是「形状没被审过」的那一条（Python 侧另有一条闸把
+	// 这些值逐个比回 contract.py 的 REASON_* 面，见 test_ai_mq_contract.py）。
+	if len(codes) != 15 {
+		t.Errorf("码面有 %d 条，期望 15（12 条传输/载荷面＋3 条来源指针面）⇒ "+
+			"新增的 Reason* 没进这份名单，形状就没被审过", len(codes))
 	}
 }
 
@@ -206,6 +211,72 @@ var _ Call = func(ctx context.Context, d Domain) error {
 type bindingRow struct {
 	key   string
 	queue string
+}
+
+// eventBindingRows 从生成物里取**事件面**已绑定的那些行（§二那张表，Kind 列＝event）。
+//
+// 为什么这条闸必须存在：`SourceDeletedQueue` 与本包要认领的队列名是两条独立写的串
+// （一条在 `topology.go` 的 `EventRoutes`，一条在 `source_deleted.go` 的常量）。
+// 拼错的现网后果不是报错而是静默：`Consume` 认一个不存在的队列 ⇒ passive 声明 404、
+// 或者更坏——认到一个存在但绑的是别的键的队列，于是删除事件永远不进门，而两侧测试全绿。
+// 读生成物不读 `topology.go`：events.md 已有 amqp 包的字节级漂移闸守着（contract_drift_test.go），
+// 本包不必 import amqp。
+func eventBindingRows(t *testing.T) []bindingRow {
+	t.Helper()
+	var out []bindingRow
+	for _, line := range strings.Split(readEventsMD(t), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		cols := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cols) < 4 {
+			continue
+		}
+		exchange, key, queue, kind := trim(cols[0]), trim(cols[1]), trim(cols[2]), trim(cols[3])
+		if exchange != "closenai.events" || kind != "event" {
+			continue
+		}
+		out = append(out, bindingRow{key: key, queue: queue})
+	}
+	return out
+}
+
+func readEventsMD(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(repoRootFromCwd(t), "contracts", "events.md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s 读不出：%v", path, err)
+	}
+	return string(raw)
+}
+
+// TestEventQueueNamesMatchTheGeneratedTopology 把本包事件面的两个串钉回生成物。
+func TestEventQueueNamesMatchTheGeneratedTopology(t *testing.T) {
+	rows := eventBindingRows(t)
+	if len(rows) != 1 {
+		t.Fatalf("events.md §二 的 event 行有 %d 条，本批只准有 source.deleted 一条：%v", len(rows), rows)
+	}
+	if rows[0].key != SourceDeletedRoutingKey {
+		t.Errorf("拓扑绑的键是 %q，本包解码器认的是 %q ⇒ 这条消息进门判据第一跳就 unknown_routing_key",
+			rows[0].key, SourceDeletedRoutingKey)
+	}
+	if rows[0].queue != SourceDeletedQueue {
+		t.Errorf("拓扑上的队列是 %q，本包 Consume 的是 %q ⇒ 认了一个没人绑定的队列，"+
+			"删除事件全数堆在拓扑那个队列里", rows[0].queue, SourceDeletedQueue)
+	}
+	// consumer 串与队列名同源（与 Consumer/Queue 那一对同一规矩）：幂等键的一半。
+	if SourceDeletedConsumer != "go.core.source" {
+		t.Errorf("consumer=%q，期望 go.core.source（与候选面的 go.core.candidate 必须不同，"+
+			"否则两条面共用一个幂等 namespace）", SourceDeletedConsumer)
+	}
+	if SourceDeletedConsumer == Consumer {
+		t.Error("事件面与候选面的 consumer 串相同 ⇒ 候选面的「吃过了」会替事件面宣告「我也吃过了」")
+	}
+	// message_type 由键折叠而来，与命令面/候选面同一条规则。
+	if SourceDeletedMessageType != strings.ReplaceAll(SourceDeletedRoutingKey, ".", "_") {
+		t.Errorf("message_type=%q 不是键 %q 按点换下划线的形状", SourceDeletedMessageType, SourceDeletedRoutingKey)
+	}
 }
 
 // candidateBindingRows 从**生成物**里取绑定面。读生成物而不是读 topology.go，

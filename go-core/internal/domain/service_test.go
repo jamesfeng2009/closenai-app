@@ -10,6 +10,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,25 @@ type fakeStore struct {
 	lookedFingerprint string
 	cooldownDays      int
 	readErr           error
+
+	// T2-03 来源行归属桩：sourceOwner 是「回查到的那一行属于谁」，
+	// 置空即「行查不到」（走 ErrUnknownSourceRow），改成别人的 id 即越权。
+	// sourceErr 是**读库故障**，它必须与「查不到」分开造，否则瞬态与永久两格判据会互相冒充。
+	sourceOwner   string
+	sourceErr     error
+	sourceLookups []string
+
+	// T2-06 传播面桩：sourceRecord 是那条登记行（Found=false 即「从没登记过」），
+	// evidenceForSource 是它支撑的 evidence id，deletedMarks/restores 记两次翻转，
+	// failPropagateFor 让**指定那一条** evidence 的传播失败（恢复支路的靶）。
+	sourceRecord      SourceRecordState
+	evidenceForSource []string
+	deletedMarks      int
+	restores          int
+	restoreErr        error
+	failPropagateFor  string
+	// derivedBy 非 nil 时按 evidence id 给不同的派生行（多条 evidence 的用例需要）。
+	derivedBy map[string][]DerivedSupport
 
 	// N5 写读面
 	prefs        UserPrefs
@@ -206,6 +226,9 @@ func newFakeStore() *fakeStore {
 			CreatedAt: windowStart, Found: true},
 		lastActivity: windowEnd,
 		hasActivity:  true,
+		// T2-03 默认「来源行在、且就属于提案里这个用户」：准入面与归属回查是两格判据，
+		// N3–N6 的用例不该被新加的那一格拖红，越权样本在自己的用例里显式改这几项。
+		sourceOwner: owner,
 	}
 }
 
@@ -395,6 +418,22 @@ func (f *fakeStore) UpsertSourceRecord(ctx context.Context, row SourceRecordRow)
 	}
 	f.sources = append(f.sources, row)
 	return "src-" + row.SourceTable + "/" + row.SourceID, nil
+}
+
+// SourceRowOwner 与真库实现同形（internal/store/source_owner.go）：
+// 表不在准入面 ⇒ error（两张表漂了，属接线错误）；sourceOwner 为空 ⇒ found=false
+// （行不存在）；否则回一个固定的主人。三种状态分开造，判据才不会互相冒充。
+func (f *fakeStore) SourceRowOwner(ctx context.Context,
+	sourceTable, sourceID string) (string, bool, error) {
+	if f.sourceErr != nil {
+		return "", false, f.sourceErr
+	}
+	f.sourceLookups = append(f.sourceLookups, sourceTable+"|"+sourceID)
+	if !contains(AdmissibleSourceTables, sourceTable) {
+		return "", false, fmt.Errorf("fake: source_table=%q 没有回查语句（准入面=%v）",
+			sourceTable, AdmissibleSourceTables)
+	}
+	return f.sourceOwner, f.sourceOwner != "", nil
 }
 
 func (f *fakeStore) InsertEvidence(ctx context.Context, row EvidenceWrite) error {

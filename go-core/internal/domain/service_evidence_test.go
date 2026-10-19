@@ -3,7 +3,8 @@
 // 断言的重心是分层不变量在代码里成立：
 //  1. 落库的 strength **只能是 Go 算出来的**，提案里没有这个字段可填；
 //  2. 独立性计数由核验得出，调用方报几条不重要，越权引用直接报错；
-//  3. 重算不得覆盖用户已表态的行，也不得在没跌破门槛时动模型版本。
+//  3. 重算不得覆盖用户已表态的行，也不得在没跌破门槛时动模型版本；
+//  4. 来源指针的两格（表名白名单＋归属回查）都排在写入之前（T2-03）。
 package domain
 
 import (
@@ -19,8 +20,11 @@ var observedDay = time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
 
 func okEvidenceCandidate() EvidenceCandidate {
 	return EvidenceCandidate{
+		// ⚠️ SourceTable 取准入面里那一格（AdmissibleSourceTables）：T2-03 起
+		// 没开的表在 checkEvidenceCandidate 就被挡下，夹具写成别的表名只会让
+		// 下面每一条「能正常入账」的用例一起变红。
 		UserID: owner, SourceKind: SourceAIExtraction,
-		SourceTable: "journal_entries", SourceID: "entry-1",
+		SourceTable: SourceTableMemories, SourceID: "entry-1",
 		OccurredAt:   observedDay,
 		EvidenceType: "direct", Role: "supporting",
 		Observation: "23:41 记录", Explicitness: Explicit, Specificity: Specific,
@@ -66,16 +70,96 @@ func TestService_AdmitEvidence_StrengthIsComputedHere(t *testing.T) {
 	if row.GenerationRunID != "run-1" {
 		t.Errorf("事件必须带留痕号（不变量 8），got %q", row.GenerationRunID)
 	}
-	if len(f.sources) != 1 || f.sources[0].SourceTable != "journal_entries" ||
+	if len(f.sources) != 1 || f.sources[0].SourceTable != SourceTableMemories ||
 		f.sources[0].SourceType != string(SourceAIExtraction) {
 		t.Errorf("source 指针=%+v", f.sources)
 	}
 	if !f.sources[0].HasOccurredAt || !f.sources[0].OccurredAt.Equal(observedDay) {
 		t.Errorf("source.occurred_at 丢了：%+v", f.sources[0])
 	}
-	if row.SourceRecordID != "src-journal_entries/entry-1" {
+	if row.SourceRecordID != "src-memories/entry-1" {
 		t.Errorf("证据没挂到登记的 source 行：%q", row.SourceRecordID)
 	}
+	if len(f.sourceLookups) != 1 || f.sourceLookups[0] != "memories|entry-1" {
+		t.Errorf("来源回查=%v，期望恰好一次且指向提案里那一行", f.sourceLookups)
+	}
+}
+
+// T2-03：来源指针的两格判据（表名白名单＋归属回查）都在写入之前，而且
+// 「表没开／行不存在／行是别人的」各用各的哨兵——inbound 的 classify 按这三个
+// 分「永久拒绝留痕」与「瞬时重试」，判错方向就是让毒消息在 30s/2m/10m 阶梯上撞库。
+func TestService_AdmitEvidence_SourcePointerIsChecked(t *testing.T) {
+	const otherUser = "22222222-2222-4222-8222-222222222222"
+
+	t.Run("表不在准入面：不回查也不写", func(t *testing.T) {
+		store := newFakeStore()
+		s, f := newTestService(store)
+		c := okEvidenceCandidate()
+		c.SourceTable = "journal_entries"
+		_, err := admitEvidence(t, s, c)
+		if !errors.Is(err, ErrUnsupportedSourceTable) {
+			t.Fatalf("err=%v，期望 ErrUnsupportedSourceTable", err)
+		}
+		if len(f.sourceLookups) != 0 {
+			t.Errorf("没开的表却去回查了库：%v（纯判定必须排在读库之前，否则 reason 指错方向）",
+				f.sourceLookups)
+		}
+		if len(f.sources) != 0 || len(f.written) != 0 {
+			t.Errorf("挡住之前不许有任何写入：%+v %+v", f.sources, f.written)
+		}
+	})
+
+	t.Run("来源行查不到：ErrUnknownSourceRow", func(t *testing.T) {
+		store := newFakeStore()
+		store.sourceOwner = ""
+		s, f := newTestService(store)
+		if _, err := admitEvidence(t, s, okEvidenceCandidate()); !errors.Is(err,
+			ErrUnknownSourceRow) {
+			t.Fatalf("err=%v，期望 ErrUnknownSourceRow", err)
+		}
+		if len(f.sources) != 0 || len(f.written) != 0 {
+			t.Errorf("查不到却写了库：%+v %+v", f.sources, f.written)
+		}
+	})
+
+	t.Run("来源行是别人的：ErrForeignSource 且不留半状态", func(t *testing.T) {
+		store := newFakeStore()
+		store.sourceOwner = otherUser
+		s, f := newTestService(store)
+		_, err := admitEvidence(t, s, okEvidenceCandidate())
+		if !errors.Is(err, ErrForeignSource) {
+			t.Fatalf("err=%v，期望 ErrForeignSource（不变量 9：拒绝跨用户 id 引用）", err)
+		}
+		if strings.Contains(err.Error(), otherUser) {
+			t.Errorf("拒绝理由里回显了真正主人的标识符：%v", err)
+		}
+		if len(f.sources) != 0 || len(f.written) != 0 {
+			t.Errorf("越权提案却写了库：%+v %+v", f.sources, f.written)
+		}
+		if !f.rolledBack {
+			t.Error("归属核验在事务里失败必须回滚")
+		}
+	})
+
+	t.Run("回查本身报错时不许当成「行不存在」", func(t *testing.T) {
+		store := newFakeStore()
+		boom := errors.New("fake: 归属回查故障")
+		store.sourceErr = boom
+		s, f := newTestService(store)
+		_, err := admitEvidence(t, s, okEvidenceCandidate())
+		if !errors.Is(err, boom) {
+			t.Fatalf("err=%v，期望原样上抛（一次抖动不能记成永久拒绝）", err)
+		}
+		for _, sentinel := range []error{ErrForeignSource, ErrUnknownSourceRow,
+			ErrUnsupportedSourceTable} {
+			if errors.Is(err, sentinel) {
+				t.Errorf("库故障被读成了 %v，那会让它跳过重试阶梯直接进 DLQ", sentinel)
+			}
+		}
+		if len(f.sources) != 0 {
+			t.Errorf("故障路径不留登记：%+v", f.sources)
+		}
+	})
 }
 
 func TestService_AdmitEvidence_MetadataCarriesTheDerivation(t *testing.T) {
@@ -142,7 +226,7 @@ func TestService_AdmitEvidence_IndependenceIsVerifiedNotProposed(t *testing.T) {
 	t.Run("同源或同日的提案引用只丢弃，不拒整条", func(t *testing.T) {
 		store := newFakeStore()
 		// 同一 source_record 的另一条；同一天另一条。
-		store.evidence["e1"] = Evidence{ID: "e1", UserID: owner, SourceID: "src-journal_entries/entry-1",
+		store.evidence["e1"] = Evidence{ID: "e1", UserID: owner, SourceID: "src-memories/entry-1",
 			Role: "supporting", ObservedAt: earlier}
 		store.evidence["e2"] = Evidence{ID: "e2", UserID: owner, SourceID: "s2",
 			Role: "supporting", ObservedAt: time.Date(2026, 10, 10, 23, 0, 0, 0, time.UTC)}
@@ -208,24 +292,33 @@ func TestService_AdmitEvidence_IndependenceIsVerifiedNotProposed(t *testing.T) {
 }
 
 func TestService_AdmitEvidence_RejectsMalformedProposals(t *testing.T) {
+	// sentinel 这一列钉的是**永久 vs 瞬态**的分界（工单 T2-04 §口径.3），不只是「有没有报错」：
+	// inbound.classify 只认哨兵，挂上 ErrCandidateShape/ErrUnknownSignal 的进 inbox 留痕，
+	// 一个都不挂的（只有「观测时刻晚于当下」）走 NACK → 30s/2m/10m 阶梯。
+	// 少挂一个＝永久非法在阶梯上撞三次库再进 DLQ、账上写「重试过」；多挂一个＝本可重投成功
+	// 的时序错误被永久拒死，那条观测再也进不来。两侧都由这张表当证人。
 	cases := []struct {
-		name   string
-		mutate func(*EvidenceCandidate)
+		name     string
+		mutate   func(*EvidenceCandidate)
+		sentinel error
 	}{
-		{"缺 user_id", func(c *EvidenceCandidate) { c.UserID = "" }},
-		{"缺 source_table", func(c *EvidenceCandidate) { c.SourceTable = "" }},
-		{"缺 source_id", func(c *EvidenceCandidate) { c.SourceID = "" }},
-		{"缺 generation_run_id", func(c *EvidenceCandidate) { c.GenerationRunID = "" }},
-		{"未知来源类", func(c *EvidenceCandidate) { c.SourceKind = SourceKind("telepathy") }},
-		{"未知明确度", func(c *EvidenceCandidate) { c.Explicitness = Explicitness("half_said") }},
-		{"未知具体度", func(c *EvidenceCandidate) { c.Specificity = Specificity("vibes") }},
-		{"evidence_type 不在六值集合", func(c *EvidenceCandidate) { c.EvidenceType = "vibes" }},
-		{"role 只允许两个值", func(c *EvidenceCandidate) { c.Role = "contextual" }},
-		{"source_id 超列宽", func(c *EvidenceCandidate) { c.SourceID = strings.Repeat("i", 37) }},
+		{"缺 user_id", func(c *EvidenceCandidate) { c.UserID = "" }, ErrCandidateShape},
+		{"缺 source_table", func(c *EvidenceCandidate) { c.SourceTable = "" }, ErrCandidateShape},
+		{"缺 source_id", func(c *EvidenceCandidate) { c.SourceID = "" }, ErrCandidateShape},
+		{"缺 generation_run_id", func(c *EvidenceCandidate) { c.GenerationRunID = "" }, ErrCandidateShape},
+		{"未知来源类", func(c *EvidenceCandidate) { c.SourceKind = SourceKind("telepathy") }, ErrUnknownSignal},
+		{"未知明确度", func(c *EvidenceCandidate) { c.Explicitness = Explicitness("half_said") }, ErrUnknownSignal},
+		{"未知具体度", func(c *EvidenceCandidate) { c.Specificity = Specificity("vibes") }, ErrUnknownSignal},
+		{"evidence_type 不在六值集合", func(c *EvidenceCandidate) { c.EvidenceType = "vibes" }, ErrCandidateShape},
+		{"role 只允许两个值", func(c *EvidenceCandidate) { c.Role = "contextual" }, ErrCandidateShape},
+		{"source_id 超列宽", func(c *EvidenceCandidate) { c.SourceID = strings.Repeat("i", 37) }, ErrCandidateShape},
+		{"excerpt 超产物面上限", func(c *EvidenceCandidate) {
+			c.Excerpt = strings.Repeat("e", MaxExcerptChars+1)
+		}, ErrCandidateShape},
 		{"观测时刻晚于当下", func(c *EvidenceCandidate) {
 			c.OccurredAt = windowEnd.Add(time.Hour)
-		}},
-		{"metadata 不是合法 JSON", func(c *EvidenceCandidate) { c.Metadata = json.RawMessage("{oops") }},
+		}, nil},
+		{"metadata 不是合法 JSON", func(c *EvidenceCandidate) { c.Metadata = json.RawMessage("{oops") }, ErrCandidateShape},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -233,13 +326,99 @@ func TestService_AdmitEvidence_RejectsMalformedProposals(t *testing.T) {
 			s, f := newTestService(store)
 			c := okEvidenceCandidate()
 			tc.mutate(&c)
-			if _, err := admitEvidence(t, s, c); err == nil {
+			_, err := admitEvidence(t, s, c)
+			if err == nil {
 				t.Fatal("畸形提案必须在写库前挡住（01 §25）")
+			}
+			if tc.sentinel == nil {
+				if errors.Is(err, ErrCandidateShape) || errors.Is(err, ErrUnknownSignal) {
+					t.Errorf("这一格必须保持瞬态（时钟追上来就能重投），却挂了永久哨兵：%v", err)
+				}
+			} else if !errors.Is(err, tc.sentinel) {
+				t.Errorf("err=%v 没挂哨兵 %v ⇒ 永久/瞬态判错一类", err, tc.sentinel)
 			}
 			if len(f.written) != 0 || len(f.sources) != 0 {
 				t.Errorf("校验失败却写了库：%+v %+v", f.sources, f.written)
 			}
 		})
+	}
+}
+
+func TestService_AdmitEvidence_ExcerptCap(t *testing.T) {
+	// 500 是**字符**上限（工单 §口径.2）：按字节数会把一条 500 字的中文观察判成非法，
+	// 而那正是用户在「为何相信这条」里看得见的那句话。第三格就是钉这一点的。
+	for _, tc := range []struct {
+		name    string
+		excerpt string
+		ok      bool
+	}{
+		{"恰好 500 个 ASCII", strings.Repeat("a", MaxExcerptChars), true},
+		{"恰好 500 个汉字（1500 字节）", strings.Repeat("啊", MaxExcerptChars), true},
+		{"501 个 ASCII", strings.Repeat("a", MaxExcerptChars+1), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeStore()
+			s, f := newTestService(store)
+			c := okEvidenceCandidate()
+			c.Excerpt = tc.excerpt
+			res, err := admitEvidence(t, s, c)
+			if tc.ok {
+				if err != nil {
+					t.Fatalf("上限内的摘录不该被拒：%v", err)
+				}
+				if len(f.written) != 1 || f.written[0].Excerpt != tc.excerpt {
+					t.Errorf("摘录没原样落库：%+v（res=%+v）", f.written, res)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("超限摘录必须在写库前挡住")
+			}
+			if !errors.Is(err, ErrCandidateShape) {
+				t.Errorf("超限是永远非法的形状问题，要挂哨兵：%v", err)
+			}
+			if len(f.written) != 0 || len(f.sources) != 0 {
+				t.Errorf("校验失败却写了库：%+v %+v", f.sources, f.written)
+			}
+		})
+	}
+}
+
+func TestService_AdmitEvidence_StrengthMustStayInUnitInterval(t *testing.T) {
+	// 提案体里没有 strength 这一键（03:108），所以这一格判的**是我们自己的因子表**：
+	// 有人把可靠度改成 >1（或做成让 math.Pow 出 NaN 的负值）时，终局分会越出 [0,1]，
+	// 而那个数是要进「为何相信这条」的账面百分比。整笔 InTx 必须回滚。
+	store := newFakeStore()
+	p := DefaultPolicy()
+	p.Evidence.ReliabilityStatement = 3
+	s, f := newTestService(store)
+	s2 := NewService(store, p)
+	s2.now = func() time.Time { return windowEnd }
+	c := okEvidenceCandidate()
+	c.SourceKind = SourceUserStatement
+	if _, err := admitEvidence(t, s2, c); err == nil {
+		t.Fatal("因子表被改坏到 strength>1 时必须拒绝入账（T2-04 §怎么做.2）")
+	} else if !errors.Is(err, ErrCandidateShape) {
+		t.Errorf("越界分是配置错误，重投一万次也不会回定义域，要挂永久哨兵：%v", err)
+	}
+	if len(f.written) != 0 {
+		t.Errorf("越界分却落了 evidence 行：%+v", f.written)
+	}
+	// `f.sources` 可以有一行：这一格是在 UpsertSourceRecord **之后**判的（要拿到算分结果），
+	// 而 fake 刻意不回滚权威行（service_test.go:241-242 的理由）。真库里整笔回滚由
+	// 下面的 rolledBack 标记 + canonical 集成测试看住。
+	if !f.rolledBack {
+		t.Errorf("越界分必须整笔回滚事务，而不是只丢 evidence 行")
+	}
+	// 同一夹具在默认策略下必须正常入账：否则上面的红是「什么都写不进」而不是「越界被挡」。
+	if _, err := admitEvidence(t, s, c); err != nil {
+		t.Fatalf("默认策略下同一条不该被拒（证人格）：%v", err)
+	}
+	if len(f.written) != 1 {
+		t.Errorf("written=%d", len(f.written))
+	}
+	if f.written[0].Strength < 0 || f.written[0].Strength > 1 {
+		t.Errorf("落库分=%v 不在 [0,1]", f.written[0].Strength)
 	}
 }
 

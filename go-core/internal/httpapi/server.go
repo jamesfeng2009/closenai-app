@@ -48,10 +48,18 @@ type Server struct {
 	// 见 batch6.go 头注释），所以「已实现」与「从入口可达」在这批是两件事——
 	// 与批 5 那条 `GET /api/v1/reflections` 同一档。
 	batch6 *Batch6
+	// v3 是服务间内部面（`/internal/v3/*`，ADR-002）的依赖面；nil 或密钥为空时
+	// 这一组路由**不注册**，与六个批次同一口径（gated），口径的取舍见 v3.go 头注释。
+	// 它不参与切流（domain 空串）：客户端永远不该走到这里，所以「切给谁」这一说不成立。
+	v3 *V3
 	// now 是**时钟注入点**，默认 time.Now。契约回放必须把它冻在录制那一刻：
 	// curriculum 的 week_start/每张卡的 date 都是「今天所在本地周」的函数，
 	// 夹具跨天重放会得到另一周（同 discovery 的 7/14 天窗口，但周视图是整周平移，
 	// 连 1.5 天的余量都救不了）。业务代码一行都不该感知测试——所以是字段而不是参数。
+	// registered 是**实际注册**的路由形状（method/path/domain），由 registerRoutes 逐条填。
+	// 它存在的唯一理由是让「声明表 ⇄ 运行时」这条对账不用抄第二遍（routes.go 头注释）。
+	registered []Route
+
 	now func() time.Time
 
 	mux *http.ServeMux
@@ -59,7 +67,7 @@ type Server struct {
 
 func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 	explainer *domain.InsightExplainer, batch1 *Batch1, batch2 *Batch2,
-	batch3 *Batch3, batch4 *Batch4, batch5 *Batch5, batch6 *Batch6) *Server {
+	batch3 *Batch3, batch4 *Batch4, batch5 *Batch5, batch6 *Batch6, v3 *V3) *Server {
 	s := &Server{
 		cfg:        cfg,
 		middleware: NewMiddleware(signer, cfg.IsProduction()),
@@ -71,6 +79,7 @@ func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 		batch4:     batch4,
 		batch5:     batch5,
 		batch6:     batch6,
+		v3:         v3,
 		now:        time.Now,
 		mux:        http.NewServeMux(),
 	}
@@ -80,66 +89,9 @@ func NewServer(cfg config.Config, signer *auth.Signer, service *auth.Service,
 
 func (s *Server) Handler() http.Handler { return s.middleware.Wrap(s.mux) }
 
-func (s *Server) routes() {
-	// /health is the frozen contract shape (contracts/endpoints.md row for GET /health);
-	// /healthz is the added process-readiness probe and is not part of that register.
-	s.mux.HandleFunc("GET /health", s.handleHealth)
-	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
-	s.mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
-	s.mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
-	s.mux.HandleFunc("GET /api/v1/auth/me", s.handleMe)
-	// N9 的权威依据展开端点（V3 05 §18 逐字形状 + 本项目 /api/v1 前缀）。
-	// 与 /healthz 同理：**不在** contracts/endpoints.md §五 的冻结登记表里，
-	// 登记表由 FastAPI 生成，加一行 Go 专有端点会打红 test_contract_freeze.py。
-	s.mux.HandleFunc("GET /api/v1/personal-model/insights/{id}/evidence", s.handleInsightEvidence)
-	// N8 批 1 的两个切流域。注册在 batch1 非 nil 时才有，见上面字段注释。
-	if s.batch1 != nil {
-		s.mux.HandleFunc("POST /api/v1/analytics/batch", s.handleAnalyticsBatch)
-		s.mux.HandleFunc("GET /api/v1/discovery/daily", s.handleDiscoveryDaily)
-	}
-	// N8 批 2 的 curriculum 域（两条端点都是 journey_events 的读写，零 LLM）。
-	if s.batch2 != nil {
-		s.mux.HandleFunc("GET /api/v1/curriculum/week", s.handleCurriculumWeek)
-		s.mux.HandleFunc("POST /api/v1/curriculum/{event_id}/read", s.handleCurriculumRead)
-	}
-	// N8 批 3 的 journey 域（GET 会补写剧本、POST 只改一行状态，两条都零 LLM）。
-	if s.batch3 != nil {
-		s.mux.HandleFunc("GET /api/v1/journey/events", s.handleJourneyEvents)
-		s.mux.HandleFunc("POST /api/v1/journey/events/acknowledge",
-			s.handleJourneyAcknowledge)
-	}
-	// N8 批 4 的 onboarding 域（两条都在同一个 /onboarding/first-read path 上，
-	// 只是方法不同；POST 一次写三处，GET 只读一行）。
-	if s.batch4 != nil {
-		s.mux.HandleFunc("POST /api/v1/onboarding/first-read", s.handleFirstReadSubmit)
-		s.mux.HandleFunc("GET /api/v1/onboarding/first-read", s.handleFirstReadRestore)
-	}
-	// N8 批 5 的三条纯读。同域的 POST /mood/checkin、POST /reflections、
-	// POST /reflections/generate **不在**这里注册：它们要 LLM、配额与 AI 同意，
-	// 属后面几家。Ingress 那边只列 mood 的两条 path——**path 匹配不看方法**，
-	// 而 /api/v1/reflections 的 GET 与 POST 共用一个 path，Exact 一刀也会把 POST 搬来
-	// 打在这台没注册它的 mux 上（405），所以下面第三条此刻**从入口不可达**，
-	// 等最后一批把 POST 一起接走时再上 path；键 CLOSEN_CUTOVER_REFLECTIONS 已先声明为 0。
-	if s.batch5 != nil {
-		s.mux.HandleFunc("GET /api/v1/mood/history", s.handleMoodHistory)
-		s.mux.HandleFunc("GET /api/v1/mood/trend", s.handleMoodTrend)
-		s.mux.HandleFunc("GET /api/v1/reflections", s.handleReflectionsList)
-	}
-	// N8 批 6 的 memories 两条纯读。这一批是六个域里唯一**两条 path 一条都上不了刀**的：
-	// `/api/v1/memories` 同 path 还挂 POST、`/api/v1/memories/{memory_id}` 同 path 还挂 DELETE，
-	// 而 path 匹配不看方法（D-10）⇒ Exact 会把那两个方法搬进只注册 GET 的这台 mux（405）。
-	// 所以 CLOSEN_CUTOVER_MEMORIES 与 REFLECTIONS 同一处置：先声明为 0、path 不上，
-	// 这两条今天「已实现、已逐字节回放、从入口不可达」。
-	// 另一处不许「顺手修正」的形状：`{memory_id}` 是单段通配，会吃掉
-	// `GET /api/v1/memories/search`——这与 Python 侧按声明序匹配到 `/memories/{memory_id}`
-	// 同形（夹具 list-path-collision 钉它），不是 Go 的 pattern 写错了。
-	if s.batch6 != nil {
-		s.mux.HandleFunc("GET /api/v1/memories", s.handleMemoriesList)
-		s.mux.HandleFunc("GET /api/v1/memories/{memory_id}", s.handleMemoryDetail)
-	}
-	s.mux.HandleFunc("GET /api/v1/health", s.handleNotFound)
-	s.mux.HandleFunc("/", s.handleNotFound)
-}
+// routes 的注册面已抽成 routeTable（routes.go）：声明表是切流矩阵的唯一真源，
+// 这里只负责「把表消费一遍」——加一条路由改表，不改这个函数。
+func (s *Server) routes() { s.registerRoutes() }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	rc := fromContext(r.Context())

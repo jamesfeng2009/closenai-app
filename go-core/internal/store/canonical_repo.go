@@ -794,6 +794,54 @@ func (t *canonicalTx) ListDerivedSupportForEvidence(ctx context.Context, userID,
 	return out, nil
 }
 
+// ── T2-06：source.deleted 的传播面（登记行只翻状态、不删行）─────────────────
+
+// SourceRecordByPointer 按指针取登记行。`found=false` 与 error 分家（同 SourceRowOwner
+// 的那条口径）：「这条来源从没登记过」是结论，「查库失败」才是错误。
+func (t *canonicalTx) SourceRecordByPointer(ctx context.Context, userID, sourceTable,
+	sourceID string) (domain.SourceRecordState, error) {
+	row, err := t.q.GetSourceRecordByPointer(ctx, canonicaldb.GetSourceRecordByPointerParams{
+		UserID: userID, SourceTable: sourceTable, SourceID: sourceID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.SourceRecordState{}, nil
+	}
+	if err != nil {
+		return domain.SourceRecordState{}, wrap("get source record by pointer", err)
+	}
+	return domain.SourceRecordState{ID: row.ID, Status: row.Status, Found: true}, nil
+}
+
+// MarkSourceRecordDeletedOnce 的单向性在 SQL 谓词里（`status <> 'deleted'`），
+// 不在这里补判断——这里只把「影响行数」读成一个布尔。
+func (t *canonicalTx) MarkSourceRecordDeletedOnce(ctx context.Context, id, userID string) (bool, error) {
+	rows, err := t.q.MarkSourceRecordDeletedOnce(ctx,
+		canonicaldb.MarkSourceRecordDeletedOnceParams{ID: id, UserID: userID})
+	if err != nil {
+		return false, wrap("mark source record deleted", err)
+	}
+	return rows == 1, nil
+}
+
+func (t *canonicalTx) RestoreSourceRecordStatus(ctx context.Context, id, userID,
+	status string) (int64, error) {
+	rows, err := t.q.RestoreSourceRecordStatus(ctx,
+		canonicaldb.RestoreSourceRecordStatusParams{ID: id, UserID: userID, Status: status})
+	if err != nil {
+		return 0, wrap("restore source record status", err)
+	}
+	return rows, nil
+}
+
+func (t *canonicalTx) ListEvidenceIDsForSource(ctx context.Context, userID,
+	sourceRecordID string) ([]string, error) {
+	ids, err := t.q.ListEvidenceForSource(ctx, canonicaldb.ListEvidenceForSourceParams{
+		UserID: userID, SourceRecordID: sourceRecordID})
+	if err != nil {
+		return nil, wrap("list evidence for source", err)
+	}
+	return ids, nil
+}
+
 // ── N7 投递面：事务内写入（18 §2「写权威态 + insert outbox」同一个 BEGIN/COMMIT）──
 
 // EnqueueOutbox 写一行待投递消息。

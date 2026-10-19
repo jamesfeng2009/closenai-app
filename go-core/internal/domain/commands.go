@@ -146,7 +146,36 @@ func validateAITaskRequest(req AITaskRequest) error {
 		return fmt.Errorf("domain: AI 任务 payload 不是合法 JSON：%s → %s",
 			req.Kind.MessageType(), req.Kind.RoutingKey())
 	}
+	// T2-01：体里带了来源指针就当场判形状。`TaskRequestBody` 是唯一的正门，
+	// 但 `Payload` 是字符串——取证驱动器（`tools/r5interop`）与测试都能自己拼一份；
+	// 不在这里判，非法 ref 会一路投出去由对面判成 DLQ，而这条链上没人知道是谁写的体。
+	if ref, occurredAt, ok := sourceRefFromPayload(req.Payload); ok {
+		if err := ValidateSourceRef(ref, occurredAt); err != nil {
+			return fmt.Errorf("%s → %s：%w", req.Kind.MessageType(), req.Kind.RoutingKey(), err)
+		}
+	}
 	return nil
+}
+
+// sourceRefFromPayload 从命令体里取那两个来源键；两者都缺或体不是对象 ⇒ ok=false。
+//
+// 判不出来的形状（非法 JSON、键值不是字符串）一律当「没带」：非法 JSON 由上一条判掉，
+// 而键型别（例如 `sourceRef: 123`）留给对面——`parse_command` 的 `_as_str` 会把它归一成
+// 字符串再按同一个正则判非法，两侧共用一条形状判据，不在这里发明第二种错法。
+func sourceRefFromPayload(payload string) (string, string, bool) {
+	if payload == "" {
+		return "", "", false
+	}
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(payload), &fields); err != nil {
+		return "", "", false
+	}
+	ref, _ := fields["sourceRef"].(string)
+	occurredAt, _ := fields["sourceOccurredAt"].(string)
+	if ref == "" && occurredAt == "" {
+		return "", "", false
+	}
+	return ref, occurredAt, true
 }
 
 func kindStrings() []string {

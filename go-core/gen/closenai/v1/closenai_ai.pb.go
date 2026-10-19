@@ -559,8 +559,19 @@ type TaskRequested struct {
 	Sources       []*SourcePointer `protobuf:"bytes,5,rep,name=sources,proto3" json:"sources,omitempty"`
 	PolicyVersion string           `protobuf:"bytes,6,opt,name=policy_version,json=policyVersion,proto3" json:"policy_version,omitempty"`
 	PromptVersion string           `protobuf:"bytes,7,opt,name=prompt_version,json=promptVersion,proto3" json:"prompt_version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// T2-01：第一段的**来源指针**，形如 `memories:` 加一个 uuid（四张表名与 uuid 的取值面
+	// 由两侧同一张白名单判，见 `backend/ai/mq/contract.py` 与 `go-core/internal/domain`）。
+	// 为什么必须新加而不是复用 `sources`(5)：`sources` 是「已经投影成 source_records 的
+	// 那些行」，而 `ai.observation.requested` 要表达的是**投影之前**的那一行原文——
+	// 第一段没有候选可指，`sourceMessageId` 只能表达「候选入库后请下一段」。
+	// 空串＝这一段没有体外来源（今天 `ai.pattern.requested`／`ai.insight.requested` 两条边
+	// 就是这种形态，来源仍由 `sourceMessageId` 承载）。号位不复用 8–12（15 §6 `:91`）。
+	SourceRef string `protobuf:"bytes,13,opt,name=source_ref,json=sourceRef,proto3" json:"source_ref,omitempty"`
+	// 来源那一行**发生**的时刻（RFC3339，可选）。空串＝没带；带了就必须可解析，
+	// 因为「最近 30 天」这类窗口若拿消费时刻兜底，会把重放的老消息算成新近证据。
+	SourceOccurredAt string `protobuf:"bytes,14,opt,name=source_occurred_at,json=sourceOccurredAt,proto3" json:"source_occurred_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TaskRequested) Reset() {
@@ -638,6 +649,20 @@ func (x *TaskRequested) GetPolicyVersion() string {
 func (x *TaskRequested) GetPromptVersion() string {
 	if x != nil {
 		return x.PromptVersion
+	}
+	return ""
+}
+
+func (x *TaskRequested) GetSourceRef() string {
+	if x != nil {
+		return x.SourceRef
+	}
+	return ""
+}
+
+func (x *TaskRequested) GetSourceOccurredAt() string {
+	if x != nil {
+		return x.SourceOccurredAt
 	}
 	return ""
 }
@@ -1319,7 +1344,7 @@ var File_closenai_ai_proto protoreflect.FileDescriptor
 
 const file_closenai_ai_proto_rawDesc = "" +
 	"\n" +
-	"\x11closenai_ai.proto\x12\vclosenai.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x15closenai_common.proto\"\xa3\x03\n" +
+	"\x11closenai_ai.proto\x12\vclosenai.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x15closenai_common.proto\"\xf0\x03\n" +
 	"\rTaskRequested\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x122\n" +
 	"\ttask_type\x18\x02 \x01(\x0e2\x15.closenai.v1.TaskTypeR\btaskType\x12*\n" +
@@ -1327,7 +1352,10 @@ const file_closenai_ai_proto_rawDesc = "" +
 	"\fevidence_ids\x18\x04 \x03(\tR\vevidenceIds\x124\n" +
 	"\asources\x18\x05 \x03(\v2\x1a.closenai.v1.SourcePointerR\asources\x12%\n" +
 	"\x0epolicy_version\x18\x06 \x01(\tR\rpolicyVersion\x12%\n" +
-	"\x0eprompt_version\x18\a \x01(\tR\rpromptVersionJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"\x0eprompt_version\x18\a \x01(\tR\rpromptVersion\x12\x1d\n" +
+	"\n" +
+	"source_ref\x18\r \x01(\tR\tsourceRef\x12,\n" +
+	"\x12source_occurred_at\x18\x0e \x01(\tR\x10sourceOccurredAtJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
 	"J\x04\b\n" +
 	"\x10\vJ\x04\b\v\x10\fJ\x04\b\f\x10\rR\auser_idR\x11personal_model_idR\frequested_atR\x0ecorrelation_idR\fcausation_id\"\xa7\a\n" +
 	"\tCandidate\x12%\n" +

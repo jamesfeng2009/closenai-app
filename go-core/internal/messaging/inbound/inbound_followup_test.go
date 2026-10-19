@@ -121,7 +121,9 @@ func TestPatternCandidateEnqueuesInsightTask(t *testing.T) {
 		t.Errorf("命令 id=%q，期望 %q ⇒ 派生规则变了（重试会换新 id＝幂等键失效）",
 			got.OperationID, expectedInsightIDForCnd0001)
 	}
-	wantBody := `{"sourceKind":"pattern","sourceMessageId":"cnd-0001","taskType":"TASK_TYPE_INSIGHT_DRAFT"}`
+	// 两个来源键是空串而不是缺键：链表这两跳的来源永远是刚入库的候选（sourceMessageId），
+	// 没有体外原始行可指；写成缺键会让「体的形状」闸的键集变成两个，谁都不敢判。
+	wantBody := `{"sourceKind":"pattern","sourceMessageId":"cnd-0001","sourceOccurredAt":"","sourceRef":"","taskType":"TASK_TYPE_INSIGHT_DRAFT"}`
 	if got.Payload != wantBody {
 		t.Errorf("命令体=%q，期望 %q", got.Payload, wantBody)
 	}
@@ -150,7 +152,7 @@ func TestFactCandidateEnqueuesPatternTask(t *testing.T) {
 	if tasks[0].OperationID != expectedPatternIDForCnd0002 {
 		t.Errorf("命令 id=%q，期望 %q", tasks[0].OperationID, expectedPatternIDForCnd0002)
 	}
-	if want := `{"sourceKind":"fact","sourceMessageId":"cnd-0002","taskType":"TASK_TYPE_PATTERN_DETECT"}`; tasks[0].Payload != want {
+	if want := `{"sourceKind":"fact","sourceMessageId":"cnd-0002","sourceOccurredAt":"","sourceRef":"","taskType":"TASK_TYPE_PATTERN_DETECT"}`; tasks[0].Payload != want {
 		t.Errorf("命令体=%q，期望 %q", tasks[0].Payload, want)
 	}
 	if admits := dm.admitCalls(); admits != 1 {

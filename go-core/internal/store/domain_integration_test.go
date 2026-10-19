@@ -87,6 +87,34 @@ func serviceFor(pool *pgxpool.Pool) *domain.Service {
 	return domain.NewService(NewCanonical(pool), domain.DefaultPolicy())
 }
 
+// plantMemory 落一行 legacy `memories` 素材并返回它的主键。
+//
+// T2-03 起它是真库用例的**必需**夹具：`AdmitEvidence` 会按提案里的
+// (source_table, source_id) 回查归属（internal/store/source_owner.go），
+// 拿 `newID()` 那种随手编的 id 去提案，今天会变成「行不存在」而整条被拒。
+// 列取 alembic 41cb43e22901:48-67 的 NOT NULL 面（`deleted` 有库级默认，
+// 见 9e1b3d5f7a2c:27；memories 没有任何外键，所以不必先种 users 行）。
+// 取值面照着 models/memory.py:20-38 的注释选：category=factual、source=self。
+func plantMemory(t *testing.T, pool *pgxpool.Pool, userID string) string {
+	t.Helper()
+	ctx := context.Background()
+	id := newID()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO memories (id, user_id, category, content, status,
+		                      conviction_score, source, drift_score)
+		VALUES ($1, $2, 'factual', $3, 'current', 0.8, 'self', 0.0)`,
+		id, userID, "user wrote: stood up three times during the night."); err != nil {
+		t.Fatalf("plant memories row: %v", err)
+	}
+	// memories 不在 canonicalTables 里（那是 N2 建的表清单），按主键单删。
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM memories WHERE id = $1`, id); err != nil {
+			t.Errorf("cleanup memories %s: %v", id, err)
+		}
+	})
+	return id
+}
+
 func baseCandidate(p planted, kind domain.Kind) domain.Candidate {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	c := domain.Candidate{

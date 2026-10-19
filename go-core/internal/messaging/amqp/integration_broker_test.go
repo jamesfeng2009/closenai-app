@@ -244,6 +244,11 @@ func TestUnboundEventRouteWouldBeAcknowledgedAndLost(t *testing.T) {
 
 	ch := channel(t, conn)
 	declareOn(t, ch)
+	// 先归零再断言：同包前一条用例会把消息留在 retry.30s.* 里等 TTL（30 秒），
+	// 不归零的话这条只在单跑时成立——那是测排序，不是测「被拒的发布不留痕迹」。
+	for _, name := range QueueNames() {
+		purge(t, ch, name)
+	}
 	pub := openPublisher(t, ch, 5*time.Second)
 
 	msg := commandEnvelope()

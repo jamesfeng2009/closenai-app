@@ -97,6 +97,18 @@ func (s *Session) Publisher(confirmTimeout time.Duration) (outbox.Publisher, err
 	return pub, nil
 }
 
+// Channel 回这条会话里**已经在 confirm 模式**的那条通道（T2-05 的巡检工具用）。
+//
+// 为什么导出这一格而不是让工具自己「Dial 之外再开一条通道」：Dial 上面那三段
+// （带超时的拨号 → 打开通道 → 进 confirm 模式）是一个整体，工具里再拼一遍一定会漏掉
+// 第三段，而漏掉它的表现最难查——`PublishWithDeferredConfirm` 照样返回成功，
+// 只是那条确认永远等不到（14 §11 踩过）。
+//
+// 它给的是同一条通道，所以调用方**不许**再 `Confirm(false)`（重复进 confirm 模式是
+// amqp091 的非法状态），也不许拿去 `Consume`：巡检工具用 `basic.get` 读、用同一通道回投，
+// worker 面的形状不受影响。
+func (s *Session) Channel() *amqp091.Channel { return s.ch }
+
 // Alive 判连接是否还在。broker 挂了以后 amqp091 不会自动重连（v1.10.0 没有自动恢复），
 // 所以进程面每轮认领前问一次，死了就重拨——这是「worker 必须耐受重启」（17 §2 末句）的实现。
 func (s *Session) Alive() bool { return s.conn != nil && !s.conn.IsClosed() }

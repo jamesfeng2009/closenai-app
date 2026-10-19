@@ -740,6 +740,41 @@ func (q *Queries) GetSourceRecord(ctx context.Context, arg GetSourceRecordParams
 	return i, err
 }
 
+const getSourceRecordByPointer = `-- name: GetSourceRecordByPointer :one
+SELECT id, user_id, source_type, source_table, source_id, occurred_at, status,
+       revision_of, created_at, updated_at
+FROM source_records
+WHERE user_id = $1 AND source_table = $2 AND source_id = $3
+`
+
+type GetSourceRecordByPointerParams struct {
+	UserID      string
+	SourceTable string
+	SourceID    string
+}
+
+// ── T2-06：source.deleted 传播（B-08 定案：登记行只翻状态、不删行）────────────
+// 按指针回查登记行：`source.deleted` 事件带的是 (user_id, source_table, source_id)，
+// 不是登记行 id。归属已在解码面判完（体的 user_id 必须等于头），所以这里按
+// (user_id, source_table, source_id) 取——命中 UNIQUE (user_id, source_table, source_id)。
+func (q *Queries) GetSourceRecordByPointer(ctx context.Context, arg GetSourceRecordByPointerParams) (SourceRecord, error) {
+	row := q.db.QueryRow(ctx, getSourceRecordByPointer, arg.UserID, arg.SourceTable, arg.SourceID)
+	var i SourceRecord
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.SourceType,
+		&i.SourceTable,
+		&i.SourceID,
+		&i.OccurredAt,
+		&i.Status,
+		&i.RevisionOf,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserNotificationPrefs = `-- name: GetUserNotificationPrefs :one
 SELECT id, timezone, push_enabled, push_frequency, ai_consent, tier,
        daily_quota_used, created_at
@@ -1958,6 +1993,40 @@ func (q *Queries) ListEvidenceForPattern(ctx context.Context, arg ListEvidenceFo
 	return items, nil
 }
 
+const listEvidenceForSource = `-- name: ListEvidenceForSource :many
+SELECT id
+FROM evidence
+WHERE user_id = $1 AND source_record_id = $2
+ORDER BY created_at, id
+`
+
+type ListEvidenceForSourceParams struct {
+	UserID         string
+	SourceRecordID string
+}
+
+// 一条登记行支撑的 evidence id（传播面的第二跳：逐条走 PropagateEvidenceInvalidation）。
+// created_at 排序是为了让同批多条的失效顺序可复现；id 兜底保证全序。
+func (q *Queries) ListEvidenceForSource(ctx context.Context, arg ListEvidenceForSourceParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listEvidenceForSource, arg.UserID, arg.SourceRecordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGoals = `-- name: ListGoals :many
 SELECT id, title, description, status, started_at, target_at, completed_at,
        created_at, updated_at
@@ -2003,6 +2072,85 @@ func (q *Queries) ListGoals(ctx context.Context, arg ListGoalsParams) ([]ListGoa
 			&i.CompletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listInsightsForBrowsing = `-- name: ListInsightsForBrowsing :many
+SELECT i.id, i.statement, i.claim_type, i.status, i.confidence, i.published_at,
+       COUNT(*)::bigint AS evidence_count
+FROM insights i
+	JOIN insight_evidence ie ON ie.insight_id = i.id AND ie.user_id = i.user_id
+	JOIN evidence e ON e.id = ie.evidence_id
+	JOIN source_records s ON s.id = e.source_record_id
+WHERE i.user_id = $1 AND i.status = ANY($2::varchar[])
+  AND i.published_at IS NOT NULL
+  AND s.status <> 'deleted'
+  AND ($3::timestamptz IS NULL OR i.published_at < $3
+       OR (i.published_at = $3 AND i.id < $4))
+GROUP BY i.id, i.statement, i.claim_type, i.status, i.confidence, i.published_at
+ORDER BY i.published_at DESC, i.id DESC
+LIMIT ($5::int)
+`
+
+type ListInsightsForBrowsingParams struct {
+	UserID   string
+	Statuses []string
+	AfterAt  pgtype.Timestamptz
+	AfterID  string
+	RowLimit int32
+}
+
+type ListInsightsForBrowsingRow struct {
+	ID            string
+	Statement     string
+	ClaimType     string
+	Status        string
+	Confidence    pgtype.Numeric
+	PublishedAt   pgtype.Timestamptz
+	EvidenceCount int64
+}
+
+// ── T3-01（`GET /internal/v3/insights`）：洞察列表的一次聚合读 ────────────────
+// 判据 G-05「无证据不上线」写在 SQL 层而不是应用层：下面那条**内连**
+// insight_evidence→evidence→source_records 带 `s.status <> 'deleted'`，所以
+// 「从来没有依据」与「依据全被撤回」的洞察在这里同形（都不出现）——T2-06 的传播链
+// 要的正是后一种：撤回生效后那条洞察不该还挂在列表里冒充「有依据」。
+// evidence_count 数的是**活依据**，与详情面 `ListLiveEvidenceForInsight`（:795）用
+// 逐字同一条谓词；不在应用层按条数一遍，那是工单点名要避开的 N+1。
+// 分页用 keyset（`(published_at, id)` 严格在游标之后）而不是 OFFSET：两次翻页之间
+// 若有新洞察发布，OFFSET 会让同一条洞察被跳过或重复，而用户据此判「系统漏了我的东西」。
+// `published_at IS NOT NULL`＝从未上线的行不参与这个排序，也不该出现在列表里。
+func (q *Queries) ListInsightsForBrowsing(ctx context.Context, arg ListInsightsForBrowsingParams) ([]ListInsightsForBrowsingRow, error) {
+	rows, err := q.db.Query(ctx, listInsightsForBrowsing,
+		arg.UserID,
+		arg.Statuses,
+		arg.AfterAt,
+		arg.AfterID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListInsightsForBrowsingRow{}
+	for rows.Next() {
+		var i ListInsightsForBrowsingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Statement,
+			&i.ClaimType,
+			&i.Status,
+			&i.Confidence,
+			&i.PublishedAt,
+			&i.EvidenceCount,
 		); err != nil {
 			return nil, err
 		}
@@ -2931,6 +3079,27 @@ func (q *Queries) MarkSourceRecordDeleted(ctx context.Context, arg MarkSourceRec
 	return err
 }
 
+const markSourceRecordDeletedOnce = `-- name: MarkSourceRecordDeletedOnce :execrows
+UPDATE source_records
+SET status = 'deleted', updated_at = now()
+WHERE id = $1 AND user_id = $2 AND status <> 'deleted'
+`
+
+type MarkSourceRecordDeletedOnceParams struct {
+	ID     string
+	UserID string
+}
+
+// 单向翻转：只有当前不是 deleted 才被改写。回 0 行＝这条删除已经翻过一次，
+// 调用方据此**不再传播**（幂等口径由工作单 T2-06 §怎么做.4② 给出，不靠读状态再猜）。
+func (q *Queries) MarkSourceRecordDeletedOnce(ctx context.Context, arg MarkSourceRecordDeletedOnceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markSourceRecordDeletedOnce, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const reactivatePattern = `-- name: ReactivatePattern :one
 UPDATE patterns p
 SET last_supported_at = now(),
@@ -3063,6 +3232,29 @@ func (q *Queries) RecordInboxFailure(ctx context.Context, arg RecordInboxFailure
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const restoreSourceRecordStatus = `-- name: RestoreSourceRecordStatus :execrows
+UPDATE source_records
+SET status = $3, updated_at = now()
+WHERE id = $1 AND user_id = $2 AND status = 'deleted'
+`
+
+type RestoreSourceRecordStatusParams struct {
+	ID     string
+	UserID string
+	Status string
+}
+
+// 只服务「翻转成功但传播中途失败」那一格的恢复：把状态收回，让这条投递回到还没翻过。
+// 谓词带 status='deleted'——不许把一条本来就 deleted 的行恢复成 active（那等于替
+// 另一次删除撤销结论）。
+func (q *Queries) RestoreSourceRecordStatus(ctx context.Context, arg RestoreSourceRecordStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreSourceRecordStatus, arg.ID, arg.UserID, arg.Status)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setProactiveVerdict = `-- name: SetProactiveVerdict :one

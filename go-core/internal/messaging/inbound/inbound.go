@@ -242,6 +242,8 @@ type Domain interface {
 	Admit(ctx context.Context, c domain.Candidate) (domain.Result, error)
 	AdmitEvidence(ctx context.Context, c domain.EvidenceCandidate) (domain.EvidenceResult, error)
 	AdmitProactive(ctx context.Context, c domain.ProactiveCandidate) (domain.ProactiveResult, error)
+	// InvalidateSource 是事件面（T2-06）唯一那扇门：来源行被删 ⇒ 翻登记行 + 逐条传播。
+	InvalidateSource(ctx context.Context, p domain.SourcePointer) (domain.SourceInvalidation, error)
 	// RequestAITask 必须拿 **inbox 这一笔事务的 Store**：命令与「这条消息我消费过了」
 	// 同一条 COMMIT 才是 outbox 模式（18 §2）。自开事务会变成「候选收下了、命令丢了」
 	// 那种补不回来的分叉——与 `commands.go:81-89` 拒不自开事务同一条理由。
@@ -286,20 +288,52 @@ type Deps struct {
 	Log    func(format string, args ...any)
 }
 
-// Runner 消费 `go.candidate.accept` 直到 ctx 取消。可并发读 Stats；写只在 Run/Handle 里。
+// Runner 消费一条 purpose queue 直到 ctx 取消。可并发读 Stats；写只在 Run/Handle 里。
+//
+// 队列、消费者名与解码器是**实例字段**而不是包常量：T2-06 在同一个包里加了第二条入站面
+// （`go.source.deleted`），而这两条面必须各有各的 `inbox_messages.consumer`——
+// 幂等键是 `(message_id, consumer)`，共用一个串就是让候选面的「吃过了」替事件面宣告
+// 「我也吃过了」，那条删除永远不会被传播。包常量仍留着，因为契约闸与装配处都按名字读它们。
 type Runner struct {
-	deps    Deps
+	deps     Deps
+	queue    string
+	consumer string
+	decode   Decoder
+	// chained＝这条面在候选入库后要请下一段命令（D-G14-②）。事件面没有这一段：
+	// 删除不产出候选，硬走一遍只会给每条删除都记一次 `FollowUpSkipped`，
+	// 把「候选链为什么没推」这个指标的读法弄脏。
+	chained bool
 	mu      sync.Mutex
 	stat    Stats
 	session Session
 }
 
+// Decoder 把一条交付解成一次领域调用（`Decode` 与 `DecodeEvent` 的公共形状）。
+type Decoder func(d Delivery, maxBodyBytes int) (Call, *domain.PermanentRejection)
+
 func New(deps Deps) (*Runner, error) {
+	return newRunner(deps, Queue, Consumer, Decode, true)
+}
+
+// NewSource 起事件面（T2-06）那条消费者：认 `go.source.deleted`、幂等名 `go.core.source`。
+//
+// 它与 `New` 共用 kill switch（`CLOSEN_CANDIDATE_WORKER`）与其余全部参数默认值，
+// 本批**不新增 env 键**——理由与 D-R5-9 同一条：一个连不上 broker 的 worker 需要的是一行
+// 可诊断日志，而不是第二个可以各自拧的旋钮。代价说破：这两个消费者不能各自灰度。
+func NewSource(deps Deps) (*Runner, error) {
+	return newRunner(deps, SourceDeletedQueue, SourceDeletedConsumer, DecodeEvent, false)
+}
+
+func newRunner(deps Deps, queue, consumer string, decode Decoder, chained bool) (*Runner, error) {
 	if deps.Dial == nil {
 		return nil, errors.New("inbound: Dial 为 nil")
 	}
 	if deps.Domain == nil {
 		return nil, errors.New("inbound: Domain 为 nil")
+	}
+	if queue == "" || consumer == "" || decode == nil {
+		return nil, fmt.Errorf("inbound: 装配缺件 queue=%q consumer=%q decode=%v",
+			queue, consumer, decode != nil)
 	}
 	if err := deps.Switch.Validate(); err != nil {
 		return nil, err
@@ -307,7 +341,7 @@ func New(deps Deps) (*Runner, error) {
 	if deps.Log == nil {
 		deps.Log = func(string, ...any) {}
 	}
-	r := &Runner{deps: deps}
+	r := &Runner{deps: deps, queue: queue, consumer: consumer, decode: decode, chained: chained}
 	// 计数面里的 map 必须在这里建好：`Handle` 直接往里写，nil map 会让**第一条毒消息**
 	// 把这个 worker 打 panic（而毒消息恰恰是它唯一会走的那条分支，正常消息测不出这个）。
 	r.stat.RejectsByReason = map[string]int{}
@@ -393,7 +427,7 @@ func (r *Runner) currentSession(ctx context.Context) (<-chan Delivery, error) {
 	if err != nil {
 		return nil, err
 	}
-	return sess.Consume(ctx, Queue, r.deps.Switch.Prefetch)
+	return sess.Consume(ctx, r.queue, r.deps.Switch.Prefetch)
 }
 
 func (r *Runner) sessionFor(ctx context.Context) (Session, error) {
@@ -456,7 +490,7 @@ func (r *Runner) Handle(ctx context.Context, d Delivery) (domain.ConsumeResult, 
 	// 批 T-B 消费侧恢复：候选携带的是触发那条命令的请求 trace，
 	// 注回 ctx 后 Admit 事务里 emit 的 follow-up outbox 行继续同链（G-B2 断言这一跳）。
 	ctx = domain.WithTraceID(ctx, d.HeaderString(HeaderTraceID))
-	msg, preErr := envelope(d)
+	msg, preErr := r.envelope(d)
 	if preErr != nil {
 		// 连幂等键都拿不到 ⇒ inbox 那条唯一键写不进去，留痕面根本不存在（18 §7）。
 		// 这一条只能 reject（requeue=false）＋把 reason 打进指标面，而不是让它无限原地转。
@@ -478,7 +512,7 @@ func (r *Runner) Handle(ctx context.Context, d Delivery) (domain.ConsumeResult, 
 		// 才会走 delivery.go:341-362 那条「主事务回滚＋事务外补 failed 留痕」的分道。
 		// 三个领域入口仍各自开事务（这件事的连带风险登记在
 		// DefaultPrefetch 那段与 tasks.md 的 R5b）；`st` 只有下面那条命令用得上。
-		call, decErr := Decode(d, r.deps.Switch.MaxBodyBytes)
+		call, decErr := r.decode(d, r.deps.Switch.MaxBodyBytes)
 		if decErr != nil {
 			// 解引用**不是**风格问题：`classifyFailure` 用 `errors.As(cause, &PermanentRejection{})`
 			// 认这条路（delivery.go:344-345），而指针 `*PermanentRejection` 对值类型不可赋值。
@@ -556,6 +590,11 @@ func admittedKind(routingKey string) (domain.Kind, bool) {
 // 这一格真正收口要等 R5b 把领域入口改成复用调用方 Store；在那之前这条链的
 // 判据面只能证到「命令与 inbox 同事务」。
 func (r *Runner) requestFollowUp(ctx context.Context, st domain.Store, d Delivery) error {
+	if !r.chained {
+		// 事件面（T2-06）没有「下一段」：删除不产出候选。这里**不记** FollowUpSkipped，
+		// 因为那个计数格的读法是「候选链为什么没往前推」，把每条删除都记进去就把它读脏了。
+		return nil
+	}
 	admitted, ok := admittedKind(d.RoutingKey)
 	if !ok {
 		r.count(func(s *Stats) { s.FollowUpSkipped++ })
@@ -566,7 +605,10 @@ func (r *Runner) requestFollowUp(ctx context.Context, st domain.Store, d Deliver
 		r.count(func(s *Stats) { s.FollowUpSkipped++ })
 		return nil
 	}
-	body, err := domain.TaskRequestBody(next, admitted, d.MessageID)
+	// 这两个来源键恒空：链表这两条边的来源是**刚入库的候选**，由 `sourceMessageId` 承载；
+	// `sourceRef` 是留给第一段（`ai.observation.requested`，指向一条 memories 原文）的
+	// （T2-01）。在这里塞候选 id 会让对面按 `invalid_source_ref` 永久拒绝。
+	body, err := domain.TaskRequestBody(next, admitted, d.MessageID, "", "")
 	if err != nil {
 		r.count(func(s *Stats) { s.FollowUpErrors++ })
 		return err
@@ -590,7 +632,7 @@ func (r *Runner) requestFollowUp(ctx context.Context, st domain.Store, d Deliver
 // envelope 抽出幂等三件套。只有 message_id 缺失是在这里判的——它是唯一键的一半，
 // 缺了就既无法认领也无法留痕；其余契约判据（键↔类型、content_type、字节上限、user_id、
 // schema_version）全在 `Decode` 里，因为那些要能在 inbox 上留下痕迹。
-func envelope(d Delivery) (domain.InboundMessage, *domain.PermanentRejection) {
+func (r *Runner) envelope(d Delivery) (domain.InboundMessage, *domain.PermanentRejection) {
 	id := strings.TrimSpace(d.MessageID)
 	if id == "" {
 		return domain.InboundMessage{}, &domain.PermanentRejection{
@@ -599,7 +641,7 @@ func envelope(d Delivery) (domain.InboundMessage, *domain.PermanentRejection) {
 		}
 	}
 	return domain.InboundMessage{MessageID: id, MessageType: d.MessageType,
-		Consumer: Consumer, CorrelationID: d.CorrelationID}, nil
+		Consumer: r.consumer, CorrelationID: d.CorrelationID}, nil
 }
 
 // logOutcome 只在**真有事**时打日志：重复消息在灰度期是常态（D-R5-6 明说同一命令会跑两次

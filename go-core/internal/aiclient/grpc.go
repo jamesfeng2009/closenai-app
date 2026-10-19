@@ -21,9 +21,10 @@ import (
 //	                services/push/service.py:128/215/270/312 全部 timeout=10。
 //	Safety 800ms  ← safety_service.py:212 `CHECK_TIMEOUT = 0.8`，**逐字同一个预算**。
 //	                换进程不许把安全判定的延迟预算放大，否则「超时不得等于放行」会变成「慢到放弃判定」。
-//	Stream 60s    ← vercel.json:5 `"maxDuration": 60`：现役运行时对单次函数请求的硬上限。
-//	                Python 侧 provider 调用自己的读超时是 600s（openai._constants.DEFAULT_TIMEOUT
-//	                read=600），但那条流在 Vercel 上活不过 60s，所以 60s 才是真实上限。
+//	Stream 60s    ← 出处是 Vercel 时代口径（旧 vercel.json:5 `"maxDuration": 60`＝单次函数请求
+//	                硬上限；Python 侧 provider 读超时 600s 在那条运行时里活不过 60s）。
+//	                2026-10-18 起 vercel.json 退役、形态改 VPS 常驻 ⇒ 60s 不再是外部硬上限，
+//	                这里**沿用原值不重标定**（改它需要新的现网延迟分布做依据，归运维标定）。
 //	Retries 2     ← openai SDK 的 DEFAULT_MAX_RETRIES=2（openai._constants），初始退避 0.5s、
 //	                上限 8s 也取自同处的 INITIAL_RETRY_DELAY / MAX_RETRY_DELAY。
 //	                为什么照抄而不是自己定：今天一次 provider 失败在 Python 进程内**已经重试过 2 次**，

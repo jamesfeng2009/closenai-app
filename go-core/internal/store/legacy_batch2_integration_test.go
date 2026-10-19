@@ -44,14 +44,21 @@ func batch2SeedUser(t *testing.T, pool *pgxpool.Pool, id, timezone string,
 	}
 }
 
+// batch2SeedEvent 写一行 journey_events。`status` 显式给值而不是靠 server_default：
+// T5-03 的 `uq_journey_events_user_kind_day` 是**部分**唯一索引（排除
+// `status='skipped'`），同一个 (user, kind, day_no) 只许一条非 skipped 行。
+// 要造「同槽多行」这个形状（TestCurriculumCardsOrderAndLimit 钉的正是它），唯一合法的
+// 写法就是迁移在现网数据上落下的那个形状——最早一条留 pending、其余置 skipped、不删行；
+// 两侧读面都不过滤 status（`selectCurriculumWeek` 与 Python 的 `list_kind_between`），
+// 所以这些行照样全部进响应。
 func batch2SeedEvent(t *testing.T, pool *pgxpool.Pool, id, userID, kind, scheduledAt string,
-	dayNo int, payload, refs *string) {
+	dayNo int, payload, refs *string, status string) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(), `
 		INSERT INTO journey_events (id, user_id, event_kind, day_no, scheduled_at,
-			payload, memory_refs)
-		VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7)`,
-		id, userID, kind, dayNo, scheduledAt, payload, refs)
+			payload, memory_refs, status)
+		VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7, $8)`,
+		id, userID, kind, dayNo, scheduledAt, payload, refs, status)
 	if err != nil {
 		t.Fatalf("seed event %s: %v", id, err)
 	}
@@ -130,19 +137,21 @@ func TestCurriculumCardsWindowIsHalfOpen(t *testing.T) {
 	end := start.AddDate(0, 0, 7)
 
 	// 左端点**含**、右端点**不含**；紧挨两端各插一行，偏移只差 1 微秒。
+	// `w-end` 落在右端点外那天，day_no 给 7（下周第一格）而不是复用法周的 0——
+	// T5-03 的部分唯一索引让同一格的第二行插不进来（23505）。
 	batch2SeedEvent(t, pool, batch2Prefix+"w-start", user, "curriculum",
-		batch2Monday, 0, text(`{"title":"起"}`), nil)
+		batch2Monday, 0, text(`{"title":"起"}`), nil, "pending")
 	batch2SeedEvent(t, pool, batch2Prefix+"w-before", user, "curriculum",
-		"2026-10-11T23:59:59.999999+00:00", 6, text(`{"title":"窗口前"}`), nil)
+		"2026-10-11T23:59:59.999999+00:00", 6, text(`{"title":"窗口前"}`), nil, "pending")
 	batch2SeedEvent(t, pool, batch2Prefix+"w-end", user, "curriculum",
-		"2026-10-19T00:00:00+00:00", 0, text(`{"title":"止"}`), nil)
+		"2026-10-19T00:00:00+00:00", 7, text(`{"title":"止"}`), nil, "pending")
 	batch2SeedEvent(t, pool, batch2Prefix+"w-inside", user, "curriculum",
-		"2026-10-14T08:00:00+00:00", 2, text(`{"title":"中"}`), nil)
+		"2026-10-14T08:00:00+00:00", 2, text(`{"title":"中"}`), nil, "pending")
 	// 别的 kind 与别人的行都必须被过滤掉。
 	batch2SeedEvent(t, pool, batch2Prefix+"w-other-kind", user, "journey",
-		"2026-10-14T09:00:00+00:00", 3, text(`{"title":"别的剧本"}`), nil)
+		"2026-10-14T09:00:00+00:00", 3, text(`{"title":"别的剧本"}`), nil, "pending")
 	batch2SeedEvent(t, pool, batch2Prefix+"w-other-user", batch2Prefix+"off", "curriculum",
-		"2026-10-14T10:00:00+00:00", 4, text(`{"title":"别人的卡"}`), nil)
+		"2026-10-14T10:00:00+00:00", 4, text(`{"title":"别人的卡"}`), nil, "pending")
 	// 别的用户的行：user_id 谓词必须在查询里（这一条与上面不同向）。
 	// 命中它会让 A 看到 B 的主题卡；而**事件表**那条恰好相反，见 TestJourneyEventOwner。
 
@@ -179,10 +188,19 @@ func TestCurriculumCardsOrderAndLimit(t *testing.T) {
 	// 51 条同槽（day_no 恒 0）行，scheduled_at 每小时递增一条：
 	// 正序 + LIMIT 50 ⇒ 前 50 条，最后一条被截掉。截断端点错一条，
 	// 「后写覆盖先写」留下的就是另一张卡，而 domain 层的比较看不出任何异常。
+	//
+	// 同槽 51 行在 T5-03 之后只有这一个合法形状：第 0 条 pending、其余 skipped
+	// （= 迁移的去重 UPDATE 在现网数据上落下的形状，多余行置 skipped 但**不删行**）。
+	// 读面没有 status 谓词（`selectCurriculumWeek` 与 Python 的 `list_kind_between`
+	// 两侧同口径），所以 51 行照样全部命中窗口，本用例钉的端点与覆盖都不打折。
 	for i := 0; i < 51; i++ {
+		status := "skipped"
+		if i == 0 {
+			status = "pending"
+		}
 		batch2SeedEvent(t, pool, fmt.Sprintf("%srow-%02d", batch2Prefix, i), user, "curriculum",
 			start.Add(time.Duration(i)*time.Hour).Format(time.RFC3339),
-			0, text(fmt.Sprintf(`{"title":"第%d条"}`, i)), nil)
+			0, text(fmt.Sprintf(`{"title":"第%d条"}`, i)), nil, status)
 	}
 
 	cards, err := pg.CurriculumCards(ctx, user, domain.CurriculumKind, start, end,
@@ -216,7 +234,7 @@ func TestJourneyEventOwnerDoesNotFilterUser(t *testing.T) {
 	batch2SeedUser(t, pool, owner, "UTC", true, "active")
 	payload := `{"title":"T","read_at":null}`
 	batch2SeedEvent(t, pool, batch2Prefix+"ev", owner, "curriculum",
-		"2026-10-13T00:00:00+00:00", 1, text(payload), text(`["m1"]`))
+		"2026-10-13T00:00:00+00:00", 1, text(payload), text(`["m1"]`), "pending")
 
 	ev, err := pg.JourneyEventOwner(ctx, batch2Prefix+"ev")
 	if err != nil {
@@ -245,7 +263,8 @@ func TestSetJourneyPayloadLeavesOtherColumns(t *testing.T) {
 	batch2SeedUser(t, pool, user, "UTC", true, "active")
 	refs := `[{"memory_id":"m1"}]`
 	batch2SeedEvent(t, pool, batch2Prefix+"write", user, "curriculum",
-		"2026-10-13T00:00:00+00:00", 1, text(`{"title":"T","read_at":null}`), text(refs))
+		"2026-10-13T00:00:00+00:00", 1, text(`{"title":"T","read_at":null}`), text(refs),
+		"pending")
 
 	// mark_read 写回的是**整份 payload 文本**，memory_refs 一个字都不许动
 	// （Python 的 set_payload 只带 payload 参数时同样不碰 refs 列）。

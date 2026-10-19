@@ -98,6 +98,26 @@ const (
 	KindEvent     = "event"
 )
 
+// EventRoutes 是**已经绑了消费者**的事件面（T2-06 开的第一格）。
+//
+// 为什么 `source.deleted` 走 `closenai.events` 而不是新开一个 exchange：这条消息说的就是
+// 「权威侧的一行登记变了什么」，与十条领域事件同一路；区别只在**生产者是谁**——十条由 Go
+// 自己从 outbox 发，这一条由 Python 在删除提交后发（Go 不写 legacy 表，看不见那次删除）。
+//
+// 为什么队列名带 `go.` 前缀：队列名标归属是这张表既有的命名法
+// （`go.candidate.accept`／`ai.observation.extract`），而消费侧的 `inbox_messages.consumer`
+// 与队列名同源（`go.core.source`），排查时一条串能同时指回两边。
+//
+// ⚠️ 这一格与 §四那十条**不是一回事**：那十条仍没有消费者（`EventBindingGap` 那句话没作废），
+// 本表只绑了 `source.deleted` 这一条它自己的键。闸在 topology_test.go：
+// 十条不许出现在任何队列绑定里，而本表的键必须全部有认领者。
+var EventRoutes = []Route{
+	{RoutingKey: "source.deleted", Exchange: ExchangeEvents, Queue: "go.source.deleted",
+		Kind: KindEvent,
+		Source: "键与队列都是本地补齐（T2-06／B-08）：V3 14 §3 没有这一格，" +
+			"它要回答的是「来源行被删之后已入账证据怎么办」"},
+}
+
 // Declarer 是声明拓扑需要的通道面。`*amqp091.Channel` 逐字满足这三个签名
 // （channel.go:807/953/1304 实测），所以生产路径不需要适配器；
 // 单测用一个记录调用序列的 fake，于是「声明了什么」这件事在无 broker 时也可判。
@@ -164,15 +184,18 @@ func Declare(ch Declarer) error {
 // allRoutes 是未去重的全表：声明队列时用 routes()（同名队列只声明一次），
 // 建绑定时必须用它（一个队列可以有多个绑定键）。
 func allRoutes() []Route {
-	return append(append([]Route{}, CommandRoutes...), CandidateRoutes...)
+	out := append([]Route{}, CommandRoutes...)
+	out = append(out, CandidateRoutes...)
+	return append(out, EventRoutes...)
 }
 
-// routes 把命令面与回投面合成一张待声明表，并去重同名队列
+// routes 把命令面、回投面与已绑事件面合成一张待声明表，并去重同名队列
 // （`go.candidate.accept` 有三条绑定，但队列只声明一次）。
 func routes() []Route {
 	seen := map[string]bool{}
-	out := make([]Route, 0, len(CommandRoutes)+len(CandidateRoutes))
-	for _, r := range append(append([]Route{}, CommandRoutes...), CandidateRoutes...) {
+	all := allRoutes()
+	out := make([]Route, 0, len(all))
+	for _, r := range all {
 		if seen[r.Queue] {
 			continue
 		}
@@ -303,7 +326,7 @@ func Describe() string {
 
 	b.WriteString("\n## 二、路由与 purpose 队列（队列名 14 §3 逐字）\n\n")
 	b.WriteString("| exchange | routing key | purpose 队列 | 面 | 命名出处 |\n|---|---|---|---|---|\n")
-	for _, r := range append(append([]Route{}, CommandRoutes...), CandidateRoutes...) {
+	for _, r := range allRoutes() {
 		b.WriteString(fmt.Sprintf("| `%s` | `%s` | `%s` | %s | %s |\n",
 			r.Exchange, r.RoutingKey, r.Queue, r.Kind, r.Source))
 	}
@@ -331,6 +354,9 @@ func Describe() string {
 		"（R5 的活）；发布侧只提供队列，不发明第二套计数。\n")
 
 	b.WriteString("\n## 四、事件面（domain 十条路由）：只声明 exchange，**不绑队列**\n\n")
+	b.WriteString("⚠️ 本节说的十条是 `personal_model_events` 那十条（`domain/delivery.go` 的表）。" +
+		"事件面上**已有**一个消费者队列的是另一个键：`source.deleted` → `go.source.deleted`" +
+		"（T2-06／B-08，见 §二那张表的 `event` 行）——它不在十条里，生产者是 Python 而不是 outbox。\n")
 	b.WriteString("publisher 对事件路由一律回 `ErrNoConsumerBound`（可重试，原因进 `outbox_messages.last_error`），" +
 		"于是「投递成功」这一格在 R5/R6 把消费者绑上之前**不可能被写成真**。\n")
 	b.WriteString("这不是漏配：14 §3 那五个队列全是 AI 任务／候选面，V3 没给十条事件任何下游队列，" +
@@ -350,7 +376,7 @@ func Describe() string {
 
 // exchangePurpose 只服务于渲染：读者要知道每个 exchange 是干什么的。
 var exchangePurpose = map[string]string{
-	ExchangeEvents:      "领域事件（十条路由）——R4 期无消费者，见 §四",
+	ExchangeEvents:      "领域事件（十条路由）——R4 期无消费者，见 §四；`source.deleted` 是本节之外唯一已绑的事件键（T2-06）",
 	ExchangeAITasks:     "Go → Python 的命令面（`ai.*.requested`）",
 	ExchangeAICandidate: "Python → Go 的候选回投面（`candidate.*`）",
 	ExchangeDLQ:         "拒绝／重试阶梯的投递口，终态在 `dlq.<queue>`",
@@ -377,9 +403,13 @@ func Document() string {
 		"`internal/messaging/inbound` 在候选入库的同一笔 inbox 事务里请下一段（fact→pattern、pattern→insight）。\n" +
 		"消费者与 candidate 回投已由 R5" +
 		"接通（2026-10-16 结案：两侧消费者都在、互操作闸真跑过），\n" +
-		"但**流量仍是零**，两个原因各自独立：\n" +
+		"但**流量仍是零**，三个原因各自独立：\n" +
 		"① 三个 kill switch 默认关 ⇒ 那个调用点在现网一次都跑不到；\n" +
-		"② Python 侧的 handler 注册表仍为空（`backend/ai/mq/registry.py`）⇒ 真投出来的命令会被\n" +
+		"② 第一段命令没有发射点：Python 侧已于 2026-10-18（T2-02）注册了 `observation` handler\n" +
+		"   （`backend/ai/mq/handlers/observation.py`），但链表 `domain/task_chain.go` 的 `followUpAfter`\n" +
+		"   只有 fact→pattern、pattern→insight 两条边——`ai.observation.requested` 是首段、没有前驱，\n" +
+		"   而候选入库是生产侧唯一的调用点 ⇒ 今天没有任何人发第一条命令（发射点归 T2-03/T2-04）；\n" +
+		"③ `pattern`／`insight`／`proactive` 三类命令仍没有 handler ⇒ 真投出来的命令会被\n" +
 		"`handler_unregistered` 打进死信。生产者（谁下发任务）这件事本身仍是 R6。\n" +
 		"「异步面通了」的判据是 R6 之后一条洞察能跨进程走完全程，不是本表把 exchange 声明出来。\n\n" +
 		"⚠️ 下面四个命令键串**不是在本文件生成的**，来自 `domain.AITaskKind.RoutingKey()`\n" +

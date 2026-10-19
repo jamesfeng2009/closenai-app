@@ -163,6 +163,39 @@ UPDATE source_records
 SET status = 'deleted', updated_at = now()
 WHERE id = $1 AND user_id = $2;
 
+-- ── T2-06：source.deleted 传播（B-08 定案：登记行只翻状态、不删行）────────────
+-- 按指针回查登记行：`source.deleted` 事件带的是 (user_id, source_table, source_id)，
+-- 不是登记行 id。归属已在解码面判完（体的 user_id 必须等于头），所以这里按
+-- (user_id, source_table, source_id) 取——命中 UNIQUE (user_id, source_table, source_id)。
+-- name: GetSourceRecordByPointer :one
+SELECT id, user_id, source_type, source_table, source_id, occurred_at, status,
+       revision_of, created_at, updated_at
+FROM source_records
+WHERE user_id = $1 AND source_table = $2 AND source_id = $3;
+
+-- 单向翻转：只有当前不是 deleted 才被改写。回 0 行＝这条删除已经翻过一次，
+-- 调用方据此**不再传播**（幂等口径由工作单 T2-06 §怎么做.4② 给出，不靠读状态再猜）。
+-- name: MarkSourceRecordDeletedOnce :execrows
+UPDATE source_records
+SET status = 'deleted', updated_at = now()
+WHERE id = $1 AND user_id = $2 AND status <> 'deleted';
+
+-- 一条登记行支撑的 evidence id（传播面的第二跳：逐条走 PropagateEvidenceInvalidation）。
+-- created_at 排序是为了让同批多条的失效顺序可复现；id 兜底保证全序。
+-- name: ListEvidenceForSource :many
+SELECT id
+FROM evidence
+WHERE user_id = $1 AND source_record_id = $2
+ORDER BY created_at, id;
+
+-- 只服务「翻转成功但传播中途失败」那一格的恢复：把状态收回，让这条投递回到还没翻过。
+-- 谓词带 status='deleted'——不许把一条本来就 deleted 的行恢复成 active（那等于替
+-- 另一次删除撤销结论）。
+-- name: RestoreSourceRecordStatus :execrows
+UPDATE source_records
+SET status = $3, updated_at = now()
+WHERE id = $1 AND user_id = $2 AND status = 'deleted';
+
 -- ── Provenance 写入（N3 Gate 的唯一入口，本批只提供语句）────────────────────
 -- name: InsertEvidence :exec
 INSERT INTO evidence (
@@ -796,3 +829,29 @@ FROM insight_patterns ip
 WHERE ip.user_id = $1 AND ip.insight_id = $2
   AND s.status <> 'deleted'
 ORDER BY pe.pattern_id, e.created_at DESC;
+
+-- ── T3-01（`GET /internal/v3/insights`）：洞察列表的一次聚合读 ────────────────
+-- 判据 G-05「无证据不上线」写在 SQL 层而不是应用层：下面那条**内连**
+-- insight_evidence→evidence→source_records 带 `s.status <> 'deleted'`，所以
+-- 「从来没有依据」与「依据全被撤回」的洞察在这里同形（都不出现）——T2-06 的传播链
+-- 要的正是后一种：撤回生效后那条洞察不该还挂在列表里冒充「有依据」。
+-- evidence_count 数的是**活依据**，与详情面 `ListLiveEvidenceForInsight`（:795）用
+-- 逐字同一条谓词；不在应用层按条数一遍，那是工单点名要避开的 N+1。
+-- 分页用 keyset（`(published_at, id)` 严格在游标之后）而不是 OFFSET：两次翻页之间
+-- 若有新洞察发布，OFFSET 会让同一条洞察被跳过或重复，而用户据此判「系统漏了我的东西」。
+-- `published_at IS NOT NULL`＝从未上线的行不参与这个排序，也不该出现在列表里。
+-- name: ListInsightsForBrowsing :many
+SELECT i.id, i.statement, i.claim_type, i.status, i.confidence, i.published_at,
+       COUNT(*)::bigint AS evidence_count
+FROM insights i
+	JOIN insight_evidence ie ON ie.insight_id = i.id AND ie.user_id = i.user_id
+	JOIN evidence e ON e.id = ie.evidence_id
+	JOIN source_records s ON s.id = e.source_record_id
+WHERE i.user_id = sqlc.arg(user_id) AND i.status = ANY(sqlc.arg(statuses)::varchar[])
+  AND i.published_at IS NOT NULL
+  AND s.status <> 'deleted'
+  AND (sqlc.arg(after_at)::timestamptz IS NULL OR i.published_at < sqlc.arg(after_at)
+       OR (i.published_at = sqlc.arg(after_at) AND i.id < sqlc.arg(after_id)))
+GROUP BY i.id, i.statement, i.claim_type, i.status, i.confidence, i.published_at
+ORDER BY i.published_at DESC, i.id DESC
+LIMIT (sqlc.arg(row_limit)::int);

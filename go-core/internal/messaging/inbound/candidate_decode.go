@@ -53,6 +53,25 @@ const (
 	// （evidence_score.go:233）：未知算分档位是拼写问题，重投一万次也不会变成合法，
 	// 所以它必须转成永久拒绝去留痕，而不是按瞬态在阶梯上无限撞库。
 	ReasonUnknownDomainValue = "unknown_domain_value"
+	// 来源指针的三个码（T2-03）。三条都是**永久**拒绝：表没开、行是别人的、
+	// 行不存在——重投同一条字节不会改变任何一种，让它上阶梯等于把一条毒消息
+	// 在 30s/2m/10m 上撞三次库。
+	//
+	// ReasonSourceTypeNotEnabled 故意**复用** Python 侧
+	// `contract.py:152 REASON_SOURCE_TYPE_NOT_ENABLED` 的同值串：那一边说的是
+	// 「命令里的 sourceRef 指向一张没开的表」，这一边说的是「候选里的 source_table
+	// 指向一张没开的表」——同一条准入面（`SOURCE_REF_TABLES` ⇄
+	// `domain.AdmissibleSourceTables`）的两端，排查时应当一次搜到。
+	ReasonSourceTypeNotEnabled = "source_type_not_enabled"
+	// ReasonForeignSource／ReasonUnknownSourceRow 只有 Go 会有：Python 不回查库，
+	// 归属与「这一行还在不在」只有权威侧答得出（登记在 test_ai_mq_contract.py 的
+	// GO_ONLY_REASONS 里，那条闸不许没有说法的新码混进来）。
+	ReasonForeignSource    = "foreign_source"
+	ReasonUnknownSourceRow = "unknown_source_row"
+	// ReasonCandidateShapeInvalid 也只有 Go 会有：形状类拒绝（缺必填／词表外／超列宽／
+	// 摘录超上限／终局分越界）判的是权威侧的准入面，Python 生产者只可能「自己丢条」，
+	// 不会产出一个这个码。登记在 test_ai_mq_contract.py 的 GO_ONLY_REASONS。
+	ReasonCandidateShapeInvalid = "candidate_shape_invalid"
 )
 
 // SupportedSchemaVersion 是本消费者认得的 schema 版本，**只有一条**。
@@ -114,34 +133,9 @@ func Decode(d Delivery, maxBodyBytes int) (Call, *domain.PermanentRejection) {
 			fmt.Sprintf("routing key=%q 不在映射表里（表=%v）；按 D-R5-8，表里没有的 candidate.* 两侧都拒，"+
 				"不许默认走 Admit", d.RoutingKey, knownKeys()))
 	}
-	if d.ContentType != ContentTypeJSON {
-		return nil, reject(ReasonContentType,
-			fmt.Sprintf("content_type=%q，本消费者只解 %s。14 §5 要求的 application/protobuf "+
-				"要连着 schema_version 一起切，那一批是 O1（见 D-R5-4 与 amqp/publisher.go:27-33）",
-				d.ContentType, ContentTypeJSON))
-	}
-	if len(d.Body) > maxBodyBytes {
-		return nil, reject(ReasonBodyTooLarge,
-			fmt.Sprintf("消息体 %d 字节 > 上限 %d（14 §9：超限不许解码，也不许转存后继续）",
-				len(d.Body), maxBodyBytes))
-	}
-	// message_type 与键同源：命令面那条规则是「键把点换成下划线」（commands.go:47），
-	// 回投面同形：`candidate.pattern` ⇒ `candidate_pattern`。
-	if want, got := messageTypeFor(d.RoutingKey), strings.TrimSpace(d.MessageType); want != got {
-		return nil, reject(ReasonMessageTypeMismatch,
-			fmt.Sprintf("routing key=%q 要求 message_type=%q，实收 %q", d.RoutingKey, want, got))
-	}
-	if sv := d.HeaderVersion(HeaderSchemaVersion); sv != SupportedSchemaVersion {
-		return nil, reject(ReasonSchemaVersion,
-			fmt.Sprintf("x-schema-version=%q，本消费者只认 %q（不认识还重投＝毒消息在阶梯上无限撞）",
-				sv, SupportedSchemaVersion))
-	}
-	userID := strings.TrimSpace(d.HeaderString(HeaderUserID))
-	if userID == "" {
-		// 归属只有这一个来源：`Candidate` 里那两列是 reserved（本文件头），
-		// 提案体不许自报用户，所以「没有 x-user-id」不等于「让库里去猜」。
-		return nil, reject(ReasonMissingUserID,
-			"消息头没有 x-user-id：候选的归属只能从 Envelope 取，缺了就等于把一条产出交给未知用户")
+	userID, bad := transportGate(d, maxBodyBytes)
+	if bad != nil {
+		return nil, bad
 	}
 
 	switch entry {
@@ -156,6 +150,48 @@ func Decode(d Delivery, maxBodyBytes int) (Call, *domain.PermanentRejection) {
 	// 是因为这张表将来加第四扇门时编译器不会替这条 switch 报错，而闸会（contract_test.go）。
 	return nil, reject(ReasonUnknownRoutingKey,
 		fmt.Sprintf("entry=%q 没有解码分支（表与分支漂了）", entry))
+}
+
+// transportGate 是两条入站面（候选面与 T2-06 的事件面）**共用**的传输契约：
+// content_type → 字节上限 → message_type 与键同源 → schema 版本 → 归属头。
+//
+// 为什么抽出来而不是在事件面抄一遍：这五条的判据与 reason 串是跨语言契约
+// （对面 `backend/ai/mq/contract.py` 逐字对过），抄一份就有了第二个事实源——
+// 哪天只改一边，表现是「同一件非法在两个队列里给出两个码」。
+// 键是否在映射表里**不在这里判**：那一格由调用方先做，顺序是契约的一部分
+// （未知键＋超长字节必须报 unknown_routing_key，见 inbound_test.go）。
+func transportGate(d Delivery, maxBodyBytes int) (string, *domain.PermanentRejection) {
+	if d.ContentType != ContentTypeJSON {
+		return "", reject(ReasonContentType,
+			fmt.Sprintf("content_type=%q，本消费者只解 %s。14 §5 要求的 application/protobuf "+
+				"要连着 schema_version 一起切，那一批是 O1（见 D-R5-4 与 amqp/publisher.go:27-33）",
+				d.ContentType, ContentTypeJSON))
+	}
+	if len(d.Body) > maxBodyBytes {
+		return "", reject(ReasonBodyTooLarge,
+			fmt.Sprintf("消息体 %d 字节 > 上限 %d（14 §9：超限不许解码，也不许转存后继续）",
+				len(d.Body), maxBodyBytes))
+	}
+	// message_type 与键同源：命令面那条规则是「键把点换成下划线」（commands.go:47），
+	// 回投面与事件面同形：`candidate.pattern` ⇒ `candidate_pattern`。
+	if want, got := messageTypeFor(d.RoutingKey), strings.TrimSpace(d.MessageType); want != got {
+		return "", reject(ReasonMessageTypeMismatch,
+			fmt.Sprintf("routing key=%q 要求 message_type=%q，实收 %q", d.RoutingKey, want, got))
+	}
+	if sv := d.HeaderVersion(HeaderSchemaVersion); sv != SupportedSchemaVersion {
+		return "", reject(ReasonSchemaVersion,
+			fmt.Sprintf("x-schema-version=%q，本消费者只认 %q（不认识还重投＝毒消息在阶梯上无限撞）",
+				sv, SupportedSchemaVersion))
+	}
+	userID := strings.TrimSpace(d.HeaderString(HeaderUserID))
+	if userID == "" {
+		// 归属只有这一个来源：`Candidate` 里那两列是 reserved（本文件头），
+		// 提案体不许自报用户；事件面体里那个 userId 只用来对账（source_deleted.go），
+		// 所以两条面都不许把「没有 x-user-id」变成「让库里去猜」。
+		return "", reject(ReasonMissingUserID,
+			"消息头没有 x-user-id：入站面的归属只能从 Envelope 取，缺了就等于把一条产出或一次删除交给未知用户")
+	}
+	return userID, nil
 }
 
 // checkBodyVersion 让体内自报的版本与 header 对上（对面 Python 在
@@ -329,7 +365,9 @@ func unmarshalBody(d Delivery, msg proto.Message) *domain.PermanentRejection {
 
 // classify 只动**已有哨兵**那一类：
 //   - `domain.ErrUnknownSignal`（枚举拼写）⇒ 转成永久拒绝，让它去 inbox 留痕而不是上阶梯；
-//   - 其余（DB 抖动、连接、租约）⇒ 原样返回，由 Handle 按瞬态处理、NACK 重投。
+//   - `domain` 的三个来源指针哨兵（T2-03）⇒ 同样转永久，各自的码见 sourcePointerRejections；
+//   - `domain.ErrCandidateShape`（T2-04 §口径.3）⇒ 转永久，码见 shapeRejections；
+//   - 其余（DB 抖动、连接、租约、`occurred_at` 晚于当下）⇒ 原样返回，由 Handle 按瞬态处理、NACK 重投。
 //
 // 这里刻意不做「看错误串里有没有 required 就当永久」那种猜测：
 // 猜错的方向是把一次真 DB 抖动永久记账，那比多撞几次阶梯贵得多。
@@ -340,7 +378,43 @@ func classify(err error) error {
 	if errors.Is(err, domain.ErrUnknownSignal) {
 		return domain.PermanentRejection{Code: ReasonUnknownDomainValue, Detail: err.Error()}
 	}
+	for _, table := range [][]sentinelCode{sourcePointerRejections, shapeRejections} {
+		for _, item := range table {
+			if errors.Is(err, item.sentinel) {
+				return domain.PermanentRejection{Code: item.code, Detail: err.Error()}
+			}
+		}
+	}
 	return err
+}
+
+// sentinelCode 是「domain 的哨兵 ⇒ 入站的永久拒绝码」这一格接线。
+//
+// 写成具名类型而不是匿名 struct：现在有两张表（来源指针面与候选形状面），
+// `classify` 要按同一次序遍历它们，两张表的元素必须是同一个类型才走得通。
+type sentinelCode struct {
+	sentinel error
+	code     string
+}
+
+// sourcePointerRejections 把 domain 的来源指针哨兵逐个钉到一个码上。
+//
+// 写成表而不是三个 if：`inbound_test.go` 的闸按 `len(...)==3` 数一遍并逐个投毒，
+// 于是「domain 加了第四个哨兵而这里少一行」会立刻变红——少一行的后果是那条
+// 永久非法被读成瞬态，在阶梯上撞三次库再进 DLQ，而账面上只写着「重试过」。
+var sourcePointerRejections = []sentinelCode{
+	{domain.ErrUnsupportedSourceTable, ReasonSourceTypeNotEnabled},
+	{domain.ErrForeignSource, ReasonForeignSource},
+	{domain.ErrUnknownSourceRow, ReasonUnknownSourceRow},
+}
+
+// shapeRejections 是候选形状面（T2-04 §口径.3）。
+//
+// 与上面那张表**分家**的理由：`inbound_test.go` 对来源面按 `len(...)==3` 数一遍并逐个投毒，
+// 那张表加一行是「domain 多了哨兵而接线漏了」，这一张加一行是「永久拒绝的码多了」——
+// 两件事的红不该互相代打，所以各自一条计数闸（`TestShapeSentinelsBecomePermanent`）。
+var shapeRejections = []sentinelCode{
+	{domain.ErrCandidateShape, ReasonCandidateShapeInvalid},
 }
 
 // toSafety 把 proto 的 Safety 落成 Go 侧的指针。
@@ -379,7 +453,7 @@ const (
 // enumValue 去掉前缀并小写；不匹配前缀或是 UNSPECIFIED 时回空串。
 //
 // 空串不是「未知的一种新写法」，而是**领域侧已经认得的失败输入**：
-// `checkEvidenceCandidate` 会带 `ErrUnknownSignal` 回来（service_evidence.go:198-206），
+// `checkEvidenceCandidate` 会带 `ErrUnknownSignal` 回来（service_evidence.go:211-215），
 // proactive 的 Gate 会把未知 trigger 判成 reject ⇒ 不在这里发明第二种拒绝语言。
 func enumValue(prefix, name string) string {
 	rest, ok := strings.CutPrefix(name, prefix)

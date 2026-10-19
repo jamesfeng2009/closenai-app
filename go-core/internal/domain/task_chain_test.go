@@ -185,7 +185,7 @@ func TestDeriveTaskOperationIDIsDeterministicAndBounded(t *testing.T) {
 // （`contract.py:287`：`k.lower().replace("_","") == "userid"`）——
 // 对面就是按这条把体内任何 user-id 形态永久拒绝的，绕开它才算数。
 func TestTaskRequestBodyCarriesNoUserIdentity(t *testing.T) {
-	body, err := TaskRequestBody(AITaskPattern, KindFact, "cand-abc")
+	body, err := TaskRequestBody(AITaskPattern, KindFact, "cand-abc", "", "")
 	if err != nil {
 		t.Fatalf("组装命令体失败：%v", err)
 	}
@@ -207,11 +207,11 @@ func TestTaskRequestBodyCarriesNoUserIdentity(t *testing.T) {
 
 // TestTaskRequestBodyIsByteStable 钉「同输入必同字节」：幂等重放与夹具都比得出。
 func TestTaskRequestBodyIsByteStable(t *testing.T) {
-	first, err := TaskRequestBody(AITaskInsight, KindPattern, "cand-x1")
+	first, err := TaskRequestBody(AITaskInsight, KindPattern, "cand-x1", "", "")
 	if err != nil {
 		t.Fatalf("组装失败：%v", err)
 	}
-	second, err := TaskRequestBody(AITaskInsight, KindPattern, "cand-x1")
+	second, err := TaskRequestBody(AITaskInsight, KindPattern, "cand-x1", "", "")
 	if err != nil {
 		t.Fatalf("组装失败：%v", err)
 	}
@@ -227,9 +227,115 @@ func TestTaskRequestBodyIsByteStable(t *testing.T) {
 	if !strings.Contains(first, `"`+m[1]+`":"TASK_TYPE_INSIGHT_DRAFT"`) {
 		t.Fatalf("命令体 %q 没有按 Python 的 TASK_TYPE_FIELD=%q 写出 taskType ⇒ 对面找不到任务种类", first, m[1])
 	}
-	want := `{"sourceKind":"pattern","sourceMessageId":"cand-x1","taskType":"TASK_TYPE_INSIGHT_DRAFT"}`
+	want := `{"sourceKind":"pattern","sourceMessageId":"cand-x1","sourceOccurredAt":"","sourceRef":"","taskType":"TASK_TYPE_INSIGHT_DRAFT"}`
 	if first != want {
 		t.Fatalf("命令体应当逐字是 %q，实测 %q（键序由 json.Marshal 排序，改一个键就要重录）", want, first)
+	}
+}
+
+// TestTaskRequestBodyWritesTheSourceRefPair 钉 T2-01 两键**恒写**的形状。
+//
+// 「恒写」而不是「有值才写」：条件写会让同一个函数产出两种键集，而两侧对「体的形状」
+// 的闸比的正是键集（`test_go_task_command_body_accepted.py` 的 AGREED_BODY_FIELDS）。
+// 空串是「这一段没有体外来源」的唯一写法，来源仍由 sourceMessageId 承载。
+func TestTaskRequestBodyWritesTheSourceRefPair(t *testing.T) {
+	const ref = "memories:0f1e2d3c-4b5a-4968-8a7b-9c0d1e2f3a4b"
+	const occurred = "2026-10-18T09:00:00Z"
+	body, err := TaskRequestBody(AITaskObservation, KindFact, "cand-abc", ref, occurred)
+	if err != nil {
+		t.Fatalf("带合法 sourceRef 的体组装失败：%v", err)
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		t.Fatalf("命令体不是合法 JSON（%q）：%v", body, err)
+	}
+	if parsed["sourceRef"] != ref || parsed["sourceOccurredAt"] != occurred {
+		t.Fatalf("两个来源键没按逐字写出来：%s ⇒ 对面的 handler 拿不到来源行，会静默产零候选", body)
+	}
+	if len(parsed) != 5 {
+		t.Fatalf("命令体键数是 %d 不是 5：%s ⇒ 两侧对「体的形状」各写一套", len(parsed), body)
+	}
+	// 空串那一格也必须在体里（不是缺键）：Go 侧写空、对面读成缺省，才是这条链的现网形状。
+	empty, err := TaskRequestBody(AITaskPattern, KindFact, "cand-abc", "", "")
+	if err != nil {
+		t.Fatalf("链表那两条边（无体外来源）组装失败：%v", err)
+	}
+	if !strings.Contains(empty, `"sourceRef":""`) || !strings.Contains(empty, `"sourceOccurredAt":""`) {
+		t.Fatalf("没有体外来源时两个键没被写成空串：%s", empty)
+	}
+}
+
+// TestTaskRequestBodyRejectsIllegalSourceRef 钉「非法＝不写出去」，并且三条 reason
+// 与 Python 侧 `contract.py` 的词表逐字同值——值班对着 DLQ 日志排查时两侧要能对上同一串。
+func TestTaskRequestBodyRejectsIllegalSourceRef(t *testing.T) {
+	const uuid = "0f1e2d3c-4b5a-4968-8a7b-9c0d1e2f3a4b"
+	cases := []struct {
+		name           string
+		ref, occurred  string
+		wantReasonCode string
+	}{
+		{"未知表名", "orders:" + uuid, "", ReasonSourceRefShape},
+		{"uuid 少一位", "memories:" + uuid[:35], "", ReasonSourceRefShape},
+		{"uuid 大写", "memories:" + strings.ToUpper(uuid), "", ReasonSourceRefShape},
+		{"表名带空格", "chat messages:" + uuid, "", ReasonSourceRefShape},
+		{"reflections 本期未启用", "reflections:" + uuid, "", ReasonSourceTypeNotEnabled},
+		{"mood_checkins 本期未启用", "mood_checkins:" + uuid, "", ReasonSourceTypeNotEnabled},
+		{"chat_messages 本期未启用", "chat_messages:" + uuid, "", ReasonSourceTypeNotEnabled},
+		{"只有发生时刻没有主体", "", "2026-10-18T09:00:00Z", ReasonSourceOccurredAtInvalid},
+		{"发生时刻不是 RFC3339", "memories:" + uuid, "2026年10月18日", ReasonSourceOccurredAtInvalid},
+	}
+	for _, c := range cases {
+		body, err := TaskRequestBody(AITaskObservation, KindFact, "cand-1", c.ref, c.occurred)
+		if err == nil {
+			t.Fatalf("%s：非法来源指针被写进了体里（%s）⇒ 对面只会按 reason 拒，"+
+				"而这里本来是唯一该负责产字节的地方", c.name, body)
+		}
+		if !strings.Contains(err.Error(), c.wantReasonCode) {
+			t.Fatalf("%s：reason 漂了，实测 %q，期望含 %q ⇒ 两侧对不上同一串就没法对着 DLQ 排查",
+				c.name, err.Error(), c.wantReasonCode)
+		}
+		if body != "" {
+			t.Fatalf("%s：拒的同时还回了半个体 %q", c.name, body)
+		}
+	}
+}
+
+// TestValidateAITaskRequestJudgesRefInsidePayload 钉**侧门**：`Payload` 是字符串，
+// 取证驱动器与测试都能绕过 `TaskRequestBody` 自己拼一份。不在入队处判，非法 ref
+// 就一路投出去，最后由对面判成 DLQ，而这条链上没人知道是谁写的体。
+func TestValidateAITaskRequestJudgesRefInsidePayload(t *testing.T) {
+	const uuid = "0f1e2d3c-4b5a-4968-8a7b-9c0d1e2f3a4b"
+	base := func(payload string) AITaskRequest {
+		return AITaskRequest{
+			Kind: AITaskObservation, UserID: "u-1",
+			OperationID: DeriveTaskOperationID(AITaskObservation, "cand-1"), Payload: payload,
+		}
+	}
+	// 正向证人一：合法 ref 过。
+	if err := validateAITaskRequest(base(
+		`{"taskType":"TASK_TYPE_OBSERVATION_EXTRACT","sourceRef":"memories:` + uuid +
+			`","sourceOccurredAt":"2026-10-18T09:00:00Z"}`)); err != nil {
+		t.Fatalf("合法的 sourceRef 被自家校验拒了：%v ⇒ 第一段永远投不出去", err)
+	}
+	// 正向证人二：批 3 那两条边现在发的体（两键是空串）也必须过。
+	if err := validateAITaskRequest(base(
+		`{"sourceKind":"fact","sourceMessageId":"cand-1","sourceOccurredAt":"","sourceRef":"","taskType":"TASK_TYPE_PATTERN_DETECT"}`)); err != nil {
+		t.Fatalf("没有体外来源的现役形状被拒：%v ⇒ fact→pattern 那条边在入队处就断", err)
+	}
+	// 老形状（键都没写）同样过：体是 JSON，生产者不止一处。
+	if err := validateAITaskRequest(base(
+		`{"taskType":"TASK_TYPE_OBSERVATION_EXTRACT","sourceMessageId":"cand-1"}`)); err != nil {
+		t.Fatalf("缺两个来源键的老形状被拒：%v ⇒ 这条判据把「缺省」当成了「非法」", err)
+	}
+	for _, payload := range []string{
+		`{"taskType":"TASK_TYPE_OBSERVATION_EXTRACT","sourceRef":"orders:` + uuid + `"}`,
+		`{"taskType":"TASK_TYPE_OBSERVATION_EXTRACT","sourceRef":"reflections:` + uuid + `"}`,
+		`{"taskType":"TASK_TYPE_OBSERVATION_EXTRACT","sourceOccurredAt":"2026-10-18T09:00:00Z"}`,
+	} {
+		err := validateAITaskRequest(base(payload))
+		if err == nil {
+			t.Fatalf("侧门拼出来的非法体过了校验：%s ⇒ 对面只会收到一条注定进 DLQ 的命令", payload)
+		}
 	}
 }
 

@@ -4,10 +4,13 @@
 // 是台账 R6 的活——给门找调用方。上一批就发生过一次误判：把「在册没人调」一律当「漏接」，
 // 于是有人想去给 `RecheckProactive` 硬造一个调用方，而它今天根本没有合法消费者。
 // 所以这里把两侧都钉住：
-//   - **已接的两件**（CleanupDeliveryRecords／RequestAITask）必须在**生产代码**里有引用点，
-//     删掉接线就红——inbound／dispatch 自己的用例看不见 main，也看不见 Run 循环里的这一跳；
-//   - **仍为零的五件**必须继续为零，且名字还在登记表里；哪天有人接上了，
+//   - **已接的四件**（CleanupDeliveryRecords／RequestAITask／InvalidateSource／
+//     RecordUserFeedback）必须在**生产代码**里有引用点，删掉接线就红——inbound／dispatch
+//     自己的用例看不见 main，也看不见 Run 循环里的这一跳；
+//   - **仍为零的四件**必须继续为零，且名字还在登记表里；哪天有人接上了，
 //     这条会红并要求把台账改掉，而不是让「零调用方」这句口径悄悄失真。
+//     其中 `PropagateEvidenceInvalidation` 是**特例**：T2-06 已经把门接上，但调用方在同包内，
+//     本扫描按定义不算自引用 ⇒ 计数仍为零。它由 `TestInvalidateSourceChainIsReal` 正向守着。
 //
 // 台账本身由反射枚举 `*domain.Service` 的导出方法生成判据：加一个没人调的导出方法
 // 而不登记，同样打红。这才是「零调用方」这件事的长期形状，而不是一份会过期的名单。
@@ -23,28 +26,38 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 )
 
-// zeroCallerLedger 是「本批刻意不接、留给 R6」的那五件。
+// zeroCallerLedger 是「生产代码面（本扫描定义）里找不到调用方」的那四件。
 //
 // 每一件为什么不接（带出处，免得下一个人靠猜）：
-//   - `RecordOutcome`／`RecordUserFeedback`：反馈面在前端已经有 UI，但写入端点归 R6 的
-//     「谁产生这条反馈」裁决；现在接上就是往 canonical 写一批没有消费方的行。
-//   - `PropagateEvidenceInvalidation`：证据失效的传播需要删除语义，而删除口径（软删还是
-//     supersede）在 18 §13 没有唯一答案。
+//   - `RecordOutcome`：结果写入端点归 T4 的行动闭环；T3-02 上的是**反馈**端点
+//     （`RecordUserFeedback`），给反馈面接入口不等于结果面也有入口，两格分开登记就是这件事。
 //   - `ReevaluateInsight`／`RecheckProactive`：两者的触发面是「洞察/主动消息的定时重算」，
 //     那是 cron 面（批 1 G1 只把 journey 那一条排上了），没有排程就接门＝空转。
+//   - `PropagateEvidenceInvalidation`：B-08 已于 2026-10-19（T2-06）裁决，门也接上了，
+//     但**调用方是同包的 `Service.InvalidateSource`**（`domain/source_invalidation.go`），
+//     而本扫描按定义排除 `internal/domain` 自引用 ⇒ 计数仍为 0。
+//     链的真实性由 `TestInvalidateSourceChainIsReal` 正向证人守着，不靠这条台账。
 var zeroCallerLedger = map[string]string{
-	"PropagateEvidenceInvalidation": "R6（删除语义未裁决）",
+	"PropagateEvidenceInvalidation": "T2-06／B-08：唯一调用方是同包的 InvalidateSource（见 TestInvalidateSourceChainIsReal）",
 	"RecheckProactive":              "R6（重算排程未上）",
-	"RecordOutcome":                 "R6（反馈写入端点未裁决）",
-	"RecordUserFeedback":            "R6（反馈写入端点未裁决）",
+	"RecordOutcome":                 "T4（行动闭环的结果写入端点未上）",
 	"ReevaluateInsight":             "R6（重算排程未上）",
 }
 
 // wiredThisBatch 是本批 D-G14 点名的两条「无争议的」，工作单逐字：
 // 「`CleanupDeliveryRecords` 挂到既有周期面」「`RequestAITask` 在候选入库后由 inbound 侧发起」。
+//
+// `InvalidateSource` 是 T2-06 加的第二段：调用点在 `internal/messaging/inbound`
+// （`source_deleted.go` 的 Call），装配点在 `cmd/go-api/main.go` 的 `inbound.NewSource`。
+//
+// `RecordUserFeedback` 是 T3-02 加的第三段：调用点在 `internal/httpapi/v3_feedback.go`
+// （`POST /internal/v3/insights/{id}/feedback`），装配点在 main.go 的 `httpapi.V3.Outcomes`
+// ——那一格必须是**同一个** `candidateDomain`，否则反馈与 worker 各写一份版本账本。
 var wiredThisBatch = map[string]string{
 	"CleanupDeliveryRecords": "cmd/go-api/main.go 传给 dispatch.Deps.Cleanup",
 	"RequestAITask":          "internal/messaging/inbound 的 requestFollowUp",
+	"InvalidateSource":       "internal/messaging/inbound 的 DecodeEvent 返回的 Call",
+	"RecordUserFeedback":     "internal/httpapi/v3_feedback.go 的 handleV3InsightFeedback",
 }
 
 // TestDomainServiceCallerLedger 数的是**剥掉注释与字符串之后**的引用点。
@@ -137,6 +150,26 @@ func TestDispatchLoopActuallyCallsCleanup(t *testing.T) {
 	// 节拍不许来自 env：这一条把「包内默认」的决定写成断言。
 	if strings.Contains(code, "EnvCleanup") || strings.Contains(src, "CLOSEN_CLEANUP") {
 		t.Error("dispatch 为清理发明了 env 键 ⇒ 与 D-G12 的改判口径冲突")
+	}
+}
+
+// TestInvalidateSourceChainIsReal 是台账那条特例的正向证人。
+//
+// 为什么台账本身判不了这件事：`countProductionRefs` 按定义排除 `internal/domain` 自己
+// （否则「方法被自己的包调用」会把所有内部调用都算成现网调用方）。于是
+// `PropagateEvidenceInvalidation` 的唯一调用方——同包的 `InvalidateSource`——在计数里是 0，
+// 台账只会说「仍为零」，而这句在**门已经接上**之后读起来像「还是没人调」。
+// 用户后果：值班按台账以为删除传播还没实现，去手工修一批 evidence 行。
+// 这里读的是源码里那一跳真的存在（且只有那一处生产调用点）。
+func TestInvalidateSourceChainIsReal(t *testing.T) {
+	src := goCodeOnly(readFile(t, filepath.Join("..", "..", "internal", "domain", "source_invalidation.go")))
+	n := strings.Count(src, ".PropagateEvidenceInvalidation(")
+	if n != 1 {
+		t.Errorf("source_invalidation.go 里 .PropagateEvidenceInvalidation( 命中 %d 次，期望 1 ⇒ "+
+			"0＝传播链断了（台账那句特例作废），>1＝多了一个调用点要重新交代", n)
+	}
+	if !strings.Contains(src, "func (s *Service) InvalidateSource(") {
+		t.Error("InvalidateSource 这个方法已经不在了 ⇒ wiredThisBatch 的名单要收，台账要改")
 	}
 }
 

@@ -1,8 +1,7 @@
 -- Canonical schema baseline handed to the Go toolchain (D-7).
 -- Provenance: pg_dump of the PostgreSQL 16 database produced by `alembic upgrade head`
---   command: docker exec closenai-pg-dev pg_dump -U postgres -d closenai --schema-only
---            --no-owner --no-privileges -t public.users -t public.refresh_tokens
---   captured: 2026-10-13; alembic head revision b7d9e1f3a5c8
+--   command: docker exec closenai-pg-dev pg_dump -U postgres -d closenai --schema-only --no-owner --no-privileges -t public.users -t public.refresh_tokens
+--   captured: 2026-10-18; alembic head revision c3e5a7b9d1f2
 -- DDL ownership stays with backend/alembic until N2 defines the canonical tables;
 -- this file is the read-only snapshot sqlc/golang tooling generates against.
 -- Regenerate with scripts/export_pg_schema.py; do not hand-edit.
@@ -85,7 +84,9 @@ CREATE TABLE public.users (
     analytics_consent boolean DEFAULT false NOT NULL,
     conversation_style character varying(20) DEFAULT 'warm'::character varying NOT NULL,
     referral_code character varying(12),
-    referred_by_code character varying(12)
+    referred_by_code character varying(12),
+    quiet_start time without time zone,
+    quiet_end time without time zone
 );
 
 

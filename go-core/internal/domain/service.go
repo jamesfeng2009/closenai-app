@@ -129,6 +129,11 @@ type Store interface {
 	// ── N4：证据算分入口（03 §4-§5）─────────────────────────────────────────
 	// UpsertSourceRecord 登记或复用 source 指针（D-2 薄版：只指不复制）。
 	UpsertSourceRecord(ctx context.Context, row SourceRecordRow) (string, error)
+	// SourceRowOwner 回查 `(source_table, source_id)` 那一行业务数据的 user_id
+	// （T2-03：薄指针指向的行必须真的属于提案归属，否则拒绝登记）。
+	// 找不到返回 found=false 而不是错误——「没有这一行」与「查库失败」在两侧
+	// 要走不同的分道（前者永久拒绝，后者上重试阶梯）。
+	SourceRowOwner(ctx context.Context, sourceTable, sourceID string) (string, bool, error)
 	// InsertEvidence 写入**已算分**的证据行；strength 由 Service 算出，不是提案值。
 	InsertEvidence(ctx context.Context, row EvidenceWrite) error
 
@@ -194,6 +199,21 @@ type Store interface {
 	// （不变量 9 的判定面；「活」＝所在 source_records 未删）。
 	ListDerivedSupportForEvidence(ctx context.Context, userID,
 		evidenceID string) ([]DerivedSupport, error)
+
+	// ── T2-06：source.deleted 的传播面（B-08 定案：登记行只翻状态、不删行）─────
+	// SourceRecordByPointer 按 (user_id, source_table, source_id) 取登记行；
+	// 没有这一行返回 Found=false 而不是错误——「没登记过」与「查库失败」分道不同。
+	SourceRecordByPointer(ctx context.Context, userID, sourceTable,
+		sourceID string) (SourceRecordState, error)
+	// MarkSourceRecordDeletedOnce 是**单向**翻转：谓词带 status <> 'deleted'，
+	// 回 false＝这一行早就翻过，调用方据此不再传播。
+	MarkSourceRecordDeletedOnce(ctx context.Context, id, userID string) (bool, error)
+	// RestoreSourceRecordStatus 只服务「翻转成功但传播中途失败」那一格：把状态收回，
+	// 让这条投递回到「还没翻过」，否则重投会被单向闸跳过、缺口永远补不回来。
+	// 谓词带 status = 'deleted'，回值是影响行数。
+	RestoreSourceRecordStatus(ctx context.Context, id, userID, status string) (int64, error)
+	// ListEvidenceIDsForSource 取这条登记行支撑的 evidence id（传播的分母）。
+	ListEvidenceIDsForSource(ctx context.Context, userID, sourceRecordID string) ([]string, error)
 
 	// ── N7：投递面（18 §2/§8：投递行与幂等行都要和权威态变更同事务）───────────
 	// EnqueueOutbox 写一行待投递消息。message_id 撞 UNIQUE 就是 bug（18 §10：

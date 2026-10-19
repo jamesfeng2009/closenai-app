@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -137,6 +138,13 @@ func (f *fakeStore) ListDerivedSupportForEvidence(ctx context.Context, userID,
 	evidenceID string) ([]DerivedSupport, error) {
 	if f.readErr != nil {
 		return nil, f.readErr
+	}
+	// T2-06：让指定那一条 evidence 的传播失败，是「翻转已提交、传播中途断」那格的靶。
+	if f.failPropagateFor != "" && f.failPropagateFor == evidenceID {
+		return nil, errors.New("fake: 传播中途失败")
+	}
+	if rows, ok := f.derivedBy[evidenceID]; ok {
+		return rows, nil
 	}
 	return f.derived, nil
 }

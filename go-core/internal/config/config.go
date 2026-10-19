@@ -71,6 +71,17 @@ type Config struct {
 	// 这是本结构里唯一的 Go-only 变量：CLOSEN_ 前缀与 domain 的数值闸同源，
 	// Python 侧没有对应字段，所以它不进上面的跨语言名单口径。
 	InsightEvidenceRead string
+	// GoServiceToken 是 `/internal/v3/*` 这一面的服务间凭据（ADR-002：Go 只暴露内部面，
+	// 鉴权用 `X-Service-Token`）。变量名刻意**不带 CLOSEN_ 前缀**：它两侧都读
+	// （Go 在这里，Python 在 backend/config.py 的 `go_service_token`），
+	// 而带前缀的那个约定是「只有 Go 认得的键」（对照 CLOSEN_PY_API_URL）。
+	//
+	// 空串的语义是「这一面不存在」，不是「不校验」：内部面今天没有部署侧的密钥，
+	// 拿默认值放行等于把一个未鉴权的写入口挂在一个 ClusterIP Service 上，
+	// 而集群里任何 Pod 都能拨。判据在 httpapi 的注册面（v3.go 的 gated），
+	// 不在这里报错——go-api 今天还要服务 N8 那十条切流域的路由，不能因为没配内部密钥就拒绝启动。
+	// 它属敏感项：只进 Secret `closenai-runtime`，不进 `10-config.yaml`。
+	GoServiceToken string
 }
 
 const defaultDatabaseURL = "sqlite+aiosqlite:///./closenai.db"
@@ -97,6 +108,7 @@ func Load() (Config, error) {
 		HTTPAddr:               envString("HTTP_ADDR", ":8000"),
 		ShutdownTimeoutSeconds: envInt("SHUTDOWN_TIMEOUT_SECONDS", 15),
 		InsightEvidenceRead:    envString("CLOSEN_INSIGHT_EVIDENCE_READ", "on"),
+		GoServiceToken:         envString("GO_SERVICE_TOKEN", ""),
 		PosthogAPIKey:          envString("POSTHOG_API_KEY", ""),
 		PosthogHost:            envString("POSTHOG_HOST", "https://eu.i.posthog.com"),
 		SiteURL:                envString("SITE_URL", "https://closenai.app"),

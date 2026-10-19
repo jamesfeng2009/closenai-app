@@ -7,10 +7,18 @@
 #   --build-arg GO_IMAGE=docker.m.daocloud.io/library/golang:1.27-alpine
 # 覆盖。运行层不用 gcr.io/distroless（拉不到），改用 alpine + ca-certificates：
 # 生产 DATABASE_URL 走 TLS，裸 alpine 没有 CA bundle 会连不上 Supabase。
+#
+# 2026-10-18 本机实测：proxy.golang.org 在容器内拉 module 中途 EOF（同一命令本机
+# 直连也断），与 docker.io 那类问题同源 ⇒ GOPROXY 同样做成 build-arg：默认写上游
+# 保持可移植，本机/国内 CI 用 --build-arg GOPROXY=https://goproxy.cn,direct 覆盖。
 ARG GO_IMAGE=golang:1.27-alpine
+ARG GOPROXY=https://proxy.golang.org,direct
 FROM ${GO_IMAGE} AS build
+# 全局 ARG 不进 stage 作用域，须在这里重新声明才能被 ENV 引用。
+ARG GOPROXY
 WORKDIR /src
 COPY go.mod go.sum ./
+ENV GOPROXY=${GOPROXY}
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /go-api ./cmd/go-api

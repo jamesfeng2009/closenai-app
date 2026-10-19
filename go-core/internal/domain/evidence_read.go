@@ -187,6 +187,21 @@ func NewInsightExplainer(reader InsightEvidenceReader, policy Policy) *InsightEx
 // 于是**不需要**为了「防越权」再写第二道检查；可见性判在其后，是为了让越权尝试与
 // 不存在都回同一个 404（回 403 等于告诉攻击者这颗 id 真实存在，N9-4）。
 func (e *InsightExplainer) Explain(ctx context.Context, userID, insightID string) (InsightEvidenceView, error) {
+	return e.explainWith(ctx, userID, insightID, isVisibleStatus)
+}
+
+// ExplainReturnable 是 T3-01 详情面用的那一支：取数、裁剪、memory_refs 一律同一条，
+// 只把可见性判据换成 `InsightReturnableStatuses`（多三个「用户自己表态造成的态」）。
+//
+// 为什么另开一支而不是给 `Explain` 加布尔参数：N9 那条端点的判据有它自己的闸与文案
+// （裁决七-7），一个参数会把「谁能看到」变成调用方的口头约定，而不是两个函数名。
+func (e *InsightExplainer) ExplainReturnable(ctx context.Context,
+	userID, insightID string) (InsightEvidenceView, error) {
+	return e.explainWith(ctx, userID, insightID, isReturnableStatus)
+}
+
+func (e *InsightExplainer) explainWith(ctx context.Context, userID, insightID string,
+	visible func(string) bool) (InsightEvidenceView, error) {
 	if userID == "" {
 		return InsightEvidenceView{}, errors.New("domain: insight evidence read needs an authenticated user")
 	}
@@ -194,7 +209,7 @@ func (e *InsightExplainer) Explain(ctx context.Context, userID, insightID string
 	if err != nil {
 		return InsightEvidenceView{}, err
 	}
-	if !isVisibleStatus(insight.Status) {
+	if !visible(insight.Status) {
 		return InsightEvidenceView{}, ErrInsightNotVisible
 	}
 

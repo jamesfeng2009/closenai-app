@@ -126,7 +126,9 @@
           }
         ],
         "policyVersion": "2026-10-12",
-        "promptVersion": "observe-v3"
+        "promptVersion": "observe-v3",
+        "sourceRef": "memories:0f1e2d3c-4b5a-4968-8a7b-9c0d1e2f3a4b",
+        "sourceOccurredAt": "2026-10-18T09:00:00Z"
       }
     },
     {

@@ -8,15 +8,17 @@ package domain
 
 // AllowedPropertyKeys 逐字对照 analytics_service.py::ALLOWED_PROPERTY_KEYS。
 var AllowedPropertyKeys = map[string]bool{
-	"screen":             true,
-	"screen_from":        true,
-	"screen_to":          true,
-	"section":            true,
-	"feature":            true,
-	"action":             true,
-	"source":             true,
-	"trigger":            true,
-	"result":             true,
+	"screen":      true,
+	"screen_from": true,
+	"screen_to":   true,
+	"section":     true,
+	"feature":     true,
+	"action":      true,
+	"source":      true,
+	"trigger":     true,
+	"result":      true,
+	// 失败原因的机器码（T1-04 付费交付可观测）；只允许枚举值，不许塞自由文本。
+	"reason":             true,
 	"duration_ms":        true,
 	"count":              true,
 	"value":              true,

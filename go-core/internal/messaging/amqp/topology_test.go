@@ -94,6 +94,10 @@ func TestDeclaredExchangesAreExactlyV3List(t *testing.T) {
 }
 
 // TestPurposeQueuesAreExactlyV3List：五个 purpose queue 名逐字取 14:50-55。
+//
+// 第六个 `go.source.deleted` 是本表里**唯一**一个 V3 之外补齐的队列（T2-06／B-08）。
+// 它必须逐字点名，不许写成「5＋N」：写成算式就等于允许任何人再往里塞第七个，
+// 而队列名一多，「这条消息到底有没有认领者」这件事在生产上就查不清了。
 func TestPurposeQueuesAreExactlyV3List(t *testing.T) {
 	want := testSet("ai.observation.extract", "ai.pattern.detect", "ai.insight.draft",
 		"ai.proactive.draft", "go.candidate.accept")
@@ -101,13 +105,14 @@ func TestPurposeQueuesAreExactlyV3List(t *testing.T) {
 	for _, r := range routes() {
 		got[r.Queue] = true
 	}
-	if len(got) != len(want) {
-		t.Fatalf("purpose queue 条数 %d ≠ 5：%v", len(got), got)
-	}
 	for name := range want {
 		if !got[name] {
 			t.Fatalf("缺队列 %s（14 §3 逐字）", name)
 		}
+		delete(got, name)
+	}
+	if len(got) != 1 || !got["go.source.deleted"] {
+		t.Fatalf("V3 那五条之外实得 %v，只准有 go.source.deleted 一条（T2-06 本地补齐）", got)
 	}
 }
 
@@ -223,18 +228,75 @@ func TestEventRoutesHaveNoQueueBound(t *testing.T) {
 	}
 }
 
+// TestEventRoutesAreClaimedByAQueue 是上面那条引线对面的**正向证人**。
+//
+// 为什么两条都要：`TestEventRoutesHaveNoQueueBound` 是一条「不许出现」型闸，
+// 把 `EventRoutes` 整段删掉它一样绿——而删掉的现网后果是
+// `go.source.deleted` 不再被声明，Python 投出的删除事件在没有绑定者的 exchange 上被 broker
+// 静默扔掉，两侧测试全绿、证据永远不失效。所以这里正向点名三件事：
+//  1. `EventRoutes` 至少一条，且逐字就是 T2-06 那一条（键＋队列＋exchange）；
+//  2. 它的键与十条领域事件键**互不相交** ⇒ `EventBindingGap` 那句话仍然成立；
+//  3. 真 `Declare()` 之后，这条键确实绑在了它自己的队列上，且队列在 purpose 队列清单里
+//     （有阶梯、有终态，而不是一个孤立队列）。
+func TestEventRoutesAreClaimedByAQueue(t *testing.T) {
+	if len(EventRoutes) != 1 {
+		t.Fatalf("EventRoutes 有 %d 条，本批只准有 source.deleted 一条：%v", len(EventRoutes), EventRoutes)
+	}
+	r := EventRoutes[0]
+	if r.RoutingKey != "source.deleted" || r.Queue != "go.source.deleted" ||
+		r.Exchange != ExchangeEvents || r.Kind != KindEvent {
+		t.Errorf("EventRoutes[0]=%+v，应为 source.deleted→go.source.deleted（%s，Kind=event）",
+			r, ExchangeEvents)
+	}
+	for _, key := range EventRoutingKeys() {
+		if key == r.RoutingKey {
+			t.Errorf("source.deleted 竟然在 domain 的十条事件键里 ⇒ EventBindingGap 的口径要重读")
+		}
+	}
+
+	// 队列必须在 purpose 清单里：不在就等于没有阶梯、没有终态，毒消息只能原地热转。
+	inPurpose := false
+	for _, p := range routes() {
+		if p.Queue == r.Queue {
+			inPurpose = true
+		}
+	}
+	if !inPurpose {
+		t.Errorf("%s 不在 routes() 的 purpose 清单里 ⇒ 它不会被 declarePurposeQueue 展开", r.Queue)
+	}
+
+	f := &fakeDeclarer{}
+	if err := Declare(f); err != nil {
+		t.Fatalf("Declare: %v", err)
+	}
+	if c := f.findBind(r.Queue, r.RoutingKey, ExchangeEvents); c == nil {
+		t.Errorf("真声明里没有把 %s 绑到 %s(%s) ⇒ 投进 %s 的删除事件没有认领者，broker 直接扔",
+			r.RoutingKey, r.Queue, ExchangeEvents, ExchangeEvents)
+	}
+	// 反过来：那十条仍然一条都不许有绑定（这条把引线的那句话打到真声明上，而不是只查表）。
+	for _, key := range EventRoutingKeys() {
+		for _, c := range f.calls {
+			if c.op == "queue-bind" && c.key == key {
+				t.Errorf("十条领域事件里的 %s 被绑到了队列 %s ⇒ R4 期的「无消费者」口径作废，"+
+					"要改的是 EventBindingGap 那句话与 contracts/events.md §四，不是偷偷绑上", key, c.name)
+			}
+		}
+	}
+}
+
 // ── 声明内容与参数 ────────────────────────────────────────
 
 // TestDeclareCreatesPurposeRetryAndFinalQueues：每条 purpose 路由要有
-// 本体＋三层显式重试队列＋一个终态死信队列 ⇒ 5×5＝25 个队列；
-// 绑定 7（全表键）＋15（阶梯）＋5（终态）＝27 次；exchange 声明 4 次。
+// 本体＋三层显式重试队列＋一个终态死信队列 ⇒ 6×5＝30 个队列
+// （五个 V3 队列＋T2-06 的 `go.source.deleted`）；
+// 绑定 8（全表键）＋18（阶梯）＋6（终态）＝32 次；exchange 声明 4 次。
 func TestDeclareCreatesPurposeRetryAndFinalQueues(t *testing.T) {
 	f := &fakeDeclarer{}
 	if err := Declare(f); err != nil {
 		t.Fatalf("Declare: %v", err)
 	}
-	if len(QueueNames()) != 25 {
-		t.Errorf("QueueNames 展开出 %d 个队列，应为 5 purpose ×（1＋3 层＋1 终态）＝25", len(QueueNames()))
+	if len(QueueNames()) != 30 {
+		t.Errorf("QueueNames 展开出 %d 个队列，应为 6 purpose ×（1＋3 层＋1 终态）＝30", len(QueueNames()))
 	}
 	declared := 0
 	for _, c := range f.calls {
@@ -242,8 +304,8 @@ func TestDeclareCreatesPurposeRetryAndFinalQueues(t *testing.T) {
 			declared++
 		}
 	}
-	if declared != 25 {
-		t.Errorf("真声明了 %d 个队列，应为 25", declared)
+	if declared != 30 {
+		t.Errorf("真声明了 %d 个队列，应为 30", declared)
 	}
 	if got := len(QueueNames()); got != declared {
 		t.Errorf("QueueNames()=%d 与实际声明 %d 不一致：生成出来的 contracts/events.md 会和 broker 上的拓扑漂", got, declared)

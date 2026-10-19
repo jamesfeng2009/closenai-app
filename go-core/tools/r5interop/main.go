@@ -15,9 +15,28 @@
 // 跑法（由 pytest 起停；手工跑法见 backend/tests/test_r5_interop_broker.py 头部）：
 //
 //	go run ./tools/r5interop -mode publish  -user u-1 -operation op-1
+//	go run ./tools/r5interop -mode observe  -user u-1 -operation op-obs-1
 //	go run ./tools/r5interop -mode consume   -user u-1 -candidate-id cand-abc
+//	go run ./tools/r5interop -mode consume   -user u-1 -expect-settled 2
 //	go run ./tools/r5interop -mode replay    -operation op-1
 //	go run ./tools/r5interop -mode cleanup   -user u-1 -operation op-1 -candidate-id cand-abc
+//
+// `-expect-settled` 默认 1（R5 那条链一条命令产一条候选）。T2-04 那条链上**一条
+// observation 命令产两条候选**，等满 2 条再 cancel 才不会出现「只结算了第一条就收工、
+// 第二条漂进下一轮」的假象。
+//
+// `observe` 是 T2-04 跨进程 E2E 加的那一档：`publish` 发的是 **pattern 段**的命令
+// （体内 `taskType` 与 `Kind: AITaskPattern` 都写死了），而 T2-04 要跑的链从
+// 「一行 `memories` 原文」出发，命令是 `observation` 段、体里带 `sourceRef`。
+// 两档共用同一条 outbox→dispatch 的尾巴，差别只在种什么夹具、拼什么体。
+//
+// `source` 与 `seedfact` 是 T2-06 事件面加的那两档。前者的生产者不是本命令而是 Python
+// （`backend/services/source_events.py` 在删除**提交之后**投 `closenai.events`），
+// 所以这一档只当消费者：起真 `inbound.NewSource` 认领 `go.source.deleted`，
+// 等这条面把事件结算掉再收工，报告里数的是 `InvalidateSource` 那一次。
+// 后者给传播种一个靶：`InvalidateSource` 只对「活支撑归零」的派生行改写状态
+// （O-6 的 `OnlyDependent`），而 T2-04 那条链只产 evidence、不产 fact——
+// 不种这一条，「删除把摊给用户的结论撤了」这件事在这条真链上就没有证人。
 //
 // 输出恒为一行 JSON（日志一律走 stderr），退出码 0＝观测采集成功，1＝这一跳没走到预期形态。
 package main
@@ -45,16 +64,20 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
 
-// 参数面只有五个：库与 broker 走 env（与 cmd/go-api 同两个键，凭据不进命令行也不进日志），
+// 参数面只有这几个：库与 broker 走 env（与 cmd/go-api 同两个键，凭据不进命令行也不进日志），
 // 其余是这一条链的身份。`-candidate-id` **由对面 Python 的 candidate_message_id() 算好传进来**，
 // 本命令不自己抄一遍派生规则——第二套实现就是第二套口径，而这条规则恰恰是 D-R5-5 的落点。
 func main() {
-	mode := flag.String("mode", "", "publish|consume|replay|candidate|cleanup（必填）")
+	mode := flag.String("mode", "", "publish|observe|consume|replay|candidate|source|seedfact|cleanup（必填）")
 	user := flag.String("user", "", "本次夹具的用户 id（≤36，逐字对齐 outbox_messages.user_id 列宽）")
 	operation := flag.String("operation", "", "稳定逻辑操作 id＝命令的 message_id")
 	candidateID := flag.String("candidate-id", "", "候选的 message_id，由 Python 侧 candidate_message_id() 派生")
+	sourceEventID := flag.String("source-event-id", "", "source.deleted 事件的 message_id，由 Python 侧 source_deleted_message_id() 派生")
 	payload := flag.String("payload", "", "-mode candidate 要投的消息体（原样 JSON）")
 	deadlineSeconds := flag.Int("deadline-seconds", 90, "每一步等结果的上限")
+	// 默认 1 保住 R5 的语义；T2-04 那条链上**一条命令产两条候选**，只等第一条就 cancel
+	// 会把第二条留在队列里漂到下一轮，于是「这一轮 settle 了 2 条」永远读不成。
+	expectSettled := flag.Int("expect-settled", 1, "-mode consume：至少结算几条候选才算达成")
 	flag.Parse()
 
 	// stdout 只许有一行 JSON：pytest 要解析它，而 dispatch/inbound 的日志、amqp091 的
@@ -64,13 +87,14 @@ func main() {
 
 	rep := &report{Mode: *mode, User: *user, Operation: *operation,
 		CandidateMessageID: *candidateID,
+		SourceEventID:      *sourceEventID,
 		// 这两格**永远都在**（见 report 里的注释）：本命令的产物是观测值，
 		// 「观测到零次领域调用」必须写成 `{}`，不能写成「这一格不存在」——
 		// 后一种形态下，pytest 那条 `admissions == {}` 会先撞 KeyError，
 		// 于是失败信息指向工具而不是指向那一跳。
 		Admissions: map[string]int{}, Settled: []settled{}}
-	err := run(rep, *mode, *user, *operation, *candidateID, *payload,
-		time.Duration(*deadlineSeconds)*time.Second)
+	err := run(rep, *mode, *user, *operation, *candidateID, *sourceEventID, *payload,
+		time.Duration(*deadlineSeconds)*time.Second, *expectSettled)
 	rep.OK = err == nil
 	if err != nil {
 		rep.Fail = err.Error()
@@ -88,23 +112,36 @@ func main() {
 // report 是观测值，不是断言。字段按模式复用，空值一律 omitempty，
 // 好让 pytest 的失败信息里只出现这一轮真的观察到的东西。
 type report struct {
-	Mode               string         `json:"mode"`
-	OK                 bool           `json:"ok"`
-	Fail               string         `json:"fail,omitempty"`
-	User               string         `json:"user,omitempty"`
-	Operation          string         `json:"operation,omitempty"`
-	CommandMessageID   string         `json:"command_message_id,omitempty"`
-	CandidateMessageID string         `json:"candidate_message_id,omitempty"`
-	EvidenceIDs        []string       `json:"evidence_ids,omitempty"`
-	SourceRecordIDs    []string       `json:"source_record_ids,omitempty"`
-	Payload            string         `json:"payload,omitempty"`
-	OutboxRowID        string         `json:"outbox_row_id,omitempty"`
-	OutboxStatus       string         `json:"outbox_status,omitempty"`
-	OutboxAttempts     int            `json:"outbox_attempts,omitempty"`
-	BodyBytes          int            `json:"body_bytes,omitempty"`
-	PendingBefore      int            `json:"pending_before,omitempty"`
-	DispatchStats      map[string]any `json:"dispatch_stats,omitempty"`
-	InboundStats       map[string]any `json:"inbound_stats,omitempty"`
+	Mode               string `json:"mode"`
+	OK                 bool   `json:"ok"`
+	Fail               string `json:"fail,omitempty"`
+	User               string `json:"user,omitempty"`
+	Operation          string `json:"operation,omitempty"`
+	CommandMessageID   string `json:"command_message_id,omitempty"`
+	CandidateMessageID string `json:"candidate_message_id,omitempty"`
+	// SourceEventID 只在 `-mode source`／`cleanup` 出现（T2-06 事件面）：这条 id 同样
+	// **由对面 Python 派生**，本工具不自己再算一遍 sha256——第二套派生实现就是第二套口径。
+	SourceEventID   string   `json:"source_event_id,omitempty"`
+	EvidenceIDs     []string `json:"evidence_ids,omitempty"`
+	SourceRecordIDs []string `json:"source_record_ids,omitempty"`
+	// MemoryID／MemoryContent／SourceRef 只在 `-mode observe` 那一档出现（T2-04 E2E）：
+	// 这一档种的夹具是一行 `memories`，而对面 handler 唯一的输入就是 `sourceRef` 指向的
+	// 那一行。报告里带上原文**不是**给 pytest 当断言用的——pytest 一律自己读库，
+	// 这三格只用于失败时能读出「种下去的到底是哪一行」。
+	MemoryID      string `json:"memory_id,omitempty"`
+	MemoryContent string `json:"memory_content,omitempty"`
+	SourceRef     string `json:"source_ref,omitempty"`
+	// FactID 只在 `-mode seedfact` 出现（T2-06 E2E 的传播靶）：pytest 一律自己读库复核，
+	// 这一格只用于失败时能读出「种下去的是哪一条 fact」。
+	FactID         string         `json:"fact_id,omitempty"`
+	Payload        string         `json:"payload,omitempty"`
+	OutboxRowID    string         `json:"outbox_row_id,omitempty"`
+	OutboxStatus   string         `json:"outbox_status,omitempty"`
+	OutboxAttempts int            `json:"outbox_attempts,omitempty"`
+	BodyBytes      int            `json:"body_bytes,omitempty"`
+	PendingBefore  int            `json:"pending_before,omitempty"`
+	DispatchStats  map[string]any `json:"dispatch_stats,omitempty"`
+	InboundStats   map[string]any `json:"inbound_stats,omitempty"`
 	// 这两个字段**不带 omitempty**：调用计数为零是这一轮最重要的观测之一
 	// （`admissions == {}` 就是「第二次投递没生效」的判据），省掉那一格等于
 	// 把「观察到零次」和「工具没报」压成同一个 JSON 形态。
@@ -122,31 +159,41 @@ type report struct {
 // 事务里，但它**不是**「这条消息又进门了一次」。把它混进 Admits 会让上面那句验收
 // 的计数语义随接线漂移——接了门就多 1、摘了门就少 1，而 duplicate 那格的判据
 // 本来是「第二次投递一次领域写都不许有」，两套语义挤一个计数器迟早读错。
+//
+// `Invalidates` 同理单列（T2-06）：事件面那条 `InvalidateSource` 既不产候选也不请下一段，
+// 把它并进 Admits 会让候选面那句「admits==1」在两条面之间来回改义。
 type settled struct {
-	MessageID string `json:"message_id"`
-	Status    string `json:"status"`
-	Ack       bool   `json:"ack"`
-	Admits    int    `json:"admits"`
-	FollowUps int    `json:"follow_ups"`
-	Detail    string `json:"detail,omitempty"`
-	Err       string `json:"err,omitempty"`
+	MessageID   string `json:"message_id"`
+	Status      string `json:"status"`
+	Ack         bool   `json:"ack"`
+	Admits      int    `json:"admits"`
+	FollowUps   int    `json:"follow_ups"`
+	Invalidates int    `json:"invalidates"`
+	Detail      string `json:"detail,omitempty"`
+	Err         string `json:"err,omitempty"`
 }
 
-func run(rep *report, mode, user, operation, candidateID, payload string,
-	deadline time.Duration) error {
+func run(rep *report, mode, user, operation, candidateID, sourceEventID, payload string,
+	deadline time.Duration, expectSettled int) error {
 	switch mode {
 	case "publish":
 		return publish(rep, user, operation, deadline)
+	case "observe":
+		return observe(rep, user, operation, deadline)
 	case "consume":
-		return consume(rep, user, candidateID, deadline)
+		return consume(rep, user, candidateID, expectSettled, deadline)
 	case "replay":
 		return replay(rep, operation, deadline)
 	case "candidate":
 		return publishCandidate(rep, user, candidateID, payload, deadline)
+	case "source":
+		return source(rep, sourceEventID, expectSettled, deadline)
+	case "seedfact":
+		return seedFactMode(rep, user)
 	case "cleanup":
-		return cleanup(rep, user, operation, candidateID)
+		return cleanup(rep, user, operation, candidateID, sourceEventID)
 	default:
-		return fmt.Errorf("未知 -mode %q（publish|consume|replay|candidate|cleanup）", mode)
+		return fmt.Errorf("未知 -mode %q（publish|observe|consume|replay|candidate|source|seedfact|cleanup）", mode)
 	}
 }
 
@@ -239,6 +286,83 @@ func publish(rep *report, user, operation string, deadline time.Duration) error 
 	}
 	rep.Payload = string(body)
 
+	return requestAndDispatch(ctx, rep, db, canonical, svc, url, user, operation,
+		domain.AITaskPattern, rep.Payload, deadline)
+}
+
+// ── observe：一行 memories 原文 → observation 段的命令 → 真 broker ──
+
+// observeMemoryContent 是这一档种下去的**用户原文**（T2-04 E2E 唯一的输入面）。
+//
+// 为什么写死在这里而不是由对面传进来：对面那个 handler 读的正是这一行，
+// 「摘录是原文子串」这条判据要的输入只有一个来源——如果原文由测试脚本传，
+// 那两侧各拿一份拷贝，子串校验测的就成了「两份同一个常量互相比对」。
+// 这一格真正被钉住的是：库里的 `memories.content` 是唯一事实源，
+// pytest 侧要拿它必须自己 `SELECT`。
+//
+// 两条款（「这周有三天加班到十点以后」／「回家还是刷手机到一点多才睡」）会被对面的
+// 假模型原样引用，第三条 fabricated 的那句**不在这里**——那是子串闸的靶。
+const observeMemoryContent = "这周有三天加班到十点以后，回家还是刷手机到一点多才睡，第二天早上整个人都很疲惫。"
+
+// observe 走完「种用户 ＋ 种一行 memories → 决策事务内入队一条 observation 命令 →
+// 起真 outbox worker 把它发出去」，是 T2-04 E2E 的第一跳。
+//
+// 它模拟的是**生产还没有的那个发射点**（T2-02 结案⑥：`followUpAfter` 只有 fact→pattern、
+// pattern→insight 两条边，没有任何地方发 observation）。所以这一档不是「现网形状」，
+// 而是「发射点接上之后该发的字节」——体由正门 `domain.TaskRequestBody` 拼，
+// 不在这里手搓 map：手搓会绕过 `ValidateSourceRef`，而那条闸管的就是这一格。
+func observe(rep *report, user, operation string, deadline time.Duration) error {
+	if user == "" || operation == "" {
+		return fmt.Errorf("observe 需要 -user 与 -operation")
+	}
+	ctx := context.Background()
+	db, err := pool(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	url, err := brokerURL()
+	if err != nil {
+		return err
+	}
+	canonical := store.NewCanonical(db)
+	svc := domain.NewService(canonical, domain.DefaultPolicy())
+
+	if err := seedUser(ctx, db, user); err != nil {
+		return err
+	}
+	// 时刻取**整秒**并显式写入 created_at：`SourcePointer.occurredAt` 是 protojson 的
+	// Timestamp，对面 `checkEvidenceCandidate` 拿它与 s.now() 比——用带微秒的 DB 默认值
+	// 再格式化成 RFC3339 秒，读回来的时刻与命令体里那串会差不到一秒但方向不定，
+	// 于是「晚于当下」这一格变成一次抖动而不是判定。
+	at := time.Now().UTC().Truncate(time.Second)
+	memoryID, err := seedMemory(ctx, db, user, observeMemoryContent, at)
+	if err != nil {
+		return err
+	}
+	ref := "memories:" + memoryID
+	body, err := domain.TaskRequestBody(domain.AITaskObservation, domain.KindFact,
+		memoryID, ref, at.Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("拼 observation 命令体：%w", err)
+	}
+	rep.MemoryID, rep.MemoryContent, rep.SourceRef = memoryID, observeMemoryContent, ref
+	rep.Payload = body
+	// 上面三格都是**这一档自己**报的观测，pytest 一条都不当断言用（见 report 的注释）：
+	// 命令体的 ref、原文、行 id 全部由 pytest 直接从库里读回来对账。
+	return requestAndDispatch(ctx, rep, db, canonical, svc, url, user, operation,
+		domain.AITaskObservation, body, deadline)
+}
+
+// requestAndDispatch 是 publish／observe 两档共用的尾巴：把命令体在**决策事务内**入队，
+// 再起真 outbox worker 等这一行变成 published。
+//
+// 入队必须在调用方事务里（domain.RequestAITask 的那条取舍）：这里用 canonical.InTx 把
+// 「决策」与「因它而发的命令」装进同一笔 COMMIT，所以这条链测的是生产的形状，
+// 不是「先写库再补一条 outbox」那种永远撞不到的形状。
+func requestAndDispatch(ctx context.Context, rep *report, db *pgxpool.Pool,
+	canonical *store.Canonical, svc *domain.Service, url, user, operation string,
+	kind domain.AITaskKind, body string, deadline time.Duration) error {
 	pendingBefore, err := countPendingOutbox(ctx, db)
 	if err != nil {
 		return err
@@ -247,7 +371,7 @@ func publish(rep *report, user, operation string, deadline time.Duration) error 
 
 	err = canonical.InTx(ctx, func(inner context.Context, st domain.Store) error {
 		return svc.RequestAITask(inner, st, domain.AITaskRequest{
-			Kind: domain.AITaskPattern, UserID: user, OperationID: operation, Payload: rep.Payload,
+			Kind: kind, UserID: user, OperationID: operation, Payload: body,
 		})
 	})
 	if err != nil {
@@ -312,9 +436,13 @@ func publish(rep *report, user, operation string, deadline time.Duration) error 
 
 // ── consume：真 broker → 真 inbound worker → 真 domain 入口 → 真 canonical 表 ──
 
-func consume(rep *report, user, candidateID string, deadline time.Duration) error {
+func consume(rep *report, user, candidateID string, expectSettled int,
+	deadline time.Duration) error {
 	if user == "" {
 		return fmt.Errorf("consume 需要 -user")
+	}
+	if expectSettled < 1 {
+		return fmt.Errorf("-expect-settled 至少 1，收到 %d", expectSettled)
 	}
 	ctx := context.Background()
 	db, err := pool(ctx)
@@ -355,10 +483,10 @@ func consume(rep *report, user, candidateID string, deadline time.Duration) erro
 	go func() { done <- candidates.Run(runCtx) }()
 
 	waitErr := wait(deadline, func() bool {
-		if candidateID != "" {
-			return rec.hasSettled(candidateID)
+		if rec.count() < expectSettled {
+			return false
 		}
-		return rec.count() >= 1
+		return candidateID == "" || rec.hasSettled(candidateID)
 	})
 	stats := candidates.Stats()
 	rep.InboundStats = inboundView(stats)
@@ -370,6 +498,75 @@ func consume(rep *report, user, candidateID string, deadline time.Duration) erro
 	}
 	if waitErr != nil {
 		return fmt.Errorf("等到现在共结算 %d 条：%w", rec.count(), waitErr)
+	}
+	return nil
+}
+
+// ── source：真 broker → 真事件面 worker → 真 InvalidateSource → 真 canonical 表 ──
+
+// source 是 `-mode source`：起**真** `inbound.NewSource` 认领 `go.source.deleted`，
+// 等这条面把事件结算掉再收工。
+//
+// 为什么单开一档而不是复用 `consume`：那台 Runner 认的是候选队列，队列名与幂等
+// consumer 名都写死在 `inbound.New` 里；把两条面塞进同一档参数，就得让工具自己拼
+// 「这次用哪个 consumer」——那是在本工具里再造第三套拓扑口径。
+// `-source-event-id` 同样由对面 Python 派生（见 report 的注释），本工具不算 sha256。
+func source(rep *report, sourceEventID string, expectSettled int,
+	deadline time.Duration) error {
+	if expectSettled < 1 {
+		return fmt.Errorf("-expect-settled 至少 1，收到 %d", expectSettled)
+	}
+	ctx := context.Background()
+	db, err := pool(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	url, err := brokerURL()
+	if err != nil {
+		return err
+	}
+	canonical := store.NewCanonical(db)
+	rec := &recorder{inner: domain.NewService(canonical, domain.DefaultPolicy())}
+
+	events, err := inbound.NewSource(inbound.Deps{
+		Dial: func(c context.Context, u string, timeout time.Duration) (inbound.Session, error) {
+			sess, err := amqp.Dial(c, u, timeout)
+			if err != nil {
+				return nil, err
+			}
+			return sess, nil
+		},
+		// 与 `consume` 同一层计数包装：只有把 recorder 套在**真 Service** 之前，
+		// 「这条删除事件引起了一次传播」才是这一条投递的观测，而不是进程级的总数。
+		Domain: rec,
+		Switch: inbound.Switch{Enabled: true, URL: url,
+			Prefetch: inbound.DefaultPrefetch, MaxBodyBytes: inbound.DefaultMaxBodyBytes,
+			DialTimeout: 10 * time.Second, DrainTimeout: 10 * time.Second},
+		Log: stderrLog(),
+	})
+	if err != nil {
+		return fmt.Errorf("装配 source worker：%w", err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- events.Run(runCtx) }()
+
+	waitErr := wait(deadline, func() bool {
+		if rec.count() < expectSettled {
+			return false
+		}
+		return sourceEventID == "" || rec.hasSettled(sourceEventID)
+	})
+	rep.InboundStats = inboundView(events.Stats())
+	rep.Settled = rec.snapshot()
+	rep.Admissions = rec.admissions()
+	cancel()
+	if err := <-done; err != nil {
+		return fmt.Errorf("source worker 退出带回错误：%w", err)
+	}
+	if waitErr != nil {
+		return fmt.Errorf("等到现在共结算 %d 条事件：%w", rec.count(), waitErr)
 	}
 	return nil
 }
@@ -391,15 +588,19 @@ var _ inbound.Domain = (*recorder)(nil)
 func (r *recorder) ConsumeIdempotent(ctx context.Context, msg domain.InboundMessage,
 	fn func(context.Context, domain.Store) error) (domain.ConsumeResult, error) {
 	beforeAdmit, beforeFollow := r.admitCount(), r.followUpCount()
+	beforeInvalidate := r.invalidateCount()
 	res, err := r.inner.ConsumeIdempotent(ctx, msg, fn)
 	afterAdmit, afterFollow := r.admitCount(), r.followUpCount()
+	afterInvalidate := r.invalidateCount()
 	r.mu.Lock()
 	// 每条领域入口各算一次：三类候选的进门判据不同（D-R5-8），但「这条消息有没有引起
 	// 领域写」在验收里是同一件事，所以这里合并成一个 admits 计数；
 	// 命令入队（D-G14-②）另走 follow_ups，理由见 settled 的注释。
 	r.seen = append(r.seen, settled{MessageID: msg.MessageID, Status: string(res.Status),
 		Ack: res.Ack, Admits: afterAdmit - beforeAdmit,
-		FollowUps: afterFollow - beforeFollow, Detail: res.Detail, Err: errText(err)})
+		FollowUps:   afterFollow - beforeFollow,
+		Invalidates: afterInvalidate - beforeInvalidate,
+		Detail:      res.Detail, Err: errText(err)})
 	r.mu.Unlock()
 	return res, err
 }
@@ -417,6 +618,17 @@ func (r *recorder) AdmitEvidence(ctx context.Context, c domain.EvidenceCandidate
 func (r *recorder) AdmitProactive(ctx context.Context, c domain.ProactiveCandidate) (domain.ProactiveResult, error) {
 	r.bump("AdmitProactive")
 	return r.inner.AdmitProactive(ctx, c)
+}
+
+// InvalidateSource 逐字转交（T2-06 事件面）。
+//
+// 它**不进** admitCount：那三个名字数的是「候选进门」，而删除传播不产出候选。
+// 把它混进那个计数会让 `admits == 1` 那句验收变成「要么候选要么删除」，
+// 两种东西共用一个断言＝哪一种丢了都看不出来。
+func (r *recorder) InvalidateSource(ctx context.Context,
+	p domain.SourcePointer) (domain.SourceInvalidation, error) {
+	r.bump("InvalidateSource")
+	return r.inner.InvalidateSource(ctx, p)
 }
 
 // RequestAITask 同样逐字转交：候选入库后那条「请下一段」的命令（D-G14-②）
@@ -449,6 +661,11 @@ func (r *recorder) admitCount() int {
 // followUpCount 数 D-G14-② 那条「候选入库后请下一段」的命令入队次数。
 func (r *recorder) followUpCount() int {
 	return r.countNames("RequestAITask")
+}
+
+// invalidateCount 数 T2-06 事件面那条传播入口的累计调用（不含候选进门）。
+func (r *recorder) invalidateCount() int {
+	return r.countNames("InvalidateSource")
 }
 
 func (r *recorder) countNames(names ...string) int {
@@ -614,7 +831,7 @@ func publishCandidate(rep *report, user, candidateID, payload string, deadline t
 // `inbox_messages` 没有 user 列（18 §7 的唯一键是 (message_id, consumer)），
 // 只能拿对面算好的候选 id 当删除条件——所以那条 id 必须由 Python 传进来，
 // 在这里再实现一遍派生规则就是自己造第二套口径。
-func cleanup(rep *report, user, operation, candidateID string) error {
+func cleanup(rep *report, user, operation, candidateID, sourceEventID string) error {
 	if user == "" {
 		return fmt.Errorf("cleanup 需要 -user")
 	}
@@ -642,6 +859,11 @@ func cleanup(rep *report, user, operation, candidateID string) error {
 		{`DELETE FROM source_records WHERE user_id = $1`, []any{user}},
 		{`DELETE FROM personal_models WHERE user_id = $1`, []any{user}},
 		{`DELETE FROM outbox_messages WHERE user_id = $1`, []any{user}},
+		// `-mode observe` 种的夹具是一行 `memories`（T2-04 E2E 的输入面）。
+		// 它不在 N2 的 canonicalTables 清理清单里（`canonical_integration_test.go:35` 那张表
+		// 只收 N2 新表），所以这一条只能写在这里——残留的原文行不影响下一轮的唯一键，
+		// 但会让「这个用户名下有几行原文」这件事在库里对不上账。
+		{`DELETE FROM memories WHERE user_id = $1`, []any{user}},
 	} {
 		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", stmt.sql, err))
@@ -660,6 +882,20 @@ func cleanup(rep *report, user, operation, candidateID string) error {
 		if _, err := db.Exec(ctx,
 			`DELETE FROM inbox_messages WHERE message_id = $1 AND consumer = $2`,
 			id, inbound.Consumer); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	// 事件面那一档的认领位：consumer 名**必须是** `inbound.SourceDeletedConsumer`。
+	// 拿候选面那个名来删＝什么都没删掉（两条面各自一条幂等键，正是 T2-06 的落点），
+	// 于是下一轮同一行原文的删除事件会被判成 duplicate 而静默跳过。
+	for _, id := range strings.Split(sourceEventID, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, err := db.Exec(ctx,
+			`DELETE FROM inbox_messages WHERE message_id = $1 AND consumer = $2`,
+			id, inbound.SourceDeletedConsumer); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
@@ -691,7 +927,30 @@ func seedUser(ctx context.Context, db *pgxpool.Pool, user string) error {
 	return nil
 }
 
+// seedMemory 种一行**用户手写的原文**（`source='self'`、`status='current'`、未软删）。
+//
+// 为什么直连 SQL 而不是走 Store：`memories` 是 legacy 表，Go 的写入口只有 Python 那边
+// （`backend/services/memory_service.py`），Store 面根本没有这个方法——
+// 这一档要种的恰恰是「对面那句『按 sourceRef 读回那一行』读得到的那一行」，
+// 直连 SQL 是唯一不把 legacy 表拖进 canonical 写面的写法。
+// 四个 NOT NULL 且无默认值的列一个都不许省（实测 information_schema：
+// category/content/status/conviction_score/source/drift_score）。
+func seedMemory(ctx context.Context, db *pgxpool.Pool, user, content string,
+	at time.Time) (string, error) {
+	id := idgen.New()
+	_, err := db.Exec(ctx, `
+		INSERT INTO memories (id, user_id, category, content, status, conviction_score,
+			source, drift_score, created_at, updated_at, deleted)
+		VALUES ($1, $2, 'factual', $3, 'current', 0.8, 'self', 0, $4, $4, false)`,
+		id, user, content, at)
+	if err != nil {
+		return "", fmt.Errorf("种 memories 行：%w", err)
+	}
+	return id, nil
+}
+
 // seedEvidence 种两条**已算分**的支撑证据（分日：03 §6 的同日观测只算一条独立支撑）。
+//
 // 走的是 domain.Store 的真写面，不碰 sqlc 生成物——那条闸（arch_test.go）管的是全模块，
 // 本命令在 tools/ 下也一样不许绕。
 func seedEvidence(ctx context.Context, canonical *store.Canonical, user string) ([]string, []string, error) {
@@ -741,6 +1000,90 @@ func countPendingOutbox(ctx context.Context, db *pgxpool.Pool) (int, error) {
 		return 0, fmt.Errorf("数待投行：%w", err)
 	}
 	return n, nil
+}
+
+// ── seedfact：给删除传播种一个「仅依赖这条来源」的靶（T2-06 E2E 的正向证人）──
+
+// seedFactMode 是 `-mode seedfact` 那一档：只种靶、不发消息、不碰 broker。
+//
+// 为什么这一档必须存在而不是由 pytest 直连 SQL 种：canonical 的写面在权威侧，
+// 让测试进程越过 Go 的 Store 往 `personal_facts` 里塞行，等于把「谁能写权威表」
+// 这件事在测试里先破一次例——而这一批证的恰恰是权威表怎么被改。
+func seedFactMode(rep *report, user string) error {
+	if user == "" {
+		return fmt.Errorf("seedfact 需要 -user")
+	}
+	ctx := context.Background()
+	db, err := pool(ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	factID, err := seedFact(ctx, db, store.NewCanonical(db), user)
+	if err != nil {
+		return err
+	}
+	rep.FactID = factID
+	return nil
+}
+
+// seedFact 在**这一轮真落库的 evidence** 上挂一条 `active` 的 personal_fact。
+//
+// 为什么这一格必须由 Go 来种而不是 pytest 直连 SQL：写 canonical 的是权威侧，
+// Python 侧没有那条写面（也不该有——`backend/ai/` 的边界闸禁的就是这个）。
+// 走的是 `domain.Store` 的真方法（EnsurePersonalModel／InsertFact／LinkEvidence），
+// 与 `seedEvidence` 同一档夹具，没绕 sqlc 生成物那道闸。
+//
+// 为什么非种不可：`InvalidateSource` 的传播面只对「活支撑归零」的派生行改写状态
+// （O-6 的 `OnlyDependent`）。T2-04 那条链只产 evidence、不产 fact，于是删除事件
+// 走完只翻登记行——那条最要紧的「依据没了，摊给用户的结论也得撤」就永远没有证人。
+// 挂上这一条 fact 之后，库里能读的就不止 `status='deleted'`，还有 `invalidated`
+// 与 `evidence_withdrawn` 那两格。
+func seedFact(ctx context.Context, db *pgxpool.Pool, canonical *store.Canonical,
+	user string) (string, error) {
+	var evidenceIDs []string
+	rows, err := db.Query(ctx,
+		`SELECT id FROM evidence WHERE user_id = $1 ORDER BY created_at, id`, user)
+	if err != nil {
+		return "", fmt.Errorf("读本轮 evidence 行：%w", err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return "", fmt.Errorf("扫 evidence id：%w", err)
+		}
+		evidenceIDs = append(evidenceIDs, id)
+	}
+	rows.Close()
+	if len(evidenceIDs) == 0 {
+		return "", fmt.Errorf("user=%s 名下一条 evidence 都没有 ⇒ 这个靶根本没接上", user)
+	}
+
+	factID := idgen.New()
+	err = canonical.InTx(ctx, func(inner context.Context, st domain.Store) error {
+		modelID, version, err := st.EnsurePersonalModel(inner, user)
+		if err != nil {
+			return err
+		}
+		if err := st.InsertFact(inner, domain.FactRow{
+			ID: factID, UserID: user, PersonalModelID: modelID,
+			SubjectKey: "user", Predicate: "t206_propagation_target",
+			ObjectValue: `{"value":"planted for T2-06 E2E"}`, Origin: "explicit_user",
+			// `active` 是 N3 判定过之后的形态：传播面要撤的正是「已经摊给用户的那条结论」，
+			// 种成 candidate 会让这一格测到的是另一条转移。
+			Status: "active", Confidence: 0.9, HasConfidence: true,
+			ObservedAt: time.Now().UTC(), ModelVersion: version,
+			GenerationRunID: idgen.New(),
+		}); err != nil {
+			return err
+		}
+		return st.LinkEvidence(inner, domain.KindFact, factID, user, evidenceIDs)
+	})
+	if err != nil {
+		return "", fmt.Errorf("种 fact 靶：%w", err)
+	}
+	return factID, nil
 }
 
 func readOutboxRow(ctx context.Context, db *pgxpool.Pool, messageID string) (id, status string, attempts int, err error) {
