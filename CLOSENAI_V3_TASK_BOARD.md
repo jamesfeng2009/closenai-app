@@ -54,8 +54,8 @@
 | 指标 | 值 |
 |---|---|
 | 任务总数 | **34** |
-| `DONE` | **28**（82%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T5-01、T5-02、T5-03、T5-04、T5-05、T6-01、T6-02） |
-| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **3**（T4-04、T6-03、T6-04） |
+| `DONE` | **29**（85%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T4-04、T5-01、T5-02、T5-03、T5-04、T5-05、T6-01、T6-02） |
+| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **2**（T6-03、T6-04） |
 
 | 波次 | 任务范围 | 完成/总数 | 出口标准 |
 |---|---|---|---|
@@ -63,7 +63,7 @@
 | W1 P0 合规 | `T1-01`…`T1-04` | 4/4 | 导出/consent/静默可用；付费交付指标可见 |
 | W2 证据链路 | `T2-01`…`T2-05`＋`T2-06`（2026-10-18 拆自 T2-03 第⑤件，前置 B-08） | 6/6 | 记忆 → source → evidence 跨进程跑通（**2026-10-19 由 T2-04 达成，同日 T2-06 把「来源被删 → 证据退场」的退场段也跑通一次，T2-05 补上死信面的读数与重放工具；三者都跑在测试里，产品流量仍是零**） |
 | W3 洞察纠错 | `T3-01`…`T3-05` | 5/5 | 用户能看到依据并纠正，纠正真落库（**2026-10-20 T3-05 后两半句都到了屏上：canonical 洞察卡逐条给出 excerpt/observed_at/来源标签、空证据不铺结论，六态反馈条＋纠错 Modal 走 T3-03 那条转发链落 `user_feedback`；「真落库」由 T3-02 的真库测 `TestG06CorrectFeedbackWritesAuthoritativeRows` 钉住。仍是零的是产品流量与真机取证——归 T6-04**） |
-| W4 行动闭环 | `T4-01`…`T4-04` | 3/4 | 洞察→行动→结果一条端到端（**2026-10-19 T4-01/02/03 后：三段的服务端与 `/api/v1` 转发链已各自跨进程跑通并进契约，「端到端」这半句要等 T4-04 的屏**） |
+| W4 行动闭环 | `T4-01`…`T4-04` | 4/4 | 洞察→行动→结果一条端到端（**2026-10-20 T4-04 后：那半句「端到端」到了屏上——洞察卡一枚 CTA → 弹层两步写（可先建目标）→ 行动区三分区行内完成/跳过 → 完成后四选一记结果，六条出口全走 T3-03 那条转发链，`truncated` 与 `changed=false` 各有第二句话。仍是零的两项：产品流量（真机 prebuild 未取证）与 `cancel`/`cancelled` 那一格（有词表无入口）**） |
 | W5 隐私与主动消息 | `T5-01`…`T5-05` | 5/5 | 关闭/静默/幂等三闸全绿（**2026-10-20 T5-04 补上第五格：`proactives` 八态从此有一条只读审计面＋CLI，「为什么没发出去」不再靠手抄 SQL**） |
 | W6 架构收敛 | `T6-01`…`T6-04` | 2/4 | 单一 DDL、单一事实源、隔离生效 |
 
@@ -99,7 +99,7 @@
 | T4-01 | Schema：commitments 加 `goal_id`/`skipped_at` | GO+BE | T6-03（建议） | W4 | DONE | — |
 | T4-02 | Go：goals/actions CRUD 与状态机 | GO | T4-01 | W4 | DONE | 2026-10-19 结案（§怎么做.2 的 `UpdateGoalStatus`／`GetGoalState` 按实况改判为复用既有语句，理由与四件套见详情结案行）：`domain/goal.go`＋`domain/service_goal.go`＋`store/goal_read.go`＋`httpapi/v3_goals.go` 六条内部端点＋BFF 六条转发（兑 T3-03 结案行那笔欠账）；契约重导 **106 paths／115 operations**；真库集成测 6 条、跨进程 e2e 15→19 条；Go **17 包 ok／779 PASS／0 FAIL**＋gofmt 零输出，pytest 全量 **1589 passed／4 skipped／0 failed**；变异 `scripts/mutate_t402_gates.py` 打红 **39/39**、保持绿 **5/5**、未跑 0、残留 0（第一轮 26/28 抓到两条「红点没落在点名判据上」，见详情） |
 | T4-03 | Go：outcomes 端点 | GO | T4-02 | W4 | DONE | 2026-10-19 结案（两处按实况改判：`OriginUserReported` 在词表里不存在⇒用 `OriginUserStatement`；result 收**六值**而不是工单的四值。理由与四件套见详情结案行）：`domain/action_outcome.go` 新入口（钉 origin/targets＋同日 UTC 幂等，事务体仍复用 `recordOutcomeWithin` ⇒ 写路径只有一条）＋`httpapi/v3_outcomes.go`＋`routes.go:141` 一条内部端点＋BFF 第十条转发；契约重导 **107 paths／116 operations**；闸 Go 11＋5＋3（`v3_internal_enabled_test.go` 兑 T4-02 登记的装配欠账）＋真库 6、Python 代理 7 函数／8 节点、e2e `CASE_PLAN` 19＋归零证人；Go **17 包 ok／804 PASS／0 FAIL**＋gofmt 零输出，pytest 全量 **1598 passed／4 skipped／0 failed**，结果面跨进程 **28 passed**；变异 `scripts/mutate_t403_gates.py` 打红 **40/40**、保持绿 **5/5**、未跑 0、残留 0（第一轮 37/39 抓到 DB2 等价变异＝测自己的数据把证人种错格子、P9 挂错闸＝两个已提交产物同源，均已修）；欠账登记：`operation_id` 无列只回显、目标级结果端点缺失 |
-| T4-04 | 前端：洞察→行动→结果闭环 | FE | T4-03 | W4 | TODO | — |
+| T4-04 | 前端：洞察→行动→结果闭环 | FE | T4-03 | W4 | DONE | 2026-10-20 结案（两处按工单实况改判：① 行动的唯一创建入口是 `POST /goals/{goal_id}/actions` ⇒ 弹层必须给「选目标／新建目标」两颗 chip，工单 §怎么做.1 那句「标题预填＋可选截止日」里没有这一格；② 屏上四选一只落 Go 六值里的 `better/same/worse/unknown`，`mixed`/`not_relevant` 不留位置。理由与四件套见详情结案行）：`api.ts` 六条封装（行号 581/586/598/617/634/659）＋`types` 七对 TS 接口逐字＝Go 的 `v3*Wire/Payload`＋`InsightsScreen` 行动弹层（两步写的失败恢复）＋`GrowthRecordsScreen` 三分区／行内两枚／结果四选一＋`actions.*` 29 扁平键＋result 四键 × 15 语言；契约重导后六行「前端调用」列从 `—` 变实指；闸 `actionsWiring.test.ts` **65 条**（八组判据）；实测 tsc 干净、jest **54 suites／1559 tests**、Go **19 包 ok／0 FAIL**＋gofmt 零输出、pytest **1598 passed／4 skipped／0 failed**；变异 `scripts/mutate_t404_gates.py` 打红 **46/46**、保持绿 **5/5**、未跑 **0**、残留 **0**（第一轮 42/46：C1/C2/C3 的 `it.each` 标题不印 Go 结构体名 ⇒ 红点定位不到、E3 变异体自己缩进写错导致假绿，均已修）；欠账：`cancel` 与 `cancelled` 有词表无入口、`goals` 的 PATCH 零前端消费者、真机 prebuild 未取证 |
 | T5-01 | `user_consents` 表与 API | BE | — | W5 | DONE | 2026-10-18 六用途台账表＋API＋兼容期双写＋注册默认；pytest 21 passed／迁移 a1c3e5f7b9d1 真 PG 实测；变异 B7、B8 打红 |
 | T5-02 | 静默时段（设置+投递门+UI） | BE+FE | — | W5 | DONE | 2026-10-18 两列 TIME＋PATCH 校验＋cron/推送双层门＋15 语言 UI；pytest 15／jest 29＋107＋tsc 0；变异 B1、B2、B4、B10、F1、F2、F3 打红 |
 | T5-03 | 幂等唯一约束（proactive/journey） | BE | — | W5 | DONE | 2026-10-18 部分唯一索引两条＋IntegrityError 幂等成功＋回填脚本 dry-run 默认；pytest 16／真 PG 23＋真并发同键 1 行；变异 B5、B6、B9 打红 |
@@ -914,7 +914,7 @@ ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无
 
 | 状态 | 负责 | 依赖 | 规模 |
 |---|---|---|---|
-| TODO | FE | T4-03 | L |
+| DONE | FE | T4-03 | L |
 
 **怎么做**
 1. **入口**：洞察详情底部「试一个小行动」→ 新建行动 Modal（标题预填洞察摘要、可选截止日）→ 成功后展示"已加入你的行动"。
@@ -926,6 +926,20 @@ ADR-004：Action 复用 `personal_commitments`，但现表没有 `goal_id`（无
 
 **验收**
 一条洞察 → 一个行动 → 一次结果，端到端在 jest + 真机（prebuild）各走一遍。
+
+> 结案 2026-10-20｜master 工作区｜**四件套**：入口＝`InsightsScreen` 每张洞察卡底部一枚 `actions.cta`（结论与依据都铺完、表过态之后才长出来，`evidence_count===0` 那一格压根没有这枚按钮）；执行＝六条封装 `listGoals(581)`／`listActions(586)`／`createGoal(598)`／`createAction(617)`／`transitionAction(634)`／`postActionOutcome(659)`，全部走 T3-03 那条 `/api/v1` 转发链，身份仍只从令牌解出（B5 证明前端拼 `X-User-Id` 会红）；交付＝`GrowthRecordsScreen` 的行动区（进行中／已完成／已跳过三分区 ＋ 行内「完成/跳过」两枚 ＋ 完成后弹「结果如何」四选一＋备注）；失败恢复＝两步写之间留住已建成的目标 id（重试只补行动那一步，不再建第二颗）、目标候选拉不到退成「新建一颗」并给重试、写结果失败**不关弹层**、`changed=false` 换第二句话「今天已经记过了」而不是报错。
+>
+> **两处按工单实况改判**（工单写于 T4-02 之前，屏的形状由服务端面决定）：① §怎么做.1 的「新建行动 Modal」不能只是标题＋截止日——行动的唯一创建入口是 `POST /goals/{goal_id}/actions`，所以弹层必须给「挑一颗目标」，而 `NEW_GOAL='__new__'` 只是本地键、绝不进请求体（G4 钉住）；② §怎么做.3 的四选一落 Go 的六值中的四格（`mixed`/`not_relevant` 无位置，「说不清」用 `unknown`，与 `action_outcome.go:96-99` 的缺省同格）。§怎么做.5 估「约 15 键」，实际 29 扁平键＋result 四键——多出来的是三态文案、幂等两句话、截断那一句，删不掉。
+>
+> **工单 §怎么做.2「复用 GrowthRecordsScreen，少一条路由」照做**，但代价当场撞到一条：那一屏原本有整屏 `if (loading) return`，它等的是**记录**那个数据源，会把刚接线的**行动**区一起吞掉（加载期间行动区根本不存在）。改成两段各一套三态、记录区自己有 spinner；E3 就是打这条判据的靶（也是本票实施过程中真犯过的错）。另一条同款：`truncated`（`ListCommitments`＝`created_at DESC`＋LIMIT 50）以前没人消费 ⇒ 第 51 条行动／第 51 颗目标在屏上等于不存在，两侧各补一句「更早的没显示」（E4/E5 分钉）。
+>
+> **新增闸**：`frontend/__tests__/actionsWiring.test.ts` **65 条**，八组判据按谎言分（① 出口逐字回台账行含「过滤器不是扫空集」的七条证人、② body 键名逐字＝Go `v3*Request`、③ 响应类型逐字＝Go `v3*Wire/Payload` 含可空 `string | null`、④ 词表指回 Go 且屏上不重述合法性、⑤ 三分区/三态/截断、⑥ 行内语义与幂等两句话、⑦ 两步写失败恢复、⑧ 15 本 locale 键集）；`insightEvidenceWiring.test.ts` 的重试计数 3→5（行动弹层目标候选那一处，注释登记五处来源）；`scripts/add_actions_i18n.py` 改成可重跑（缺键补进已有段，15 语言各 +1 键实测）。**没有复制既有闸**：⑧ 里「与英文同字」那条与 `i18nLocales.test.ts` 重叠，删掉了，改成「15 份同时少同一格」这条全表闸放不过的形状。
+>
+> **实测计数**：`npx tsc --noEmit` 零输出；`npx jest` 全量 **54 suites／1559 tests passed**（其中 `actionsWiring` 65、`i18nLocales` 107）；Go `gofmt -l .` 零输出、`go vet` 干净、`go test -p 1 ./... -count=1` **19 包 ok／0 FAIL**（`internal/store` 对真 PG `-v` 跑 **0 SKIP／0 FAIL**，真库测确实上了刀）；backend 全量带实库 **1598 passed／4 skipped／0 failed（129.34s）**；契约重导 **107 paths／116 operations**，六行「前端调用」列从 `—` 变 `api.ts:581/586/598/617/634/659`，`test_contract_freeze`／`dataExportWiring`／`orphanEndpoints` 三道回指行号的闸在重导后复绿。**变异自证** `scripts/mutate_t404_gates.py` 打红 **46/46**（① A1-A5、② B1-B5、③ C1-C4、④ D1-D6、⑤ E1-E7、⑥ F1-F6、⑦ G1-G8、⑧ H1-H5）、保持绿 **5/5**（GR1 屏内样式段插注释、GR2 同义中文换句、GR3 api.ts 末尾追加、GR4 catch 里提 `message` 的注释、GR5 契约表上方插 HTML 注释）、未跑 **0**、残留 **0**（八个靶类 copy2＋`filecmp(shallow=False)` 逐字节写回）。**第一轮 42/46，四条红点没落在点名判据上**：① C1/C2/C3 是**标题的问题**——`it.each(pairs)('%s ↔ %s：…')` 打出来的是「TS 名 ↔ Go 文件名」，两侧名字对不上 marker（测的是对的，定位不到的是标题），把格式补成 `（Go 的 %s）` 后三条都按名红；② E3 是**变异体自己写错**——那条判据的锚定正则要 `return` 前 4 个空格，我把早退块插成 4/6 空格缩进，套件全绿（假绿），改成组件体的真实缩进后红。教训：jest 侧的 marker 必须是打印出来的那一行，而变异体的缩进属于被测文本形状的一部分，不能随手写。
+>
+> **一条断言单独取证的**：H2（15 本 locale 同时少 `truncated` 同一格）声称 `i18nLocales` 那道全表键集闸放得过它——实测在该变异态下 `npx jest __tests__/i18nLocales.test.ts` **107 passed／exit 0**，仍全绿，兜住它的是本票 ⑧ 的「en 29 格计数」＋「屏上用的每个键必须在册」两条（恢复后逐字节复核 0 残留）。
+>
+> **发现缺陷（本票不顺手修，登记）**：① **`cancel` 动词零入口**——Go 的 `lifecycleVerbs` 三格、屏上只发两格（D2 钉住不发状态词，但第三格到 T4-04 结案仍是零消费者），归工单外的第四枚按钮，需产品定夺「取消」与「跳过」在屏上怎么区分；② **`cancelled` 态无分区**——三分区来自 §怎么做.2，被取消的行动在这一屏不可见（屏内注释已写明是登记过的缺口，不是漏写一格）；③ **`PATCH /api/v1/goals/{goal_id}` 零前端消费者**——目标改名/换状态在屏上没入口，契约行 44 的「前端调用」列仍 `—`；④ **`contracts/frontend-compat.md` §六 手写的 `api.ts` 行号没有自愈闸**（`endpoints.md` 那侧由 ① 组闸自愈，§六 靠人工），已在 §八 登记为已知代价；⑤ **结果只有行动级**——`goal_progress`/`goal_completed` 想记在目标上今天没有端点（T4-03 缺陷②在屏上的镜像）；⑥ **变异侧发现的闸形缺陷**——⑦ 那条 `indexOf('setCreatedGoalId(goalId)') < indexOf('setCreatedGoalId(null)')` 在「整行删除」时恒真（-1 小于任何数），所以那格缺陷由 G3 的 ternary 靶代证；要把存在性也钉上，归下一轮补闸。⑦ 真机面见下。**未跑**：工单 §验收 要的「真机（prebuild）那一遍」——本机没有 iOS 模拟器/真机取证条件，且 RN 屏在 jest 里挂不起来，这一屏的行为全部由**文本形状闸**代证（这是代证不是实测，真机取证归 **T6-04**）；生产／staging 集群部署与灰度同样未跑（本机无 kubeconfig）。
 
 ---
 

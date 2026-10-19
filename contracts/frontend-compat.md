@@ -110,6 +110,12 @@
 | `GET /memories`、`DELETE /memories/{id}` | `id`、`content`、`category`（枚举 `values\|preference\|relationship\|goal\|factual`）、`created_at` | `screens/MemoriesScreen.tsx:111,115`、`types/index.ts:78`；`services/evidence.ts:21-27` 用 `id/content/created_at` 现构 `memory_ref{memory_id,created_at,excerpt}` |
 | `GET /growth/records` | `records[].{id, content, tags, created_at}`、`records`（信封里 `total` 实测无人读）；`tags` 的值是**中文规范名**，前端按 `TAG_KEYS` 映射后才显本地化名 ⇒ 改名等于筛空 | `screens/GrowthRecordsScreen.tsx:70,91,101`、`types/index.ts:238` |
 | `GET /growth/topics` | `topics[].{tag, count, topic}`（`tag` 只作列表 key；整句文案读 `topic`，前端不自造句式） | `screens/GrowthRecordsScreen.tsx:191-194`、`types/index.ts:247` |
+| `GET /goals` | `items[].{id,title,description,status,started_at,target_at,completed_at,created_at,updated_at}` ＋ `truncated`（**没有游标**：Go 用 truncated 表达「还有更早的没给」，屏上必须说出口） | `services/api.ts:579-582`、`screens/InsightsScreen.tsx:324`、`screens/InsightsScreen.tsx:1075`、`types/index.ts:283-299` |
+| `POST /goals` | 请求 `{title, description, target_at}`；回执 `{goal_id,status,changed,event_id,model_version,detail}`（屏上只读 `goal_id` 与 `changed`） | `services/api.ts:593-602`、`screens/InsightsScreen.tsx:380-386`、`types/index.ts:323-330` |
+| `POST /goals/{goal_id}/actions` | 请求 `{title, description, due_at}`——**body 里没有 goal_id**（目标只由 path 给，两处给不同值就是无法两全的请求）；回执 `{action_id,goal_id,status,changed,event_id,model_version,detail}` | `services/api.ts:610-623`、`types/index.ts:333-341` |
+| `GET /actions` | `items[].{id,title,description,status,due_at,completed_at,skipped_at,goal_id,created_at,updated_at}` ＋ `truncated`；`goal_id` 与四个时间列**可空**（Go 是 `*string`/`*time.Time`，线上就是 `null`，前端写成 `""` 就长出空的分组标题） | `services/api.ts:585-587`、`screens/GrowthRecordsScreen.tsx:140`、`types/index.ts:302-320` |
+| `PATCH /actions/{action_id}` | 请求 `{action}`，值只许是 `complete`／`skip`／`cancel` 三个**动词**（不是状态词）；回执 `changed=false` 在屏上是第二句话而不是报错 | `services/api.ts:629-637`、`screens/GrowthRecordsScreen.tsx:165,184`、`types/index.ts:349` |
+| `POST /actions/{action_id}/outcomes` | 请求 `{outcome_type, result, note, occurred_at, operation_id}`，其中 `outcome_type` 前端固定 `commitment_completed` 一个字面量（其余八类会在 Go 的 `OutcomeTargetRequirement` 400）；`result` 用四格 `better\|same\|worse\|unknown`（Go 六值里的四格）；`operation_id` 只是**回显**（outcomes 无 metadata 列）；回执 `changed` 决定「记上了」还是「今天已记过」 | `services/api.ts:651-671`、`screens/GrowthRecordsScreen.tsx:206-213`、`types/index.ts:358-372` |
 
 ## 七、逐字兼容最小集（一句话版）
 
@@ -124,6 +130,20 @@
 
 ## 八、登记缺口（带日期，按「发现缺陷不顺手修」只记不补）
 
+- ↳ 2026-10-20 **T4-04 结案时暴露三条，都只记不补**：
+  ① `PATCH /api/v1/goals/{goal_id}` 仍是零消费者（`endpoints.md` 里那行的「前端调用」列是 `—`）——
+  目标级取消/完成在屏上没有入口，这一票只做到「行动」那一层的三个动词里的两个。
+  ② `GrowthRecordsScreen` 的分区只有 active/completed/skipped：**cancelled 的行动在这一屏不可见**
+  （屏上第 55 行把这一格写明是缺口，不是漏写第四格）。补齐它需要取消入口 + 第四分区 + 文案，
+  归下一票，不夹进 T4-04。
+  ③ 本文件 §六 新加的七行出处里也有手写的 `api.ts:NNN`，与 §一/§二 同一漂移病：
+  T4-04 往 `api.ts` 插了 123 行，`endpoints.md` 那一列由脚本自愈，**本文件这几处不会**。
+  真正有闸的是 `actionsWiring.test.ts` ①（它拿台账行的行号回指 api.ts 的那一条 path）。
+- ↳ 2026-10-20 **T4-02 登记的那笔欠账兑现**：`endpoints.md` 里
+  `GET /goals`、`POST /goals`、`POST /goals/{goal_id}/actions`、`GET /actions`、
+  `PATCH /actions/{action_id}`、`POST /actions/{action_id}/outcomes` 六行的「前端调用」列
+  从 `—` 变成 `frontend/src/services/api.ts:NNN`（重跑 `scripts/export_contract.py` 得回，
+  不是手填）。判据闸：`frontend/__tests__/actionsWiring.test.ts` ①。
 - ↳ 2026-10-15 **§七 的「48 条」是旧快照的数**：`endpoints.md` 第九节由脚本重导后实测为
   「98 里 64 个有前端调用点，其中 60 个的封装确实被屏/hook 接线，4 个封装未接线」。
   U1 接线 `/growth/records`、`/growth/topics` 两条，同日 U2 再接线三条 PDF
