@@ -174,7 +174,7 @@
 | 61 | POST | `/api/v1/iap/verify` | JSON 信封 | auth | frontend/src/services/api.ts:1008 | 200+422 | `ReceiptVerifyRequest`: is_sandbox, product_id*, receipt_data* | - | `backend/routers/subscription.py:31` `verify_receipt` |
 | 62 | GET | `/api/v1/insights` | JSON 信封 | auth | frontend/src/services/api.ts:510 | 200+422 | - | status(query), limit(query), cursor(query) | `backend/routers/v3.py:57` `list_insights` |
 | 63 | GET | `/api/v1/insights/{insight_id}` | JSON 信封 | auth | frontend/src/services/api.ts:520 | 200+422 | - | insight_id(path) | `backend/routers/v3.py:66` `get_insight` |
-| 64 | POST | `/api/v1/insights/{insight_id}/feedback` | JSON 信封 | auth | frontend/src/services/api.ts:538（封装未接线） | 200+422 | - | insight_id(path) | `backend/routers/v3.py:73` `post_insight_feedback` |
+| 64 | POST | `/api/v1/insights/{insight_id}/feedback` | JSON 信封 | auth | frontend/src/services/api.ts:538 | 200+422 | - | insight_id(path) | `backend/routers/v3.py:73` `post_insight_feedback` |
 | 65 | GET | `/api/v1/journey/events` | JSON 信封 | auth | frontend/src/services/api.ts:913 | 200 | - | - | `backend/routers/journey.py:30` `list_journey_events` |
 | 66 | POST | `/api/v1/journey/events/acknowledge` | JSON 信封 | auth | frontend/src/services/api.ts:918 | 200+422 | `JourneyAckRequest`: event_id* | - | `backend/routers/journey.py:39` `acknowledge_journey_event` |
 | 67 | GET | `/api/v1/memories` | JSON 信封 | auth | frontend/src/services/api.ts:741 | 200+422 | - | limit(query), category(query) | `backend/routers/memories.py:34` `list_memories` |
@@ -305,7 +305,7 @@ bearer 链接会把「导出」变成第二次泄露（`backend/services/export_
 
 - 扫法：`request<T>('/path')` 与 `${API_BASE}/path` 两类调用点（前端只有 api.ts 一处出口发请求，
   `services/api.ts:201` 统一 `fetch`、`:296` SSE 走 XHR，其余 service 均转调 api.ts）。
-- 结果：**116 个端点里 79 个有前端调用点，其中 77 个的封装确实被屏/hook 接线**。
+- 结果：**116 个端点里 79 个有前端调用点，其中 78 个的封装确实被屏/hook 接线**。
   「前端调用」列带 `（封装未接线）` 的 = api.ts 里有函数但全仓无人调用
   ⇒ 改这些端点的响应不会立刻炸 App，Go 切流可排在后；无标记的才是 P1 硬约束面。
 - 「前端调用」列写 `—（理由）` 的 = 前端连封装都没有、且理由已在
