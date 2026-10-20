@@ -1,7 +1,7 @@
 {
   "_about": "T6-04（2026-10-20）· staging/prod 库面隔离的用例表＝判据的**规格**，不是任何一侧的输出。",
   "_why_shared": "go-core/internal/config/env_isolation.go 与 backend/core/env_isolation.py 是两份**各自实现**的判据（跨语言铁律：断言两侧不许同源）。这张表把「什么形状该拒、什么形状必须放行」逐格写死，两侧各跑一遍：任何一侧改判据而没改规格，另一侧的闸就红。",
-  "_fields": "expect=refuse ⇒ CheckDBIsolation 必须返回错误；expect=allow ⇒ 必须返回 nil。fingerprints 是 PROD_DB_FINGERPRINTS 逗号分隔拆好后的列表。database_url 里的口令是假值（真凭据永不入库，同「凭据不入库」口径），它的存在是为了钉另一件事：拒绝启动的报错**不许**把整串回显出去。",
+  "_fields": "expect=refuse ⇒ CheckDBIsolation 必须返回错误；expect=allow ⇒ 必须返回 nil。refuse 有**两个来源**，这张表两边都放了格：命中黑名单指纹，以及「认得出是 PG 库串但拆不出可比字段」（坏端口、口令里的 #、只有 password 的 keyword 串）——后一种在 2026-10-20 之前是 return nil 放行，而它的方向是双写。fingerprints 是 PROD_DB_FINGERPRINTS 逗号分隔拆好后的列表。database_url 里的口令是假值（真凭据永不入库，同「凭据不入库」口径），它的存在是为了钉另一件事：拒绝启动的报错**不许**把整串回显出去。",
   "cases": [
     {
       "name": "staging_host逐字命中生产host",
@@ -138,6 +138,62 @@
       "fingerprints": ["prod.example.com"],
       "expect": "refuse",
       "reason": "空串走 envString 的默认值才是 development；直接递给判据时它必须是「不知道是哪一档」＝拒。"
+    },
+    {
+      "name": "staging_keyword形状命中生产host",
+      "environment": "staging",
+      "database_url": "host=db.prod.example.com dbname=postgres user=closenai password=FAKE_pw_not_real",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "libpq 的 keyword=value 形状。这不是假想形状：pgconn.ParseConfig 的文档逐字写着「connString may either be in URL format or keyword = value format」，所以这种串在 Go 侧照样建得了连。旧判据只认 URL，对它一个字都读不出来然后放行＝staging 档过闸连上生产库（2026-10-20 code review 抓到）。"
+    },
+    {
+      "name": "staging_keyword串指自己的库必须放行",
+      "environment": "staging",
+      "database_url": "host=postgres.staging.internal dbname=closenai_staging user=closenai password=FAKE_pw_not_real",
+      "fingerprints": ["prod.example.com", "closenai_prod"],
+      "expect": "allow",
+      "reason": "正向证人，钉住上一条不是「凡是 keyword 串都拒」：那种实现能把这张表全骗过，代价是运维第一天就绕闸。"
+    },
+    {
+      "name": "staging_大写scheme也要命中",
+      "environment": "staging",
+      "database_url": "POSTGRESQL://closenai:FAKE_pw_not_real@db.prod.example.com:5432/postgres",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "URL scheme 按 RFC 3986 不区分大小写，pgx 两种都接。只认小写时「把 DATABASE_URL 漂一下大小写」就是现成的绕过（与 keyword 那一格同一个方向）。"
+    },
+    {
+      "name": "staging_多host逗号任一格命中",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@db.staging.internal,db.prod.example.com:5432/postgres",
+      "fingerprints": ["db.prod.example.com"],
+      "expect": "refuse",
+      "reason": "libpq 与 pgx 都允许 `host=a,b` 那种多 host（HA）写法。整串逐字比会让它漏过——漏过的方向是双写，拆开最多多拒一次，本闸一律选后者（D-T604-5）。指纹刻意写**逐字 host**而不是域根：写 `prod.example.com` 时那条后缀规则会把整串也判中，这一格就变成等价用例、摘掉逗号拆分也照样绿（2026-10-20 变异自证实抓到的等价变异）。"
+    },
+    {
+      "name": "staging_坏端口读不出拒启",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE_pw_not_real@postgres.staging.internal:543x/closenai_staging",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "这一格的 host 是它自己的、不命中任何指纹，所以它只能被「读不出 ⇒ 拒启」这一支判红——把端口校验摘掉的那一侧会解析成功然后放行，两侧就在这格分家。Go 的 net/url.Parse 对坏端口直接报错，Python 的 urlsplit 不报，同一条串两侧必须同一个结论，而且必须是拒启：「闸没看懂这条串」从来不是「这条串安全」。"
+    },
+    {
+      "name": "staging_口令带hash读不出拒启",
+      "environment": "staging",
+      "database_url": "postgresql://closenai:FAKE#pw_not_real@db.prod.example.com:5432/postgres",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "口令里一个 # 就把 host 整段吃成 fragment，两个解析器都只剩空字段。真实 Supabase 口令就是随机 20 位、会出现 #。旧实现在这里 return nil＝放行。报错不许回显串本身（凭据不入日志）。"
+    },
+    {
+      "name": "staging_keyword串无非空键拒启",
+      "environment": "staging",
+      "database_url": "password=FAKE_pw_not_real port=5432",
+      "fingerprints": ["prod.example.com"],
+      "expect": "refuse",
+      "reason": "认得出是 keyword=value 形状、但 host/dbname/user 三个键一个都没有 ⇒ 无法比对 ⇒ 拒启。这一格钉的是「读不出」与「不是库串」两种空必须分开：sqlite 那格走的是后者，仍然放行。"
     }
   ]
 }

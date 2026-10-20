@@ -141,7 +141,7 @@ func (c Config) ShareLandingURL() string {
 func Load() (Config, error) {
 	cfg := Config{
 		AppName:                envString("APP_NAME", "ClosenAI"),
-		Environment:            envString("ENVIRONMENT", "development"),
+		Environment:            envSetString("ENVIRONMENT", "development"),
 		DatabaseURL:            envString("DATABASE_URL", defaultDatabaseURL),
 		JWTSecret:              envString("JWT_SECRET", ""),
 		JWTAlgorithm:           envString("JWT_ALGORITHM", "HS256"),
@@ -247,6 +247,22 @@ func (c Config) IsProtected() bool { return inList(ProtectedEnvironments, c.Envi
 
 func envString(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envSetString 是 ENVIRONMENT 专用的读法：**没设**才用默认值，**设了**（哪怕设成空串）
+// 就返回原值。与 pydantic 对 `environment: str = "development"` 的行为逐字同判
+// （backend/config.py:28 那个字段：环境变量为空时读到的就是 ""）。
+//
+// 为什么这一格不能沿用 envString：2026-10-20 code review 抓到，`ENVIRONMENT=`（半填的
+// .env、ConfigMap 里值为空的键）在旧读法下等于「没设」⇒ 回落 development，于是那台进程
+// 既不是受保护档（`X-User-Id` 设备身份透传），又在黑名单为空时不判库面隔离；
+// 而 Python 侧同一份 env 读成词表外的值、直接拒启。两侧对同一条 env 给两个结论时，
+// fail-open 那一侧就是实际生效的那一侧。
+func envSetString(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
 	return fallback
