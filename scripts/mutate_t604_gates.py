@@ -1,10 +1,48 @@
 #!/usr/bin/env python3
 """T6-04（staging／prod 隔离与切流键闸）的变异自证（2026-10-20）。
 
-靶文件十四个（Go 5：config.go／config/env_isolation.go／cutover/approval.go／cmd/go-api/main.go／
-httpapi/server.go；Python 4：core/env_isolation.py／main.py／core/auth.py／config.py；
-部署面 5：10-config.yaml／docker-compose.staging.yml／install-crontab.sh／crontab／README.md），
-红闸 44 条、绿闸 6 条。
+靶文件十七个（Go 5：config.go／config/env_isolation.go／cutover/approval.go／cmd/go-api/main.go／
+httpapi/server.go；Python 7：core/env_isolation.py／main.py／core/auth.py／config.py／
+database.py／alembic/env.py／services/email_service.py；部署面 5：10-config.yaml／
+docker-compose.staging.yml／install-crontab.sh／crontab／README.md），红闸 71 条、绿闸 9 条。
+
+**P6 的靶在本轮换过一次侧**（值得单独记，因为它改的是「破坏到没到达靶」这件事）：
+`backend/config.py` 的指纹字段改名，原先打的是 pytest 那条跨语言键名证人；批 2 把
+`require_db_isolation` 接到 `backend/database.py` 建引擎**之前**之后，同一个坏法在 Python 侧
+变成 import 期 `AttributeError` ⇒ 整份测试文件收集失败。按本脚本的纪律，`ERROR <节点>`
+不算打红（红的可能是环境，不是判据），所以这一格换到**不 import Python 的 Go 证人**
+`TestPythonSideReadsTheSameFingerprintKey`（读 `backend/config.py` 的文本）；P6b 再钉一次
+它的子串逃法（加小写前缀＝名字还在、env 键已换），I11c 把同一破坏在 pytest 那一侧也钉一次。
+
+**批 2（2026-10-20 的 code review 收官批）加的是「判据读不出这条串」那一族**：
+I16-I20 与 P9-P19 各自打红本批新写的判据级／装配级证人。三条口径记在这里免得下轮重猜：
+· 方向一律选拒启（D-T604-5 那句「读不出来的方向是双写，误伤的方向只是起不来」在同一格的应用）：
+  keyword=value（pgconn.ParseConfig 文档逐字支持两种形状）、大写 scheme、`host=a,b`、坏端口、
+  口令里的 `#`、只有 password 的串——旧判据对这六种一律 `return nil` 放行；
+· **解析器不同也要同判**（P13）：Go 的 `net/url` 对 `:543x` 报错、Python 的 `urlsplit` 不报，
+  所以 Python 侧要自己补那道端口校验，否则判据字面量两侧一样、结论却分家；
+  对应的用例格刻意用**不命中黑名单的 host**，这样它只能被「读不出」这一支判红；
+· **装配落点在建连前**（P16-P18）：判据原来只有 `main.py` 一个消费点，而引擎在
+  `backend/database.py` 顶层就建了——migrate／ai-rpc／worker 走不到 FastAPI 的 startup。
+  P17（顺序漂）与 P18（migrate 自己不调）是子进程靶抓不到的两格，只能由源码证人钉；
+  P16（线整条断）有真子进程靶，红的是「`import backend.database` 竟然非零退出」那句本身。
+· I20／P19 是**同一个破坏的两个证人**（Go 侧的 `TestExplicitEmpty…` ＋ Python 侧读 Go 源文本的
+  跨语言证人）：`ENVIRONMENT=` 与「没设」不是同一件事，Python（pydantic）读成空串拒启、
+  Go 旧读法回落 development，两侧两个结论时 fail-open 那一侧才是生效的那一侧。
+
+**批 3（P1-5：邮件那批测重定）加的是 E1-E5 ＋ GR9，三条口径记在这里**：
+· **档籍判据不许有第二份**：`email_service` 原先写 `settings.environment == "production"`，
+  既漏 `prod` 别名也漏 `staging`。这一格的后果形状不是报错而是**静默成功**——接口返回 ok
+  而邮件没发出去，用户被永久挡在登录外。所以 E1（退回字面量）红的是 staging 那条行为测、
+  E2（换成 `is_production`：认 prod 别名却仍不认 staging）红的是**遍历那张表**的循环证人、
+  E4（把 `raise` 掏空）红的是 prod 别名那条——三条各打一个入射角，不是同一条测重复三次。
+· **反向收紧也要红**（[[feedback-gate-needs-positive-witness]]）：E3 让所有档都抛 503，
+  红的是 `development` 那条正向证人（本地联调第一天就要能跑，同 D-T604-6 的方向选择）。
+  E3 第一轮打不红，原因值得记：它绕的是 `if not settings.resend_api_key:` 那一行，而 dev
+  缺 key 时照样落在档籍判据的「非受保护 ⇒ 降级」分支上——**入射角必须打在档籍判据本身**。
+· **证人只判 AST，不判源文本**：本文件与 `email_service` 的 docstring 都必须写出那句旧写法
+  才能解释为什么禁止它，纯文本 grep 会把注释也算违规（T6-03 缺陷①那一笔的同一形状）。
+  GR9 钉的就是这件事：往 `email_service.py` 插 15 行注释，AST 证人照旧绿。
 
 工单 §验收 两句，每句都有**它自己的**靶与红闸（[[feedback-mutation-anchor-must-reach-target]]）：
 
@@ -29,23 +67,30 @@ httpapi/server.go；Python 4：core/env_isolation.py／main.py／core/auth.py／
 其余各条钉的是本票其余口径与部署面，按「同一格判据在两侧/两个位置各钉一次」排：
 · 词表两侧同集合与逐字判档：I7（Go 加值 → 由 **Python 侧**的对账抓）、I8（Go 折叠大小写）、
   P3／P8（Python 侧同两格，P8 用的是本票改判前的旧形状 `.lower()`）；
-· staging 与 production 同受保护档：判据侧 I9（Go 表）与 P3（Python 表），接线侧 I14（server.go 读回
+· staging 与 production 同受保护档：判据侧 I6（Go 的 `ProtectedEnvironments` 表）与 P3（Python 表），接线侧 I14（server.go 读回
   `IsProduction()`）与 P4（auth.py 读回旧那句）——表对了线接错，换来的仍是设备身份透传；
 · 建连前后与同一张表：I13（隔离判在建连之后）、I12（审批看另一份数）、I11／I11b（两个新键的键名漂）、
   I15（内部面 `OutcomeWrites` 那一格从装配字面量里掉出去＝T4-02 缺陷①／T4-03 缺陷③／T6-03 缺陷①
   逐字归本票补齐的那笔欠账）；
 · crontab 只装生产：C1（放行分支带上 staging）、C2（标记判据改指不存在的标记 → **正向证人**红）、
-  C3／C4（真调度行漂端口 / 判据被放宽）、C5（未知参数被静默吞）、C6／C7（crontab 与 README 的文档面）、
+  C3／C4（真调度行漂端口 / 判据被放宽）、C8（判据反向收紧到只认一种回环写法 → 正向证人红）、
+  C5（未知参数被静默吞）、C6／C7（crontab 与 README 的文档面）、
   K3（标记行与脚本判据同时消失）；
-· staging overlay 的库键名、必填指纹与端口面：D1-D4 与 C_OVERLAY（D2），D5 钉的是
-  **`docker compose config` 的展开结果**（compose 对 overlay 的 sequence 是追加：
-  少了 `!override`，prod 的 127.0.0.1:8000 会跟着进 staging，而只读 overlay 文本的 D2 看不见）。
+· staging overlay 的库键名、必填指纹与端口面：D1-D4 与 C_OVERLAY（D2）；D5-D8 钉的是**端口面的四条腿**——
+  D5／D6 分别摘 py-api 与 caddy 的 `!override`（compose 对 overlay 的 sequence 是追加：少了那个标签，
+  prod 的 127.0.0.1:8000 或裸 80/443 会跟着进 staging，而只读 overlay 文本的 D2 看不见）；
+  D7 用**不需要 docker** 的那条静态闸打同一格（展开那条缺 docker 会 skip，skip 不算绿）；
+  D8 把一行调度漂成 `localhost:18000`（2026-10-20 code review 抓到：旧判据只 grep `127.0.0.1:`，
+  脚本与闸在那一格上同时是绿的）。
 
 **本机取不了证的那两格，按「未跑」登记、不算绿**：
 · `ENVIRONMENT=staging` 真在 VPS 上被 k3s／compose 起一次（本机没有那套宿主 env，
   也没有第二套库）——本票能自证的是 compose overlay 的**展开**（`docker compose config` 实跑两次：
   正常展开＋缺 `PROD_DB_FINGERPRINTS` 时 exit 1）与判据单测；
-· go-api／py-api 进程在真机上带生产指纹启动失败的现场日志（同上，只有单测面）。
+· go-api／py-api 两个**容器**在真机上带生产指纹启动失败的现场日志。
+  批 2 之后本机上已经有了「真进程非零退出」这一层（P16 的子进程靶：`import backend.database`
+  带 staging＋生产指纹 ⇒ RuntimeError 且报错不含口令），但它替代不了容器里那一条——
+  宿主 env、Secret 挂载与 k3s 的 restart 行为都不在那条路径上。
 这两格归 2026-10-19 记下的「取证能力缺口」，不在本票内补。
 
 纪律：串行执行（[[feedback-mutation-gates-no-concurrency]]）、copy2 备份＋`filecmp(shallow=False)`
@@ -95,6 +140,9 @@ PY_ISO = REPO / "backend" / "core" / "env_isolation.py"
 PY_MAIN = REPO / "backend" / "main.py"
 PY_AUTH = REPO / "backend" / "core" / "auth.py"
 PY_CONFIG = REPO / "backend" / "config.py"
+PY_DB = REPO / "backend" / "database.py"
+PY_MIG = REPO / "backend" / "alembic" / "env.py"
+PY_EMAIL = REPO / "backend" / "services" / "email_service.py"
 CM = REPO / "deploy" / "k8s" / "10-config.yaml"
 OVERLAY = REPO / "deploy" / "compose" / "docker-compose.staging.yml"
 SH = REPO / "deploy" / "schedule" / "install-crontab.sh"
@@ -124,6 +172,16 @@ T_SAMEMAP = "^TestApprovalSeesTheSameGateMap$"
 T_AUTHTIER = "^TestAuthTierWiredToIsProtected$"
 T_READKEYS = "^TestConfigReadsTheTwoNewKeys$"
 T_WIRE = "^TestMainWiresTheInternalSurfaceToTheSameDomainService$"
+# 批 2（2026-10-20 code review 的 P1-2／P1-3）新增的 Go 侧判据级靶。
+T_KW = "^TestKeywordValueDSNIsChecked$"
+T_UNREAD = "^TestUnreadablePGTargetRefusesToBoot$"
+T_MULTI = "^TestMultiHostTargetIsSplit$"
+T_EMPTY = "^TestExplicitEmptyEnvironmentRefusesToBoot$"
+# D-T604-4 的 Python 那一半，由 **Go** 侧读 backend/config.py 的文本钉住：
+# 批 2 把闸接到了 database.py 建引擎之前，于是「字段改名/加前缀」在 Python 侧升级为
+# import 期 AttributeError ⇒ pytest 整份文件收集失败（ERROR 不算打红）。
+# Go 不 import Python，这条破坏能确实到达自己的靶（[[feedback-mutation-anchor-must-reach-target]]）。
+T_PYKEY = "^TestPythonSideReadsTheSameFingerprintKey$"
 
 XLANG = "backend/tests/test_env_isolation_cross_language.py"
 CRON = "backend/tests/test_crontab_install_target.py"
@@ -147,7 +205,31 @@ C_ARG = f"{CRON}::test_unknown_argument_is_not_silently_ignored"
 C_HEADER = f"{CRON}::test_crontab_header_points_at_the_script"
 C_README = f"{CRON}::test_readme_installs_through_the_gate"
 C_OVERLAY = f"{CRON}::test_staging_overlay_binds_a_different_host_port"
+C_STATIC = f"{CRON}::test_staging_overlay_overrides_every_inherited_port_face"
+C_LOOP = f"{CRON}::test_crontab_loopback_aliases_are_not_a_violation"
 P_EXPAND = f"{CRON}::test_staging_overlay_expansion_drops_production_ports"
+# 批 2（P1-2／P1-3／P1-4）新增的 Python 侧靶：判据级四条 ＋ 装配级三条。
+# 刻意不用参数化节点（pytest 把中文参数 id 打成了 `\uXXXX` 转义，节点串对不上＝「未跑」），
+# 所以这些证人各自是一条**非参数化**的测。
+P_TARGET = f"{XLANG}::test_target_parser_never_carries_the_password"
+P_LOOKS = f"{XLANG}::test_unreadable_pg_shapes_are_recognised_as_database_strings"
+P_REFUSE = f"{XLANG}::test_pg_string_the_gate_cannot_read_still_refuses"
+P_SQLITE = f"{XLANG}::test_sqlite_string_is_not_this_gates_business"
+P_KWTIER = f"{XLANG}::test_keyword_value_dsn_is_checked_both_directions"
+P_MULTIHOST = f"{XLANG}::test_multi_host_shape_is_compared_per_entry"
+P_ENVREAD = f"{XLANG}::test_environment_read_is_unset_vs_empty_on_both_sides"
+P_DB_SITE = f"{XLANG}::test_database_engine_site_calls_the_gate_before_creating_engine"
+P_MIG_SITE = f"{XLANG}::test_alembic_env_calls_the_gate_itself"
+P_SUBPROC = f"{XLANG}::test_importing_database_refuses_staging_pointed_at_production"
+
+# 批 3（P1-5）：邮件那批测重定后的靶。独立文件、独立 marker，不复用上表的节点串。
+EMAIL = "backend/tests/test_email_delivery_tier.py"
+E_LOOP = f"{EMAIL}::test_every_protected_tier_raises_503_without_an_api_key"
+E_STAGING = f"{EMAIL}::test_staging_specifically_raises_503_without_an_api_key"
+E_ALIAS = f"{EMAIL}::test_prod_alias_is_the_same_tier_as_production"
+E_DEV = f"{EMAIL}::test_development_still_downgrades_without_raising"
+E_MASK = f"{EMAIL}::test_development_warning_never_carries_the_plain_code"
+E_WIRE = f"{EMAIL}::test_email_service_reads_the_shared_tier_predicate"
 
 # ── 锚点（逐字取自靶文件，命中数必须恰好 1）────────────────────────────────
 GO_HIT_CALL = "\tif fp, matched := hit(fingerprints, target); matched {\n"
@@ -187,7 +269,9 @@ PY_CONFIG_FIELD = '    prod_db_fingerprints: str = ""\n'
 
 SH_CASE_PRODUCTION = "  production|prod) ;;\n"
 SH_MARKER_NEEDLE = "grep -q '^# INSTALL-TARGET: production-only$' \"$CRONTAB_FILE\" \\\n"
-SH_PORT_GUARD = "if printf '%s\\n' \"$PORTS\" | grep -qv '^127\\.0\\.0\\.1:8000$'; then\n"
+SH_PORT_GUARD = ("if printf '%s\\n' \"$TARGETS\" | "
+                 "grep -qEv '^(\\[::1\\]|127\\.0\\.0\\.1|localhost):8000$'; then\n")
+SH_PORT_TIGHTEN = SH_PORT_GUARD.replace("^(\\[::1\\]|127\\.0\\.0\\.1|localhost)", "^(127\\.0\\.0\\.1)")
 SH_UNKNOWN_ARG = ('    *) echo "install-crontab: 未知参数 $1（只认 --check / --env-file / '
                   '--crontab-file）" >&2; exit 2 ;;\n')
 TAB_HEALTH_LINE = ("*/5 * * * * . /etc/closenai/cron.env && curl -fsS -H "
@@ -203,11 +287,42 @@ OVERLAY_DB_URL = ("      DATABASE_URL: ${STAGING_DATABASE_URL:?staging 必须给
                   "禁止复用 DATABASE_URL}\n")
 OVERLAY_PYAPI_OVERRIDE = ('    ports: !override\n'
                           '      - "127.0.0.1:18000:8000"')
+# caddy 那一格：prod 基线写的是裸 `80:80`／`443:443`（展开后没有 host_ip 这个键），
+# 所以旧版那条「按 host_ip 过滤」的断言对它完全失明——摘掉这里的 !override 时闸照样绿。
+OVERLAY_CADDY_OVERRIDE = ('    ports: !override\n'
+                          '      - "127.0.0.1:18080:80"')
+TAB_HEALTH_URL = "http://127.0.0.1:8000/api/v1/cron/health"
 MARKER_LINE = "# INSTALL-TARGET: production-only\n"
 SHELL_LINE = "SHELL=/bin/sh\n"
 CHECK_APPROVAL_SIG = "func CheckApproval(environment string, percents map[string]int, approved string) error {\n"
 ISOLATION_SIG = "func CheckDBIsolation(environment, databaseURL string, fingerprints []string) error {\n"
 PY_ISOLATION_DEF = "def check_db_isolation(environment: str, database_url: str,\n"
+
+# ── 批 2（2026-10-20 code review 的 P1-2／P1-3／P1-4）新增锚点 ────────────────
+# 「读不出这条串」那一族形状的共同锚：scheme 大小写、libpq 的 keyword=value、
+# 多 host 逗号、坏端口、looksLike 的两半。每一个都是 fail-open 的一条独立入口。
+GO_PGSCHEME = 'var pgScheme = regexp.MustCompile(`(?i)^postgres(?:ql)?(?:\\+[^:/]*)?://`)\n'
+GO_KEYWORD_BRANCH = ("\t\tif !dsnKeyword.MatchString(strings.TrimSpace(raw)) {\n"
+                     "\t\t\treturn DBTarget{}, false\n\t\t}\n")
+GO_UNREADABLE_BRANCH = ("\t\tif looksLikePGTarget(databaseURL) {\n"
+                        "\t\t\treturn &UnreadableTargetError{Environment: environment}\n\t\t}\n")
+GO_MULTIHOST_LOOP = '\t\tfor _, host := range strings.Split(t.Host, ",") {\n'
+GO_ENVSET_BODY = ('func envSetString(key, fallback string) string {\n'
+                  '\tif v, ok := os.LookupEnv(key); ok {\n')
+GO_ENVSET_TIGHTEN = ('func envSetString(key, fallback string) string {\n'
+                     '\tif v, ok := os.LookupEnv(key); ok && v != "" {\n')
+PY_PGSCHEME = '_PG_SCHEME = re.compile(r"^postgres(?:ql)?(?:\\+[^:/]*)?://", re.IGNORECASE)\n'
+PY_KEYWORD_BRANCH = ("        if not _DSN_KEYWORD.match(raw.strip()):\n"
+                     "            return None\n")
+PY_UNREADABLE_IF = "        if looks_like_pg_target(database_url):\n"
+PY_MULTIHOST_LOOP = '        for host in (h.strip() for h in target.host.split(",")):\n'
+PY_PORT_EXCEPT = "    except ValueError:\n        return None\n"
+PY_LOOKS_BODY = ("    return bool(_PG_SCHEME.match(raw) or "
+                 "_DSN_KEYWORD.match(raw.strip()))\n")
+# 装配面（P1-4）：闸落在**建引擎那一行之前**。删调用＝线断了；挪到之后＝事后追认。
+GATE_CALL = ('env_isolation.require_db_isolation(\n'
+             '    settings.environment, settings.database_url, settings.prod_db_fingerprints)\n')
+DB_SESSION_ANCHOR = "# 异步会话工厂\nSessionLocal = async_sessionmaker(\n"
 
 # 绿闸用的 15 行注释（各靶文件按自己的注释语法）
 GO_COMMENTS = "".join(
@@ -220,6 +335,19 @@ SH_COMMENTS = "".join(
     f"# 绿闸注脚 {i:02d}：判据读的是 ENVIRONMENT 那一行与调度行的端口，不看注释密度。\n"
     for i in range(1, 16)
 )
+
+# 批 3（P1-5）：`backend/services/email_service.py` 的四处锚点，逐字取自靶文件。
+EMAIL_TIER_CALL = "        if env_isolation.is_protected(settings.environment):\n"
+EMAIL_TIER_LITERAL = '        if settings.environment == "production":\n'
+EMAIL_TIER_PROD_ONLY = "        if env_isolation.is_production(settings.environment):\n"
+EMAIL_ALL_TIERS = "    if not settings.resend_api_key:\n"
+EMAIL_SILENT = (
+    '            raise AppException(\n'
+    '                ErrorCode.SERVICE_UNAVAILABLE,\n'
+    '                "邮件服务暂不可用，请稍后重试 / Email service unavailable",\n'
+    '            )\n'
+)
+EMAIL_MASK = '    return f"{local[:2]}***@{domain}"\n'
 
 MUTATIONS: list[tuple] = [
     # ── §验收 第一句：staging 指到生产串 ⇒ 启动失败（并有明确报错）──
@@ -303,6 +431,13 @@ MUTATIONS: list[tuple] = [
         "go", PKG_BOOT, T_READKEYS,
     ),
     (
+        "I11c", "I11b 那条破坏的 **Python 侧证人**：同一个 Go 读数点改成带前缀的键 ⇒ 跨语言键名证人"
+                "`test_prod_db_fingerprints_is_a_shared_cross_language_key` 抓到 Go 那一侧漂了"
+                "（D-T604-4 说的「两侧都要有读数点」，两侧各钉一次）",
+        [(GO_CONFIG, GO_FINGERPRINTS_READ, GO_FINGERPRINTS_READ.replace("PROD_DB_FINGERPRINTS", "CLOSEN_PROD_DB_FINGERPRINTS"))],
+        "pytest", P_SHAREKEY, P_SHAREKEY,
+    ),
+    (
         "I12", "`CheckApproval` 改喂一张**另造的**表（D-T604-10：审批看一份数、灰度闸看另一份数＝谁都没看）⇒ "
                "红的是 `TestApprovalSeesTheSameGateMap`——真源分裂这条形状在本仓被抓过一次（D-G12）",
         [(GO_MAIN, GO_CALL_APPROVAL,
@@ -331,6 +466,45 @@ MUTATIONS: list[tuple] = [
         [(GO_MAIN, GO_V3_SLOTS,
           "\t\tGoals: goalBrowser, GoalWrites: candidateDomain,\n")],
         "go", PKG_BOOT, T_WIRE,
+    ),
+    # ── 批 2（2026-10-20 code review 的 P1-2／P1-3）：判据本体读不出来的那一族 ──
+    (
+        "I16", "pgScheme 丢掉 `(?i)`（URL scheme 按 RFC 3986 不区分大小写，pgx 两种都接）⇒ "
+               "`POSTGRESQL://…@db.prod.example.com` 在判据眼里既不是 PG 串也不是 keyword 串，"
+               "于是整条放行、进程照连。红的是用例表 Runner 里 `staging_大写scheme也要命中` 那一格",
+        [(GO_ISO, GO_PGSCHEME, GO_PGSCHEME.replace("(?i)", ""))],
+        "go", PKG_CFG, T_CORPUS,
+    ),
+    (
+        "I17", "ParseDBTarget 退回「只认 URL 形状」（keyword=value 那一支整条删掉）⇒ pgconn.ParseConfig 的文档"
+               "逐字写着两种形状都接，这种串在 Go 侧照样建得了连，而闸对它一个字读不出来然后放行："
+               "staging 档过闸连上生产库。红的是 Load 级靶 `TestKeywordValueDSNIsChecked`",
+        [(GO_ISO, GO_KEYWORD_BRANCH, "\t\treturn DBTarget{}, false\n")],
+        "go", PKG_CFG, T_KW,
+    ),
+    (
+        "I18", "「认得出是 PG 串却拆不出可比字段」从拒启改回放行（本票 D-T604-5 那句「一律选拒启」的落点）⇒ "
+               "坏端口、口令里的 `#`、只有 password 的 keyword 串三种漂法全部静默放行；"
+               "红的是 `TestUnreadablePGTargetRefusesToBoot`",
+        [(GO_ISO, GO_UNREADABLE_BRANCH,
+          "\t\tif false {\n\t\t\treturn &UnreadableTargetError{Environment: environment}\n\t\t}\n")],
+        "go", PKG_CFG, T_UNREAD,
+    ),
+    (
+        "I19", "带点指纹不再按逗号拆 host（`host=a,b` 是 libpq／pgx 都支持的 HA 写法）⇒ "
+               "`db.staging.internal,db.prod.example.com` 整串逐字比不命中，静默漏过的方向是双写；"
+               "红的是 `TestMultiHostTargetIsSplit`",
+        [(GO_ISO, GO_MULTIHOST_LOOP, '\t\tfor _, host := range []string{t.Host} {\n')],
+        "go", PKG_CFG, T_MULTI,
+    ),
+    (
+        "I20", "`ENVIRONMENT` 的读法退回「空串也算没设」（`envSetString` 里补上 `&& v != ""`）⇒ "
+               "`ENVIRONMENT=`（半填的 .env、值为空的 ConfigMap 键）回落成 development：那台既不是受保护档 "
+               "（X-User-Id 设备身份透传），黑名单为空时连库面都不判，而 Python 侧同一份 env 读到的是空串、"
+               "按词表外拒启——两侧给两个结论时，fail-open 那一侧才是实际生效的那一侧。红的是 "
+               "`TestExplicitEmptyEnvironmentRefusesToBoot`",
+        [(GO_CONFIG, GO_ENVSET_BODY, GO_ENVSET_TIGHTEN)],
+        "go", PKG_CFG, T_EMPTY,
     ),
     (
         "A1", "审批闸的触发条件从 `pct > 0` 改成 `pct > 100`（§验收 逐字第二句：改到 50 且无审批要启动失败）⇒ "
@@ -399,10 +573,19 @@ MUTATIONS: list[tuple] = [
         "pytest", P_BLANK, P_BLANK,
     ),
     (
-        "P6", "`backend/config.py` 的字段改名（pydantic 按字段名大写映射 env）⇒ py-api 读不到指纹，"
-              "红的是跨语言键名证人 `test_prod_db_fingerprints_is_a_shared_cross_language_key`",
+        "P6", "`backend/config.py` 的指纹字段**改名**（pydantic 按字段名大写映射 env）⇒ py-api 读不到黑名单。"
+              "红的是 Go 侧键名证人 `TestPythonSideReadsTheSameFingerprintKey`：批 2 把闸接到 "
+              "`database.py` 建引擎之前之后，这一坏在 Python 侧变成 import 期 AttributeError、"
+              "整份 pytest 文件收集失败（ERROR 不算打红），所以这一格的靶必须换到不 import Python 的那一侧",
         [(PY_CONFIG, PY_CONFIG_FIELD, '    prod_db_fingerprint: str = ""\n')],
-        "pytest", P_SHAREKEY, P_SHAREKEY,
+        "go", PKG_CFG, T_PYKEY,
+    ),
+    (
+        "P6b", "同一格的**子串逃法**：字段加小写前缀（`prod_db_fingerprints` → `closen_prod_db_fingerprints`）"
+               "⇒ 名字还在、pydantic 读的 env 键已经换了。只判「文件里出现过这个名字」的证人会绿，"
+               "红的是同一条 Go 证人（它判的是行首缩进上的字段声明）",
+        [(PY_CONFIG, PY_CONFIG_FIELD, '    closen_prod_db_fingerprints: str = ""\n')],
+        "go", PKG_CFG, T_PYKEY,
     ),
     (
         "P7", "Python 侧取消「生产档不参与比较」⇒ production 连自己的库被自己的黑名单判死，"
@@ -416,6 +599,92 @@ MUTATIONS: list[tuple] = [
               "红的是 `test_python_defaults_are_the_shared_table_not_a_copy`",
         [(PY_ISO, PY_ISPROD, '    return value.lower() in ("production", "prod")\n')],
         "pytest", P_DEFAULTS, P_DEFAULTS,
+    ),
+    # ── 批 2：同一族判据在 **Python 侧** 各钉一次（P1-2／P1-3／P1-4）──────────
+    (
+        "P9", "Python 的 `_PG_SCHEME` 丢掉 `re.IGNORECASE`（与 I16 同一格、另一侧实现）⇒ "
+              "`POSTGRESQL://…` 拆不出 target 也不再比对；红的是 "
+              "`test_target_parser_never_carries_the_password` 里那条大写 scheme 断言",
+        [(PY_ISO, PY_PGSCHEME, PY_PGSCHEME.replace(", re.IGNORECASE", ""))],
+        "pytest", P_TARGET, P_TARGET,
+    ),
+    (
+        "P10", "Python 的 parse 只认 URL 形状（keyword=value 那一支删掉）⇒ 与 I17 同一格；"
+               "红的是判据级双向我证人 `test_keyword_value_dsn_is_checked_both_directions`——"
+               "它同时钉「keyword 指生产要拒」与「keyword 指自己库要放行」，"
+               "只钉一个方向的话「凡 keyword 串都拒」那种写法也算过",
+        [(PY_ISO, PY_KEYWORD_BRANCH, "        return None\n")],
+        "pytest", P_KWTIER, P_KWTIER,
+    ),
+    (
+        "P11", "Python 侧取消「是 PG 串却读不出 ⇒ 拒启」（改回旧的那句 `return None` 放行）⇒ "
+               "与 I18 同向；红的是 `test_pg_string_the_gate_cannot_read_still_refuses`",
+        [(PY_ISO, PY_UNREADABLE_IF, "        if False:  # 变异：读不出不再拒启\n")],
+        "pytest", P_REFUSE, P_REFUSE,
+    ),
+    (
+        "P12", "Python 的带点指纹不再按逗号拆 host ⇒ 与 I19 同格、另一侧实现；"
+               "红的是 `test_multi_host_shape_is_compared_per_entry`（它也钉反方向：全不命中不许拒）",
+        [(PY_ISO, PY_MULTIHOST_LOOP, "        for host in (target.host,):\n")],
+        "pytest", P_MULTIHOST, P_MULTIHOST,
+    ),
+    (
+        "P13", "Python 不再校验端口（`parts.port` 的 ValueError 被 `pass` 吞掉）⇒ Go 的 url.Parse 对 "
+               "`:543x` 报错走拒启、Python 解析成功走放行，**同一条串两侧一个结论**——跨语言对账最阴的坏法： "
+               "判据字面量一模一样，只因解析器不同而分家。红的是 "
+               "`test_pg_string_the_gate_cannot_read_still_refuses` 里那条「host 不命中黑名单、"
+               "只能被『读不出』这一支判红」的格子",
+        [(PY_ISO, PY_PORT_EXCEPT, "    except ValueError:\n        pass\n")],
+        "pytest", P_REFUSE, P_REFUSE,
+    ),
+    (
+        "P14", "`looks_like_pg_target` 只剩 URL 那一半（keyword 半边摘掉）⇒ "
+               "`password=… port=5432` 这种「认得出是库串却没有可比字段」的形状不再算库串，"
+               "于是放行；红的是 `test_unreadable_pg_shapes_are_recognised_as_database_strings`"
+               "——它钉的是「认得出」这半边，与 P11 钉的「拒启」那半边是两条判据",
+        [(PY_ISO, PY_LOOKS_BODY, "    return bool(_PG_SCHEME.match(raw))\n")],
+        "pytest", P_LOOKS, P_LOOKS,
+    ),
+    (
+        "P15", "反方向：`looks_like_pg_target` 一律说真 ⇒ sqlite 那种本机文件库也被判成「读不出的 PG 串」而拒启，"
+               "本机 dev 与 alembic 的 sqlite 路径第一天就起不来；红的是可用性证人 "
+               "`test_sqlite_string_is_not_this_gates_business`（[[feedback-gate-needs-positive-witness]]）",
+        [(PY_ISO, PY_LOOKS_BODY, "    return True  # 变异：一律算库串\n")],
+        "pytest", P_SQLITE, P_SQLITE,
+    ),
+    (
+        "P16", "装配面断了（`backend/database.py` 里那句建连前的调用整段删除）⇒ 判据仍在、用例表仍全绿，"
+               "而 py-api／ai-rpc／py-ai-worker／migrate job 四条入口**都**从这个模块拿引擎，"
+               "原先只有 FastAPI 的 startup 判过一次；红的是真子进程靶 "
+               "`test_importing_database_refuses_staging_pointed_at_production`（`import backend.database` 非零退出）",
+        [(PY_DB, GATE_CALL, "")],
+        "pytest", P_SUBPROC, P_SUBPROC,
+    ),
+    (
+        "P17", "接线还在、位置漂了（把 database.py 那句挪到 `create_async_engine` **之后**）⇒ "
+               "引擎已经建好，那句调用只剩事后追认；红的是装配证人 "
+               "`test_database_engine_site_calls_the_gate_before_creating_engine`。"
+               "这一格子进程靶抓不到（进程照样非零退出），所以顺序判据必须自己有一条测",
+        [(PY_DB, GATE_CALL, ""),
+         (PY_DB, DB_SESSION_ANCHOR, GATE_CALL + "\n" + DB_SESSION_ANCHOR)],
+        "pytest", P_DB_SITE, P_DB_SITE,
+    ),
+    (
+        "P18", "migrate 入口不再自己调闸（删 `backend/alembic/env.py` 那句）⇒ alembic 建的是它**自己的** "
+               "engine（NullPool），与 py-api 那条连接不是同一个对象，而这一刀改的是生产库的结构、DDL 比业务写"
+               "更难回滚；只靠 `from backend.models import Base` 那条 import 链把闸带进来，等于把防线挂在"
+               "「没人删这行导入」上。红的是 `test_alembic_env_calls_the_gate_itself`"
+               "（真子进程跑 `alembic` 时先被 models→database 那条链拦住，分不清是谁判的，所以这一格只能由源码证人钉）",
+        [(PY_MIG, GATE_CALL, "")],
+        "pytest", P_MIG_SITE, P_MIG_SITE,
+    ),
+    (
+        "P19", "同一处 Go 的破坏（`envSetString` 补上 `&& v != ""`），但红的是 **Python 侧**的跨语言证人 "
+               "`test_environment_read_is_unset_vs_empty_on_both_sides`：那条测读 Go 源文本比对 pydantic 的实测，"
+               "所以 Go 一侧把 ENVIRONMENT 的读法放宽时，Python 侧也会叫——这是「不许同源」的正向证人"
+               "（与 I20 是同一个破坏的两个证人，各自一条测）",
+        [(GO_CONFIG, GO_ENVSET_BODY, GO_ENVSET_TIGHTEN)],
+        "pytest", P_ENVREAD, P_ENVREAD,
     ),
     # ── 部署面：crontab 只装生产 ─────────────────────────────
     (
@@ -442,8 +711,17 @@ MUTATIONS: list[tuple] = [
               "红的是 `test_crontab_only_reaches_the_production_port_face` 里那条漂移靶。"
               "（第一轮跑这条时我用的是 BRE 的 `[0-9]+`——那是个**等价变异**：BRE 里 `+` 不是量词，"
               "放宽没生效、闸照旧拒，所以那条靶当时并没有被真的打红。记在这里免得下轮重猜。）",
-        [(SH, SH_PORT_GUARD, "if printf '%s\\n' \"$PORTS\" | grep -qvE '^127\\.0\\.0\\.1:(8000|18000)$'; then\n")],
+        [(SH, SH_PORT_GUARD, "if printf '%s\\n' \"$TARGETS\" | "
+                             "grep -qEv '^(\\[::1\\]|127\\.0\\.0\\.1|localhost):(8000|18000)$'; then\n")],
         "pytest", C_PORTS, C_PORTS,
+    ),
+    (
+        "C8", "端口判据被反过来收紧成「只认 `127.0.0.1` 这一种写法」⇒ 白名单里没有 localhost／[::1]，"
+              "合法的别名写法会在生产宿主上被拒装——误伤的下一步就是有人把整条判据注释掉，"
+              "所以「判 host:port」这条改动的**另一半**由这条靶钉住："
+              "红的是正向证人 `test_crontab_loopback_aliases_are_not_a_violation`",
+        [(SH, SH_PORT_GUARD, SH_PORT_TIGHTEN)],
+        "pytest", C_LOOP, C_LOOP,
     ),
     (
         "C5", "未知参数从「exit 2」改成静默跳过 ⇒ 一次拼错的 `--env-flle`（判据来源覆盖）会被当成「没传」，"
@@ -502,6 +780,33 @@ MUTATIONS: list[tuple] = [
         "pytest", P_EXPAND, P_EXPAND,
     ),
     (
+        "D6", "同样的破坏落在**另一格**上：摘掉 caddy 那格的 `!override`（prod 基线这里是裸 `80:80`／"
+              "`443:443`，展开后**没有 host_ip 这个键**，而上一版断言先按 `host_ip==127.0.0.1` 过滤 ⇒ "
+              "D5 打的是 py-api 那一格，caddy 这一格当时没有任何测会红，摘掉标签 staging 就直接抢公网入口）。"
+              "现在断言判的是全部发布端口，红的是展开证人；2026-10-20 已在临时副本上实测复现："
+              "闸看到的端口面 `['18000','18080','18443']`，宿主实际 `['18000','18080','18443','80','443']`",
+        [(OVERLAY, OVERLAY_CADDY_OVERRIDE,
+          '    ports:\n      - "127.0.0.1:18080:80"')],
+        "pytest", P_EXPAND, P_EXPAND,
+    ),
+    (
+        "D7", "还是 caddy 那一格，但走**不需要 docker 的那条腿**：展开证人在没有 docker 的环境里是 skip，"
+              "skip 不算绿，那时端口判据只剩「读 overlay 文本」，正好看不见 compose 的追加语义。"
+              "`test_staging_overlay_overrides_every_inherited_port_face` 把 prod 基线与 overlay 的节点摆在一起判"
+              "（基线每发布一格，overlay 必须点名它并带 `!override`），这一格红的是那条静态闸",
+        [(OVERLAY, OVERLAY_CADDY_OVERRIDE,
+          '    ports:\n      - "127.0.0.1:18080:80"')],
+        "pytest", C_STATIC, C_STATIC,
+    ),
+    (
+        "D8", "调度源的一行漂成 `http://localhost:18000/…`（换一种回环写法打 staging 的发布口）。"
+              "上一版脚本只 grep `127\\.0\\.0\\.1:[0-9]+`、闸只匹配 `http://([0-9.]+):`，"
+              "**两侧同时看不见它**，而 localhost 就是回环——双跑原地复活（2026-10-20 code review 抓到）。"
+              "现在判的是每条调度行的 host:port，红的是 `test_crontab_only_reaches_the_production_port_face`",
+        [(TAB, TAB_HEALTH_URL, "http://localhost:18000/api/v1/cron/health")],
+        "pytest", C_PORTS, C_PORTS,
+    ),
+    (
         "K1", "ConfigMap 出厂带着**已签字**的审批位（`CLOSEN_CUTOVER_APPROVED: \"1\"`）⇒ 每次部署都自动放量，"
               "「改一行键 ＋ 改一格审批位」那次双签被合并成零次；红的是清单侧那条专门的闸"
               "（Go 侧那条只在有域放量时才咬人，两者方向不同）",
@@ -519,6 +824,42 @@ MUTATIONS: list[tuple] = [
               "「谁都能装」这条口径只活在脚本里，改表的人看不见；红的是 `test_crontab_declares_its_target`",
         [(TAB, MARKER_LINE, ""), (SH, SH_MARKER_NEEDLE, "true \\\n")],
         "pytest", C_MARKER, C_MARKER,
+    ),
+    # ── 批 3（P1-5）：邮件那格读的是共享档籍判据，不是自己的字面量 ──────
+    (
+        "E1", "把受保护档比较换回**旧字面量**（`== \"production\"`）⇒ staging 缺 key 时又是静默成功："
+              "接口返回 ok、邮件根本没发出去，用户被永久挡在登录外（这是本格唯一正确的坏方向——"
+              "不报错，所以只有行为测抓得住）；红的是 `test_staging_specifically_raises_503_without_an_api_key`",
+        [(PY_EMAIL, EMAIL_TIER_CALL, EMAIL_TIER_LITERAL)],
+        "pytest", E_STAGING, E_STAGING,
+    ),
+    (
+        "E2", "换成 `is_production`（认 `prod` 别名，仍然不认 `staging`）⇒ 看起来已经「走了共享模块」，"
+              "但用的不是那张受保护档表；红的是**遍历那张表**的循环证人 "
+              "`test_every_protected_tier_raises_503_without_an_api_key`（表里加一档而邮件不跟上，同一条测也会红）",
+        [(PY_EMAIL, EMAIL_TIER_CALL, EMAIL_TIER_PROD_ONLY)],
+        "pytest", E_LOOP, E_LOOP,
+    ),
+    (
+        "E3", "**反向收紧**：把档籍判据整个掏空（`if True:`）⇒ 所有档缺 key 一律 503，红的是 "
+              "`development` 那条正向证人（本地联调第一天就要能跑，被绕过的闸比没有闸更坏——"
+              "与 D-T604-6 同一个方向选择）。入射角选在档籍判据那一行，不是 key 那一行——"
+              "绕过后者时 dev 照旧降级，那条正向证人根本不会红（第一轮就是这么空的）",
+        [(PY_EMAIL, EMAIL_TIER_CALL, '        if True:  # 变异：所有档一律走 503\n')],
+        "pytest", E_DEV, E_DEV,
+    ),
+    (
+        "E4", "档籍判据还在、`raise` 被掏空成静默 `return` ⇒ 「以为挡住了其实没挡」的那一半；"
+              "红的是 `test_prod_alias_is_the_same_tier_as_production`（别名档那条，与 E1 不同入射角）",
+        [(PY_EMAIL, EMAIL_SILENT, "            return  # 变异：静默成功\n")],
+        "pytest", E_ALIAS, E_ALIAS,
+    ),
+    (
+        "E5", "邮箱脱敏漂了（`_mask_email` 原样返回）⇒ 红的是那条日志红线证人：降级告警里出现完整邮箱。"
+              "这一格与档籍无关，是「邮件那批测」里既有口径的复钉（[[feedback-gate-needs-positive-witness]]："
+              "只判抛没抛不够，还得判它说了什么）",
+        [(PY_EMAIL, EMAIL_MASK, '    return f"{local}@{domain}"\n')],
+        "pytest", E_MASK, E_MASK,
     ),
 ]
 
@@ -558,6 +899,26 @@ GREEN: list[tuple] = [
                "不看自己排了几行",
         [(SH, 'CHECK_ONLY=0\n', SH_COMMENTS + 'CHECK_ONLY=0\n')],
         "pytest", C_ACCEPT, C_ACCEPT,
+    ),
+    (
+        "GR7", "`backend/database.py` 的闸与 `create_async_engine` 之间插 15 行注释 ⇒ 装配证人照旧绿："
+               "那条测判的是**两句的先后**，不是行号差（否则本票第一次改排版就会红，"
+               "而排版红会让人去把闸删掉——那才是真风险）",
+        [(PY_DB, '# 异步 engine：生产走 Supabase', PY_COMMENTS + '# 异步 engine：生产走 Supabase')],
+        "pytest", P_DB_SITE, P_DB_SITE,
+    ),
+    (
+        "GR8", "`backend/alembic/env.py` 里插 15 行注释 ⇒ migrate 那条装配证人照旧绿（同 GR7 的另一条腿）。"
+               "刻意插在闸调用**之前**：插在两句之间会把「先后」判反，那是 P17 而不是绿闸",
+        [(PY_MIG, "config = context.config\n", PY_COMMENTS + "config = context.config\n")],
+        "pytest", P_MIG_SITE, P_MIG_SITE,
+    ),
+    (
+        "GR9", "`email_service.py` 的判据上方插 15 行注释 ⇒ AST 证人照旧绿：那条测读的是**语法树里的"
+               "调用节点与比较节点**，不是源文本子串——本文件与靶文件的 docstring 都必须写出那句旧写法"
+               "才能解释为什么禁止它，纯文本 grep 会把注释也算成违规（T6-03 缺陷①的同一形状）",
+        [(PY_EMAIL, EMAIL_ALL_TIERS, PY_COMMENTS + EMAIL_ALL_TIERS)],
+        "pytest", E_WIRE, E_WIRE,
     ),
 ]
 
