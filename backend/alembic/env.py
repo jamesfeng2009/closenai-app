@@ -13,7 +13,16 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from backend.config import settings
+from backend.core import env_isolation
 from backend.models import Base  # noqa: F401  导入所有模型，确保 autogenerate 发现
+
+# T6-04（2026-10-20）· 这道闸在 migrate 入口**自己调一次**，不靠 `backend.models`
+# 顺手 import 到 `backend/database.py` 的那一句：alembic 建的是它**自己的** engine
+# （下面 async_engine_from_config，NullPool），与 py-api 那个不是同一条连接；
+# 而 migrate job 是「连上生产库并改它的结构」这一步——DDL 比业务写更难回滚。
+# 那句 import 一旦漂了（有人删掉 models 导入、或改用 sync env.py），这道闸就静默没了。
+env_isolation.require_db_isolation(
+    settings.environment, settings.database_url, settings.prod_db_fingerprints)
 
 config = context.config
 

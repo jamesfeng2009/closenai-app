@@ -9,7 +9,10 @@
 以及装配证人（判据写得再对，没人调它等于没有）：
 · `backend/main.py::_validate_startup_config` 必须真的调用词表校验与隔离校验；
 · `backend/core/auth.py::_auth_enforced` 必须读 `is_protected()`——staging 那一档
-  接错的后果是设备身份透传（X-User-Id 当身份），比它要防的双写更糟。
+  接错的后果是设备身份透传（X-User-Id 当身份），比它要防的双写更糟；
+· `backend/database.py` 与 `backend/alembic/env.py` 必须在**建引擎之前**调闸，且有一条
+  真子进程靶（`import backend.database` 在非零退出）——migrate／worker／ai-rpc 三条入口
+  都不经过 FastAPI 的 startup，只钉 main.py 等于那三条没人管。
 
 §验收 第一句「把 staging 指到生产串 ⇒ 启动失败并有明确报错」在 Python 侧的靶是
 `test_staging_pointed_at_production_url_fails_fast`：它跑的是真入口函数，不是判据单测。
@@ -17,7 +20,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -117,11 +123,17 @@ def test_shared_case_table_python_side(case):
 def test_case_table_has_both_directions():
     """反向归零闸要配正向证人：全是 refuse 的表可以用「一律拒启」骗过两侧。"""
     expects = [c["expect"] for c in _cases()]
-    assert expects.count("allow") >= 4, f"allow 只有 {expects.count('allow')} 格"
-    assert expects.count("refuse") >= 6, f"refuse 只有 {expects.count('refuse')} 格"
+    assert expects.count("allow") >= 6, f"allow 只有 {expects.count('allow')} 格"
+    assert expects.count("refuse") >= 12, f"refuse 只有 {expects.count('refuse')} 格"
     named = {c["name"] for c in _cases()}
     for must_have in ("staging_host逐字命中生产host", "staging_黑名单为空拒启",
-                      "production_连自己的库必须放行", "development_黑名单为空放行"):
+                      "production_连自己的库必须放行", "development_黑名单为空放行",
+                      # 2026-10-20 code review 之后补的四格，每格都是一种「读不出来」的形状：
+                      # 少了它们，判据可以退回「只认小写 URL 形式」而两侧用例仍然全绿。
+                      "staging_keyword形状命中生产host",
+                      "staging_keyword串指自己的库必须放行",
+                      "staging_大写scheme也要命中", "staging_多host逗号任一格命中",
+                      "staging_坏端口读不出拒启", "staging_口令带hash读不出拒启"):
         assert must_have in named, f"用例表缺 {must_have}：那一格是本闸的方向性证人"
 
 
@@ -146,6 +158,146 @@ def test_target_parser_never_carries_the_password():
     # 带驱动的 SQLAlchemy 形状也要认（同一个 DATABASE_URL 两侧共用）。
     assert env_isolation.parse_db_target(
         "postgresql+psycopg://u:p@h.example.com:5432/d").host == "h.example.com"
+    # 大小写 scheme 也要认：scheme 按 RFC 3986 不区分大小写，漂一下大小写不是绕过。
+    assert env_isolation.parse_db_target(
+        "POSTGRESQL://u:p@db.prod.example.com:5432/postgres").host == "db.prod.example.com"
+    # keyword=value 形状（libpq 与 pgx 都接的一种）。旧实现只认 URL，对它返回 None
+    # 并且**放行**——那条进程连的正是黑名单里的库。
+    kw = env_isolation.parse_db_target(
+        f"host=db.prod.example.com dbname=postgres user=closenai password={LEAK}")
+    assert kw is not None and kw.host == "db.prod.example.com"
+    assert kw.dbname == "postgres" and kw.user == "closenai"
+    assert LEAK not in repr(kw)
+
+
+def test_unreadable_pg_shapes_are_recognised_as_database_strings():
+    """认得出「这是一条该拿来比对的库串」的那半边判据（与「拆不拆得出来」是两件事）。
+
+    2026-10-20 之前只有 `parse_db_target` 返回 None 一种信号，而两种 None 没分开：
+    sqlite（没有 host 可比，该放行）与「PG 串但读不出」（该拒启）在闸眼里长得一模一样。
+    `looks_like_pg_target` 就是为了把它们拆开而存在，这一条钉它的两个方向。
+    """
+    for pg_shape in ("postgresql://u:p@db.prod.example.com:5432/postgres",
+                     "postgresql://u:p@db.prod.example.com:543x/postgres",
+                     "postgresql://u:FAKE#pw@db.prod.example.com:5432/postgres",
+                     "POSTGRESQL://u:p@db.prod.example.com:5432/postgres",
+                     "host=db.prod.example.com dbname=postgres",
+                     "password=nohost port=5432"):
+        assert env_isolation.looks_like_pg_target(pg_shape), pg_shape
+    for not_a_db_string in ("sqlite+aiosqlite:///./closenai.db", "", "   ", "redis://h:6379"):
+        assert not env_isolation.looks_like_pg_target(not_a_db_string), not_a_db_string
+
+
+def test_pg_string_the_gate_cannot_read_still_refuses():
+    """「读不出」必须拒启：sqlite 那种放行是**另一条测**，这一格不许一起放宽。
+
+    三条形状各自都是现成的漂法（坏端口、口令里的 `#`、只有 password 的 keyword 串），
+    共同点是**闸看不懂这条串**，而不是这条串安全。真实 Supabase 的口令就是随机 20 位、
+    会出现 `#`，所以第二格不是假想形状。报错不许回显串本身（凭据不入日志）。
+    """
+    for unreadable in ("postgresql://closenai:p@db.prod.example.com:543x/postgres",
+                       "postgresql://closenai:FAKE#pw@db.prod.example.com:5432/postgres",
+                       "password=nohost port=5432"):
+        assert env_isolation.parse_db_target(unreadable) is None, unreadable
+        err = env_isolation.check_db_isolation("staging", unreadable, ["prod.example.com"])
+        assert err, f"读不出的 PG 串被放行了：{unreadable}"
+        assert "拆不出" in err and "拒绝启动" in err, err
+        assert unreadable not in err, f"报错回显了连接串本身：{err}"
+    # 这一格的 host 是它自己的、不命中任何指纹 ⇒ 它只能被「读不出」这一支判红。
+    # 端口校验被摘掉时 Python 会解析成功然后放行，而 Go 的 url.Parse 直接报错拒启：
+    # 同一条串两侧必须同一个结论（2026-10-20 code review 抓到的那一格）。
+    own_host_bad_port = "postgresql://closenai:p@postgres.staging.internal:543x/closenai_staging"
+    assert env_isolation.check_db_isolation("staging", own_host_bad_port, ["prod.example.com"]), \
+        "坏端口＋不命中黑名单的串被放行了：那说明端口校验那一格没了"
+
+
+def test_sqlite_string_is_not_this_gates_business():
+    """可用性证人：非 PG 串（本机 dev 的 sqlite 文件库）不许由这道闸报错。
+
+    「读不出一律拒启」那种写法会连这一格一起吃掉——生产档缺 PG 会在真正的建连处报更准的错，
+    而本机 dev 与 alembic 的 sqlite 路径第一天就起不来，第二天就有人把整道闸注释掉。
+    """
+    url = "sqlite+aiosqlite:///./closenai.db"
+    assert env_isolation.parse_db_target(url) is None
+    assert not env_isolation.looks_like_pg_target(url)
+    assert env_isolation.check_db_isolation("development", url, ["prod.example.com"]) is None
+    assert env_isolation.check_db_isolation("staging", url, ["prod.example.com"]) is None
+
+
+def test_keyword_value_dsn_is_checked_both_directions():
+    """keyword=value 形状的**判据级**证人，两向都有（只钉一个方向就能被「一律拒」骗过去）。
+
+    pgconn.ParseConfig 的文档逐字写着「connString may either be in URL format or
+    keyword = value format」，所以这种串在 Go 侧照样建得了连；只认 URL 的判据对它一个字
+    读不出来然后放行＝staging 档过闸连上生产库。反向那半句同样必须钉住：指自己库的
+    keyword 串要放行，否则「凡是 keyword 串都拒」的写法也算过了这一条。
+    """
+    refused = env_isolation.check_db_isolation(
+        "staging",
+        f"host=db.prod.example.com dbname=postgres user=closenai password={LEAK}",
+        ["prod.example.com"])
+    assert refused, "keyword 形状连到生产库却被放行"
+    assert LEAK not in refused, f"报错回显了口令：{refused}"
+    assert env_isolation.check_db_isolation(
+        "staging",
+        "host=postgres.staging.internal dbname=closenai_staging user=closenai password=x",
+        ["prod.example.com", "closenai_prod"]) is None, \
+        "staging 连自己的库（keyword 形状）被拒了"
+
+
+def test_multi_host_shape_is_compared_per_entry():
+    """`host=a,b` 那种 HA 写法：整串逐字比会让生产那一格静默漏过。
+
+    指纹写**逐字 host**（`db.prod.example.com`）而不是域根：写 `prod.example.com` 时
+    「整串按后缀」那条规则会把逗号串也判中，摘掉拆分照样绿——P12 第一次就是这么等价掉的
+    （2026-10-20 变异自证）。
+    """
+    fp = "db.prod.example.com"
+    target = env_isolation.DBTarget(host="db.staging.internal,db.prod.example.com",
+                                    dbname="app", user="u")
+    assert env_isolation.match_fingerprint(fp, target)
+    clean = env_isolation.DBTarget(host="db.staging.internal,db.other.example.net",
+                                   dbname="app", user="u")
+    assert not env_isolation.match_fingerprint(fp, clean), \
+        "多 host 全不命中却拒了：误伤的方向是运维绕闸"
+
+
+def test_environment_read_is_unset_vs_empty_on_both_sides():
+    """词表的读法必须两侧同判：**没设**才回落 development，**设成空串**算词表外。
+
+    Go 侧原先用 `envString`（`ok && v != ""`），于是 `ENVIRONMENT=` 回落成 development，
+    那台机器既不是受保护档（X-User-Id 设备身份透传），黑名单为空时连库面都不判；
+    而 pydantic 对同一个 env 读到的是 ""，走拒启。两侧对同一条 env 给两个结论时，
+    **fail-open 那一侧就是实际生效的那一侧**（2026-10-20 code review 抓到）。
+    """
+    # Python 这一侧的实测：显式空串不会偷偷变成 development。
+    from backend.config import Settings
+
+    saved = os.environ.get("ENVIRONMENT")
+    try:
+        os.environ["ENVIRONMENT"] = ""
+        assert Settings(_env_file=None).environment == ""
+        os.environ.pop("ENVIRONMENT")
+        assert Settings(_env_file=None).environment == "development"
+    finally:
+        if saved is None:
+            os.environ.pop("ENVIRONMENT", None)
+        else:
+            os.environ["ENVIRONMENT"] = saved
+
+    # Go 那一侧只能读源文本（本机跑 `go test` 会让这条闸依赖 Go 工具链）。
+    # 读的必须是 envSetString 的**函数体**而不是那个调用点：调用点写得再对，
+    # 体内补一句 `&& v != ""` 就退回「空串算没设」了——第一版证人正是这样漏掉 P19 的。
+    go_src = GO_CONFIG.read_text(encoding="utf-8")
+    m = re.search(r"func envSetString\([^)]*\) string \{\n(.*?)\n\}", go_src, re.DOTALL)
+    assert m, "config.go 里找不到 func envSetString：ENVIRONMENT 的读法换了形状，本闸会空转"
+    body = m.group(1)
+    assert 'if v, ok := os.LookupEnv(key); ok {\n\t\treturn v' in body, (
+        "Go 侧的 envSetString 又开始把空串当没设了：那会把「设成空」回落成 development，"
+        "而 pydantic 读到的是空串、按词表外拒启（两侧两个结论时 fail-open 那侧生效）")
+    assert "return fallback" in body, "未设时也必须能回落到 development（本机 dev 的常态）"
+    assert 'Environment:            envSetString("ENVIRONMENT"' in go_src, (
+        "ENVIRONMENT 没走 envSetString：读法换了消费点")
 
 
 def test_staging_pointed_at_production_url_fails_fast(monkeypatch):
@@ -223,6 +375,82 @@ def test_startup_validation_wiring_uses_the_shared_module():
         "core/auth.py 又读回旧的那句了：它不含 staging，且大小写不敏感会吞掉拼错的那一档")
 
 
+def test_database_engine_site_calls_the_gate_before_creating_engine():
+    """装配证人（P1-4 之一）：`backend/database.py` 建引擎那行**之前**必须有闸。
+
+    判据原先只有一个消费点 `main.py::_validate_startup_config`。而引擎在
+    `backend/database.py` 的模块顶层就建了——migrate job、ai-rpc、py-ai-worker 三条入口
+    各自 import 引擎，一辈子走不到 FastAPI 的 startup 钩子，那三条上「staging 连生产库」
+    没人拦。闸落在建连处，且必须在 `create_async_engine` **之前**：那句调用落在建连之后
+    就只是事后追认，拦不住任何人。
+    """
+    src = (ROOT / "backend" / "database.py").read_text(encoding="utf-8")
+    assert "env_isolation.require_db_isolation(" in src, (
+        "database.py 不再调用库面闸：staging 连生产库会在没有任何报错的情况下建连")
+    assert src.index("env_isolation.require_db_isolation(") < src.index("create_async_engine("), (
+        "database.py 的闸挪到了 create_async_engine 之后：那条调用已经拦不住建连了")
+
+
+def test_alembic_env_calls_the_gate_itself():
+    """装配证人（P1-4 之二）：migrate 入口**自己**调一次，不靠 models 顺手 import 到引擎模块。
+
+    alembic 建的是它**自己的** engine（下面 `async_engine_from_config`，NullPool），
+    与 py-api 那条连接不是同一个对象；而 migrate 是「连上生产库并改它的结构」那一步，
+    DDL 比业务写更难回滚。只靠 `from backend.models import Base` 那条 import 链把闸带进来，
+    等于把这道防线挂在「没人删这行导入」上——那条 import 一旦漂了（改用 sync env.py、
+    或有人按 lint 建议删掉「未使用」导入），闸就静默消失。
+    """
+    src = (ROOT / "backend" / "alembic" / "env.py").read_text(encoding="utf-8")
+    assert "env_isolation.require_db_isolation(" in src, (
+        "alembic/env.py 不再自己调用库面闸：migrate 这一刀只挂在 models 那条 import 上")
+    assert src.index("env_isolation.require_db_isolation(") < src.index(
+        "async_engine_from_config("), "alembic/env.py 的闸挪到了建 engine 之后"
+
+
+def test_importing_database_refuses_staging_pointed_at_production(tmp_path):
+    """§验收 第一句在 Python 侧最硬的一条靶：**真进程 import 真模块**，不是 monkeypatch。
+
+    这条跑的是 `import backend.database` 这条**没有 FastAPI 参与**的路径（migrate job 与
+    worker 就是这么起身的），所以 main.py 的 startup 闸红不红都与它无关。
+    断言只看两件事：进程非零退出，且报错说清了是哪一档、哪个 host、哪条指纹。
+    """
+    env = {
+        **os.environ,
+        "ENVIRONMENT": "staging",
+        "DATABASE_URL": f"postgresql+psycopg://closenai:{LEAK}@db.prod.example.com:5432/postgres",
+        "PROD_DB_FINGERPRINTS": "prod.example.com",
+        "PYTHONPATH": str(ROOT),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", "import backend.database"],
+        env=env, cwd=str(tmp_path), capture_output=True, text=True, timeout=120)
+    assert proc.returncode != 0, (
+        f"staging 指到生产串却 import 成功了（闸没在建连处）：{proc.stdout[-400:]}")
+    combined = proc.stdout + proc.stderr
+    for want in ("staging", "db.prod.example.com", "PROD_DB_FINGERPRINTS", "host="):
+        assert want in combined, f"报错要说清 {want}：{combined[-600:]}"
+    assert LEAK not in combined, f"启动失败的报错里出现了口令：{combined[-600:]}"
+    # 它必须是被这道闸拦下的，不是 sqlalchemy 连不上库那种事后错误。
+    assert "RuntimeError" in combined, combined[-600:]
+
+
+def test_importing_database_still_boots_for_local_sqlite(tmp_path):
+    """正向证人：本机 dev（未设 ENVIRONMENT ＋ sqlite 串）必须 import 得动。
+
+    这条红了不是安全，是第一天有人绕闸——migrate job 与 dev 编排都走这一条路径。
+    """
+    env = {**os.environ,
+           "ENVIRONMENT": "development",
+           "DATABASE_URL": "sqlite+aiosqlite:///./closenai.db",
+           "PROD_DB_FINGERPRINTS": "",
+           "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
+    proc = subprocess.run([sys.executable, "-c", "import backend.database"],
+                          env=env, cwd=str(tmp_path), capture_output=True, text=True,
+                          timeout=120)
+    assert proc.returncode == 0, f"本机 dev 起不来了：{proc.stderr[-600:]}"
+
+
 def test_prod_db_fingerprints_is_a_shared_cross_language_key():
     """`PROD_DB_FINGERPRINTS` 两侧都有读数点，且它**不带** CLOSEN_ 前缀（D-T604-4）。
 
@@ -234,9 +462,13 @@ def test_prod_db_fingerprints_is_a_shared_cross_language_key():
     assert 'envList("PROD_DB_FINGERPRINTS")' in go_src, "Go 侧读数点漂了"
     assert "CLOSEN_PROD_DB_FINGERPRINTS" not in go_src, (
         "这个键不该带 CLOSEN_ 前缀：那是「只有 Go 认得」的记号，py-api 也要读它")
-    assert "prod_db_fingerprints" in (ROOT / "backend" / "config.py").read_text(encoding="utf-8"), (
-        "backend/config.py 没有对应字段：pydantic 的 env 映射是字段名大写，"
-        "没有字段就读不到这个键")
+    py_cfg = (ROOT / "backend" / "config.py").read_text(encoding="utf-8")
+    assert "\n    prod_db_fingerprints: str" in py_cfg, (
+        "backend/config.py 没有这个**字段**：pydantic 的 env 映射是字段名大写，"
+        "没有字段就读不到这个键。判行首缩进而不是判子串——`closen_prod_db_fingerprints` "
+        "那种加前缀的改名子串仍在，读的 env 键却已经换了（Go 侧证人同判）")
+    assert "CLOSEN_PROD_DB_FINGERPRINTS" not in py_cfg, (
+        "Python 侧把指纹键写成带 CLOSEN_ 前缀＝只有 py-api 这一侧读不到它")
 
 
 def test_staging_overlay_names_the_database_key_differently():

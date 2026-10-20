@@ -19,10 +19,20 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from backend.config import settings
+from backend.core import env_isolation
 
 
 class Base(DeclarativeBase):
     """所有 SQLAlchemy ORM 模型的基类。"""
+
+
+# T6-04（2026-10-20）· 库面隔离闸的落点：**引擎创建之前**，不是 FastAPI 的 startup。
+# 原先只有 main.py 的 _validate_startup_config 调判据，而这个模块的顶层就会建引擎——
+# migrate job／ai-rpc／py-ai-worker 三条入口各自 import 这里，一辈子走不到 FastAPI 启动钩子，
+# 在那三条上「staging 连生产库」没人拦（D-T604-5 要拦的方向正是双写）。
+# 报错只说 host/dbname 与命中的指纹，连接串本身一个字不回显（凭据不入日志）。
+env_isolation.require_db_isolation(
+    settings.environment, settings.database_url, settings.prod_db_fingerprints)
 
 
 # pgbouncer（Supabase Transaction pooler，端口 6543）事务模式下必须禁用 prepared statements：
