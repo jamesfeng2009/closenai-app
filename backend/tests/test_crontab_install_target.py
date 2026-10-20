@@ -12,6 +12,16 @@
 （D-T604-2：逐字小写，`Production` 不在词表里＝拒启，而不是折叠成 production）。
 脚本与 crontab 与 README 三方对账：crontab 顶部的 `INSTALL-TARGET: production-only`
 标记既是给人看的声明，也是脚本的一条判据（标记没了＝有人改表时把口径删了）。
+
+2026-10-20 code review 补的三条腿（原批都在「判据对、证人不够」这一类）：
+· 端口面判的是每条调度行的 **host:port**，不是文件里有没有 `127.0.0.1:` 那串字面量——
+  旧判据下 `http://localhost:18000/…` 这种漂法脚本与闸同时看不见，方向是双跑复活；
+  配一条反向证人：`localhost:8000`／`[::1]:8000` 是合法写法，不许误伤。
+· staging 的端口面有**两条**独立的腿：判展开结果的那条（缺 docker 就 skip）与
+  判两份文件节点的那条（`test_staging_overlay_overrides_every_inherited_port_face`，
+  不需要 docker）——只留前者的话，CI 上 skip 一次，整套端口判据就退化成读 overlay 文本。
+· 展开那条**不按 host_ip 过滤**：prod 的 caddy 写的是裸 `80:80`，展开后没有 host_ip 键，
+  过滤等于把公网面挡在断言之外（摘掉 caddy 的 `!override` 时旧断言照样绿）。
 """
 
 from __future__ import annotations
@@ -34,6 +44,9 @@ COMPOSE_DIR = ROOT / "deploy" / "compose"
 STAGING_OVERLAY = COMPOSE_DIR / "docker-compose.staging.yml"
 PROD_COMPOSE = COMPOSE_DIR / "docker-compose.prod.yml"
 PRODUCTION_PORT = 8000
+STAGING_PORT = 18000
+# 调度源唯一许可的那一格目标：host 是回环、端口是 prod py-api 的宿主发布口。
+PRODUCTION_TARGET = f"127.0.0.1:{PRODUCTION_PORT}"
 MARKER = "# INSTALL-TARGET: production-only"
 ENVIRONMENT_STAGING = "staging"
 # 展开证人用的两个 host 字面量：prod 那一个只许出现在黑名单键里。
@@ -155,27 +168,57 @@ def _schedule_lines(text: str) -> list[str]:
             and "=" not in line.split()[0]]
 
 
-def _target_ports(text: str) -> set[int]:
-    """只看会执行的那几行：判的是端口面，不是文件里出现过哪些数字。"""
-    urls = {int(port) for port in re.findall(
-        r"http://127\.0\.0\.1:(\d+)/", "\n".join(_schedule_lines(text)))}
-    return urls
+def _schedule_targets(text: str) -> set[str]:
+    """只看会执行的那几行，取每条 URL 的 authority（host:port）。
+
+    刻意不复用脚本里的 grep/sed：那一侧是 shell、这一侧是 Python，各自从同一批行里
+    解析出目标面，「闸认为该打哪」和「这张表实际打哪」才不是同一个来源。
+    判 host:port 而不是判端口数字，是因为 `http://localhost:18000/…` 这种写法
+    在上一版两侧都读成「没看见」——回环别名漂到 staging 端口时闸是绿的。
+    """
+    out: set[str] = set()
+    for line in _schedule_lines(text):
+        for authority in re.findall(r"https?://[^/?#\s\"']+", line):
+            out.add(authority.split("://", 1)[1])
+    return out
 
 
 def test_crontab_only_reaches_the_production_port_face(tmp_path: Path) -> None:
     """这张表物理上够不到 staging：staging 的 py-api 不占宿主 8000。
 
-    两侧不许同源——这里逐行自己解析 URL，不复用脚本里的那条 grep。
+    目标面必须是**单一那一格**，而不许出现任何别的 host 或端口。
     """
     text = CRONTAB.read_text(encoding="utf-8")
-    hosts = set(re.findall(r"http://([0-9.]+):\d+/", "\n".join(_schedule_lines(text))))
-    assert hosts == {"127.0.0.1"}, f"调度源打了非回环的目标：{hosts}"
-    assert _target_ports(text) == {PRODUCTION_PORT}, "crontab 的目标端口面漂了"
+    targets = _schedule_targets(text)
+    assert targets == {PRODUCTION_TARGET}, f"crontab 的目标面不是单一生产回环格：{targets}"
     assert _schedule_lines(text), "crontab 里一条调度行都没有：调度源被掏空了"
-    # 同一条判据的执行者分支：把端口漂到 staging 那套（18000）必须被拒。
-    drifted = _table(tmp_path, text.replace(f"127.0.0.1:{PRODUCTION_PORT}", "127.0.0.1:18000"))
-    _refuses(_run(tmp_path, "production", table=drifted),
-             "拒绝安装", "非 127.0.0.1:8000 的目标端口")
+    # 执行者分支①：同一 host、漂到 staging 的宿主端口。
+    drifted = _table(tmp_path, text.replace(PRODUCTION_TARGET, f"127.0.0.1:{STAGING_PORT}"))
+    _refuses(_run(tmp_path, "production", table=drifted), "拒绝安装", "目标面漂了")
+    # 执行者分支②：换一种回环写法漂过去（2026-10-20 code review 抓到的那条盲区，
+    # 上一版脚本与这条闸在这一格上同时是绿的）。
+    slipped_text = text.replace(
+        f"http://{PRODUCTION_TARGET}/api/v1/cron/health",
+        f"http://localhost:{STAGING_PORT}/api/v1/cron/health")
+    slipped = _table(tmp_path, slipped_text)
+    assert _schedule_targets(slipped_text) == {PRODUCTION_TARGET, f"localhost:{STAGING_PORT}"}, (
+        "这条用例自己没漂到东西，等于没测")
+    _refuses(_run(tmp_path, "production", table=slipped), "拒绝安装", "目标面漂了")
+
+
+@pytest.mark.parametrize("spelling", [
+    f"localhost:{PRODUCTION_PORT}", f"[::1]:{PRODUCTION_PORT}"])
+def test_crontab_loopback_aliases_are_not_a_violation(tmp_path: Path, spelling: str) -> None:
+    """正向证人：`localhost` 与 `[::1]` 打的是同一个发布面，闸不许在合法写法上拒启。
+
+    少了这条，端口判据就退化成「文件里有没有 `127.0.0.1` 那串字面量」——那是文本 diff，
+    不是闸；而它误伤的下一步就是有人把整条判据注释掉。
+    """
+    text = CRONTAB.read_text(encoding="utf-8")
+    rewritten = text.replace(PRODUCTION_TARGET, spelling)
+    assert _schedule_targets(rewritten) == {spelling}, "这条用例自己没换干净"
+    result = _run(tmp_path, "production", table=_table(tmp_path, rewritten))
+    assert result.returncode == 0, f"{spelling} 是合法回环写法却被拒：{result.stderr!r}"
 
 
 def test_a_comment_about_the_staging_port_is_not_a_violation(tmp_path: Path) -> None:
@@ -190,7 +233,7 @@ def test_a_comment_about_the_staging_port_is_not_a_violation(tmp_path: Path) -> 
         "# 注意：staging 那套 bind 的是 127.0.0.1:18000，这张表不许指到那里去。\n"
         "SHELL=/bin/sh\n")
     path = _table(tmp_path, annotated)
-    assert _target_ports(annotated) == {PRODUCTION_PORT}
+    assert _schedule_targets(annotated) == {PRODUCTION_TARGET}
     result = _run(tmp_path, "production", table=path)
     assert result.returncode == 0, f"注释里的端口把闸误伤了：{result.stderr!r}"
 
@@ -216,7 +259,7 @@ def test_every_message_renders_whatever_locale_the_operator_has(
     cases = [
         (_run(tmp_path, "production", locale=locale), "判据通过"),
         (_run(tmp_path, "staging", locale=locale), "不是生产档"),
-        (_run(tmp_path, "production", table=drifted, locale=locale), "端口面漂了"),
+        (_run(tmp_path, "production", table=drifted, locale=locale), "目标面漂了"),
     ]
     for result, needle in cases:
         blob = result.stdout + result.stderr
@@ -234,6 +277,68 @@ def test_staging_overlay_binds_a_different_host_port(tmp_path: Path) -> None:
     assert host_ports == {"18000"}, f"staging 的宿主端口面漂了：{py_api}"
     assert all(p.endswith(":8000") for p in py_api), py_api
     assert doc["services"]["py-api"]["environment"]["ENVIRONMENT"] == ENVIRONMENT_STAGING
+    # 整份 overlay 的宿主发布面都要避开生产那三格——只看 py-api 那一格时，
+    # caddy 漂回 80/443 这条判据一句话都不会说（2026-10-20 code review 抓到）。
+    face = {_host_port(p) for spec in doc["services"].values()
+            for p in (spec.get("ports") or [])}
+    assert face == {"18000", "18080", "18443"}, f"overlay 自己声明的宿主端口面漂了：{face}"
+    assert not face & {"8000", "80", "443"}, face
+
+
+def _host_port(spec: str) -> str:
+    """一条 ports 写法里宿主那一格：`IP:宿主:容器` 取中段，`宿主:容器` 取首段。"""
+    parts = str(spec).split(":")
+    return parts[1] if len(parts) == 3 else parts[0]
+
+
+def _ports_nodes(path: Path) -> dict[str, tuple[str, list[str]]]:
+    """从 YAML **节点**上取每个服务的 ports ⇒ {服务名: (标签, [原文写法])}。
+
+    用 `yaml.compose` 而不是 `load`：`!override` 是个标签，值面加载会把它抹掉，
+    而这条判据判的正是「overlay 有没有用那条标签去接管基线的 sequence」。
+    """
+    root = yaml.compose(path.read_text(encoding="utf-8"), Loader=yaml.SafeLoader)
+    out: dict[str, tuple[str, list[str]]] = {}
+
+    def _mapping(node: yaml.Node) -> dict[str, yaml.Node]:
+        if not isinstance(node, yaml.MappingNode):
+            raise AssertionError(f"{path.name} 的结构不是预期的映射：{type(node)}")
+        return {str(k.value): v for k, v in node.value}
+
+    services = _mapping(root).get("services")
+    if not isinstance(services, yaml.MappingNode):
+        return out
+    for name, spec in _mapping(services).items():
+        for key, node in _mapping(spec).items():
+            if key == "ports":
+                assert isinstance(node, yaml.SequenceNode), f"{name} 的 ports 不是列表"
+                out[name] = (node.tag, [str(item.value) for item in node.value])
+    return out
+
+
+def test_staging_overlay_overrides_every_inherited_port_face() -> None:
+    """不需要 docker 的那条腿：基线每发布一格宿主端口，overlay 就必须带 `!override` 接管它。
+
+    为什么还要一条静态判据：展开那条在没装 docker 的环境里是 skip，而 skip 不算绿——
+    那时端口面的判据会整批退化成「读 overlay 自己的文本」，正好是 compose
+    「对 overlay 的 sequence 是追加」看不见的那类坏法。这条把两份文件的节点摆在一起判：
+    凡 prod 发布过宿主端口的服务，staging overlay 必须①点名它、②用 `!override`、
+    ③不重复基线任何一个宿主端口。三条里任意一条没做到，展开结果里就留着生产那一格。
+    """
+    baseline = _ports_nodes(PROD_COMPOSE)
+    overlay = _ports_nodes(STAGING_OVERLAY)
+    assert baseline, "prod 基线一个宿主端口都不发布：这条判据扫的是空集，不算证人"
+    for name, (_base_tag, base_specs) in sorted(baseline.items()):
+        base_ports = {_host_port(p) for p in base_specs}
+        assert name in overlay, (
+            f"prod 在 {name} 上发布 {sorted(base_ports)}，而 staging overlay 没接管这个服务："
+            "compose 会原样继承，staging 起来就占着生产那一格")
+        got_tag, got_specs = overlay[name]
+        assert got_tag == "!override", (
+            f"{name} 的 ports 没写 `!override`（实际标签 {got_tag}）：compose 对 overlay 的 "
+            f"sequence 是**追加**而不是替换，基线那 {sorted(base_ports)} 会跟着进展开")
+        leaked = base_ports & {_host_port(p) for p in got_specs}
+        assert not leaked, f"{name} 在 overlay 里又发布了一遍基线端口：{sorted(leaked)}"
 
 
 def _compose_env(tmp_path: Path) -> Path:
@@ -282,8 +387,11 @@ def test_staging_overlay_expansion_drops_production_ports(tmp_path: Path) -> Non
     doc = yaml.safe_load(result.stdout)
     services = doc["services"]
 
+    # 判**全部**发布端口，不按 host_ip 过滤：prod 基线的 caddy 写的是裸 `"80:80"`，
+    # 展开后根本没有 host_ip 这个键——上一版那句过滤条件把公网面整片挡在断言之外，
+    # 摘掉 caddy 的 `!override` 时这条闸照样绿（2026-10-20 code review 抓到，已实测复现）。
     published = {str(p["published"]) for svc in services.values()
-                 for p in (svc.get("ports") or []) if p.get("host_ip") == "127.0.0.1"}
+                 for p in (svc.get("ports") or [])}
     assert published == {"18000", "18080", "18443"}, (
         f"staging 展开后的宿主端口面不是这三个：{published}（出现 8000/80/443 就意味着"
         "宿主 crontab 那一行或公网入口能打进 staging）"

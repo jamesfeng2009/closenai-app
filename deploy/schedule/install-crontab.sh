@@ -73,19 +73,25 @@ esac
 grep -q '^# INSTALL-TARGET: production-only$' "$CRONTAB_FILE" \
   || die "$CRONTAB_FILE 顶部的 INSTALL-TARGET: production-only 标记不在了"
 
-# 每一行都只打回环上的生产端口：staging 那套 bind 的是 127.0.0.1:18000
+# 每一行都只打「回环上的生产端口」：staging 那套 bind 的是 127.0.0.1:18000
 # （见 docker-compose.staging.yml），所以这张表物理上够不到它。
-# `|| true` 是必须的：grep 无匹配返回 1，而 `PORTS=$(...)` 这条赋值在 set -e 下会把
+# 判的是**每条调度行的 URL 权威（host:port）**，不是「文件里有没有 `127.0.0.1:` 那串字面量」：
+# 上一版只 grep `127\.0\.0\.1:[0-9]+`，于是把任意一行写成 `http://localhost:18000/…` 时
+# 脚本与闸门同时看不见它，而 localhost 就是回环——双跑原样复活（2026-10-20 code review 抓到）。
+# `|| true` 是必须的：grep 无匹配返回 1，而 `TARGETS=$(...)` 这条赋值在 set -e 下会把
 # 整个脚本就地带走——那时「调度源被掏空」这条判据根本来不及说话，只留一个裸退出码。
 # 先剔掉注释行：判的是「这张表会打到哪些地址」，注释不参与执行。
-# 不剔的话，一句「别打到 127.0.0.1:18000」的说明就会让安装拒启——那是文本 diff，不是闸。
-PORTS=$(grep -v '^[[:space:]]*#' "$CRONTAB_FILE" | grep -Eo '127\.0\.0\.1:[0-9]+' || true)
-PORTS=$(printf '%s\n' "$PORTS" | sort -u)
-[ -n "$PORTS" ] || die "$CRONTAB_FILE 里一个回环目标都没有：调度源被掏空了"
-# `grep -qv` 无匹配时返回 1，写成 `A && die` 会蹭 set -e 的边界（这里用 if 明确避开）：
-# 「一行越界端口都没有」是**通过**分支，不能让它长得像失败。
-if printf '%s\n' "$PORTS" | grep -qv '^127\.0\.0\.1:8000$'; then
-  die "crontab 里出现了非 127.0.0.1:8000 的目标端口（端口面漂了：${PORTS}）"
+# grep -Eo 的匹配含 scheme，且到 `/` 就停，所以 sed 剪掉 `http(s)://` 之后剩下的就是 authority。
+TARGETS=$(grep -v '^[[:space:]]*#' "$CRONTAB_FILE" \
+  | grep -Eo 'https?://[^[:space:]/"]+' \
+  | sed -E 's#^https?://##' \
+  | sort -u || true)
+[ -n "$TARGETS" ] || die "$CRONTAB_FILE 里一个回环目标都没有：调度源被掏空了"
+# 白名单逐字写死三种回环写法＋生产 py-api 的宿主端口。localhost 与 [::1] 允许：它们打的是
+# 同一个发布面，禁掉只会让闸在合法写法上拒启（那是逼人注释掉闸）。18000／18080／18443
+# 与任何非回环 host 都不在这一行里，漂过去就是这一条拦。
+if printf '%s\n' "$TARGETS" | grep -qEv '^(\[::1\]|127\.0\.0\.1|localhost):8000$'; then
+  die "crontab 里有调度行打的不是回环上的 8000（目标面漂了：${TARGETS}）"
 fi
 
 if [ "$CHECK_ONLY" = 1 ]; then
