@@ -1,0 +1,76 @@
+{
+  "about": "T7-03：MQ 体内身份键的跨语言契约。归属只认受信 header（x-user-id）；体内任何读起来像 user id 的顶层键都必须拒绝，且两侧给出同一个码 foreign_user_id。归一规则：小写 → 剥掉 '_' 与 '-' → 等于 'userid'。Python 消费者与 Go 入站面读同一份用例（backend/tests/test_mq_identity_contract.py、backend/tests/test_ai_mq_consumer.py、go-core/internal/messaging/inbound/identity_keys_test.go）。scope 只含顶层键：归属是 envelope 级事实，嵌套键属于各域自己的载荷。",
+  "identity_rule": {
+    "canonical": "userid",
+    "lowercase": true,
+    "strip": ["_", "-"],
+    "scope": "top-level body keys"
+  },
+  "reject_reason": "foreign_user_id",
+  "variants": [
+    "user_id",
+    "userId",
+    "user-id",
+    "USER_ID",
+    "User-Id",
+    "USERID",
+    "UsErId",
+    "user__id",
+    "user--id"
+  ],
+  "non_identity": [
+    "userIds",
+    "user",
+    "identity_user",
+    "note"
+  ],
+  "header_user": "u-1",
+  "body_user": "u-2",
+  "command": {
+    "routing_key": "ai.pattern.requested",
+    "message_type": "ai_pattern_requested",
+    "headers": {
+      "x-schema-version": "1",
+      "x-user-id": "u-1"
+    },
+    "base_body": {
+      "schemaVersion": "1",
+      "taskType": "TASK_TYPE_PATTERN_DETECT",
+      "patternType": "evening_rumination"
+    }
+  },
+  "candidate": {
+    "routing_key": "candidate.pattern",
+    "message_type": "candidate_pattern",
+    "headers": {
+      "x-schema-version": "1",
+      "x-user-id": "u-1"
+    },
+    "base_body": {
+      "schemaVersion": "1",
+      "kind": "KIND_PATTERN",
+      "patternType": "evening_rumination",
+      "fingerprint": "fp-1",
+      "confidence": 0.7,
+      "safety": {
+        "status": "SAFETY_STATUS_OK"
+      }
+    }
+  },
+  "source_deleted": {
+    "routing_key": "source.deleted",
+    "message_type": "source_deleted",
+    "headers": {
+      "x-schema-version": "1",
+      "x-user-id": "u-1"
+    },
+    "allowed_identity_key": "userId",
+    "base_body": {
+      "schemaVersion": "1",
+      "userId": "u-1",
+      "sourceTable": "memories",
+      "sourceId": "11111111-1111-1111-1111-111111111111"
+    },
+    "conflict_user": "u-2"
+  }
+}

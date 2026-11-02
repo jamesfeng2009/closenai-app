@@ -19,7 +19,7 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/apierr"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
@@ -29,10 +29,16 @@ import (
 // maxAnalyticsEvents 是 schemas.py:689 `Field(..., max_length=100)` 的那个 100。
 const maxAnalyticsEvents = 100
 
+// maxAnalyticsEventIDLength 是 analytics_service.py::MAX_EVENT_ID_LENGTH（=128）。
+const maxAnalyticsEventIDLength = 128
+
 type analyticsEvent struct {
 	name       string
 	properties *pyValue
 	occurredAt pyDatetime
+	// eventID 是客户端幂等键（`event_id: Any = None`）。nil＝请求里没给/给了 null，
+	// 两种在 Python 侧都是 None，不触发逐事件确认形状。
+	eventID *pyValue
 }
 
 func (s *Server) handleAnalyticsBatch(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +66,10 @@ func (s *Server) handleAnalyticsBatch(w http.ResponseWriter, r *http.Request) {
 		writeDBError(w, r)
 		return
 	}
+	if analyticsAckMode(events) {
+		s.writeAnalyticsAck(w, r, userID, profile, events)
+		return
+	}
 	rc := fromContext(r.Context())
 	// 未同意 / 用户不存在（含 status≠active）⇒ 整批丢弃，但仍回 200 + 计数（Python 同）。
 	if !profile.Found || !profile.AnalyticsConsent {
@@ -72,11 +82,193 @@ func (s *Server) handleAnalyticsBatch(w http.ResponseWriter, r *http.Request) {
 		rc.traceID, rc.userID)
 }
 
+// analyticsAckMode 与 Python 同一条判据：任一条 event_id 不是 None ⇒ 新形状。
+// 旧客户端整批不带该键，所以 N8 冻结夹具仍走 {relayed,dropped} 的字节。
+func analyticsAckMode(events []analyticsEvent) bool {
+	for _, ev := range events {
+		if ev.eventID != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // batchResult 的键序即 Python 返回 dict 的键序（relayed 先、dropped 后）。
 type batchResult struct {
 	Relayed int `json:"relayed"`
 	Dropped int `json:"dropped"`
 }
+
+// analyticsAckResult 逐事件结果：键序 event_id → status → reason（reason 空则不写），
+// 与 analytics_service.py::_ack_item 一致。event_id 回显**请求原文**（Any 字段），
+// 非法值也要原样带回，前端才认得出是哪一条被永久拒绝。
+type analyticsAckResult struct {
+	EventID analyticsJSONValue `json:"event_id"`
+	Status  string             `json:"status"`
+	Reason  string             `json:"reason,omitempty"`
+}
+
+// analyticsAckResponse 的键序即 Python `_ack_response` 的 dict 顺序。
+// 不变量：accepted + duplicate + dropped == len(events)，其中 dropped = retryable + permanent。
+type analyticsAckResponse struct {
+	Relayed   int                 `json:"relayed"`
+	Dropped   int                 `json:"dropped"`
+	Accepted  int                 `json:"accepted"`
+	Duplicate int                 `json:"duplicate"`
+	Retryable int                 `json:"retryable"`
+	Permanent int                 `json:"permanent"`
+	Results   []analyticsAckResult `json:"results"`
+}
+
+// analyticsJSONValue 让 pyValue 原文字节直接进 encoding/json（不经过 float64）。
+type analyticsJSONValue struct {
+	value *pyValue
+}
+
+func (v analyticsJSONValue) MarshalJSON() ([]byte, error) {
+	if v.value == nil {
+		return []byte("null"), nil
+	}
+	encoded, err := v.value.json()
+	if err != nil {
+		return nil, err
+	}
+	return []byte(encoded), nil
+}
+
+func analyticsAckItem(ev analyticsEvent, status, reason string) analyticsAckResult {
+	return analyticsAckResult{
+		EventID: analyticsJSONValue{value: ev.eventID},
+		Status:  status,
+		Reason:  reason,
+	}
+}
+
+// summarizeAck 逐条计数。accepted 才算 relayed；retryable+permanent 合计 dropped。
+func summarizeAck(results []analyticsAckResult) analyticsAckResponse {
+	out := analyticsAckResponse{Results: results}
+	for _, item := range results {
+		switch item.Status {
+		case "accepted":
+			out.Accepted++
+		case "duplicate":
+			out.Duplicate++
+		case "retryable":
+			out.Retryable++
+		case "permanent":
+			out.Permanent++
+		}
+	}
+	out.Relayed = out.Accepted
+	out.Dropped = out.Retryable + out.Permanent
+	return out
+}
+
+// validAnalyticsEventID 是 analytics_service.py::_valid_event_id 的字面等价：
+// 非空字符串且长度（按字符，不是字节）不超过 128。
+func validAnalyticsEventID(raw *pyValue) (string, bool) {
+	if raw == nil || raw.kind != pyString || raw.str == "" {
+		return "", false
+	}
+	if utf8.RuneCountInString(raw.str) > maxAnalyticsEventIDLength {
+		return "", false
+	}
+	return raw.str, true
+}
+
+// writeAnalyticsAck 处理带 event_id 的批次：认领 → 中继 → 落账 → 逐事件回报。
+//
+// 与 Python 的差别只有并发：认领仍按请求顺序串行（同批重复、prior 状态都靠这个顺序），
+// 真正外发沿用 legacy 的并发派发，再按每条的结果写台账。台账读写在数据库出错时
+// 释放本批仍为 pending 的认领，避免一次 500 留下永远 in_flight 的行。
+func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userID string,
+	profile domain.UserProfile, events []analyticsEvent) {
+	rc := fromContext(r.Context())
+	if !profile.Found || !profile.AnalyticsConsent {
+		reason := "consent_off"
+		if !profile.Found {
+			reason = "user_not_found"
+		}
+		results := make([]analyticsAckResult, len(events))
+		for i, ev := range events {
+			results[i] = analyticsAckItem(ev, "permanent", reason)
+		}
+		WriteSuccess(w, summarizeAck(results), rc.traceID, rc.userID)
+		return
+	}
+	if s.batch1.Receipts == nil {
+		writeJSONError(w, r, apierr.New(apierr.CodeInternalError,
+			"服务器内部错误 / Internal server error"))
+		return
+	}
+
+	results := make([]analyticsAckResult, len(events))
+	claimed := make([]int, 0, len(events))
+	claimIDs := make([]string, 0, len(events))
+	seen := make(map[string]bool, len(events))
+	for i, ev := range events {
+		eventID, ok := validAnalyticsEventID(ev.eventID)
+		if !ok {
+			results[i] = analyticsAckItem(ev, "permanent", "invalid_event_id")
+			continue
+		}
+		if seen[eventID] {
+			results[i] = analyticsAckItem(ev, "duplicate", "")
+			continue
+		}
+		seen[eventID] = true
+		got, prior, err := s.batch1.Receipts.Claim(r.Context(), userID, eventID)
+		if err != nil {
+			s.releaseReceipts(r.Context(), userID, claimIDs)
+			writeDBError(w, r)
+			return
+		}
+		if !got {
+			if prior == "accepted" {
+				results[i] = analyticsAckItem(ev, "duplicate", "")
+			} else {
+				// pending 或并发下读不到行：都不能再外发，让前端退避重试。
+				results[i] = analyticsAckItem(ev, "retryable", "in_flight")
+			}
+			continue
+		}
+		claimed = append(claimed, i)
+		claimIDs = append(claimIDs, eventID)
+	}
+
+	delivered := s.relaySelected(r, userID, events, claimed)
+	for j, idx := range claimed {
+		ev := events[idx]
+		eventID := claimIDs[j]
+		if delivered[j] {
+			if err := s.batch1.Receipts.MarkAccepted(r.Context(), userID, eventID); err != nil {
+				s.releaseReceipts(r.Context(), userID, claimIDs[j:])
+				writeDBError(w, r)
+				return
+			}
+			results[idx] = analyticsAckItem(ev, "accepted", "")
+			continue
+		}
+		// 没送到就不许留下 accepted：删掉认领行，下一次能重新进来。
+		if err := s.batch1.Receipts.Release(r.Context(), userID, eventID); err != nil {
+			s.releaseReceipts(r.Context(), userID, claimIDs[j+1:])
+			writeDBError(w, r)
+			return
+		}
+		results[idx] = analyticsAckItem(ev, "retryable", "relay_failed")
+	}
+	WriteSuccess(w, summarizeAck(results), rc.traceID, rc.userID)
+}
+
+// releaseReceipts 是错误路径的收尾：已认领但还没落账的行删掉，下一次重试能重新认领。
+func (s *Server) releaseReceipts(ctx context.Context, userID string, eventIDs []string) {
+	for _, eventID := range eventIDs {
+		if err := s.batch1.Receipts.Release(ctx, userID, eventID); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "analytics: release receipt failed: %v\n", err)
+		}
+	}
+}
+
 
 // relayEvents 并发外发并等总时限到点，返回**真的送出去了几条**。
 //
@@ -86,15 +278,33 @@ type batchResult struct {
 // 红线没动——外发失败只记日志，绝不因分析平台抖动让业务请求失败；改的只是「没做的事
 // 不许算成已中继」。与 backend/services/analytics_service.py::relay_batch 同批同形。
 func (s *Server) relayEvents(r *http.Request, userID string, events []analyticsEvent) int {
-	if s.batch1.Relay == nil || len(events) == 0 {
-		return 0
+	indexes := make([]int, len(events))
+	for i := range events {
+		indexes[i] = i
+	}
+	relayed := 0
+	for _, ok := range s.relaySelected(r, userID, events, indexes) {
+		if ok {
+			relayed++
+		}
+	}
+	return relayed
+}
+
+// relaySelected 并发外发 events[indexes]，返回与 indexes 对齐的「真的送出去了没有」。
+// 逐事件确认形状要靠这份结果写台账；legacy 计数只是把它数一遍（同一条判据）。
+func (s *Server) relaySelected(r *http.Request, userID string, events []analyticsEvent,
+	indexes []int) []bool {
+	delivered := make([]bool, len(indexes))
+	if s.batch1.Relay == nil || len(indexes) == 0 {
+		return delivered
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), posthog.Timeout)
 	defer cancel()
 
 	var wg sync.WaitGroup
-	var relayed atomic.Int64
-	for _, ev := range events {
+	for j, idx := range indexes {
+		ev := events[idx]
 		payload := posthog.Event{
 			Event:      ev.name,
 			DistinctID: userID,
@@ -102,17 +312,17 @@ func (s *Server) relayEvents(r *http.Request, userID string, events []analyticsE
 			Timestamp:  ev.occurredAt.Isoformat(),
 		}
 		wg.Add(1)
-		go func() {
+		go func(j int) {
 			defer wg.Done()
 			if err := s.batch1.Relay.Capture(ctx, payload); err != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "analytics: posthog relay failed: %v\n", err)
 				return
 			}
-			relayed.Add(1)
-		}()
+			delivered[j] = true
+		}(j)
 	}
 	wg.Wait()
-	return int(relayed.Load())
+	return delivered
 }
 
 // anonymizeProperties 先按白名单+空值过滤，再把留下的值转成**原文字节**送出去：
@@ -281,6 +491,11 @@ func validateAnalyticsEvent(item *pyValue, index int) (analyticsEvent, []pyField
 		} else {
 			out.occurredAt = parsed
 		}
+	}
+	// `event_id: Any = None`：不参与校验，只决定响应形状。null 与缺省同义（都是 None），
+	// 但原文要留着——非字符串的非法值在 ack 结果里必须原样回显。
+	if id, present := item.get("event_id"); present && !id.isNullish() {
+		out.eventID = id
 	}
 	if len(entries) > 0 {
 		return analyticsEvent{}, entries

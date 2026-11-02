@@ -941,7 +941,7 @@ func TestDecodeRejectsContractViolations(t *testing.T) {
 		}, ReasonPayloadInvalid},
 		{"提案自报 reserved 的 user_id", func(d *Delivery) {
 			d.Body = []byte(`{"kind":"KIND_PATTERN","userId":"attacker"}`)
-		}, ReasonPayloadInvalid},
+		}, ReasonForeignUserID},
 		{"体内 kind 与键不一致", func(d *Delivery) {
 			d.Body = []byte(`{"kind":"KIND_INSIGHT","statement":"x","safety":{"status":"SAFETY_STATUS_OK"}}`)
 		}, ReasonKindMismatch},

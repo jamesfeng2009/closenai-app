@@ -62,6 +62,10 @@ var EventEntries = map[string]Entry{
 	SourceDeletedRoutingKey: EntryInvalidateSource,
 }
 
+// sourceDeletedUserIDKey 是事件体里唯一合法的身份键拼写（T7-03 的允许面）：
+// 它只是 DLQ 对账痕迹，归属权威仍是 x-user-id；其余变体在 identity_keys.go 拒绝。
+const sourceDeletedUserIDKey = "userId"
+
 // sourceDeletedBody 是事件体的线形。
 //
 // 键名用 lowerCamelCase 与候选面同一套（对面 `contract.py` 的 protojson 形态），
@@ -86,6 +90,12 @@ func DecodeEvent(d Delivery, maxBodyBytes int) (Call, *domain.PermanentRejection
 	}
 	userID, bad := transportGate(d, maxBodyBytes)
 	if bad != nil {
+		return nil, bad
+	}
+	// T7-03：事件的体里只认契约上的那一个 `userId`（DLQ 对账痕迹）。
+	// snake／连字符／大小写变体都在解码前按 foreign_user_id 拒绝——否则它们会撞上
+	// DisallowUnknownFields 被记成 payload_not_json，看起来像「体不是 JSON」。
+	if bad := rejectForeignIdentity(d.Body, sourceDeletedUserIDKey); bad != nil {
 		return nil, bad
 	}
 	if entry != EntryInvalidateSource {

@@ -121,10 +121,11 @@ func main() {
 		log.Fatalf("go-api: cutover: %v", err)
 	}
 	batch1 := &httpapi.Batch1{
-		Users: pg,
-		Moods: pg,
-		Relay: posthog.New(cfg.PosthogAPIKey, cfg.PosthogHost),
-		Gate:  gate,
+		Users:    pg,
+		Moods:    pg,
+		Relay:    posthog.New(cfg.PosthogAPIKey, cfg.PosthogHost),
+		Receipts: pg,
+		Gate:     gate,
 	}
 
 	// N8 批 2（curriculum 域）：两条端点都只碰 users + journey_events，零 LLM。

@@ -1,0 +1,351 @@
+{
+  "version": 1,
+  "description": "T7-02 逐事件确认的跨层契约用例：Python(backend)、Go(go-core)、React Native(frontend) 三侧测试读同一份文件。counts/results 是服务端响应口径；local 是前端按同一份 results 落库后的队列状态。properties 里的 reflection_text 不得出现在任何外发载荷里。",
+  "cases": [
+    {
+      "name": "mixed_statuses",
+      "user_found": true,
+      "consent": true,
+      "prior": {
+        "evt-duplicate": "accepted",
+        "evt-inflight": "pending"
+      },
+      "relay_fail": [
+        "feature_action"
+      ],
+      "events": [
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-accepted"
+        },
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-duplicate"
+        },
+        {
+          "event": "feature_action",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-retry"
+        },
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-inflight"
+        },
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00"
+        }
+      ],
+      "expected": {
+        "counts": {
+          "relayed": 1,
+          "dropped": 4,
+          "accepted": 1,
+          "duplicate": 1,
+          "retryable": 2,
+          "permanent": 2
+        },
+        "results": [
+          {
+            "event_id": "evt-accepted",
+            "status": "accepted"
+          },
+          {
+            "event_id": "evt-duplicate",
+            "status": "duplicate"
+          },
+          {
+            "event_id": "evt-retry",
+            "status": "retryable",
+            "reason": "relay_failed"
+          },
+          {
+            "event_id": "evt-inflight",
+            "status": "retryable",
+            "reason": "in_flight"
+          },
+          {
+            "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "status": "permanent",
+            "reason": "invalid_event_id"
+          },
+          {
+            "event_id": null,
+            "status": "permanent",
+            "reason": "invalid_event_id"
+          }
+        ],
+        "local": {
+          "retained": [
+            "evt-retry",
+            "evt-inflight"
+          ],
+          "deleted": [
+            "evt-accepted",
+            "evt-duplicate"
+          ],
+          "dead": [
+            {
+              "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "reason": "invalid_event_id"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "in_batch_duplicate",
+      "user_found": true,
+      "consent": true,
+      "prior": {},
+      "relay_fail": [],
+      "events": [
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-double"
+        },
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-double"
+        }
+      ],
+      "expected": {
+        "counts": {
+          "relayed": 1,
+          "dropped": 0,
+          "accepted": 1,
+          "duplicate": 1,
+          "retryable": 0,
+          "permanent": 0
+        },
+        "results": [
+          {
+            "event_id": "evt-double",
+            "status": "accepted"
+          },
+          {
+            "event_id": "evt-double",
+            "status": "duplicate"
+          }
+        ],
+        "local": {
+          "retained": [],
+          "deleted": [
+            "evt-double"
+          ],
+          "dead": []
+        }
+      }
+    },
+    {
+      "name": "consent_off",
+      "user_found": true,
+      "consent": false,
+      "prior": {},
+      "relay_fail": [],
+      "events": [
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-a"
+        },
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T01:00:00+00:00",
+          "event_id": "evt-b"
+        }
+      ],
+      "expected": {
+        "counts": {
+          "relayed": 0,
+          "dropped": 2,
+          "accepted": 0,
+          "duplicate": 0,
+          "retryable": 0,
+          "permanent": 2
+        },
+        "results": [
+          {
+            "event_id": "evt-a",
+            "status": "permanent",
+            "reason": "consent_off"
+          },
+          {
+            "event_id": "evt-b",
+            "status": "permanent",
+            "reason": "consent_off"
+          }
+        ],
+        "local": {
+          "retained": [],
+          "deleted": [],
+          "dead": [
+            {
+              "event_id": "evt-a",
+              "reason": "consent_off"
+            },
+            {
+              "event_id": "evt-b",
+              "reason": "consent_off"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "user_not_found",
+      "user_found": false,
+      "consent": true,
+      "prior": {},
+      "relay_fail": [],
+      "events": [
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "evt-ghost"
+        }
+      ],
+      "expected": {
+        "counts": {
+          "relayed": 0,
+          "dropped": 1,
+          "accepted": 0,
+          "duplicate": 0,
+          "retryable": 0,
+          "permanent": 1
+        },
+        "results": [
+          {
+            "event_id": "evt-ghost",
+            "status": "permanent",
+            "reason": "user_not_found"
+          }
+        ],
+        "local": {
+          "retained": [],
+          "deleted": [],
+          "dead": [
+            {
+              "event_id": "evt-ghost",
+              "reason": "user_not_found"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "id_length_boundary",
+      "user_found": true,
+      "consent": true,
+      "prior": {},
+      "relay_fail": [],
+      "events": [
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T00:00:00+00:00",
+          "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "event": "screen_view",
+          "properties": {
+            "screen": "home",
+            "reflection_text": "must-not-leave-device"
+          },
+          "occurred_at": "2026-10-01T01:00:00+00:00",
+          "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "expected": {
+        "counts": {
+          "relayed": 1,
+          "dropped": 1,
+          "accepted": 1,
+          "duplicate": 0,
+          "retryable": 0,
+          "permanent": 1
+        },
+        "results": [
+          {
+            "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "status": "accepted"
+          },
+          {
+            "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "status": "permanent",
+            "reason": "invalid_event_id"
+          }
+        ],
+        "local": {
+          "retained": [],
+          "deleted": [
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          ],
+          "dead": [
+            {
+              "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "reason": "invalid_event_id"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

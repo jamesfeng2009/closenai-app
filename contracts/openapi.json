@@ -34,11 +34,14 @@
         "type": "object"
       },
       "AnalyticsEvent": {
-        "description": "前端上报的单条分析事件。\n\n- event: 事件名（如 screen_view / checkin / chat_sent）\n- properties: 行为属性（后端按白名单匿名化，剔除内容字段）\n- occurred_at: 真实发生时间（UTC，离线延迟事件用此时间保证口径准确）",
+        "description": "前端上报的单条分析事件。\n\n- event: 事件名（如 screen_view / checkin / chat_sent）\n- properties: 行为属性（后端按白名单匿名化，剔除内容字段）\n- occurred_at: 真实发生时间（UTC，离线延迟事件用此时间保证口径准确）\n- event_id: 客户端生成的稳定幂等键（T7-02）。不传＝旧客户端，响应保持\n  `{relayed, dropped}` 的旧形状；任一条带了它，整批走逐事件确认形状。\n  类型刻意是 Any：非法值由服务层按「永久拒绝」逐条回报，而不是让 Pydantic\n  把整批打成 422——两种库（Python/Go）对 422 体逐字对齐的代价远大于收益。",
         "properties": {
           "event": {
             "title": "Event",
             "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id"
           },
           "occurred_at": {
             "format": "date-time",
@@ -641,6 +644,50 @@
         "title": "MemoryVersionRequest",
         "type": "object"
       },
+      "MoodAnalysisRequest": {
+        "description": "三层次分析请求。\n\n刻意**没有** `checkin_id`：这个入口分析的是「你今天的签到」，接受任意 id 就得\n做归属校验 + 换一套证据窗口，而前端永远只传今天。留一个用不上的字段等于\n给契约加一条没人验证的入参（方案 §6.2.1 的这条字段按此作废，见结案文档勘误）。",
+        "properties": {
+          "depth": {
+            "default": "light",
+            "description": "轻松/探索/深潜",
+            "enum": [
+              "light",
+              "explore",
+              "deep"
+            ],
+            "title": "Depth",
+            "type": "string"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "可选：想让分析聚焦的那句话（≤200 字符）",
+            "title": "Focus"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "客户端幂等键（10 分钟窗口内同键返回同一结果）",
+            "title": "Request Id"
+          }
+        },
+        "title": "MoodAnalysisRequest",
+        "type": "object"
+      },
       "MoodCheckinRequest": {
         "description": "情绪签到请求。",
         "properties": {
@@ -694,6 +741,32 @@
         "title": "PushTokenRequest",
         "type": "object"
       },
+      "QuoteCardRequest": {
+        "description": "金句卡分享（KG-30）：只接「来源是哪一条」，正文一律服务端取。\n\n前端**不许**把要分享的句子传上来：那样这个端点就成了一张任意文本 → 品牌 PDF\n（带水印、二维码、短链）的生成器，而它对外承诺的是「这是你自己写的话」。\nid 取不到／不是本人／是 AI 抽取的，都在服务端拒（见 `share_service` 的判据）。",
+        "properties": {
+          "source_id": {
+            "description": "来源记录 id",
+            "maxLength": 36,
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_type": {
+            "description": "原话来自记忆还是反思；AI 产出类型不在允许集合内",
+            "enum": [
+              "memory",
+              "reflection"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id"
+        ],
+        "title": "QuoteCardRequest",
+        "type": "object"
+      },
       "ReceiptVerifyRequest": {
         "description": "收据校验请求。",
         "properties": {
@@ -730,6 +803,30 @@
             "title": "Content",
             "type": "string"
           },
+          "prompt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "提示库条目 id（rp-001…）",
+            "title": "Prompt Id"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "提示库版本；与当前库版本不一致返回 40001",
+            "title": "Prompt Version"
+          },
           "related_memory_ids": {
             "anyOf": [
               {
@@ -744,6 +841,18 @@
             ],
             "description": "关联的记忆 ID 列表（来自草稿）",
             "title": "Related Memory Ids"
+          },
+          "source": {
+            "default": "manual",
+            "description": "这条反思是怎么产生的",
+            "enum": [
+              "manual",
+              "prompt",
+              "draft",
+              "mood_analysis"
+            ],
+            "title": "Source",
+            "type": "string"
           }
         },
         "required": [
@@ -3513,6 +3622,46 @@
         ]
       }
     },
+    "/api/v1/mood/analysis": {
+      "post": {
+        "description": "三层次情绪分析（轻松／探索／深潜）。\n\n- 开关 `mood_analysis_depths_enabled` 关 ⇒ 40402（不暴露功能存在）；\n- 未同意 AI 数据共享 ⇒ 40303；今天没签到 ⇒ 40402；分析池耗尽 ⇒ 40301；\n- 危机词命中 ⇒ 直接下发分地区热线文案，**排在配额之前**，不花额度；\n- 引用未通过逐字校验 ⇒ `safety_status=\"degraded\"` 且 `pattern=null`。",
+        "operationId": "analysis_api_v1_mood_analysis_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoodAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analysis",
+        "tags": [
+          "mood"
+        ]
+      }
+    },
     "/api/v1/mood/checkin": {
       "post": {
         "description": "情绪签到。\n\n记录当日情绪，生成 AI 解读，更新 Streak。\n签到每日可多次：同一本地日重复签到走更新（不新增记录）；\nAI 解读计入统一免费配额，超额返回 QUOTA_EXCEEDED。\n连续 3 天同情绪 / 连续 2 天负面时响应附带 deep_interpretation。",
@@ -3899,6 +4048,56 @@
         ]
       }
     },
+    "/api/v1/reflection-prompts": {
+      "get": {
+        "description": "反思提示库（KG-26）。\n\n静态内容、无用户数据、不耗 LLM 配额，因此不查 AI 同意、不进配额门。\n语言只有 en/zh 两版：其余 13 个语言回退 en，并在响应里显式给\n`language_used` + `fallback=true`，由前端标注「未翻译」而不是让用户自己猜。",
+        "operationId": "list_prompts_api_v1_reflection_prompts_get",
+        "parameters": [
+          {
+            "description": "只取某一簇；未登记的簇名返回空 prompts",
+            "in": "query",
+            "name": "cluster",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "只取某一簇；未登记的簇名返回空 prompts",
+              "title": "Cluster"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Prompts",
+        "tags": [
+          "reflections"
+        ]
+      }
+    },
     "/api/v1/reflections": {
       "get": {
         "description": "列出最近的 Reflection 记录。",
@@ -3943,7 +4142,7 @@
         ]
       },
       "post": {
-        "description": "保存 Reflection 为成长记录（可携带草稿关联的 related_memory_ids）。",
+        "description": "保存 Reflection 为成长记录。\n\n可携带草稿关联的 `related_memory_ids`，以及提示库溯源\n（`prompt_id` + `prompt_version` + `source=\"prompt\"`，KG-26）；\n溯源字段非法（提示不存在／库版本过期／成对缺失）返回 40001。",
         "operationId": "save_reflection_api_v1_reflections_post",
         "requestBody": {
           "content": {
@@ -4280,6 +4479,46 @@
           }
         },
         "summary": "Personality Card",
+        "tags": [
+          "share"
+        ]
+      }
+    },
+    "/api/v1/share/quote-card": {
+      "post": {
+        "description": "金句卡分享 PDF（KG-30）：某条**自己写下的原话** + 日期 + 品牌与深链。\n\n请求体只有「来源是哪一条」，句子一律服务端从库取——端点不该变成任意文本\n生成带本人推荐码 PDF 的机器。归属不符 40403／40402，AI 抽取的记忆 40405。",
+        "operationId": "quote_card_pdf_api_v1_share_quote_card_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteCardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quote Card Pdf",
         "tags": [
           "share"
         ]

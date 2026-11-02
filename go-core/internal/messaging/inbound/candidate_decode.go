@@ -46,9 +46,13 @@ const (
 	ReasonMissingUserID       = "missing_user_id"
 	ReasonMissingMessageID    = "missing_message_id"
 	ReasonNotJSON             = "payload_not_json"
-	ReasonPayloadInvalid      = "candidate_payload_invalid"
-	ReasonKindMismatch        = "candidate_kind_mismatch"
-	ReasonMetadataNotJSON     = "metadata_not_json"
+	// ReasonForeignUserID 与 Python 侧 `REASON_FOREIGN_USER_ID` 同值（T7-03）：
+	// 体内出现任何身份键变体（user_id／userId／user-id／大小写）都在任何领域写入前拒绝。
+	// 归一规则见 identity_keys.go，用例表是 contracts/mq_identity_cases.json。
+	ReasonForeignUserID   = "foreign_user_id"
+	ReasonPayloadInvalid  = "candidate_payload_invalid"
+	ReasonKindMismatch    = "candidate_kind_mismatch"
+	ReasonMetadataNotJSON = "metadata_not_json"
 	// ReasonUnknownDomainValue 走的是 `domain.ErrUnknownSignal` 这个**已有哨兵**
 	// （evidence_score.go:233）：未知算分档位是拼写问题，重投一万次也不会变成合法，
 	// 所以它必须转成永久拒绝去留痕，而不是按瞬态在阶梯上无限撞库。
@@ -135,6 +139,11 @@ func Decode(d Delivery, maxBodyBytes int) (Call, *domain.PermanentRejection) {
 	}
 	userID, bad := transportGate(d, maxBodyBytes)
 	if bad != nil {
+		return nil, bad
+	}
+	// T7-03：归属只认 x-user-id。体内任何身份键变体在解码/领域写入前统一拒绝，
+	// 不许让 protojson 的 unknowns 把同一件事记成 candidate_payload_invalid。
+	if bad := rejectForeignIdentity(d.Body); bad != nil {
 		return nil, bad
 	}
 

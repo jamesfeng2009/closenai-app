@@ -124,7 +124,7 @@ func TestDecodeEventRejectsContractViolations(t *testing.T) {
 		}, ReasonNotJSON},
 		{"snake_case 的体（对面拼错风格）", func(d *Delivery) {
 			d.Body = []byte(`{"user_id":"user-1","source_table":"memories","source_id":"m"}`)
-		}, ReasonNotJSON},
+		}, ReasonForeignUserID},
 		{"字段类型不对", func(d *Delivery) {
 			d.Body = []byte(`{"userId":"user-1","sourceTable":"memories","sourceId":42}`)
 		}, ReasonPayloadInvalid},

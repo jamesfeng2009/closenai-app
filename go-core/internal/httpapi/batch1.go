@@ -32,12 +32,26 @@ type Relay interface {
 	Capture(ctx context.Context, ev posthog.Event) error
 }
 
+// AnalyticsReceiptStore 是 (user_id, event_id) 接收台账（T7-02）。
+//
+// claim 的「谁拿到行」必须由**一次原子写**决定：后端 analytics_receipt_repository
+// 用 INSERT … ON CONFLICT DO NOTHING 的 rowcount，store.PG 用同一条 SQL。
+// prior 只在 claim=false 时有意义：accepted ⇒ duplicate，其余（pending/读不到）⇒ retryable。
+type AnalyticsReceiptStore interface {
+	Claim(ctx context.Context, userID, eventID string) (claimed bool, prior string, err error)
+	MarkAccepted(ctx context.Context, userID, eventID string) error
+	Release(ctx context.Context, userID, eventID string) error
+}
+
 // Batch1 是这批切流域的依赖集合。为 nil 时两条路由不注册（见 server.go 的 routes）。
 type Batch1 struct {
 	Users UserProfileReader
 	Moods MoodReader
 	Relay Relay
-	Gate  *cutover.Gate
+	// Receipts 只在请求带 event_id（逐事件确认）时用到；旧客户端零依赖，N8 冻结
+	// 夹具也因此不受这张表影响。
+	Receipts AnalyticsReceiptStore
+	Gate     *cutover.Gate
 }
 
 // SupportedLanguages 逐字对照 backend/config.py:77-81 的 supported_languages。
