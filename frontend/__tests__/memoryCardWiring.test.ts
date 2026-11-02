@@ -48,21 +48,25 @@ function between(rel: string, start: string, end: string): string {
 
 describe('第四模板在册：类型、变体表与导航参数三处齐', () => {
   it("ShareCardVariant 含 'memory'（类型缺一项，屏里的分支就是类型错误现场）", () => {
+    // 2026-11-01 KG-30：同一行多了 'quote'——这一族「整行逐字」的钉法本来就是按
+    // 「改类型就得来这里同步」设计的，多一个变体就红一次，不是误报。
     expect(read(TYPES)).toContain(
-      "export type ShareCardVariant = 'classic' | 'minimal' | 'combo' | 'memory';"
+      "export type ShareCardVariant = 'classic' | 'minimal' | 'combo' | 'memory' | 'quote';"
     );
   });
 
-  it('变体表四个都在（只在 route 参数里支持 memory，用户自己点不进去）', () => {
+  it('变体表五个都在（只在 route 参数里支持 memory，用户自己点不进去）', () => {
     expect(read(SHARE)).toContain(
-      "const VARIANTS: ShareCardVariant[] = ['classic', 'minimal', 'combo', 'memory'];"
+      "const VARIANTS: ShareCardVariant[] = ['classic', 'minimal', 'combo', 'memory', 'quote'];"
     );
   });
 
   it('导航参数表带 variant 与 memory_id，且仍是可选（旧调用点不传参也得能进名片）', () => {
-    expect(read('App.tsx')).toContain(
-      "ShareCard: { variant?: ShareCardVariant; memory_id?: string } | undefined;"
+    const block = read('App.tsx').slice(
+      read('App.tsx').indexOf('  ShareCard: {'),
+      read('App.tsx').indexOf('  ShareCard: {') + 480
     );
+    ['variant?: ShareCardVariant;', 'memory_id?: string;', 'source_type?:', 'source_id?: string;', 'quote_text?: string;', 'quote_date?: string;'].forEach((f) => expect(block).toContain(f));
   });
 
   it('首页考古卡→回忆卡入口：带 memory_id 跳转并埋点，按钮在展开态的每条候选里', () => {
@@ -73,9 +77,10 @@ describe('第四模板在册：类型、变体表与导航参数三处齐', () =
   });
 
   it('route 缺参只回 classic，不猜一条记忆', () => {
-    expect(from(SHARE, "useState<ShareCardVariant>(", 200)).toContain(
-      "route?.params?.variant === 'memory' ? 'memory' : 'classic'"
+    expect(from(SHARE, "useState<ShareCardVariant>(", 260)).toContain(
+      "route?.params?.variant === 'memory' || route?.params?.variant === 'quote'"
     );
+    expect(from(SHARE, "useState<ShareCardVariant>(", 260)).toContain(": 'classic',");
   });
 });
 

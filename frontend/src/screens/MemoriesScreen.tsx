@@ -34,7 +34,7 @@ const MEMORY_CATEGORIES: Memory['category'][] = ['values', 'preference', 'relati
 /** 内容上限同样取后端（MemoryCreate.content 的 max_length），前端另设小值＝第二真源。 */
 const MEMORY_MAX_LENGTH = 4000;
 
-export default function MemoriesScreen() {
+export default function MemoriesScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const { isLoggedIn } = useAuth();
   const requireAuth = useRequireAuth();
@@ -109,6 +109,24 @@ export default function MemoriesScreen() {
   const closeDetail = () => {
     setDetail(null);
     setChange('');
+  };
+
+  /**
+   * 金句卡入口（KG-30）：把这一条交给分享屏做**预览**，导出时才发 id。
+   *
+   * 不按 `detail.source` 预筛：那个字段是 LLM 给这条记忆的语义标注（self/others/hypothetical），
+   * 不是「这句谁写的」的溯源位——溯源位在 `generation_run_id`，而它不在 MemoryResponse 里
+   * （批 6 的逐字节对齐闸钉着那张响应，加字段要拖 Go 侧一起改）。所以入口一律给，
+   * 「这条是 AI 整理的、不做成卡」由服务端 40405 说了算，前端照实念出来。
+   */
+  const onShareOriginal = (item: Memory) => {
+    navigation.navigate('ShareCard', {
+      variant: 'quote',
+      source_type: 'memory',
+      source_id: item.id,
+      quote_text: item.content,
+      quote_date: item.created_at ? new Date(item.created_at).toLocaleDateString() : '',
+    });
   };
 
   const onChange = async () => {
@@ -284,6 +302,15 @@ export default function MemoriesScreen() {
             >
               <Text style={styles.addBtnText}>{t('memories.changedSubmit')}</Text>
             </TouchableOpacity>
+            {!!detail && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={styles.shareQuoteBtn}
+                onPress={() => onShareOriginal(detail)}
+              >
+                <Text style={styles.shareQuoteText}>{t('share.quoteEntry')}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.cancelBtn} onPress={closeDetail}>
               <Text style={styles.cancelText}>{t('common.close')}</Text>
             </TouchableOpacity>
@@ -353,6 +380,11 @@ const styles = StyleSheet.create({
   modalMeta: { fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: 2 },
   modalReason: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: Spacing.sm, lineHeight: LineHeight.body },
   changeTitle: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600', marginBottom: Spacing.sm },
+  shareQuoteBtn: {
+    marginTop: Spacing.md, borderRadius: BorderRadius.md, paddingVertical: 12,
+    alignItems: 'center', borderWidth: 1, borderColor: Colors.gold400,
+  },
+  shareQuoteText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
   cancelBtn: { marginTop: Spacing.md, alignItems: 'center', paddingVertical: 6 },
   cancelText: { fontSize: FontSize.md, color: Colors.textTertiary },
 });

@@ -27,6 +27,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { toLocalDate } from '../utils/datetime';
 import { newTraceId } from '../utils/traceId';
+import { trackFunnelOnce } from '../services/funnel';
 import type { ActionItem, ActionResultChoice, GrowthRecordItem, GrowthTopic } from '../types';
 
 /**
@@ -211,6 +212,9 @@ export default function GrowthRecordsScreen() {
       // changed=false ⇒ 今天这个 type 已经记过一行，服务端把首次那条回给你：
       // 这是「已经记过了」而不是失败，两种说法在屏上是两句话。
       Alert.alert(receipt.changed ? t('actions.resultSaved') : t('actions.resultSameDay'));
+      // 漏斗第五段（KG-25）：结果回访真的落了一行，这一环才算闭。
+      // 放在成功分支内、catch 之外——请求失败报上去会把「回访率」读成假的高。
+      void trackFunnelOnce('first_outcome');
     } catch {
       // **不关弹层**：行动已经落成 completed，结果还没记上；
       // 关掉就等于让用户以为记过了。留在原地，档位与备注都还在。

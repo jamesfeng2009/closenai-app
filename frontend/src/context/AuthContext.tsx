@@ -116,8 +116,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 后端吊销失败不阻断本地登出
       }
     }
-    await resetSession();
-    setUser(null);
+    try {
+      await resetSession();
+    } finally {
+      // 本机清理失败也要退出登录态（内存 token 已清，继续显示已登录更危险）；
+      // 失败信息由 LocalCleanupError 继续上抛，UI 据此提示可重试的残留清理。
+      setUser(null);
+    }
   }, []);
 
   const deleteMyAccount = useCallback(async () => {
@@ -128,8 +133,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     //   test_soft_delete_clears_push_tokens。这里刻意不写行号：同一个文件里多一个函数
     //   行号就漂，W5 补 user_consents 到 PURGE_TARGETS 时就把 `:425` 漂成了 `:467`）
     await deleteAccount();
-    await resetSessionFull();
-    setUser(null);
+    try {
+      await resetSessionFull();
+    } finally {
+      setUser(null);
+    }
   }, []);
 
   const refreshUser = useCallback(async () => {

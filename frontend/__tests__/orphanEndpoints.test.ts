@@ -156,15 +156,34 @@ describe('① GET /mood/trend：孤儿端点接线（只补后端 summary，不�
     expect(codeOnly(insights)).not.toMatch(/trend\.(values|labels)/);
   });
 
-  it('InsightsScreen 首屏并行取趋势（7 天窗、失败降级为 null）并渲染摘要一行', () => {
+  // KG-27 之后，摘要不再挂在首屏 Promise.all 上，而是跟着 7/30 窗口单独取一次。
+  // 这里把它抽成一段来判：判据必须是函数体本身，别用「文件里某处出现过」糊过去。
+  const summaryBody = (): string => {
+    const m = /const loadMoodSummary = useCallback\(async \(range: MoodRange\) => \{([\s\S]*?)\n  \}, \[isLoggedIn\]\);/.exec(
+      codeOnly(insights)
+    );
+    expect(m).not.toBeNull();
+    return m![1];
+  };
+
+  it('趋势摘要按当前窗口取（7/30 切换），先清空再落、失败降级为 null', () => {
     expect(insights).toMatch(/getMoodTrend,/); // import 面
-    expect(insights).toMatch(/const TREND_DAYS = 7;/);
+    expect(insights).toMatch(/const MOOD_RANGE_OPTIONS = \[7, 30\] as const;/);
+    expect(insights).toMatch(/const MOOD_RANGE_DEFAULT: MoodRange = 7;/);
+    expect(insights).toContain(
+      'const [moodRange, setMoodRange] = useState<MoodRange>(MOOD_RANGE_DEFAULT);'
+    );
     expect(insights).toContain(
       'const [trend, setTrend] = useState<MoodTrendData | null>(null);'
     );
-    expect(insights).toMatch(/getMoodTrend\(TREND_DAYS\)\.catch\(\(\) => null\),/);
-    expect(insights).toMatch(/const \[w, tl, p, tr\] = await Promise\.all\(\[/);
-    expect(insights).toContain('setTrend(tr);');
+    const body = summaryBody();
+    expect(body).toMatch(/await getMoodTrend\(range\)\.catch\(\(\) => null\)/);
+    // 切窗先清空：留着上一窗的残句＝「30 天的折线配 7 天的结论」
+    expect(body).toContain('setTrend(null);');
+    // 连点时两次请求可能反序返回，只认最后一次
+    expect(body).toContain('if (summarySeq.current === seq) setTrend(tr);');
+    expect(insights).toContain('void loadMoodSummary(moodRange);');
+    expect(insights).toMatch(/const \[w, tl, p\] = await Promise\.all\(\[/);
     expect(insights).toContain('{!!trend?.summary && (');
     expect(insights).toContain(
       '<Text style={styles.trendSummary}>{trend.summary}</Text>'
@@ -174,10 +193,15 @@ describe('① GET /mood/trend：孤儿端点接线（只补后端 summary，不�
     expect(style![1]).toMatch(/lineHeight: LineHeight\.\w+/);
   });
 
-  it('折线数据源仍是 /growth/timeline 的 days，没被 trend 替换', () => {
-    expect(insights).toMatch(
-      /<MoodLineChart days=\{recentDays\(timeline\.days, 7\)\} width=\{340\} height=\{56\} \/>/
+  it('折线数据源仍是 /growth/timeline 的 days，切换只改截取的天数', () => {
+    expect(codeOnly(insights)).toContain(
+      'const moodDays = recentDays(timeline?.days ?? [], moodRange);'
     );
+    expect(insights).toMatch(
+      /<MoodLineChart days=\{moodDays\} width=\{340\} height=\{56\} \/>/
+    );
+    // 反向证人：折线不许改成吃 trend 的 labels/values（D-G9 的原判据）
+    expect(insights).not.toMatch(/<MoodLineChart[^>]*days=\{trend/);
   });
 
   it('趋势摘要在模糊门之内（免费/Pro 分界不因这条而变）', () => {
@@ -186,11 +210,12 @@ describe('① GET /mood/trend：孤儿端点接线（只补后端 summary，不�
     expect(gate).toContain('{!!trend?.summary && (');
   });
 
-  it('游客态跳过请求（守卫先于 Promise.all）', () => {
+  it('游客态跳过请求（首屏与摘要各挡各的）', () => {
     expect(insights.indexOf('if (!isLoggedIn)')).toBeGreaterThanOrEqual(0);
     expect(insights.indexOf('if (!isLoggedIn)')).toBeLessThan(
-      insights.indexOf('getMoodTrend(TREND_DAYS)')
+      insights.indexOf('const [w, tl, p] = await Promise.all([')
     );
+    expect(summaryBody()).toContain('if (!isLoggedIn) return;');
   });
 
   it('契约：该行的封装已接线（不再有「封装未接线」标记）', () => {

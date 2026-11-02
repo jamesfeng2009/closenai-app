@@ -105,6 +105,59 @@ export interface MoodTrendData {
   summary: string;
 }
 
+// ── 三层次情绪分析（KG-28）──
+// 字段名一律跟 `backend/models/schemas.py` 的 MoodAnalysisResponse 逐字一致：
+// 这一格改名不会编译报错，只会让结果区静默显空。
+
+export type MoodAnalysisDepth = 'light' | 'explore' | 'deep';
+
+/** `crisis`＝命中危机词表，服务端没跑模型；`degraded`＝证据不足，只给可核对的事实。 */
+export type MoodAnalysisSafety = 'ok' | 'degraded' | 'crisis';
+
+export interface MoodAnalysisEvidence {
+  source_type: 'memory' | 'reflection';
+  source_id: string;
+  excerpt: string;
+  occurred_at: string;
+}
+
+export interface MoodAnalysisPattern {
+  description: string;
+  /** 0–1；服务端已夹紧，前端不再二次缩放（出现 1.4 是后端的错，不是这里该修的）。 */
+  confidence: number;
+}
+
+export interface MoodAnalysisNextStep {
+  text: string;
+  action: 'reflect' | 'checkin' | 'goal' | 'none';
+}
+
+export interface MoodAnalysisQuota {
+  used: number;
+  limit: number;
+}
+
+export interface MoodAnalysisResponse {
+  analysis_id: string;
+  depth: MoodAnalysisDepth;
+  created_at: string;
+  summary: string;
+  pattern: MoodAnalysisPattern | null;
+  alternatives: string[];
+  evidence: MoodAnalysisEvidence[];
+  next_step: MoodAnalysisNextStep | null;
+  safety_status: MoodAnalysisSafety;
+  generation_run_id?: string | null;
+  /** 危机出口服务端不给计数器（那条路径上没有「还剩几次」这件事）。 */
+  quota?: MoodAnalysisQuota | null;
+}
+
+export interface MoodAnalysisRequest {
+  depth: MoodAnalysisDepth;
+  focus?: string | null;
+  request_id?: string | null;
+}
+
 // ═══ Growth ═══
 
 export interface GrowthMetrics {
@@ -147,6 +200,15 @@ export interface GrowthDashboard {
   streak_freeze_count: number;
   /** 洞察分级呈现（§5.20）：免费态模糊 + 解锁角标；旧缓存缺省按免费 */
   is_pro?: boolean;
+  /**
+   * 服务端开关快照（KG-28 §6.2.5）。整段可缺省：仪表盘有 24 小时本地缓存，
+   * 升级前落盘的缓存里没有这一格，缺省一律按「关」处理（`showMoodAnalysisEntry`）。
+   */
+  features?: GrowthFeatures;
+}
+
+export interface GrowthFeatures {
+  mood_analysis_depths?: boolean;
 }
 
 export interface WeeklyInsight {
@@ -464,6 +526,13 @@ export interface ReflectionDraft {
   related_memory_ids: string[] | null;
 }
 
+/**
+ * `GET/POST /reflections` 的响应形状，与 Go `reflectionPayload` 逐字段对齐。
+ *
+ * KG-26 的提示溯源**只在请求侧**（`PromptTraceability`）：后端把它写进
+ * `growth_records.metadata_json`，但不从响应里透传——响应加字段要先改 Go 并重录
+ * 字节夹具，那是 N8 切流的一票，不属于提示库这一批。
+ */
 export interface ReflectionItem {
   id: string;
   content: string;
@@ -680,7 +749,13 @@ export interface FirstReadCard {
 
 // ═══ Share (P1-F04) ═══
 
-export type ShareCardVariant = 'classic' | 'minimal' | 'combo' | 'memory';
+// `quote`（KG-30）不走 getPersonalityCard：它是「你自己写下的一句」的本地预览卡，
+// 正文由入口带进来，导出时只把 source_type/source_id 交给后端取原文。
+export type ShareCardVariant = 'classic' | 'minimal' | 'combo' | 'memory' | 'quote';
+
+// 金句卡的来源（KG-30）：与 `backend/models/schemas.py` 的 QuoteCardRequest.source_type
+// 同一枚举，两侧各改各的会让「前端能点的那两种来源」和「后端肯出的那两种」分叉。
+export type QuoteSourceType = 'memory' | 'reflection';
 export type SharePeriod = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 
 export interface PersonalityCard {

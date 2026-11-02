@@ -16,12 +16,16 @@ import resources from '../src/i18n/locales';
 import {
   MEMORY_CARD_PDF_FILE,
   YEAR_IN_REVIEW_PDF_FILE,
+  QUOTE_CARD_PDF_FILE,
+  QUOTE_CARD_MAX_CHARS,
   reportPdfFile,
   lifeArchivePdfFile,
+  quoteCardExcerpt,
   pdfFailureKey,
   CODE_RESOURCE_NOT_FOUND,
   CODE_MEMORY_NOT_FOUND,
   CODE_ENTITLEMENT_REQUIRED,
+  CODE_QUOTE_NOT_ORIGINAL,
 } from '../src/config/pdfFiles';
 import { arrayBufferToBase64 } from '../src/utils/base64';
 
@@ -65,8 +69,10 @@ function pdfNameRows(): { path: string; name: string }[] {
 describe('① 落盘文件名与 contracts/endpoints.md §七 逐字（U2-3）', () => {
   const rows = pdfNameRows();
 
-  it('§七 确实解析出了五条登记行（解析器空转的话下面全是假绿）', () => {
-    expect(rows).toHaveLength(5);
+  it('§七 确实解析出了六条登记行（解析器空转的话下面全是假绿）', () => {
+    // 5 → 6：KG-30（2026-11-01）的 /share/quote-card。这里按计数钉死，是为了让「新增一个
+    // PDF 出口」必须同时改这条闸——只加 §七 不改闸的话，下一行人就不知道自己漏了登记。
+    expect(rows).toHaveLength(6);
   });
 
   // 按小节切分的证人：T1-01 在 §七 加了 7.2 ZIP 小节，它必须被读到、又不混进 PDF 名单，
@@ -78,9 +84,10 @@ describe('① 落盘文件名与 contracts/endpoints.md §七 逐字（U2-3）',
     expect(rows.map((r) => r.path)).not.toContain('/user/export/{job_id}/download');
   });
 
-  it('回忆卡、年报两个固定名逐字相等', () => {
+  it('回忆卡、金句卡、年报三个固定名逐字相等', () => {
     const byPath = new Map(rows.map((r) => [r.path, r.name]));
     expect(byPath.get('/share/memory-card')).toBe(MEMORY_CARD_PDF_FILE);
+    expect(byPath.get('/share/quote-card')).toBe(QUOTE_CARD_PDF_FILE);
     expect(byPath.get('/share/year-in-review/pdf')).toBe(YEAR_IN_REVIEW_PDF_FILE);
   });
 
@@ -108,22 +115,24 @@ describe('① 落盘文件名与 contracts/endpoints.md §七 逐字（U2-3）',
     }
   });
 
-  it('后端 share.py 里这四个文件名字面量确实在册（§七 是生成物，源头要能回溯）', () => {
+  it('后端 share.py 里这五个文件名字面量确实在册（§七 是生成物，源头要能回溯）', () => {
     const router = readRepo('backend/routers/share.py');
     expect(router).toContain('filename="closenai_memory_card.pdf"');
+    expect(router).toContain('filename="closenai_quote_card.pdf"');
     expect(router).toContain('filename="closenai_year_in_review.pdf"');
     expect(router).toContain('closenai_{period}_report.pdf');
     expect(router).toContain('closenai_life_archive_{scope}.pdf');
   });
 });
 
-describe('② 四条封装在册、都真被屏调用，且都吃二进制出口', () => {
+describe('② 五条封装在册、都真被屏调用，且都吃二进制出口', () => {
   const api = read(API);
 
   const wrappers: [string, string][] = [
     ['getReportPdf', `/share/report/`],
     ['getYearInReviewPdf', '/share/year-in-review/pdf'],
     ['postMemoryCardPdf', '/share/memory-card'],
+    ['postQuoteCardPdf', '/share/quote-card'],
     ['getLifeArchivePdf', '/share/life-archive/pdf'],
   ];
 
@@ -136,11 +145,12 @@ describe('② 四条封装在册、都真被屏调用，且都吃二进制出口
     expect(body).toContain('binary: true');
   });
 
-  it('四个封装各有且只有一个调用点，且都在屏里（防「封装未接线」）', () => {
+  it('五个封装各有且只有一个调用点，且都在屏里（防「封装未接线」）', () => {
     const sites: [string, string][] = [
       ['getReportPdf', INSIGHTS],
       ['getYearInReviewPdf', INSIGHTS],
       ['postMemoryCardPdf', SHARE],
+      ['postQuoteCardPdf', SHARE],
       ['getLifeArchivePdf', PAYWALL],
     ];
     for (const [name, rel] of sites) {
@@ -149,11 +159,12 @@ describe('② 四条封装在册、都真被屏调用，且都吃二进制出口
     }
   });
 
-  it('api.ts 里二进制出口只有这五处：四个 PDF ＋ T1-01 的 ZIP，其余调用仍走信封解包', () => {
+  it('api.ts 里二进制出口只有这六处：五个 PDF ＋ T1-01 的 ZIP，其余调用仍走信封解包', () => {
     // 第五条不是漂移而是 T1-01 的 /user/export/{job_id}/download——它由
     // __tests__/dataExportWiring.test.ts 逐条钉；这里计数若再涨就是有人新开了
     // 一条没登记的字节流出口。
-    expect(countIn(api, /binary: true/g)).toBe(5);
+    // 5 → 6：KG-30（2026-11-01）的 /share/quote-card（§七 同批登记）。
+    expect(countIn(api, /binary: true/g)).toBe(6);
     const zip = api.slice(api.indexOf('export async function getUserExportDownload'));
     expect(zip.slice(0, zip.indexOf('\n}'))).toContain('/user/export/${jobId}/download');
     expect(api).toContain('binary?: boolean');
@@ -165,6 +176,16 @@ describe('② 四条封装在册、都真被屏调用，且都吃二进制出口
     expect(memory.slice(0, 600)).toContain('JSON.stringify({ memory_id: memoryId })');
     const report = api.slice(api.indexOf('export async function getReportPdf'));
     expect(report.slice(0, 400)).toContain('language=${langParam()}');
+  });
+
+  it('金句卡的 body 只有来源两个键：正文一律服务端从库取（KG-30 的授权面）', () => {
+    // 前端屏上确实拿着那句话（预览要用），但 body 里带上它，端点就退化成
+    // 「任意文本 → 带本人推荐码的 PDF」——backend/tests/test_quote_card.py 从收侧钉同一条。
+    const at = api.indexOf('export async function postQuoteCardPdf');
+    const body = api.slice(at, api.indexOf('\n}', at));
+    expect(body).toContain("method: 'POST'");
+    expect(body).toContain("JSON.stringify({ source_type: sourceType, source_id: sourceId })");
+    expect(body).not.toMatch(/source_text|content|quote_text/);
   });
 
   it('档案封装带 scope 与 regenerate 查询参（权益与缓存口径都在后端，参数丢了就退化成默认档）', () => {
@@ -210,19 +231,36 @@ describe('④ 失败码 → 文案键，与 backend/core/errors.py 同值（U2-4
     return Number(m![1]);
   }
 
-  it('40402 / 40403 / 40304 三个常量与 Python 侧逐值相等', () => {
+  it('40402 / 40403 / 40304 / 40405 四个常量与 Python 侧逐值相等', () => {
     expect(CODE_RESOURCE_NOT_FOUND).toBe(pyCode('RESOURCE_NOT_FOUND'));
     expect(CODE_MEMORY_NOT_FOUND).toBe(pyCode('MEMORY_NOT_FOUND'));
     expect(CODE_ENTITLEMENT_REQUIRED).toBe(pyCode('ENTITLEMENT_REQUIRED'));
+    expect(CODE_QUOTE_NOT_ORIGINAL).toBe(pyCode('QUOTE_SOURCE_NOT_ORIGINAL'));
   });
 
-  it('三个码各映射到自己的文案键，其余一律 generic', () => {
+  it('四个码各映射到自己的文案键，其余一律 generic', () => {
     expect(pdfFailureKey(40402)).toBe('pdf.failed.noData');
     expect(pdfFailureKey(40403)).toBe('pdf.failed.memoryGone');
     expect(pdfFailureKey(40304)).toBe('pdf.failed.entitlement');
+    expect(pdfFailureKey(40405)).toBe('pdf.failed.notOriginal');
     expect(pdfFailureKey(500)).toBe('pdf.failed.generic');
     expect(pdfFailureKey(undefined)).toBe('pdf.failed.generic');
     expect(pdfFailureKey(null)).toBe('pdf.failed.generic');
+  });
+
+  it('金句卡正文上限与后端同值，且截断口径一致（预览与卡面不能长两样）', () => {
+    // 另一侧取 Python 源文件的字面量，不是拿前端的数字跟前端的注释比。
+    const svc = readRepo('backend/services/share_service.py');
+    const m = /^\s+QUOTE_MAX_CHARS = (\d+)$/m.exec(svc);
+    expect(m).not.toBeNull();
+    expect(QUOTE_CARD_MAX_CHARS).toBe(Number(m![1]));
+
+    const long = '耐'.repeat(QUOTE_CARD_MAX_CHARS + 20);
+    const out = quoteCardExcerpt(long);
+    expect(out).toHaveLength(QUOTE_CARD_MAX_CHARS);
+    expect(out.endsWith('…')).toBe(true);
+    expect(quoteCardExcerpt('  短句  ')).toBe('短句');
+    expect(quoteCardExcerpt('短')).toBe('短');
   });
 
   it('首读卡仍不接线：只登记，不在本批顺手补（发现缺陷不顺手修）', () => {
@@ -283,12 +321,12 @@ function langTable(lang: string): any {
   return (resources as any)[lang].translation;
 }
 
-describe('⑦ 文案面：pdf.* 七键 × 15 语言齐，且屏里没有自造键', () => {
+describe('⑦ 文案面：pdf.* 八键 × 15 语言齐，且屏里没有自造键', () => {
   const langs = Object.keys(resources);
   const KEYS = [
     'pdf.export', 'pdf.exporting', 'pdf.unavailable',
     'pdf.failed.noData', 'pdf.failed.memoryGone', 'pdf.failed.entitlement',
-    'pdf.failed.generic',
+    'pdf.failed.notOriginal', 'pdf.failed.generic',
   ];
 
   it('15 个语言都在册', () => {

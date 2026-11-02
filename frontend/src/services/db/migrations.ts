@@ -1,7 +1,7 @@
 import type { SqliteDb } from './types';
 
 /** 当前数据库版本（PRAGMA user_version）。 */
-export const CURRENT_DB_VERSION = 2;
+export const CURRENT_DB_VERSION = 3;
 
 /** V1: 初始建表 */
 export function migrateV1(db: SqliteDb): void {
@@ -230,6 +230,33 @@ export function migrateV2(db: SqliteDb): void {
 }
 
 /**
+ * V3: 分析事件逐事件确认（T7-02）。
+ *
+ * `event_id` 是服务端的幂等键：重试沿用同一个值，服务端才能把重复提交判成
+ * duplicate 而不是再送一份给分析平台。`dead_reason` 标记不再重发的行
+ * （永久拒绝 / 重试次数耗尽），它不会进 listPending，但仍然留在库里可见。
+ */
+export function migrateV3(db: SqliteDb): void {
+  db.execSync(`
+    ALTER TABLE analytics_events ADD COLUMN event_id TEXT;
+    ALTER TABLE analytics_events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE analytics_events ADD COLUMN next_retry_at TEXT;
+    ALTER TABLE analytics_events ADD COLUMN dead_reason TEXT;
+    ALTER TABLE analytics_events ADD COLUMN dead_at TEXT;
+
+    -- 升级前的积压事件没有幂等键：回填一个稳定随机串，保证接下来每次重试都带同一个值。
+    UPDATE analytics_events
+       SET event_id = lower(hex(randomblob(16)))
+     WHERE event_id IS NULL;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_events_event_id
+      ON analytics_events(event_id);
+    CREATE INDEX IF NOT EXISTS idx_analytics_events_pending
+      ON analytics_events(synced, dead_reason, next_retry_at);
+  `);
+}
+
+/**
  * 按版本号顺序执行迁移，并更新 PRAGMA user_version。
  * 迁移必须幂等，失败时由调用方负责事务回滚。
  */
@@ -244,6 +271,10 @@ export function runMigrations(db: SqliteDb): void {
   if (version < 2) {
     migrateV2(db);
     version = 2;
+  }
+  if (version < 3) {
+    migrateV3(db);
+    version = 3;
   }
 
   db.execSync(`PRAGMA user_version = ${version}`);

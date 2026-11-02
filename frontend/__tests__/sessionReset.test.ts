@@ -9,14 +9,24 @@
 import { createTestDb } from './helpers/testDb';
 
 const testDb = createTestDb();
-const calls: { authCleared: number; resetNotified: number } = {
+const calls: {
+  authCleared: number;
+  resetNotified: number;
+  authFailures: string[];
+  dbFailures: number;
+  onboardingFailures: number;
+} = {
   authCleared: 0,
   resetNotified: 0,
+  authFailures: [],
+  dbFailures: 0,
+  onboardingFailures: 0,
 };
 
 jest.mock('../src/services/api', () => ({
   clearAuth: jest.fn(async () => {
     calls.authCleared += 1;
+    return calls.authFailures;
   }),
   notifySessionReset: jest.fn(() => {
     calls.resetNotified += 1;
@@ -26,17 +36,33 @@ jest.mock('../src/services/api', () => ({
 }));
 
 jest.mock('../src/services/db/database', () => ({
-  getDatabase: () => testDb,
+  getDatabase: () => {
+    if (calls.dbFailures > 0) {
+      calls.dbFailures -= 1;
+      return {
+        ...testDb,
+        execSync: () => {
+          throw new Error('sqlite unavailable');
+        },
+      };
+    }
+    return testDb;
+  },
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
-  removeItem: jest.fn(async () => undefined),
+  removeItem: jest.fn(async () => {
+    if (calls.onboardingFailures > 0) {
+      calls.onboardingFailures -= 1;
+      throw new Error('async storage unavailable');
+    }
+  }),
   getItem: jest.fn(async () => null),
   setItem: jest.fn(async () => undefined),
 }));
 
 // 必须在 mock 之后再 require，否则 session.ts 会拿到真的 api / database
-import { resetSession, resetSessionFull } from '../src/services/session';
+import { LocalCleanupError, resetSession, resetSessionFull } from '../src/services/session';
 
 function seed(): void {
   testDb.execSync(`
@@ -61,9 +87,10 @@ describe('resetSession / resetSessionFull 的本地清理', () => {
     seed();
     calls.authCleared = 0;
     calls.resetNotified = 0;
+    calls.authFailures = [];
+    calls.dbFailures = 0;
+    calls.onboardingFailures = 0;
   });
-
-  afterAll(() => testDb.closeSync());
 
   it('登出：清用户级表但保留行为事件队列', async () => {
     await resetSession();
@@ -99,3 +126,68 @@ describe('resetSession / resetSessionFull 的本地清理', () => {
     expect(row?.record_count).toBe(0);
   });
 });
+
+describe('本机清理失败必须可感知、可重试（T7-01）', () => {
+  beforeEach(() => {
+    seed();
+    calls.authCleared = 0;
+    calls.resetNotified = 0;
+    calls.authFailures = [];
+    calls.dbFailures = 0;
+    calls.onboardingFailures = 0;
+  });
+
+  it('SecureStore 没删干净：抛 LocalCleanupError(secure_store)，仍然通知回登录页', async () => {
+    calls.authFailures = ['refresh_token'];
+
+    await expect(resetSession()).rejects.toMatchObject({
+      name: 'LocalCleanupError',
+      failures: ['secure_store'],
+    });
+    // 内存态已清、不能把用户留在已登录界面
+    expect(calls.resetNotified).toBe(1);
+  });
+
+  it('SQLite 清理失败：抛 sqlite 失败、数据保持原样；重试成功后清空', async () => {
+    calls.dbFailures = 1;
+    let caught: unknown;
+    try {
+      await resetSession();
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(LocalCleanupError);
+    expect((caught as LocalCleanupError).failures).toEqual(['sqlite']);
+    expect(eventCount()).toBe(2); // 失败没有被说成「已清空」
+
+    await resetSession(); // dbFailures 已归零 → 重试
+    expect(eventCount()).toBe(2); // 登出仍保留设备级队列
+    expect(
+      (testDb.getFirstSync<{ count: number }>('SELECT COUNT(*) AS count FROM user_profile') ?? { count: -1 }).count
+    ).toBe(0);
+  });
+
+  it('注销：引导标记删失败也计入失败，重试成功后才算清完', async () => {
+    calls.onboardingFailures = 1;
+
+    await expect(resetSessionFull()).rejects.toMatchObject({
+      name: 'LocalCleanupError',
+      failures: ['onboarding'],
+    });
+
+    await resetSessionFull();
+    expect(eventCount()).toBe(0);
+  });
+
+  it('多项同时失败时逐条报告落点', async () => {
+    calls.authFailures = ['access_token', 'user'];
+    calls.dbFailures = 1;
+    calls.onboardingFailures = 1;
+
+    await expect(resetSessionFull()).rejects.toMatchObject({
+      failures: ['secure_store', 'sqlite', 'onboarding'],
+    });
+  });
+});
+
+afterAll(() => testDb.closeSync());

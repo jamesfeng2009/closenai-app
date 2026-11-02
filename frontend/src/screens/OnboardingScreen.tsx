@@ -27,6 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import { savePendingFirstRead } from '../services/firstRead';
 import { track } from '../services/analytics';
+import { trackFunnelOnce } from '../services/funnel';
 import DemoArchiveScreen from './DemoArchiveScreen';
 import type { FirstReadAnswer } from '../types';
 
@@ -146,6 +147,9 @@ export default function OnboardingScreen({ onComplete }: { onComplete: () => voi
         .filter((q) => answers[q.id])
         .map((q) => ({ q: q.id, option: answers[q.id] }));
       await savePendingFirstRead(payload, withType);
+      // 漏斗第一段之后补的节点（KG-25）：引导真的走完了才算，
+      // 挂在 savePendingFirstRead 之后、onComplete 之前——任何一步抛错都不算走完。
+      void trackFunnelOnce('onboarding_completed');
       onComplete();
     } catch (e) {
       // 原来整条链路没有兜底：savePendingFirstRead 抛错就是未捕获 Promise rejection，

@@ -21,6 +21,13 @@ import {
   generateReflectionDraft, saveReflection, getUserProfile, setAiConsent, ApiError,
 } from '../services/api';
 import AIConsentModal from '../components/AIConsentModal';
+import PromptLibrarySheet from '../components/PromptLibrarySheet';
+import {
+  saveableText,
+  traceabilityFor,
+  type PromptTraceability,
+  type ReflectionPrompt,
+} from '../services/reflectionPrompts';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { chatRepo } from '../services/db/chatRepository';
 import { resolveMemoryRefs } from '../services/evidence';
@@ -37,6 +44,8 @@ import { useTranslation } from 'react-i18next';
 const CODE_AI_CONSENT_REQUIRED = 40303;
 // 与后端 ErrorCode.QUOTA_EXCEEDED 对齐（免费配额耗尽 → 引导付费）
 const CODE_QUOTA_EXCEEDED = 40301;
+// 与后端 ErrorCode.INVALID_PARAMS 对齐（KG-26：提示库版本过期／溯源字段非法）
+const CODE_INVALID_PARAMS = 40001;
 
 interface Message {
   id: string;
@@ -94,6 +103,11 @@ export default function ReflectScreen() {
   // 消息中心未读数（本地 ai_messages 表，🔔 角标）
   const [unreadCount, setUnreadCount] = useState(0);
   const [refsExpanded, setRefsExpanded] = useState<RefsExpanded>({});
+  // 提示库（KG-26）：面板开关、当前选中的提示与其库版本（版本必须一起上送，后端按它判过期）
+  const [promptVisible, setPromptVisible] = useState(false);
+  const [activePrompt, setActivePrompt] = useState<ReflectionPrompt | null>(null);
+  const [promptVersion, setPromptVersion] = useState('');
+  const [promptSaving, setPromptSaving] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
 
@@ -339,19 +353,15 @@ export default function ReflectScreen() {
       setShowMoodPanel(false);
       setMoodNote('');
       setStreak(result.streak_updated);
-      // 本地签到记录落库（Tier 1 用户原创；热力图离线可用）
-      // note 写用户实际输入的那句（服务端响应里没有 note 字段，回读不了，只能用手上的值）
+      // 本地签到记录落库（Tier 1 用户原创；热力图离线可用）。
+      // note 写用户实际输入的那句（服务端响应里没有 note 字段，回读不了）；
+      // 没输入时不要用 null 覆盖当天此前写过的备注，强度也保留本地既有值。
       moodCheckinRepo
-        .save({
-          id: result.id,
-          date: toLocalDate(result.created_at),
-          emoji: result.mood_emoji,
-          intensity: 0.5,
-          note: note ?? null,
+        .mergeRemoteCheckin(result, {
+          ...(note === undefined ? {} : { note }),
           ai_interpretation: result.deep_interpretation
             ? `${result.ai_interpretation}\n\n${result.deep_interpretation}`
             : result.ai_interpretation,
-          created_at: result.created_at,
         })
         .catch(() => {});
     } catch (e) {
@@ -365,29 +375,114 @@ export default function ReflectScreen() {
     }
   };
 
+  /** 本地反思记录落库（Tier 1 用户原创；探索页反思列表离线可用）。两条保存路径共用一份形状。 */
+  const cacheReflectionLocally = (saved: { id: string; content: string; created_at: string }) => {
+    reflectionRepo
+      .save({
+        id: saved.id,
+        date: toLocalDate(saved.created_at),
+        mood: null,
+        mood_emoji: null,
+        summary: saved.content,
+        full_content_url: null,
+        is_ai_generated: 0,
+        created_at: saved.created_at,
+        updated_at: saved.created_at,
+      })
+      .catch(() => {});
+  };
+
+  /**
+   * 两条保存出口共用的那一段：存本地缓存 + 报漏斗节点（KG-26 把它从两处收成一处）。
+   *
+   * `first_reflection_saved` 只有一个发射点是**判据**，不只是整洁：草稿采纳和照提示自己写
+   * 都算「第一条真的存进反思记录」，分两处写任何一处漏改，首日路径那一跳的转化率
+   * 就只统计到一条路径——而这正是 KG-25 补这五格的理由。
+   */
+  const persistReflection = async (
+    content: string,
+    relatedMemoryIds?: string[] | null,
+    promptMeta?: PromptTraceability | null
+  ) => {
+    const saved = await saveReflection(content, relatedMemoryIds ?? null, promptMeta);
+    cacheReflectionLocally(saved);
+    void trackFunnelOnce('first_reflection_saved');
+    return saved;
+  };
+
+  /**
+   * 选中／换一条提示（KG-26）。
+   *
+   * 非破坏性口径：输入框还停在上一条提示的原句（用户没动笔）才换成新句；
+   * 用户已经写了字就**不覆盖正文**，只换溯源——「换一条」不该吞掉他刚打的字。
+   */
+  const applyPrompt = (prompt: ReflectionPrompt, version: string, action: 'select' | 'swap') => {
+    setInput((prev) => {
+      const base = prev.trim();
+      if (action === 'swap' && activePrompt && base === activePrompt.question.trim()) {
+        return prompt.question;
+      }
+      return base ? base : prompt.question;
+    });
+    setActivePrompt(prompt);
+    setPromptVersion(version);
+    track('prompt_selected', {
+      feature: 'prompt_library',
+      action,
+      section: prompt.cluster,
+    });
+  };
+
+  /**
+   * 把输入框里的正文按当前提示存成反思。
+   *
+   * 空内容（只有空白）在本地就拦住、不发请求；后端同样有一条 40001 的闸
+   * （`ReflectionCreate.content` 的 field_validator），这里是「立刻有反馈」那一层。
+   */
+  const onSaveFromPrompt = async () => {
+    if (!requireAuth()) return;
+    if (!activePrompt) return;
+    const text = saveableText(input);
+    if (!text) {
+      Alert.alert(t('common.error'), t('reflect.promptBlank'));
+      return;
+    }
+    const cluster = activePrompt.cluster;
+    setPromptSaving(true);
+    try {
+      await persistReflection(text, null, traceabilityFor(activePrompt.id, promptVersion));
+      track('prompt_saved', { feature: 'prompt_library', action: 'save', section: cluster, result: 'ok' });
+      setInput('');
+      setActivePrompt(null);
+      setPromptVersion('');
+      Alert.alert(t('common.done'), t('reflect.promptSaved'));
+    } catch (e) {
+      track('prompt_saved', { feature: 'prompt_library', action: 'save', section: cluster, result: 'error' });
+      if (e instanceof ApiError && e.code === CODE_INVALID_PARAMS) {
+        // 提示库版本过期：留着这条重试只会再撞一次 40001，所以清掉选中、让用户重选。
+        setActivePrompt(null);
+        setPromptVersion('');
+        Alert.alert(t('common.error'), t('reflect.promptStale'));
+      } else {
+        const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
+        Alert.alert(t('common.error'), msg);
+      }
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+
   const onSaveDraft = async (msg: Message) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
     if (savingId) return; // 单条进行中：忽略连点，避免同一草稿重复入库
     setSavingId(msg.id);
     try {
-      const saved = await saveReflection(msg.content, msg.relatedMemoryIds);
-      // 本地反思记录落库（Tier 1 用户原创；探索页反思列表离线可用）
-      reflectionRepo
-        .save({
-          id: saved.id,
-          date: toLocalDate(saved.created_at),
-          mood: null,
-          mood_emoji: null,
-          summary: saved.content,
-          full_content_url: null,
-          is_ai_generated: 0,
-          created_at: saved.created_at,
-          updated_at: saved.created_at,
-        })
-        .catch(() => {});
+      // 草稿是 AI 写的，不带提示库溯源（KG-26 的溯源只服务「照提示自己写并保存」那条路）
+      await persistReflection(msg.content, msg.relatedMemoryIds);
       setMessages((prev) =>
         prev.map((m) => (m.id === msg.id ? { ...m, draftSaved: true } : m))
       );
+      // 漏斗节点在 persistReflection 里报——两条出口共用那一格发射点。
     } catch (e) {
       const text = e instanceof ApiError ? e.message : t('errors.saveFailed');
       Alert.alert(t('common.error'), text);
@@ -539,6 +634,37 @@ export default function ReflectScreen() {
         ))}
       </ScrollView>
 
+      {/* 提示库入口（KG-26）：面板只读静态内容，游客也能打开看；真正写库由「存为反思」拦 */}
+      <View style={styles.promptBar}>
+        <TouchableOpacity
+          style={styles.promptEntry}
+          onPress={() => {
+            setPromptVisible(true);
+            track('prompt_library_open', { feature: 'prompt_library', action: 'open' });
+          }}
+          accessibilityRole="button"
+        >
+          <Text style={styles.promptEntryText}>💡 {t('reflect.promptEntry')}</Text>
+        </TouchableOpacity>
+        {!!activePrompt && (
+          <View style={styles.promptActiveRow}>
+            <Text style={styles.promptActiveText} numberOfLines={1}>
+              {activePrompt.title}
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setActivePrompt(null);
+                setPromptVersion('');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.close')}
+            >
+              <Text style={styles.promptClearText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
       {/* Input */}
       <View style={styles.inputBar}>
         <TextInput
@@ -560,11 +686,33 @@ export default function ReflectScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* 选中提示时的存为反思出口：正文取输入框里（可编辑过的）内容，溯源随请求一起上送 */}
+      {!!activePrompt && (
+        <TouchableOpacity
+          style={[styles.promptSaveBtn, promptSaving && styles.promptSaveBtnPending]}
+          disabled={promptSaving}
+          onPress={() => void onSaveFromPrompt()}
+          accessibilityRole="button"
+        >
+          <Text style={styles.promptSaveText}>
+            {promptSaving ? t('common.saving') : t('reflect.promptSave')}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* AI 数据共享同意弹窗（合规 5.1.2(i)） */}
       <AIConsentModal
         visible={consentVisible}
         onAgree={onConsentAgree}
         onDecline={onConsentDecline}
+      />
+
+      <PromptLibrarySheet
+        visible={promptVisible}
+        currentId={activePrompt?.id ?? null}
+        onClose={() => setPromptVisible(false)}
+        onUse={(prompt, version) => applyPrompt(prompt, version, 'select')}
+        onSwap={(prompt, version) => applyPrompt(prompt, version, 'swap')}
       />
     </KeyboardAvoidingView>
   );
@@ -664,4 +812,30 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.5 },
   sendBtnText: { fontSize: 20, color: Colors.textPrimary, fontWeight: '700' },
+  // 提示库（KG-26）：入口行在输入框上方；选中后多一条「存为反思」的出口
+  promptBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm,
+    backgroundColor: 'rgba(13,13,18,0.95)',
+  },
+  promptEntry: {
+    borderRadius: BorderRadius.pill, borderWidth: 1, borderColor: Colors.borderLight,
+    paddingHorizontal: 12, paddingVertical: 6,
+  },
+  promptEntryText: { fontSize: FontSize.xl, color: Colors.textSecondary },
+  promptActiveRow: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: 8, borderRadius: BorderRadius.md,
+    backgroundColor: 'rgba(255,215,0,0.10)', borderWidth: 1, borderColor: Colors.borderGold,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  promptActiveText: { flex: 1, fontSize: FontSize.md, color: Colors.gold400 },
+  promptClearText: { fontSize: FontSize.xl, color: Colors.textTertiary, paddingHorizontal: 2 },
+  promptSaveBtn: {
+    marginHorizontal: Spacing.lg, marginBottom: Spacing.md,
+    backgroundColor: Colors.gold400, borderRadius: BorderRadius.lg,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  promptSaveBtnPending: { opacity: 0.6 },
+  promptSaveText: { fontSize: FontSize.title, fontWeight: '700', color: Colors.bgPrimary },
 });

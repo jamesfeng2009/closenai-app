@@ -8,11 +8,13 @@
  * - 周期报告（周报免费；月/季/年报 Pro，走后端同周期缓存）
  * - 年度热力图（365 天情绪值）
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share,
   Modal, TextInput,
 } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
+import { useRoute } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
   getWeeklyInsight, getPatternDiscovery, getShareReport, getYearInReview, getTimeline,
@@ -27,7 +29,7 @@ import type {
   InsightListItem, InsightDetail, InsightFeedbackType, InsightFeedbackReceipt,
   GoalItem,
 } from '../types';
-import { trackFunnelShare } from '../services/funnel';
+import { trackFunnelOnce, trackFunnelShare } from '../services/funnel';
 import { track } from '../services/analytics';
 import { memoriesWithinDays } from '../services/evidence';
 import type { MemoryRef } from '../types';
@@ -37,7 +39,7 @@ import InsightBlurGate from '../components/InsightBlurGate';
 import MoodLineChart from '../components/charts/MoodLineChart';
 import HeatGrid from '../components/charts/HeatGrid';
 import { isProTier } from '../services/insightTier';
-import type { ChartDay } from '../components/charts/transforms';
+import { hasMoodInWindow, recentDays } from '../components/charts/transforms';
 import { useTranslation } from 'react-i18next';
 
 // 与后端 ErrorCode 对齐
@@ -52,10 +54,14 @@ const PRO_PERIODS: SharePeriod[] = ['monthly', 'quarterly', 'yearly'];
 const HEAT_DEFAULT_DAYS = 90;
 const HEAT_FULL_DAYS = 365;
 
-// 趋势摘要窗口（D-G9）：与这张卡的折线同窗（7 天），不跟热力图的 90/365 切换。
-// 为什么不拿 /mood/trend 换掉折线的数据源：它的 labels 是 "%m-%d" 不带年份
-// （mood_service.py:334），与 90 天/整年热力图切换会错位，且同一屏会长出第二个时间真源。
-const TREND_DAYS = 7;
+// 情绪统计窗口（KG-27）：折线与趋势摘要同窗，切到 30 天就两边一起切。
+// 为什么摘要仍来自 `/mood/trend`、折线仍来自 `/growth/timeline`：
+// `/mood/trend` 的 labels 是 "%m-%d" 不带年份（mood_service.py:334），拿它当折线数据源
+// 与 90/365 热力图切换会错位，且同一屏会长出第二个时间真源。
+// 30 ≤ Go 的 `/mood/trend` 上限 90（contracts/endpoints.md 的 days 取值），所以不需要新端点。
+const MOOD_RANGE_OPTIONS = [7, 30] as const;
+type MoodRange = (typeof MOOD_RANGE_OPTIONS)[number];
+const MOOD_RANGE_DEFAULT: MoodRange = 7;
 
 // 依据折叠区一次最多铺几条（工单 T3-04 §怎么做.3）。
 // 条数由这一屏的排版决定，不是后端裁剪判据：`detail.truncated` 与
@@ -111,10 +117,6 @@ const NEW_GOAL = '__new__';
 const truncateRunes = (text: string, n: number): string =>
   Array.from(text).slice(0, n).join('').trim();
 
-/** 按日期升序取最近 N 天（后端窗口顺序不做假设，本地排序保证折线/矩阵方向） */
-const recentDays = (days: { date: string; value: number }[], n: number): ChartDay[] =>
-  [...days].sort((a, b) => a.date.localeCompare(b.date)).slice(-n);
-
 export default function InsightsScreen({ navigation }: { navigation: any }) {
   const { t } = useTranslation();
   const { isLoggedIn } = useAuth();
@@ -134,12 +136,15 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
   const [reportLoading, setReportLoading] = useState(false);
   // E2：热力图默认近 90 天，「查看全年」展开 365 天（横向滑动）
   const [heatFull, setHeatFull] = useState(false);
+  // KG-27：情绪统计的窗口（7/30 天）。折线与摘要一起跟它走，见 MOOD_RANGE_OPTIONS 处注释。
+  const [moodRange, setMoodRange] = useState<MoodRange>(MOOD_RANGE_DEFAULT);
   // 年度报告卡（M4 year_in_review）的分享入口：免费引流卡，不走 Pro 门控
   const [yearReviewLoading, setYearReviewLoading] = useState(false);
   // PDF 导出（U2）：两个入口共用一个忙位，防「点了周报又点年报」并发写同名文件
   const [pdfBusy, setPdfBusy] = useState<'report' | 'year' | null>(null);
 
-  // 首屏并行加载 4 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
+  // 首屏并行加载 3 个独立数据源；任一失败 .catch(() => null) 降级为空，不阻塞其余 section 渲染
+  // （情绪趋势摘要不在这三个里：它跟着 7/30 窗口切换，见 loadMoodSummary）
   // 游客态跳过请求（接口均需登录，游客必 401），展示空态
   // 周报是本页主数据源：它的失败要单独记（不能和「本周还没有周报」共用一句文案）
   const [weeklyFailed, setWeeklyFailed] = useState(false);
@@ -199,6 +204,10 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
       const page = await listInsights();
       setInsights(page.items);
       setInsightsFailed(false);
+      // 漏斗（KG-25）里的「首条有证据的洞察」：只有 `evidence_count > 0` 的那些算。
+      // 0 证据的那一格在屏上本来就只有一句「还没有依据」，把它计入分母等于把
+      // 「模型说了一句话」与「这句话回得到你的原话」读成同一件事。
+      if (page.items.some((i) => i.evidence_count > 0)) void trackFunnelOnce('first_evidence_insight');
     } catch {
       // 失败不是空：两者共用一句文案，用户就分不清「模型还没看够」和「这一屏没连上」
       setInsightsFailed(true);
@@ -383,6 +392,9 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         setCreatedGoalId(goalId);
       }
       await createAction(goalId, title, '', dueAt);
+      // 漏斗（KG-25）第四跳：行动真的落库了才算。挂在 createAction 之后、
+      // Alert 之前——弹层是「告诉你成了」，埋点是「它成了」。
+      void trackFunnelOnce('first_action');
       Alert.alert(t('actions.savedTitle'), t('actions.savedMessage'), [
         { text: t('common.close'), style: 'cancel' },
         { text: t('growthRecords.title'), onPress: () => navigation.navigate('GrowthRecords') },
@@ -407,20 +419,18 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     try {
       setLoading(true);
       let wFailed = false;
-      const [w, tl, p, tr] = await Promise.all([
+      const [w, tl, p] = await Promise.all([
         getWeeklyInsight().catch(() => {
           wFailed = true;
           return null;
         }),
         getTimeline(365).catch(() => null),
         getUserProfile().catch(() => null),
-        getMoodTrend(TREND_DAYS).catch(() => null),
       ]);
       setWeeklyFailed(wFailed);
       setWeekly(w);
       setTimeline(tl);
       setProfile(p);
-      setTrend(tr);
       // #34 期间级依据：周报正文在才聚合当期记忆；取不到就不显示这一栏
       setRefsOpen(false);
       setWeeklyRefs(
@@ -435,6 +445,62 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     load();
     loadInsights();
   }, [load, loadInsights]);
+
+  /**
+   * 情绪趋势摘要（KG-27 的 7/30 切换跟着它走）。
+   *
+   * 三件事都在这里：
+   * - 先 `setTrend(null)`：窗口换了还留着上一窗的那句话，屏上就是「30 天的折线 +
+   *   7 天的结论」，正是这条注释反复挡的第二真源。
+   * - `seq`：连点两下 7/30 时两次请求可能反序返回，只认最后一次。
+   * - 游客守卫：与 `load` 同一判据，游客不发这条请求。
+   */
+  const summarySeq = useRef(0);
+  const loadMoodSummary = useCallback(async (range: MoodRange) => {
+    if (!isLoggedIn) return;
+    const seq = summarySeq.current + 1;
+    summarySeq.current = seq;
+    setTrend(null);
+    const tr = await getMoodTrend(range).catch(() => null);
+    if (summarySeq.current === seq) setTrend(tr);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    void loadMoodSummary(moodRange);
+  }, [loadMoodSummary, moodRange]);
+
+  // Explore/Profile 的「情绪统计」入口带 initialSection=mood：卡片一布局就滚过去。
+  // 不在 mount 时滚：那时卡片还在 loading 之后，偏移量算不出来。
+  const route = useRoute();
+  const scrollToMood =
+    (route?.params as { initialSection?: string } | undefined)?.initialSection === 'mood';
+  const scrollRef = useRef<ScrollView>(null);
+  const moodScrolled = useRef(false);
+  const onMoodCardLayout = (e: LayoutChangeEvent) => {
+    if (!scrollToMood || moodScrolled.current) return;
+    moodScrolled.current = true;
+    scrollRef.current?.scrollTo({ y: Math.max(e.nativeEvent.layout.y - 8, 0), animated: true });
+  };
+
+  /** 折线窗内的日子（7/30 切换只改这里，数据源仍是 `/growth/timeline` 的 days）。 */
+  const moodDays = recentDays(timeline?.days ?? [], moodRange);
+  /** 当前窗口里有没有记录（决定要不要给「这段没记」的提示）。 */
+  const hasMoodData = hasMoodInWindow(moodDays);
+  /**
+   * 拉到的这一年里到底有没有记过情绪（决定整张卡是空态还是图表）。
+   *
+   * 为什么不能只看当前窗口：只在 40 天前签过到的用户，7 天窗是空的，
+   * 但 90/365 热力图有内容——按窗口判空会把他的热力图整块收掉。
+   */
+  const anyMoodData = hasMoodInWindow(recentDays(timeline?.days ?? [], HEAT_FULL_DAYS));
+
+  const goCheckin = () => {
+    if (!isLoggedIn) {
+      navigation.navigate('Auth');
+      return;
+    }
+    navigation.navigate('Tabs', { screen: 'Reflect' });
+  };
 
   const isPro = isProTier(profile?.tier);
 
@@ -590,7 +656,7 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
 
   return (
     <>
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView ref={scrollRef} style={styles.container} contentContainerStyle={styles.content}>
       {/* 每周洞察（Insight Level 标识，PRD §1） */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -900,20 +966,80 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
         )}
       </View>
 
-      {/* 情绪趋势 + 年度热力图（E2 SVG 图表；免费 = 模糊 + 解锁角标，聚合摘要保留在周报卡） */}
-      {!!timeline?.days?.length && (
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardTitle}>🗓️ {t('insights.timelineTitle')}</Text>
-            <TouchableOpacity onPress={() => setHeatFull((v) => !v)}>
+      {/* 情绪统计（E2 SVG 图表；图表本体免费=模糊 + 解锁角标，聚合摘要保留在周报卡）。
+          KG-27：这张卡以前整块挂在 `timeline?.days?.length` 上——新用户和拉取失败的人
+          看到的是一片空白，连「先签到一次」这句话都没有。现在卡片常驻，三态分开说。 */}
+      <View style={styles.card} onLayout={onMoodCardLayout}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>🗓️ {t('insights.timelineTitle')}</Text>
+          {/* 7/30 窗口切换（KG-27）：改的是 moodRange，折线与摘要一起跟着换，不新增数据源 */}
+          <View style={styles.moodRangeRow}>
+            {MOOD_RANGE_OPTIONS.map((range) => (
+              <TouchableOpacity
+                key={range}
+                accessibilityRole="button"
+                accessibilityState={{ selected: moodRange === range }}
+                onPress={() => setMoodRange(range)}
+                style={[styles.moodRangeChip, moodRange === range && styles.moodRangeChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.moodRangeText,
+                    moodRange === range && styles.moodRangeTextActive,
+                  ]}
+                >
+                  {range === 7 ? t('insights.moodRange7') : t('insights.moodRange30')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {anyMoodData && (
+            <TouchableOpacity onPress={() => setHeatFull((v) => !v)} accessibilityRole="button">
               <Text style={styles.heatToggle}>
                 {heatFull ? t('insights.heatmap90') : t('insights.heatmapFullYear')}
               </Text>
             </TouchableOpacity>
+          )}
+        </View>
+        {!timeline ? (
+          // 拉取失败 ≠ 没签到。把网络问题说成「你还没记录」，用户会去做一件不需要做的事。
+          <View style={styles.moodEmpty}>
+            <Text style={styles.moodEmptyTitle}>{t('insights.moodLoadFailedTitle')}</Text>
+            <TouchableOpacity
+              style={styles.moodEmptyCta}
+              accessibilityRole="button"
+              onPress={() => {
+                void load();
+                void loadMoodSummary(moodRange);
+              }}
+            >
+              <Text style={styles.moodEmptyCtaText}>{t('insights.moodRetry')}</Text>
+            </TouchableOpacity>
           </View>
-          <InsightBlurGate locked={!isPro} onPressUnlock={() => navigation.navigate('Paywall')}>
-            {/* 近 7 天折线（X=日期，Y=情绪值；未签到断线不插值） */}
-            <MoodLineChart days={recentDays(timeline.days, 7)} width={340} height={56} />
+        ) : !anyMoodData ? (
+          // 空态不套模糊门：门后没有内容可解锁，糊一张「还没有记录」只会让人以为数据被藏起来了
+          <View style={styles.moodEmpty}>
+            <Text style={styles.moodEmptyTitle}>{t('insights.moodEmptyTitle')}</Text>
+            <Text style={styles.moodEmptyDesc}>{t('insights.moodEmptyDesc')}</Text>
+            <TouchableOpacity
+              style={styles.moodEmptyCta}
+              accessibilityRole="button"
+              onPress={goCheckin}
+            >
+              <Text style={styles.moodEmptyCtaText}>{t('insights.moodEmptyCta')}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            {/* 整年有记录、但当前 7/30 窗内没有：折线会是空的，得说一句，否则像坏了 */}
+            {!hasMoodData && (
+              <Text style={styles.moodWindowHint}>
+                {moodRange === 7 ? t('insights.moodWindowEmpty7') : t('insights.moodWindowEmpty30')}
+              </Text>
+            )}
+            <InsightBlurGate locked={!isPro} onPressUnlock={() => navigation.navigate('Paywall')}>
+            {/* 折线（X=日期，Y=情绪值；未签到断线不插值）——窗口跟着 7/30 切换走 */}
+            <MoodLineChart days={moodDays} width={340} height={56} />
             {/* 趋势一句话（D-G9）：文案由后端按 X-Language 生成（mood_service.py:349-352 三档），
                 前端不重算平均值——否则同一屏会有第二个「这段情绪算高还是低」的真源。
                 放在模糊门之内：免费/Pro 的分界不因这条而变。 */}
@@ -924,7 +1050,12 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
               <HeatGrid days={recentDays(timeline.days, heatFull ? HEAT_FULL_DAYS : HEAT_DEFAULT_DAYS)} />
             </ScrollView>
           </InsightBlurGate>
-          {/* M4 年度报告卡：免费引流物料，所以放在模糊门之外——Pro 与否都能分享出去 */}
+          </>
+        )}
+        {/* M4 年度报告卡只在真有记录时出现——空态下递一张「分享我的年度」是空头承诺 */}
+        {anyMoodData && (
+          <>
+          {/* 免费引流物料，所以放在模糊门之外——Pro 与否都能分享出去 */}
           <TouchableOpacity
             style={styles.shareReportBtn}
             onPress={onShareYearReview}
@@ -942,8 +1073,9 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
               📄 {pdfBusy === 'year' ? t('pdf.exporting') : t('pdf.export')}
             </Text>
           </TouchableOpacity>
-        </View>
-      )}
+          </>
+        )}
+      </View>
     </ScrollView>
 
       {/* T3-05 纠错弹层：只有「我要纠正」这一档带正文，所以弹层也只服务它。
@@ -1209,6 +1341,30 @@ const styles = StyleSheet.create({
   // TouchableOpacity 的 disabled 自己不改观感，忙态得压暗，否则看不出两个入口互斥
   pdfBtnDisabled: { opacity: 0.45 },
   heatToggle: { fontSize: FontSize.sm, color: Colors.gold400, opacity: 0.85 },
+  // KG-27：7/30 窗口切换与三态（拉取失败/空/有数据）的排版
+  moodRangeRow: { flexDirection: 'row', gap: Spacing.xs },
+  moodRangeChip: {
+    paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm, borderWidth: 1, borderColor: Colors.borderLight,
+  },
+  moodRangeChipActive: { borderColor: Colors.gold400, backgroundColor: 'rgba(255,255,255,0.06)' },
+  moodRangeText: { fontSize: FontSize.sm, color: Colors.textSecondary },
+  moodRangeTextActive: { color: Colors.gold400 },
+  moodEmpty: { paddingVertical: Spacing.md, gap: Spacing.xs },
+  moodEmptyTitle: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.body },
+  moodEmptyDesc: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, lineHeight: LineHeight.caption,
+  },
+  moodWindowHint: {
+    fontSize: FontSize.sm, color: Colors.textTertiary,
+    marginBottom: Spacing.xs, lineHeight: LineHeight.caption,
+  },
+  moodEmptyCta: {
+    marginTop: Spacing.sm, alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.gold400,
+  },
+  moodEmptyCtaText: { fontSize: FontSize.sm, color: Colors.gold400 },
   trendSummary: {
     fontSize: FontSize.md, color: Colors.textSecondary,
     marginTop: Spacing.xs, marginBottom: Spacing.sm, lineHeight: LineHeight.caption,

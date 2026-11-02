@@ -71,6 +71,33 @@ export function toLineSegments(
 }
 
 /**
+ * 取最近 N 天（KG-27 的 7/30 窗口切换与 90/365 热力图共用同一把尺）。
+ *
+ * 排序按 `YYYY-MM-DD` 字符串**字典序**，不用 `Date`/日序数：
+ * - 字典序天然跨年（`2025-12-30` < `2026-01-02`），而「一年内的第几天」会在跨年时倒序；
+ * - 不做时区换算，所以设备在 UTC+14 还是 UTC-8 都切出同一段——服务端给的是本地日历日，
+ *   一旦这里碰 `Date` 的本地方法，跨时区就能把边界那天吞掉。
+ * 输入顺序不做假设（后端 `/growth/timeline` 不保证窗口方向），这里统一升序后再截尾。
+ */
+export function recentDays(
+  days: { date: string; value: number }[],
+  n: number,
+): ChartDay[] {
+  return [...days].sort((a, b) => a.date.localeCompare(b.date)).slice(-n);
+}
+
+/**
+ * 这段窗口里到底有没有记过情绪（KG-27 的空态判据）。
+ *
+ * `value === 0` 是「那天没签到」，不是「情绪为零」，所以整窗全 0 与空数组同判。
+ * 阈值复用折线的 `VALUE_MIN`——空态与「断线不插值」必须是同一条规则，
+ * 否则会出现「图上是空的，屏却说已有数据」。
+ */
+export function hasMoodInWindow(days: ChartDay[]): boolean {
+  return days.some((d) => d.value >= VALUE_MIN);
+}
+
+/**
  * GitHub 式热力矩阵：列 = 自然周（周一起始），行 = 星期几（0=周一 … 6=周日）。
  *
  * 输入按日期升序；输入缺失的日期（未拉到/未签到且无行）落 null 格，渲染

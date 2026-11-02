@@ -1,3 +1,5 @@
+import type { MoodCheckinResponse } from '../../types';
+import { toLocalDate } from '../../utils/datetime';
 import type { SqliteDb } from './types';
 import { BaseRepository } from './repository';
 
@@ -39,6 +41,41 @@ export class MoodCheckinRepository extends BaseRepository<MoodCheckinRow> {
 
   async save(checkin: MoodCheckinRow): Promise<void> {
     this.upsert(checkin);
+  }
+
+  /**
+   * 把服务端签到响应合并进本地行（同 id upsert）。
+   *
+   * 服务端契约只回 emoji / 解读 / 时间，没有 note 和 intensity（schemas.py
+   * MoodCheckinResponse）。这两个字段是本机用户产的：无条件写 null / 0.5 会
+   * 在同 id 覆盖时抹掉用户写过的备注和历史强度。所以既有行的这两列一律保留，
+   * 只有调用方明确拿着用户刚输入的 note（ReflectScreen）时才覆盖。
+   */
+  async mergeRemoteCheckin(
+    checkin: MoodCheckinResponse,
+    local: { note?: string | null; ai_interpretation?: string | null } = {},
+  ): Promise<void> {
+    const existing = await this.getById(checkin.id);
+    this.upsert({
+      id: checkin.id,
+      // 既有行的本地日不随请求时区变化漂移；新行才按 created_at 折算
+      date: existing?.date ?? toLocalDate(checkin.created_at),
+      emoji: checkin.mood_emoji,
+      intensity: existing?.intensity ?? 0.5,
+      note: local.note !== undefined ? local.note : existing?.note ?? null,
+      ai_interpretation:
+        local.ai_interpretation !== undefined
+          ? local.ai_interpretation
+          : checkin.ai_interpretation || existing?.ai_interpretation || null,
+      created_at: checkin.created_at,
+    });
+  }
+
+  /** 历史批量同步：逐条合并，同样保留服务端未提供的本地字段。 */
+  async mergeRemoteHistory(checkins: MoodCheckinResponse[]): Promise<void> {
+    for (const checkin of checkins) {
+      await this.mergeRemoteCheckin(checkin);
+    }
   }
 }
 

@@ -74,12 +74,21 @@ export type RootStackParamList = {
   RelationshipTimeline: undefined;
   GrowthRecords: undefined;
   // 回忆卡走第四模板时带 memory_id；不传即三张性格名片
-  ShareCard: { variant?: ShareCardVariant; memory_id?: string } | undefined;
+  ShareCard: {
+    variant?: ShareCardVariant;
+    memory_id?: string;
+    // 金句卡（KG-30）：source_* 是导出的输入，quote_* 只给本地预览排版
+    source_type?: 'memory' | 'reflection';
+    source_id?: string;
+    quote_text?: string;
+    quote_date?: string;
+  } | undefined;
   FirstReadCard: undefined;
   Week1Report: undefined;
   // 睡前复盘全屏（§5.16 S1 / UI Screen 26）：三步流程带输入框，不做 modal
   BedtimeReview: undefined;
-  Insights: undefined;
+  // KG-27：情绪统计从 Explore/Profile 进入时直接滚到那一张卡（'mood'），不带即停在页首
+  Insights: { initialSection?: 'mood' } | undefined;
   Messages: undefined;
   PrivacySecurity: undefined;
   HelpFeedback: undefined;

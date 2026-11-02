@@ -72,20 +72,30 @@ const SKU_MAP: Record<PaidTier, Record<BillingPeriod, string>> = {
 /** 档位高低排序（free < pro < pro_plus），用于升级/降级语义判断。 */
 const TIER_ORDER: Record<UserTier, number> = { free: 0, pro: 1, pro_plus: 2 };
 
+/**
+ * 档位权益清单（KG-24 改实）。这里的每一条都必须指得回一段真实代码，
+ * 不许出现「unlimited / priority model」这类实现里不存在的说法：
+ *   - 对话轮数与统一池上限：`backend/config.py`（pro 100／pro_plus 1000）；
+ *   - 画像刷新：`personality_service.py:563`（pro=5/月，pro_plus=999/月，free=3 次总量）；
+ *   - 月/季/年报：`growth_service.py:668` 与 `share_service.py:761` 的 40302 门；
+ *   - 30/90/365 回看：本仓 `InsightsScreen` 的 `InsightBlurGate`（免费侧模糊）
+ *     ＋ `HEAT_DEFAULT_DAYS=90`／`HEAT_FULL_DAYS=365`。
+ * AI 主动开场**每日一条对所有档位相同**（`cron_service.py` 的 `proactive:<uid>:<day>:0` 幂等槽），
+ * 所以 Pro+ 那一条讲的是它所消耗的统一池额度，不是「一天多条」。
+ */
 const PRO_FEATURES = [
-  'paywall.featureUnlimitedChat',
-  'paywall.featurePriorityLLM',
+  'paywall.featureContinuity',
+  'paywall.featureReports',
   'paywall.featurePersonalityRefresh',
   'paywall.featureTimeline',
 ] as const;
 
-// Pro+ 权益口径见 monetization-plan §2.1：Pro 全部权益 + 对话 100 条/日 +
-// 画像刷新不限 + 每日多条主动消息。
+// Pro+ ＝ Pro 全部权益 + 两池额度提到 1000/日 + 画像刷新 999/月（不是「不限」，也不是「多条主动消息」）。
 const PRO_PLUS_FEATURES = [
   'paywall.plusFeatureAllPro',
   'paywall.plusFeatureChat',
   'paywall.plusFeatureRefresh',
-  'paywall.plusFeatureProactive',
+  'paywall.plusFeaturePool',
 ] as const;
 
 // Tier 显示名映射（品牌名，不走 i18n）。避免 toUpperCase() 把 pro_plus 显示成 PRO_PLUS。

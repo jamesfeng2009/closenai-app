@@ -67,13 +67,15 @@ describe('事件名与属性', () => {
     expect(funnelProperties('first_read')).toEqual({ feature: 'funnel', source: 'first_read' });
   });
 
-  it('五段台阶 + 两个分享环路事件都在枚举里，一个不多一个不少', () => {
+  it('九段台阶 + 两个分享环路事件都在枚举里，一个不多一个不少', () => {
     expect([...ONE_TIME_STEPS].sort()).toEqual([
-      'first_checkin', 'first_read_opened', 'first_record_created', 'week1_report_opened',
+      'first_checkin', 'first_evidence_insight', 'first_action', 'first_outcome',
+      'first_read_opened', 'first_record_created', 'first_reflection_saved',
+      'onboarding_completed', 'week1_report_opened',
     ].sort());
     expect([...SHARE_STEPS].sort()).toEqual(['share_completed', 'share_tapped']);
     expect([...FUNNEL_SOURCES].sort()).toEqual([
-      'first_read', 'life_archive', 'memory', 'period_report', 'personality_card', 'year_review',
+      'first_read', 'life_archive', 'memory', 'period_report', 'personality_card', 'quote', 'year_review',
     ].sort());
   });
 });
@@ -171,21 +173,48 @@ describe('分享环路事件', () => {
 });
 
 describe('调用点在位（.tsx 无法渲染，按源码守卫）', () => {
+  /**
+   * 调用点表：KG-25 之后一个文件可以挂多个台阶（ReflectScreen 同时是「第一条记录」
+   * 与「第一条保存的反思」，InsightsScreen 同时是「首条有证据的洞察」与「首个行动」），
+   * 所以原来那条「一个文件只许调一个台阶」的断言必须换边——
+   * 真正的不变量是**一个台阶只许有一个文件调它**（两处调＝分母重复）。
+   */
   const oneTimeSites: [string, string][] = [
     ['src/screens/FirstReadCardScreen.tsx', 'first_read_opened'],
     ['src/screens/ReflectScreen.tsx', 'first_record_created'],
     ['src/screens/HomeScreen.tsx', 'first_checkin'],
     ['src/screens/Week1ReportScreen.tsx', 'week1_report_opened'],
+    ['src/screens/OnboardingScreen.tsx', 'onboarding_completed'],
+    ['src/screens/ReflectScreen.tsx', 'first_reflection_saved'],
+    ['src/screens/InsightsScreen.tsx', 'first_evidence_insight'],
+    ['src/screens/InsightsScreen.tsx', 'first_action'],
+    ['src/screens/GrowthRecordsScreen.tsx', 'first_outcome'],
   ];
 
-  it.each(oneTimeSites)('%s 调用 trackFunnelOnce 且只调这一个台阶', (rel, step) => {
-    const src = read(rel);
-    expect(src).toContain(`trackFunnelOnce('${step}')`);
-    const used = Array.from(src.matchAll(/trackFunnelOnce\(['"]([a-z_0-9]+)['"]/g)).map((m) => m[1]);
-    expect(used).toEqual([step]);
+  it.each(oneTimeSites)('%s 调用 trackFunnelOnce(%s)', (rel, step) => {
+    expect(read(rel)).toContain(`trackFunnelOnce('${step}')`);
   });
 
-  it.each(oneTimeSites)('%s 已 import funnel 模块', (rel) => {
+  it('每一个一次性台阶只由一个文件调用（两处调＝同一节点报两次，分母作废）', () => {
+    const files = fs
+      .readdirSync(path.join(__dirname, '..', 'src', 'screens'))
+      .filter((f) => f.endsWith('.tsx'));
+    const callers = new Map<string, string[]>();
+    for (const f of files) {
+      const src = read(`src/screens/${f}`);
+      for (const m of src.matchAll(/trackFunnelOnce\(['"]([a-z_0-9]+)['"]/g)) {
+        callers.set(m[1], [...(callers.get(m[1]) ?? []), f]);
+      }
+    }
+    const doubled = [...callers.entries()].filter(([, list]) => list.length > 1);
+    expect(doubled).toEqual([]);
+    // 证人：枚举里的九个台阶都得真的有人调（少一个＝那一格永远没有分子）
+    for (const step of ONE_TIME_STEPS) {
+      expect([...callers.keys()]).toContain(step);
+    }
+  });
+
+  it.each([...new Set(oneTimeSites.map(([rel]) => rel))])('%s 已 import funnel 模块', (rel) => {
     expect(read(rel)).toMatch(/from '\.\.\/services\/funnel'/);
   });
 

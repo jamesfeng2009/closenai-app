@@ -13,6 +13,7 @@
  * 这个文件把上面三条钉死，改坏任何一条都会红。
  */
 import { createTestDb } from './helpers/testDb';
+import { bindAnalyticsRepo, restoreAnalyticsRepo } from './helpers/bindAnalyticsRepo';
 import { AnalyticsEventsRepository } from '../src/services/db/analyticsEventsRepository';
 import { analyticsEventsRepo } from '../src/services/db/analyticsEventsRepository';
 import { flushAnalytics } from '../src/services/analytics';
@@ -82,12 +83,7 @@ describe('登录之后：队列一次性 drain，失败也不丢', () => {
   it('游客期攒下的事件在登录后第一次 flush 全部上送并清零', async () => {
     const db = createTestDb();
     const testRepo = new AnalyticsEventsRepository(db);
-    const listSpy = jest.spyOn(analyticsEventsRepo, 'listPending')
-      .mockImplementation(() => testRepo.listPending());
-    const markSpy = jest.spyOn(analyticsEventsRepo, 'markSynced')
-      .mockImplementation((ids) => testRepo.markSynced(ids));
-    const cleanSpy = jest.spyOn(analyticsEventsRepo, 'cleanupSynced')
-      .mockImplementation(() => testRepo.cleanupSynced());
+    const spies = bindAnalyticsRepo(testRepo);
 
     // 游客态：只入队，不 flush（App.tsx 的门决定了这一点，上面已拍死）
     testRepo.enqueue('funnel_first_read_opened', { feature: 'funnel' }, '2026-10-13T01:00:00Z');
@@ -96,56 +92,90 @@ describe('登录之后：队列一次性 drain，失败也不丢', () => {
     expect(mockPost).not.toHaveBeenCalled();
     expect(testRepo.countPending()).toBe(3);
 
-    // 登录后的那一次 flush
-    mockPost.mockResolvedValue({ relayed: 3, dropped: 0 });
+    // 登录后的那一次 flush：服务端逐条回报 accepted 才删本地行
+    const ids = testRepo.listPending().map((p) => p.event_id);
+    mockPost.mockResolvedValue({
+      relayed: 3, dropped: 0, accepted: 3, duplicate: 0, retryable: 0, permanent: 0,
+      results: ids.map((event_id) => ({ event_id, status: 'accepted' })),
+    });
     const res = await flushAnalytics();
-    expect(res).toEqual({ relayed: 3, sent: 3 });
+    expect(res).toEqual({
+      relayed: 3, attempted: 3, accepted: 3, duplicate: 0,
+      retryable: 0, permanent: 0, dropped: 0, queued: 0,
+    });
     expect(mockPost).toHaveBeenCalledTimes(1);
     expect(mockPost.mock.calls[0][0]).toHaveLength(3);
+    expect(mockPost.mock.calls[0][0].every((e: { event_id?: string }) => !!e.event_id))
+      .toBe(true);
     expect(testRepo.countPending()).toBe(0);
 
-    listSpy.mockRestore(); markSpy.mockRestore(); cleanSpy.mockRestore();
+    restoreAnalyticsRepo(spies);
     db.closeSync();
   });
 
-  it('后端整批丢弃（consent 关 / 未知用户，dropped=3）也算已送：本地队列照样清，不留重试风暴', async () => {
+  it('永久拒绝（consent 关 / 未知用户）进死信：不再重试，但行留着有原因可查', async () => {
     const db = createTestDb();
     const testRepo = new AnalyticsEventsRepository(db);
     testRepo.enqueue('funnel_first_checkin', { feature: 'funnel' }, '2026-10-13T01:00:00Z');
-    const listSpy = jest.spyOn(analyticsEventsRepo, 'listPending')
-      .mockImplementation(() => testRepo.listPending());
-    const markSpy = jest.spyOn(analyticsEventsRepo, 'markSynced')
-      .mockImplementation((ids) => testRepo.markSynced(ids));
+    const spies = bindAnalyticsRepo(testRepo);
+    const id = testRepo.listPending()[0].event_id;
 
-    mockPost.mockResolvedValue({ relayed: 0, dropped: 1 });
-    expect(await flushAnalytics()).toEqual({ relayed: 0, sent: 1 });
+    mockPost.mockResolvedValue({
+      relayed: 0, dropped: 1, accepted: 0, duplicate: 0, retryable: 0, permanent: 1,
+      results: [{ event_id: id, status: 'permanent', reason: 'consent_off' }],
+    });
+    const res = await flushAnalytics();
+    expect(res).toEqual({
+      relayed: 0, attempted: 1, accepted: 0, duplicate: 0,
+      retryable: 0, permanent: 1, dropped: 1, queued: 0,
+    });
     expect(testRepo.countPending()).toBe(0);
+    expect(testRepo.countDeadLetters()).toBe(1);
+    const dead = db.getFirstSync<{ dead_reason: string }>(
+      'SELECT dead_reason FROM analytics_events WHERE event_id = ?', [id]
+    );
+    expect(dead?.dead_reason).toBe('consent_off');
 
-    listSpy.mockRestore(); markSpy.mockRestore();
+    // 死信不会再被 listPending 取出来重发
+    expect(testRepo.listPending()).toHaveLength(0);
+    restoreAnalyticsRepo(spies);
     db.closeSync();
   });
 
-  it('401/网络异常时事件留在队列，下一次成功仍带全量（登录失败不产生口径损失）', async () => {
+  it('401/网络异常时事件留在队列，退避到点后下一次成功仍带全量', async () => {
     const db = createTestDb();
     const testRepo = new AnalyticsEventsRepository(db);
     testRepo.enqueue('funnel_share_tapped', { feature: 'funnel', source: 'year_review' }, '2026-10-13T01:00:00Z');
     testRepo.enqueue('funnel_share_completed', { feature: 'funnel', source: 'year_review' }, '2026-10-13T02:00:00Z');
-    const listSpy = jest.spyOn(analyticsEventsRepo, 'listPending')
-      .mockImplementation(() => testRepo.listPending());
-    const markSpy = jest.spyOn(analyticsEventsRepo, 'markSynced')
-      .mockImplementation((ids) => testRepo.markSynced(ids));
+    const spies = bindAnalyticsRepo(testRepo);
 
     mockPost.mockRejectedValue(new Error('401'));
-    expect(await flushAnalytics()).toEqual({ relayed: 0, sent: 0 });
+    const failed = await flushAnalytics();
+    expect(failed).toEqual({
+      relayed: 0, attempted: 2, accepted: 0, duplicate: 0,
+      retryable: 2, permanent: 0, dropped: 2, queued: 2,
+    });
     expect(testRepo.countPending()).toBe(2);
-    expect(markSpy).not.toHaveBeenCalled();
+    expect(spies.markSynced).not.toHaveBeenCalled();
+    // 退避中的行这一轮不该再被取出来打请求
+    expect(testRepo.listPending()).toHaveLength(0);
 
-    mockPost.mockResolvedValue({ relayed: 2, dropped: 0 });
-    expect(await flushAnalytics()).toEqual({ relayed: 2, sent: 2 });
+    // 时间推进（退避到点）后再成功一次，仍然带全量两个事件
+    db.runSync('UPDATE analytics_events SET next_retry_at = NULL');
+    const ids = testRepo.listPending().map((p) => p.event_id);
+    mockPost.mockResolvedValue({
+      relayed: 2, dropped: 0, accepted: 2, duplicate: 0, retryable: 0, permanent: 0,
+      results: ids.map((event_id) => ({ event_id, status: 'accepted' })),
+    });
+    const ok = await flushAnalytics();
+    expect(ok).toEqual({
+      relayed: 2, attempted: 2, accepted: 2, duplicate: 0,
+      retryable: 0, permanent: 0, dropped: 0, queued: 0,
+    });
     expect(mockPost.mock.calls[1][0]).toHaveLength(2);
     expect(testRepo.countPending()).toBe(0);
 
-    listSpy.mockRestore(); markSpy.mockRestore();
+    restoreAnalyticsRepo(spies);
     db.closeSync();
   });
 });

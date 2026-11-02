@@ -16,6 +16,7 @@ import { clearPendingReferral, peekPendingReferral } from './referral';
 import type {
   ChatStreamRequest, ChatHistoryItem, SSEEvent,
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
+  MoodAnalysisRequest, MoodAnalysisResponse,
   GrowthDashboard, WeeklyInsight, GrowthTimeline,
   GrowthRecordItem, GrowthTopic,
   InsightListPage, InsightDetail, InsightFeedbackReceipt, InsightFeedbackType,
@@ -28,7 +29,7 @@ import type {
   UserProfile, UserSettings,
   ExportJob, ExportJobList,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
-  ShareLink, YearInReviewCard,
+  ShareLink, YearInReviewCard, QuoteSourceType,
   OnThisDayResponse,
   FirstReadAnswer, FirstReadCard,
   JourneyEventsResponse, MemoryRef,
@@ -40,6 +41,8 @@ import type {
   Memory,
   AuthResponse, AuthUser, CodePurpose,
 } from '../types';
+// 提示库（KG-26）的类型与纯逻辑同处一个 `.ts`：见 reflectionPrompts.ts 的文件头。
+import type { PromptLibraryPayload, PromptTraceability } from './reflectionPrompts';
 
 // API 地址：生产用 EXPO_PUBLIC_API_BASE 注入（.env / EAS 环境变量），
 // 未注入时回落到本机开发地址——回落脚本地而不是空串，是为了让「忘了配」在
@@ -108,18 +111,29 @@ async function setAuth(resp: AuthResponse): Promise<void> {
   }
 }
 
-/** 清除本机登录态（退出登录 / 注销 / refresh 失效时调用）。 */
-export async function clearAuth(): Promise<void> {
+/** 清除本机登录态（退出登录 / 注销 / refresh 失效时调用）。
+ *
+ *  三个键逐个删：一个删失败不该让后面的键也不删。返回值是本轮**未删成功**的
+ *  标签（不含任何密钥内容），供会话重置把它汇总成本机清理未完成。
+ */
+export async function clearAuth(): Promise<string[]> {
   accessToken = null;
   refreshToken = null;
   authUser = null;
-  try {
-    await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-    await SecureStore.deleteItemAsync(USER_KEY);
-  } catch {
-    // ignore
+  const failed: string[] = [];
+  const keys: [string, string][] = [
+    ['access_token', ACCESS_TOKEN_KEY],
+    ['refresh_token', REFRESH_TOKEN_KEY],
+    ['user', USER_KEY],
+  ];
+  for (const [label, key] of keys) {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch {
+      failed.push(label);
+    }
   }
+  return failed;
 }
 
 // ═══ 会话重置通知（401 刷新失败 / 退出登录 / 注销 → 回登录页）═══
@@ -448,6 +462,22 @@ export async function getMoodHistory(): Promise<{ checkins: MoodCheckinResponse[
   return request<{ checkins: MoodCheckinResponse[] }>('/mood/history');
 }
 
+/**
+ * 三层次情绪分析（KG-28）。
+ *
+ * `request_id` 由调用方生成并**在一次用户意图里复用**（重试带同一个）：服务端按它做
+ * 10 分钟进程内幂等，双击／超时重试不会多扣那唯一一次免费额度。换一次新的分析才换新的键。
+ *
+ * 业务码在这里不吞：40402（今天没签到／开关关着）、40301（额度用完）、40303（未同意 AI）
+ * 是三种不同的答复文案，`request` 抛的 `ApiError.code` 就是判据（见 `services/moodAnalysis.ts`）。
+ */
+export async function analyzeMood(body: MoodAnalysisRequest): Promise<MoodAnalysisResponse> {
+  return request<MoodAnalysisResponse>('/mood/analysis', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 // ═══ Growth (P0-F07) ═══
 
 export async function getGrowthDashboard(): Promise<GrowthDashboard> {
@@ -701,18 +731,49 @@ export async function generateReflectionDraft(context?: string): Promise<Reflect
   });
 }
 
+/** 只报「这条反思是怎么产生的」，不带提示库那两格（KG-28 的情绪分析出口用）。 */
+export type ReflectionOrigin = { source: 'draft' | 'mood_analysis' };
+
 export async function saveReflection(
   content: string,
   relatedMemoryIds?: string[] | null,
+  promptMeta?: PromptTraceability | ReflectionOrigin | null,
 ): Promise<ReflectionItem> {
   return request<ReflectionItem>('/reflections', {
     method: 'POST',
-    body: JSON.stringify({ content, related_memory_ids: relatedMemoryIds ?? null }),
+    body: JSON.stringify({
+      content,
+      related_memory_ids: relatedMemoryIds ?? null,
+      // 提示库溯源（KG-26）：不带时保持旧形状，不给后端塞 null 字段。
+      ...(promptMeta ?? {}),
+    }),
   });
 }
 
 export async function listReflections(limit: number = 20): Promise<ReflectionItem[]> {
   return request<ReflectionItem[]>(`/reflections?limit=${limit}`);
+}
+
+/**
+ * 反思提示库（KG-26，`GET /reflection-prompts`）。
+ *
+ * 正文由后端按 `X-Language` 选 en/zh（其余语言回退 en 并给 `fallback=true`），
+ * 前端不翻译、也不在本地留第二份 30 条——`backend/content/reflection_prompts.json` 是唯一源。
+ *
+ * 路径不带 `/reflections/` 前缀：那一整段前缀是 N8 的待切流域，将来上刀时是按
+ * `pathType: Prefix` 指给 go-api 的，子路径会跟着一起搬，而提示库只在 Python 侧
+ * （`backend/routers/reflection_prompts.py` 模块头记了同一条理由）。
+ *
+ * 两个分支各写一条字面量、不拼 `${query}`：契约对账（`scripts/export_contract.py`）
+ * 只认「紧跟在 `request<T>(` 后面的路径字面量」并按 `?` 截断，
+ * 拼出来的 `/reflection-prompts${query}` 会被当成另一个没人认领的路径，
+ * 在 `contracts/endpoints.md` 的悬空检查里挂红。
+ */
+export async function listReflectionPrompts(cluster?: string): Promise<PromptLibraryPayload> {
+  if (cluster) {
+    return request<PromptLibraryPayload>(`/reflection-prompts?cluster=${encodeURIComponent(cluster)}`);
+  }
+  return request<PromptLibraryPayload>('/reflection-prompts');
 }
 
 // ═══ Personality (P0-F06) ═══
@@ -969,6 +1030,25 @@ export async function postMemoryCardPdf(memoryId: string): Promise<ArrayBuffer> 
 }
 
 /**
+ * 金句卡 PDF（KG-30，`POST /share/quote-card`）。
+ *
+ * **只发「来源是哪一条」**：句子本身一律后端从库取。前端把正文传上去等于要一个
+ * 「任意文本 → 带品牌水印＋二维码＋本人推荐码的 PDF」的生成器，而这张卡对外说
+ * 「这是你自己写的话」——所以本地预览那一段只用于排版，不进请求体。
+ * 失败码 40403／40402／40405 由 `pdfFailureKey` 分文案（40405＝这条是 AI 整理的，不是原话）。
+ */
+export async function postQuoteCardPdf(
+  sourceType: QuoteSourceType,
+  sourceId: string,
+): Promise<ArrayBuffer> {
+  return request<ArrayBuffer>('/share/quote-card', {
+    method: 'POST',
+    body: JSON.stringify({ source_type: sourceType, source_id: sourceId }),
+    binary: true,
+  });
+}
+
+/**
  * Life Archive PDF（M6 买断权益的「货」）。
  *
  * 权益判定全在后端（一次性买断，或订阅期内每月 1 次免费生成），App 不自己判：
@@ -1102,14 +1182,38 @@ export interface AnalyticsBatchPayload {
     event: string;
     properties?: Record<string, unknown> | null;
     occurred_at: string;
+    /** 客户端生成的稳定幂等键（T7-02）；带上它就切逐事件确认形状。 */
+    event_id?: string;
   }>;
+}
+
+export type AnalyticsAckStatus = 'accepted' | 'duplicate' | 'retryable' | 'permanent';
+
+export interface AnalyticsAckResult {
+  event_id: string | null;
+  status: AnalyticsAckStatus;
+  reason?: string;
+}
+
+/**
+ * 批次响应。旧后端只回 `{relayed, dropped}`；新后端在请求带 event_id 时
+ * 额外回分项计数与 `results`。前端不得把「没有 results」当成全部成功。
+ */
+export interface AnalyticsBatchResponse {
+  relayed: number;
+  dropped: number;
+  accepted?: number;
+  duplicate?: number;
+  retryable?: number;
+  permanent?: number;
+  results?: AnalyticsAckResult[];
 }
 
 /** 批量上送前端本地分析事件队列（后端校验 consent + 匿名化后转发 PostHog）。 */
 export async function postAnalyticsBatch(
   events: AnalyticsBatchPayload['events'],
-): Promise<{ relayed: number; dropped: number }> {
-  return request<{ relayed: number; dropped: number }>('/analytics/batch', {
+): Promise<AnalyticsBatchResponse> {
+  return request<AnalyticsBatchResponse>('/analytics/batch', {
     method: 'POST',
     body: JSON.stringify({ events } satisfies AnalyticsBatchPayload),
   });

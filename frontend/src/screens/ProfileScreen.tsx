@@ -24,6 +24,9 @@ import {
   changePassword, updateUsername,
 } from '../services/api';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
+import {
+  LocalCleanupError, resetSession, resetSessionFull,
+} from '../services/session';
 import AIConsentModal from '../components/AIConsentModal';
 import { SHARING_STATE_KEYS, sharingHasConsent, sharingState } from '../config/consent';
 import { clearAnalyticsQueue, setAnalyticsConsentAllowed } from '../services/analytics';
@@ -264,6 +267,25 @@ export default function ProfileScreen({
     }
   };
 
+  // 服务端动作已完成、本机数据没清干净：明确告知并给重试入口，
+  // 不能把「本机数据已全部删除」当成完成态展示（注销承诺的是彻底删除）。
+  const showLocalCleanupAlert = (retry: () => Promise<void>) => {
+    Alert.alert(t('common.error'), t('errors.localCleanupFailed'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.retry'),
+        onPress: async () => {
+          try {
+            await retry();
+          } catch (e) {
+            if (e instanceof LocalCleanupError) showLocalCleanupAlert(retry);
+            else Alert.alert(t('common.error'), t('errors.unknown'));
+          }
+        },
+      },
+    ]);
+  };
+
   // 退出登录：吊销 refresh + 清本机态（保留引导，游客可继续浏览）
   const onLogout = () => {
     Alert.alert(
@@ -278,8 +300,11 @@ export default function ProfileScreen({
             try {
               await logout();
             } catch (e) {
-              console.warn('Logout failed:', e);
-              // 即使后端吊销失败，本地仍需清态（logout 内部已处理 resetSession）
+              if (e instanceof LocalCleanupError) {
+                showLocalCleanupAlert(() => resetSession());
+              } else {
+                console.warn('Logout failed:', e);
+              }
             }
           },
         },
@@ -301,6 +326,11 @@ export default function ProfileScreen({
             try {
               await deleteMyAccount();
             } catch (e) {
+              if (e instanceof LocalCleanupError) {
+                // 账号已在服务端删除，只是本机残留没清掉：不能说「删除失败」
+                showLocalCleanupAlert(() => resetSessionFull());
+                return;
+              }
               // ApiError 透传服务端文案；其余（网络异常、非 Error 等）走 i18n 通用兜底
               const msg = e instanceof ApiError && e.message ? e.message : t('errors.deleteFailed');
               Alert.alert(t('common.error'), msg);
@@ -361,6 +391,16 @@ export default function ProfileScreen({
         <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('Memories')}>
           <Text style={styles.settingIcon}>🧠</Text>
           <Text style={styles.settingLabel}>{t('profile.memoryManagement')}</Text>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+        {/* KG-27：从「我的」也给一条直达情绪统计的路——签到的人最想看的正是「我记了多久」 */}
+        <TouchableOpacity
+          style={styles.settingItem}
+          accessibilityRole="button"
+          onPress={() => navigation.navigate('Insights', { initialSection: 'mood' })}
+        >
+          <Text style={styles.settingIcon}>📊</Text>
+          <Text style={styles.settingLabel}>{t('profile.moodStats')}</Text>
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
         <TouchableOpacity

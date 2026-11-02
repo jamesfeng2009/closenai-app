@@ -110,6 +110,14 @@ describe('③ 输入框只长在 ReflectScreen 的 mood 弹层里（D-G8-1）', 
     }
     expect(home.match(/moodCheckin\(/g) || []).toHaveLength(1);
   });
+
+  it('HomeScreen 历史同步走合并，不整行覆盖本地 note / intensity（T7-01）', () => {
+    const sync = block(home, 'async function syncMoodHistory');
+    expect(sync).toContain('mergeRemoteHistory(checkins)');
+    expect(sync).not.toMatch(/note: null/);
+    expect(sync).not.toMatch(/moodCheckinRepo\.save/);
+    expect(sync).not.toMatch(/intensity: 0\.5/);
+  });
 });
 
 describe('④ 空值口径：空 ⇒ 不写库、界面上也不留空串（D-G8-2）', () => {
@@ -121,8 +129,11 @@ describe('④ 空值口径：空 ⇒ 不写库、界面上也不留空串（D-G8
     expect(handler).not.toMatch(/moodCheckin\(emoji, moodNote\)/);
   });
 
-  it('本地行写用户刚打的那句（服务端响应里没有 note 字段，回读不到）', () => {
-    expect(handler).toContain('note: note ?? null,');
+  it('本地行写用户刚打的那句；没输入时不拿 null 覆盖当天既有备注', () => {
+    // T7-01：改为合并写（服务端响应里没有 note 字段，只能用手上的值），
+    // 但空输入不再写成 null —— 那会把同一天早些时候写的备注整行抹掉。
+    expect(handler).toContain('...(note === undefined ? {} : { note }),');
+    expect(handler).toContain('.mergeRemoteCheckin(result, {');
     expect(handler).not.toMatch(/note: null,/);
     // 出处：后端响应模型确实不回显 note（所以只能用手上的值），而判空口径两侧一致
     const respBody = /class MoodCheckinResponse\(BaseModel\):([\s\S]*?)\n\nclass /.exec(readRepo(SCHEMAS_PY));

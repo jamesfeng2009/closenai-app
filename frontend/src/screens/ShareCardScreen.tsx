@@ -8,6 +8,9 @@
  * - memory 回忆卡（§10.1 ① C4 第四模板）：日期大字 + 当年原文 + 情绪色环 + 水印。
  *   数据源是 GET /share/on-this-day 的候选（零 LLM、用户自己的原话），
  *   不走 getPersonalityCard、也不挂 Pro 门控——它和首页考古卡是同一条引流出口。
+ * - quote 金句卡（KG-30）：从记忆详情／我的反思点「分享原话」进来，正文只用于**本地预览**，
+ *   请求体里一个字的正文都不发（见 api.ts 的 postQuoteCardPdf）。真机上的句子由后端按
+ *   source_id 从库里取，所以预览与卡同源；AI 整理出来的那条会被后端拒（40405 → pdf.failed.notOriginal）。
  */
 import React, { useEffect, useState } from 'react';
 import {
@@ -15,9 +18,13 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
-import { getPersonalityCard, getOnThisDay, getShareLink, postMemoryCardPdf, ApiError } from '../services/api';
+import {
+  getPersonalityCard, getOnThisDay, getShareLink, postMemoryCardPdf, postQuoteCardPdf, ApiError,
+} from '../services/api';
 import { exportPdf, PdfUnavailableError } from '../services/pdfExport';
-import { MEMORY_CARD_PDF_FILE, pdfFailureKey } from '../config/pdfFiles';
+import {
+  MEMORY_CARD_PDF_FILE, QUOTE_CARD_PDF_FILE, pdfFailureKey, quoteCardExcerpt,
+} from '../config/pdfFiles';
 import { trackFunnelShare } from '../services/funnel';
 import ShareManifest from '../components/ShareManifest';
 import MoodRing from '../components/charts/MoodRing';
@@ -30,19 +37,31 @@ import { useTranslation } from 'react-i18next';
 // 与后端 ErrorCode.PRO_REQUIRED 对齐（组合名片为 Pro 权益）
 const CODE_PRO_REQUIRED = 40302;
 
-const VARIANTS: ShareCardVariant[] = ['classic', 'minimal', 'combo', 'memory'];
+const VARIANTS: ShareCardVariant[] = ['classic', 'minimal', 'combo', 'memory', 'quote'];
 
 export default function ShareCardScreen({
   navigation,
   route,
 }: {
   navigation: any;
-  route?: { params?: { variant?: ShareCardVariant; memory_id?: string } };
+  route?: {
+    params?: {
+      variant?: ShareCardVariant;
+      memory_id?: string;
+      // 金句卡（KG-30）：来源 + 预览正文。source_* 才是导出的输入，quote_* 只排版不进请求体
+      source_type?: 'memory' | 'reflection';
+      source_id?: string;
+      quote_text?: string;
+      quote_date?: string;
+    };
+  };
 }) {
   const { t } = useTranslation();
   // 从首页考古卡带 memory_id 进来时直达回忆卡；手输/深链缺参也只回到 classic，不猜一条记忆
   const [variant, setVariant] = useState<ShareCardVariant>(
-    route?.params?.variant === 'memory' ? 'memory' : 'classic',
+    route?.params?.variant === 'memory' || route?.params?.variant === 'quote'
+      ? route.params.variant
+      : 'classic',
   );
   const [card, setCard] = useState<PersonalityCard | null>(null);
   const [memory, setMemory] = useState<OnThisDayCandidate | null>(null);
@@ -67,6 +86,8 @@ export default function ShareCardScreen({
         // 两条数据路各自清空：换 variant 时不能拿上一张卡的内容渲染新卡
         setCard(null);
         setMemory(null);
+        // 金句卡不发请求：正文只在本地排版预览，导出时才把 source_id 交给后端取原文
+        if (variant === 'quote') return;
         if (variant === 'memory') {
           const data = await getOnThisDay();
           const wanted = route?.params?.memory_id;
@@ -161,6 +182,39 @@ export default function ShareCardScreen({
     }
   };
 
+  /**
+   * 金句卡 PDF（KG-30，POST /share/quote-card）。
+   *
+   * 授权点就在这一次点击上：预览不请求、不生成推荐码，只有按「导出」才发一次只含
+   * `source_type/source_id` 的请求（§6.3.3 的明示授权）。失败照旧走屏内 error 出口，
+   * 本页的 Alert 站点数仍是 proGate 那一处；40405 单说「这句不是你的原话」，
+   * 不套「记忆已经不在了」——那句话在这种情形下是假的。
+   */
+  const onExportQuotePdf = async () => {
+    const params = route?.params;
+    if (!params?.source_type || !params.source_id || pdfBusy || sharing) return;
+    try {
+      setPdfBusy(true);
+      trackFunnelShare('share_tapped', 'quote');
+      const bytes = await postQuoteCardPdf(params.source_type, params.source_id);
+      await exportPdf(bytes, QUOTE_CARD_PDF_FILE);
+      trackFunnelShare('share_completed', 'quote');
+    } catch (e) {
+      setError(
+        e instanceof PdfUnavailableError
+          ? t('pdf.unavailable')
+          : t(pdfFailureKey(e instanceof ApiError ? e.code : undefined)),
+      );
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  // 金句卡（KG-30）：预览用入口带进来的正文，导出用入口带进来的 id——两头都不猜一条记录
+  const quoteText = (route?.params?.quote_text || '').trim();
+  const quoteDate = route?.params?.quote_date || '';
+  const canExportQuote = !!route?.params?.source_type && !!route?.params?.source_id && !!quoteText;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* 变体选择（PRD §6：可生成多张名片挑选分享） */}
@@ -247,6 +301,42 @@ export default function ShareCardScreen({
               style={[styles.pdfBtn, (pdfBusy || sharing) && styles.pdfBtnDisabled]}
               disabled={pdfBusy || sharing}
               onPress={onExportMemoryPdf}
+              accessibilityRole="button"
+            >
+              <Text style={styles.pdfBtnText}>
+                📄 {pdfBusy ? t('pdf.exporting') : t('pdf.export')}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )
+      ) : variant === 'quote' ? (
+        !quoteText ? (
+          <Text style={styles.stateText}>{t('share.quoteEmpty')}</Text>
+        ) : (
+          <>
+            {/* 金句卡（KG-30）：一句原话 + 日期 + 水印。这一段只是预览，导出时的正文由后端按 id 取 */}
+            <LinearGradient
+              colors={Colors.gradCosmic}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.card}
+            >
+              <Text style={styles.quoteIntro}>{t('share.quoteIntro')}</Text>
+              <Text style={styles.memoryQuote}>「{quoteCardExcerpt(quoteText)}」</Text>
+              {!!quoteDate && <Text style={styles.memoryMoodNote}>{quoteDate}</Text>}
+              <View style={styles.memoryFootRow}>
+                <Text style={styles.cardWatermark}>ClosenAI</Text>
+              </View>
+            </LinearGradient>
+
+            <ShareManifest items={[t('share.quoteManifestQuote'), t('share.manifestLink')]} />
+            {/* 收口的那两句：卡上带本人推荐码，且已经存进设备的卡收不回来（§6.3.3 的明示授权） */}
+            <Text style={styles.quoteNote}>{t('share.quoteNote')}</Text>
+
+            <TouchableOpacity
+              style={[styles.pdfBtn, (!canExportQuote || pdfBusy || sharing) && styles.pdfBtnDisabled]}
+              disabled={!canExportQuote || pdfBusy || sharing}
+              onPress={onExportQuotePdf}
               accessibilityRole="button"
             >
               <Text style={styles.pdfBtnText}>
@@ -400,6 +490,14 @@ const styles = StyleSheet.create({
   memoryQuote: {
     fontSize: FontSize.xxl, color: Colors.textSecondary, fontStyle: 'italic', textAlign: 'center',
     marginTop: Spacing.md, marginBottom: Spacing.md, lineHeight: LineHeight.body,
+  },
+  quoteIntro: {
+    fontSize: FontSize.sm, color: Colors.gold400, letterSpacing: 1, textAlign: 'center',
+    lineHeight: LineHeight.caption,
+  },
+  quoteNote: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.md,
+    lineHeight: LineHeight.caption,
   },
   memoryMoodNote: {
     fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.sm,

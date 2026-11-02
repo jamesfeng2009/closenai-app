@@ -205,6 +205,22 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
               <Text style={styles.reflectionSummary} numberOfLines={3}>
                 {r.summary}
               </Text>
+              {/* 金句卡入口（KG-30）：空正文不给按钮——点下去只会拿到一句「这句是空的」 */}
+              {!!r.summary?.trim() && (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  style={styles.reflectionShare}
+                  onPress={() => navigation.navigate('ShareCard', {
+                    variant: 'quote',
+                    source_type: 'reflection',
+                    source_id: r.id,
+                    quote_text: r.summary,
+                    quote_date: r.date,
+                  })}
+                >
+                  <Text style={styles.reflectionShareText}>{t('share.quoteEntry')}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ))
         )}
@@ -230,6 +246,17 @@ export default function ExploreScreen({ navigation }: { navigation: any }) {
             <Text style={styles.tileName}>{t('explore.growthRecords')}</Text>
             <Text style={styles.tileDesc}>{t('explore.growthRecordsDesc')}</Text>
           </TouchableOpacity>
+          {/* KG-27：情绪统计原本只在 Insights 屏里，而 Insights 挂在洞察流里、没有直达入口。
+              这块格子把它变成一次点击可达；带 initialSection 直接落到那张卡。 */}
+          <TouchableOpacity
+            style={styles.exploreTile}
+            accessibilityRole="button"
+            onPress={() => navigation.navigate('Insights', { initialSection: 'mood' })}
+          >
+            <Text style={styles.tileIcon}>📊</Text>
+            <Text style={styles.tileName}>{t('explore.moodStats')}</Text>
+            <Text style={styles.tileDesc}>{t('explore.moodStatsDesc')}</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </ScrollView>
@@ -251,6 +278,8 @@ const styles = StyleSheet.create({
   },
   reflectionDate: { fontSize: FontSize.sm, color: Colors.gold400, marginBottom: 2 },
   reflectionSummary: { fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption },
+  reflectionShare: { alignSelf: 'flex-start', marginTop: Spacing.xs },
+  reflectionShareText: { fontSize: FontSize.sm, color: Colors.gold400 },
   failBox: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.md,
     borderWidth: 1, borderColor: Colors.borderLight, borderRadius: BorderRadius.lg,

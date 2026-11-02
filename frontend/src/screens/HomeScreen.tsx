@@ -21,6 +21,8 @@ import {
   getOnThisDay, getCurriculumWeek, markCurriculumRead, getBedtimeToday, getShareLink, ApiError,
 } from '../services/api';
 import { trackFunnelOnce, trackFunnelShare } from '../services/funnel';
+import { MOOD_ANALYSIS_EVENTS, showMoodAnalysisEntry } from '../services/moodAnalysis';
+import { decideNextStep, readCompletedSteps, STAGE_TARGET, type NextStepStage } from '../services/nextStep';
 import { track } from '../services/analytics';
 import {
   ARCHIVE_TITLE_KEY, archiveCards, archiveShareMessage, pickThemeCard, showBedtimeCard, weekCells, weekSlot,
@@ -31,6 +33,7 @@ import { moodCheckinRepo, type MoodCheckinRow } from '../services/db/moodCheckin
 import { toLocalDate } from '../utils/datetime';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import InsightBlurGate from '../components/InsightBlurGate';
+import MoodAnalysisSheet from '../components/MoodAnalysisSheet';
 import ShareManifest from '../components/ShareManifest';
 import type {
   GrowthDashboard, MoodEmoji, OnThisDayCandidate, OnThisDayResponse, CurriculumWeekResponse,
@@ -51,24 +54,32 @@ const CODE_QUOTA_EXCEEDED = 40301;
 async function syncMoodHistory(): Promise<void> {
   try {
     const { checkins } = await getMoodHistory();
-    for (const c of checkins) {
-      const row: MoodCheckinRow = {
-        id: c.id,
-        date: toLocalDate(c.created_at),
-        emoji: c.mood_emoji,
-        intensity: 0.5,
-        note: null,
-        ai_interpretation: c.ai_interpretation || null,
-        created_at: c.created_at,
-      };
-      moodCheckinRepo.save(row).catch(() => {});
-    }
+    await moodCheckinRepo.mergeRemoteHistory(checkins);
   } catch {
     // 同步失败不影响仪表盘主流程
   }
 }
 
 const HEAT_DAYS = 14;
+
+/** 五格引导各自的文案键（`loop_done` 不渲染，所以不进这张表）。 */
+const NEXT_STEP_COPY: Record<Exclude<NextStepStage, 'loop_done'>, string> = {
+  checkin: 'home.nextStepCheckin',
+  reflect: 'home.nextStepReflect',
+  insight: 'home.nextStepInsight',
+  action: 'home.nextStepAction',
+  outcome: 'home.nextStepOutcome',
+};
+
+/** 落点取自 `STAGE_TARGET`（`services/nextStep.ts`）：下一步去哪只有一张表，不在屏里再抄一份。 */
+function goNextStep(
+  nav: { navigate: (name: string, params?: unknown) => void },
+  stage: Exclude<NextStepStage, 'loop_done'>,
+) {
+  const target = STAGE_TARGET[stage];
+  if ('screen' in target) nav.navigate(target.name, { screen: target.screen });
+  else nav.navigate(target.name);
+}
 
 /** 最近 14 天热力图格子（今日在最右）：有签到显示 emoji，无签到显示暗格。 */
 function buildHeatCells(checkins: MoodCheckinRow[]): { date: string; emoji: string | null }[] {
@@ -97,6 +108,8 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   const networkLoaded = useRef(false);
   // 本地签到热力图（Tier 1 用户原创，纯本地读秒开；网络同步后台覆盖）
   const [localCheckins, setLocalCheckins] = useState<MoodCheckinRow[]>([]);
+  // KG-28 三层次情绪分析面板：入口只在服务端开关为真且今天已签到时出现
+  const [analysisOpen, setAnalysisOpen] = useState(false);
 
   const refreshLocalCheckins = React.useCallback(() => {
     moodCheckinRepo
@@ -110,8 +123,8 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
       const data = await getGrowthDashboard();
       setDashboard(data);
       settingsRepo.setJson(DASHBOARD_CACHE_KEY, data).catch(() => {});
-      // 签到历史同步进本地表（fire-and-forget，失败不影响仪表盘）
-      syncMoodHistory();
+      // 签到历史同步进本地表（失败不影响仪表盘）；完成后刷新本地热力图
+      syncMoodHistory().then(refreshLocalCheckins).catch(() => {});
     } catch (e) {
       console.warn('Failed to load dashboard:', e);
     } finally {
@@ -175,6 +188,27 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         .catch(() => setJourneyUnseen(0));
     }, [isLoggedIn])
   );
+
+  // 首日价值路径（KG-25）：这一环跑到哪一格了。签到成功会把 today_mood 写进仪表盘，
+  // 依赖里带上它，「今天还没签到」那一格在签完之后就自己翻篇，不用额外的刷新信号。
+  const [nextStage, setNextStage] = useState<NextStepStage>('loop_done');
+  const checkedInToday = !!dashboard?.today_mood;
+  useEffect(() => {
+    let alive = true;
+    if (!isLoggedIn) {
+      setNextStage('loop_done');
+      return;
+    }
+    readCompletedSteps()
+      .then((done) => {
+        if (alive) setNextStage(decideNextStep({ checkedInToday, done }));
+      })
+      .catch(() => {
+        // 判定读不到就当「这一环已跑通」：这条引导是加法，不许因为本地存储抖动而变成噪音
+        if (alive) setNextStage('loop_done');
+      });
+    return () => { alive = false; };
+  }, [isLoggedIn, checkedInToday]);
 
   // 首页每日卡三张（C4 记忆考古主位 / C2 本周主题次位 / C1 睡前复盘晚间兜底）
   // 考古卡是用户自己的历史原话、零 LLM（share_service.on_this_day），不挂同意门；
@@ -310,17 +344,11 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           ? { ...prev, today_mood: res.mood_emoji, streak_count: res.streak_updated }
           : prev,
       );
-      // 本地签到记录落库（Tier 1 用户原创；热力图离线可用）
+      // 本地签到记录落库（Tier 1 用户原创；热力图离线可用）。
+      // 走 merge 而不是整行覆盖：Home 没有备注输入框，不能把用户当天在
+      // Reflect 写下的 note / 历史强度用 null / 0.5 抹掉。
       moodCheckinRepo
-        .save({
-          id: res.id,
-          date: toLocalDate(res.created_at),
-          emoji: res.mood_emoji,
-          intensity: 0.5,
-          note: null,
-          ai_interpretation: res.ai_interpretation || null,
-          created_at: res.created_at,
-        })
+        .mergeRemoteCheckin(res)
         .then(refreshLocalCheckins)
         .catch(() => {});
       if (res.ai_interpretation) {
@@ -529,6 +557,27 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
         </TouchableOpacity>
       )}
 
+      {/* 首日价值路径的下一步引导（KG-25）：只挂「这一环还没跑通」的那一格。
+          判据与漏斗的一次性门闸同键（services/nextStep.ts），所以引导说的下一步
+          和分析里数到的下一步不会是两件事。`loop_done` 整卡消失，老用户首页不许长出常驻任务条。 */}
+      {nextStage !== 'loop_done' && (
+        <TouchableOpacity
+          style={styles.firstReadEntry}
+          onPress={() => {
+            if (!requireAuth()) return;
+            track('next_step_tapped', { feature: 'next_step', action: 'tap', section: nextStage });
+            goNextStep(navigation, nextStage);
+          }}
+          accessibilityRole="button"
+        >
+          <View style={styles.firstReadTextBlock}>
+            <Text style={styles.firstReadTitle}>🧭 {t('home.nextStepTitle')}</Text>
+            <Text style={styles.firstReadHint}>{t(NEXT_STEP_COPY[nextStage])}</Text>
+          </View>
+          <Text style={styles.detailArrow}>{t('home.nextStepCta')} →</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Streak + 等级（关系进度入口：点击进关系时间线 P0-F04，游客守卫） */}
       <TouchableOpacity
         style={styles.streakBar}
@@ -628,6 +677,29 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
             <Text style={styles.checkinNoteBody}>{checkinNote.text}</Text>
           </View>
         )}
+
+        {/* KG-28 三层次情绪分析入口。
+            两个条件缺一不可：features 快照为真（开关关着时端点直接 40402，入口在就是骗人），
+            且今天已签到（分析的证据池以当天签到为锚，没签到点了只会拿到 40402）。
+            `showMoodAnalysisEntry` 用 `=== true` 判，升级前落盘的旧缓存没有 features 字段 ⇒ 不显示。 */}
+        {showMoodAnalysisEntry(dashboard?.features) && !!dashboard?.today_mood && (
+          <TouchableOpacity
+            style={styles.analysisEntry}
+            onPress={() => {
+              // 入口点击只带 feature/action 两个白名单键：此刻还没有深度可选，
+              // 把 depth 塞进去会伪造一次「用户选了 light」。
+              track(MOOD_ANALYSIS_EVENTS.entry, { feature: 'mood_analysis', action: 'open' });
+              setAnalysisOpen(true);
+            }}
+            accessibilityRole="button"
+          >
+            <View style={styles.analysisEntryHead}>
+              <Text style={styles.analysisEntryTitle}>🔍 {t('moodAnalysis.entry')}</Text>
+              <Text style={styles.arrow}>→</Text>
+            </View>
+            <Text style={styles.analysisEntryDesc}>{t('moodAnalysis.entryDesc')}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Growth This Week（点击进入高级洞察页 P1-F03） */}
@@ -723,6 +795,20 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
           <Text style={styles.revealText}>{t('home.revealUnlocked')}</Text>
         </Animated.View>
       )}
+
+      {/* KG-28：40303（未同意 AI）这一格面板里不套第二层 Modal，交回本页去 Profile Tab 办 */}
+      <MoodAnalysisSheet
+        visible={analysisOpen}
+        onClose={() => setAnalysisOpen(false)}
+        onOpenSettings={() => {
+          setAnalysisOpen(false);
+          navigation.navigate('Tabs', { screen: 'Profile' });
+        }}
+        onOpenMemories={() => {
+          setAnalysisOpen(false);
+          navigation.navigate('Memories');
+        }}
+      />
     </>
   );
 }
@@ -868,6 +954,15 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: LineHeight.small,
   },
+  analysisEntry: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderGold,
+  },
+  analysisEntryHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  analysisEntryTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.gold400 },
+  analysisEntryDesc: { fontSize: FontSize.sm, color: Colors.textTertiary, lineHeight: LineHeight.caption, marginTop: 4 },
   moodBtn: { flex: 1, alignItems: 'center', padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10 },
   moodBtnSelected: { backgroundColor: 'rgba(255,215,0,0.18)', borderWidth: 1, borderColor: Colors.gold400 },
   moodEmoji: { fontSize: 22 },

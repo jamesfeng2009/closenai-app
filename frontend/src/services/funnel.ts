@@ -17,12 +17,25 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { track } from './analytics';
 
-/** 一次性节点：漏斗的四段台阶。 */
+/**
+ * 一次性节点：漏斗的台阶。
+ *
+ * KG-25 把后四段补上（`onboarding_completed` / `first_reflection_saved` /
+ * `first_evidence_insight` / `first_action` / `first_outcome`）。补之前 PRD 那条
+ * 「签到 → 反思 → 有证据的洞察 → 行动 → 结果」的路径上只有前三格有事件：
+ * 「第一条书写记录」是聊天消息，不是保存下来的反思；从记录到洞察之间整段是黑的，
+ * 所以首日转化只能算到「有没有发过消息」为止。
+ */
 export const ONE_TIME_STEPS = [
   'first_read_opened',
   'first_record_created',
   'first_checkin',
   'week1_report_opened',
+  'onboarding_completed',
+  'first_reflection_saved',
+  'first_evidence_insight',
+  'first_action',
+  'first_outcome',
 ] as const;
 
 /** 分享环路事件：可重复，按 source 分物料。 */
@@ -39,6 +52,7 @@ export const FUNNEL_SOURCES = [
   'period_report',
   'year_review',
   'memory',
+  'quote',
   'life_archive',
 ] as const;
 
