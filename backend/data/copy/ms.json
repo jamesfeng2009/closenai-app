@@ -22,6 +22,11 @@
       "high": "Suasana hati anda secara keseluruhannya bagus — kekalkan rentak ini.",
       "mid": "Suasana hati anda agak stabil. Kadangkala perhatikan perasaan sendiri.",
       "low": "Baru-baru ini hati anda agak rendah. Jaga diri dengan baik, saya di sini."
+    },
+    "analysis": {
+      "facts": "Hari ini anda merekod mood sebagai {label}. Ayat tulisan anda sendiri: {count}.",
+      "degraded_summary": "{facts} Belum cukup ayat daripada kata-kata anda sendiri untuk menunjukkan satu corak.",
+      "crisis_next_step": "Berbicaralah sekarang dengan orang yang anda percaya, atau hubungi nombor di atas."
     }
   },
   "levels": {
@@ -408,7 +413,7 @@
   },
   "share": {
     "brand": {
-      "watermark": "ClosenAI — ia mengingat semua yang anda ceritakan",
+      "watermark": "ClosenAI — ia mengingati apa yang anda pilih untuk dikongsi",
       "cta": "Imbas untuk muat turun"
     },
     "unit": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Setahun yang Lalu",
       "anniversary_n": "{n} Tahun yang Lalu",
       "intro": "Sesuatu yang anda tulis:"
+    },
+    "quote": {
+      "title": "Satu Ayat daripada Anda",
+      "intro": "Sesuatu yang anda tulis sendiri:",
+      "source_memory": "Daripada kenangan yang anda simpan · {date}",
+      "source_reflection": "Daripada refleksi yang anda simpan · {date}",
+      "own_words": "Ayat ini anda taip sendiri — bukan AI yang menulisnya untuk anda.",
+      "draft_note": "Disimpan daripada refleksi yang dirangka AI — susunan katanya mungkin bukan sepenuhnya milik anda."
     },
     "review": {
       "empty": "Belum ada rekod untuk ditinjau pada {year}",

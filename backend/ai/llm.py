@@ -6,6 +6,9 @@ LLM 客户端封装（多 Provider + 多语言）。
 - doubao（豆包）
 - gemini / openai（兼容）
 
+chat 与 embedding 允许分离：settings.embedding_provider 非空时，embedding 走该 provider
+的端点与模型，chat 仍走 llm_provider。用于代理类端点只放行 chat 模型的场景。
+
 所有 LLM 调用都应走本封装，禁止在业务代码里直接 new OpenAI client。
 
 多语言：
@@ -37,6 +40,60 @@ logger = logging.getLogger("closenai.llm")
 
 # OpenAI 兼容 client 缓存（按 provider 懒初始化）
 _client: Optional[AsyncOpenAI] = None
+# embedding 专用 client：仅当 embedding_provider 与 llm_provider 不同才会被创建。
+# 分开存放是为了让「llm_mod._client 被测试替换」时 chat/embed 仍走同一个假 client。
+_embed_client: Optional[AsyncOpenAI] = None
+
+
+def embedding_provider() -> str:
+    """embedding 实际使用的 provider：settings.embedding_provider 为空时跟随 llm_provider。
+
+    分离的唯一理由是 chat 与向量可能落在不同端点（代理类端点常只放行 chat 模型）。
+    留空即旧行为，B12「切 provider 则 embedding 同步切」的语义不变。
+    """
+    return settings.embedding_provider or settings.llm_provider
+
+
+# 模型能力约束表：把「推理模型」的调用纪律集中到一处，避免每个调用点各写一遍。
+# 未列出的模型一律走默认行为（原样透传 temperature / max_tokens，允许流式）。
+#
+# k3.1-pro 的三条实测约束（2026-10-24）：
+# - 只接受 temperature=1，其它值 400；省略该参数即用服务端默认，故选择「丢弃」而非「改成 1」
+# - reasoning_tokens 计入 max_tokens（实测短回复吃 250~310），给 300 会返回空或截断正文
+# - 首个正文增量要 11s 才到（推理增量先来），流式等于白屏，禁止
+MODEL_CONSTRAINTS: dict[str, dict] = {
+    "k3.1-pro": {
+        "drop_temperature": True,
+        "min_max_tokens": 800,
+        "streaming": False,
+    },
+}
+
+
+def _constraints_for(model: str) -> dict:
+    return MODEL_CONSTRAINTS.get((model or "").strip().lower(), {})
+
+
+def _chat_kwargs(model: str, max_tokens: int, temperature: float) -> tuple[dict, list[str]]:
+    """按能力表产出 chat.completions 的参数，并返回被调整过的项（供日志与测试断言）。
+
+    返回 (kwargs, notes)。notes 非空说明调用点的原始意图与该模型能力不符、已被纠正。
+    """
+    rules = _constraints_for(model)
+    notes: list[str] = []
+
+    effective_max = max_tokens
+    floor = rules.get("min_max_tokens")
+    if floor and max_tokens < floor:
+        effective_max = floor
+        notes.append(f"max_tokens {max_tokens}->{floor}")
+
+    kwargs: dict = {"max_tokens": effective_max}
+    if rules.get("drop_temperature"):
+        notes.append("temperature dropped")
+    else:
+        kwargs["temperature"] = temperature
+    return kwargs, notes
 
 
 def _purpose_from_frame(depth: int = 2) -> str:
@@ -68,11 +125,21 @@ def _usage_fields(resp) -> dict:
     }
 
 
-def _run_fields(op: str, purpose: Optional[str], *, model: str, lite: bool, language: str, prompt: str) -> dict:
+def _run_fields(
+    op: str,
+    purpose: Optional[str],
+    *,
+    model: str,
+    lite: bool,
+    language: str,
+    prompt: str,
+    provider: Optional[str] = None,
+) -> dict:
     return {
         "op": op,
         "purpose": purpose or _purpose_from_frame(depth=3),
-        "provider": settings.llm_provider,
+        # embed 落在独立端点时留痕要记真实 provider，否则排障会被误导成 llm_provider
+        "provider": provider or settings.llm_provider,
         "model": model,
         "lite": lite,
         "language": language,
@@ -80,13 +147,8 @@ def _run_fields(op: str, purpose: Optional[str], *, model: str, lite: bool, lang
     }
 
 
-def _get_client() -> AsyncOpenAI:
-    """按配置获取 OpenAI 兼容 client。"""
-    global _client
-    if _client is not None:
-        return _client
-
-    provider = settings.llm_provider
+def _build_client(provider: str) -> AsyncOpenAI:
+    """按给定 provider 构造 OpenAI 兼容 client。"""
     if provider == "dashscope":
         api_key = settings.dashscope_api_key
         base_url = settings.dashscope_base_url
@@ -102,8 +164,30 @@ def _get_client() -> AsyncOpenAI:
 
     if not api_key:
         raise RuntimeError(f"LLM provider '{provider}' 未配置 API Key")
-    _client = AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+    return AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+
+
+def _get_client() -> AsyncOpenAI:
+    """按配置获取 chat 用 OpenAI 兼容 client。"""
+    global _client
+    if _client is not None:
+        return _client
+    _client = _build_client(settings.llm_provider)
     return _client
+
+
+def _get_embedding_client() -> AsyncOpenAI:
+    """获取 embedding 用 client。
+
+    embedding_provider 与 llm_provider 相同时复用 chat client（保持旧行为，也让
+    测试里替换 llm_mod._client 的做法对 embed 继续生效）；不同时才单独构造。
+    """
+    global _embed_client
+    if embedding_provider() == settings.llm_provider:
+        return _get_client()
+    if _embed_client is None:
+        _embed_client = _build_client(embedding_provider())
+    return _embed_client
 
 
 def get_model(lite: bool = False) -> str:
@@ -120,12 +204,24 @@ def get_model(lite: bool = False) -> str:
     return settings.openai_lite_model if lite else settings.openai_model
 
 
+def get_pro_model() -> str:
+    """高质量档模型名（可选）。未配置时显式报错，避免把空模型名发到端点。
+
+    仅适合低频、非流式、预算充足的调用（深度解读／阶段总结一类），
+    且必须由调用方显式传给 complete(model=get_pro_model())，主路径不会自动用。
+    """
+    model = settings.openai_pro_model
+    if not model:
+        raise RuntimeError("未配置 OPENAI_PRO_MODEL，高质量档不可用")
+    return model
+
+
 def get_embedding_model() -> str:
-    """返回当前 provider 的 embedding 模型名（与 get_model 同口径按 provider 切换）。
+    """返回 embedding 实际端点上的模型名（按 embedding_provider 取，留空则跟随 llm_provider）。
 
     注意：向量空间跨模型不兼容，切换 provider/模型后存量向量需重嵌入。
     """
-    provider = settings.llm_provider
+    provider = embedding_provider()
     if provider == "dashscope":
         return settings.dashscope_embedding_model
     if provider == "gemini":
@@ -155,17 +251,23 @@ async def complete(
     temperature: float = 0.7,
     purpose: Optional[str] = None,
     track: bool = True,
+    model: Optional[str] = None,
 ) -> str:
     """非流式补全。返回完整文本。
 
     purpose：留痕的调用点标识，缺省由调用帧推导；track=False 用于辅助调用
     （如安全分类器自检），写留痕但不占用「当前生成」指针。
+    model：显式指定模型，覆盖 lite/main 路由（如 get_pro_model()）。能力表里的约束
+    （预算下限、temperature 丢弃）仍会生效。
     """
     client = _get_client()
-    model = get_model(lite)
+    model = model or get_model(lite)
     fields = _run_fields(
         "complete", purpose, model=model, lite=lite, language=language, prompt=prompt
     )
+    chat_kwargs, adjust = _chat_kwargs(model, max_tokens, temperature)
+    if adjust:
+        logger.info("模型 %s 参数归一化: %s", model, ", ".join(adjust))
     started = time.perf_counter()
     try:
         resp = await client.chat.completions.create(
@@ -174,8 +276,7 @@ async def complete(
                 {"role": "system", "content": _build_system_prompt(system_prompt, language)},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=max_tokens,
-            temperature=temperature,
+            **chat_kwargs,
         )
         text = resp.choices[0].message.content or ""
     except Exception as exc:  # noqa: BLE001  异常照常留痕后原样上抛
@@ -208,16 +309,28 @@ async def stream(
     temperature: float = 0.7,
     purpose: Optional[str] = None,
     track: bool = True,
+    model: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """流式补全。逐段 yield 文本。
 
     留痕在流自然结束时写（累计产出长度即实际下发内容）；调用方中途放弃迭代不会有留痕行。
+    model：显式指定模型。标了 streaming=False 的模型（推理模型，首个正文增量要 11s+）
+    直接 ValueError，避免用户对着白屏等 11 秒。
     """
+    model = model or get_model(lite)
+    if _constraints_for(model).get("streaming") is False:
+        raise ValueError(
+            f"模型 {model} 不支持流式：推理增量先于正文到达（实测首个正文增量 11s+），"
+            "请改用 complete()，或换非推理模型"
+        )
+
     client = _get_client()
-    model = get_model(lite)
     fields = _run_fields(
         "stream", purpose, model=model, lite=lite, language=language, prompt=prompt
     )
+    chat_kwargs, adjust = _chat_kwargs(model, max_tokens, temperature)
+    if adjust:
+        logger.info("模型 %s 参数归一化: %s", model, ", ".join(adjust))
     started = time.perf_counter()
     pieces: list[str] = []
     try:
@@ -227,9 +340,8 @@ async def stream(
                 {"role": "system", "content": _build_system_prompt(system_prompt, language)},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=max_tokens,
-            temperature=temperature,
             stream=True,
+            **chat_kwargs,
         )
         async for chunk in stream_resp:
             delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -264,7 +376,7 @@ async def embed(
     """
     文本向量化（用于 pgvector 语义检索）。
 
-    按 provider 选择 embedding 模型：
+    按 embedding_provider 选择 embedding 模型（留空则跟随 llm_provider）：
     - dashscope: text-embedding-v4（MRL 支持 dimensions 128-2048，默认取 settings.embedding_dim=512）
     - gemini: text-embedding-004
     - openai / doubao: 走 OpenAI 兼容 /embeddings
@@ -274,8 +386,8 @@ async def embed(
     同样写留痕（op=embed）：embedding 也是模型调用，成本与「切换 provider 后需重嵌入」
     的排障都要能查到。language 传空串——embedding 调用不跟随用户语言，该列对 embed 无意义。
     """
-    client = _get_client()
-    provider = settings.llm_provider
+    client = _get_embedding_client()
+    provider = embedding_provider()
     model = get_embedding_model()
     extra: dict = {}
     if dim is not None:
@@ -284,7 +396,13 @@ async def embed(
         extra["dimensions"] = settings.embedding_dim
 
     fields = _run_fields(
-        "embed", purpose, model=model, lite=False, language="", prompt="".join(texts or [])
+        "embed",
+        purpose,
+        model=model,
+        lite=False,
+        language="",
+        prompt="".join(texts or []),
+        provider=provider,
     )
     started = time.perf_counter()
     try:
@@ -319,6 +437,7 @@ llm = type("LLM", (), {
     "stream": staticmethod(stream),
     "embed": staticmethod(embed),
     "get_model": staticmethod(get_model),
+    "get_pro_model": staticmethod(get_pro_model),
     "get_embedding_model": staticmethod(get_embedding_model),
     # 生成留痕取用：落库前读 current_run_id()，产出被闸门丢弃时调 mark_fallback()
     "current_run_id": staticmethod(generation_run.current_run_id),

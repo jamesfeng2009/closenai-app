@@ -22,6 +22,11 @@
       "high": "Ton humeur générale a été très bonne — garde ce rythme.",
       "mid": "Ton humeur reste plutôt stable. Prends de ses nouvelles de temps en temps.",
       "low": "Ces derniers temps, l'humeur était un peu basse. Prends soin de toi — je suis là."
+    },
+    "analysis": {
+      "facts": "Aujourd'hui, ton humeur notée : {label}. Phrases écrites avec tes mots : {count}.",
+      "degraded_summary": "{facts} Il me manque encore tes propres mots pour désigner un schéma.",
+      "crisis_next_step": "Parle dès maintenant à quelqu'un en qui tu as confiance, ou appelle le numéro ci-dessus."
     }
   },
   "levels": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Il y a un an aujourd'hui",
       "anniversary_n": "Il y a {n} ans aujourd'hui",
       "intro": "Quelque chose que vous avez écrit :"
+    },
+    "quote": {
+      "title": "Une phrase de vous",
+      "intro": "Quelque chose que vous avez écrit vous-même :",
+      "source_memory": "Tirée d'un souvenir que vous avez enregistré · {date}",
+      "source_reflection": "Tirée d'une réflexion que vous avez enregistrée · {date}",
+      "own_words": "Vous avez tapé cette phrase vous-même — aucune IA ne l'a écrite à votre place.",
+      "draft_note": "Enregistrée depuis une réflexion rédigée par l'IA — la formulation ne vient peut-être pas de vous."
     },
     "review": {
       "empty": "Rien à passer en revue pour {year} pour l'instant",

@@ -23,6 +23,11 @@
       "high": "整体情绪状态不错，保持这个节奏。",
       "mid": "情绪总体平稳，偶尔关注自己的感受。",
       "low": "这段时间情绪有些低落，记得多照顾自己，我在这里。"
+    },
+    "analysis": {
+      "facts": "今天你的签到是「{label}」。你自己写下的句子：{count} 条。",
+      "degraded_summary": "{facts}我还没有足够多你自己的原话，能指认出一个模式。",
+      "crisis_next_step": "请现在找你信任的人聊聊，或拨打上面的号码。"
     }
   },
   "levels": {
@@ -416,7 +421,7 @@
   },
   "share": {
     "brand": {
-      "watermark": "ClosenAI · 它记得你说过的每一句",
+      "watermark": "ClosenAI · 你选择分享的内容，它都记得",
       "cta": "扫码下载"
     },
     "unit": {
@@ -456,6 +461,14 @@
       "anniversary_one": "一年前的今天",
       "anniversary_n": "{n} 年前的今天",
       "intro": "你写下过的一句："
+    },
+    "quote": {
+      "title": "你自己写下的一句",
+      "intro": "下面这句是你自己写的：",
+      "source_memory": "来自你存下的一条记忆 · {date}",
+      "source_reflection": "来自你存下的一条反思 · {date}",
+      "own_words": "这句话是你自己敲下的，不是 AI 替你写的。",
+      "draft_note": "这句出自 AI 起草、你按下保存的反思，措辞未必全是你自己的。"
     },
     "review": {
       "empty": "{year} 年还没有可回顾的记录",

@@ -50,6 +50,24 @@ class GrowthRepository:
         await db.flush()
         return record
 
+    async def get_owned(
+        self, db: AsyncSession, user_id: str, record_id: str, record_type: str
+    ) -> Optional[GrowthRecord]:
+        """按主键取**本人且指定类型**的一条（KG-30 金句卡的归属闸）。
+
+        `record_type` 一起进 WHERE 而不是取回再判：一张写着别人名字的卡不该因为
+        id 撞上就渲染出来，而 `daily_insight`／`weekly_summary` 这些 AI 产出的行
+        和 `reflection` 住在同一张表里，靠调用方「记得再判一次」迟早会漏。
+        """
+        result = await db.execute(
+            select(GrowthRecord).where(
+                GrowthRecord.id == record_id,
+                GrowthRecord.user_id == user_id,
+                GrowthRecord.record_type == record_type,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_latest(
         self, db: AsyncSession, user_id: str, record_type: str
     ) -> Optional[GrowthRecord]:

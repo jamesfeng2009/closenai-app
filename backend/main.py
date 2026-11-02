@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import auth, onboarding, journey, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, share, analytics, bedtime, curriculum, v3
+from backend.routers import auth, onboarding, journey, chat, memories, mood, growth, personality, user, discovery, subscription, cron, reflection, reflection_prompts, share, analytics, bedtime, curriculum, v3
 from backend.config import settings
 from backend.core.logging import get_logger, setup_logging
 from backend.core.middleware import TraceIdMiddleware, register_exception_handlers
@@ -197,6 +197,8 @@ app.include_router(user.router, prefix="/api/v1", tags=["user"])
 app.include_router(discovery.router, prefix="/api/v1", tags=["discovery"])
 app.include_router(subscription.router, prefix="/api/v1", tags=["subscription"])
 app.include_router(reflection.router, prefix="/api/v1", tags=["reflections"])
+# KG-26 提示库：前缀不带 `/reflections`，这样它不落在 N8 那一刀的 path 里（理由见该文件头）。
+app.include_router(reflection_prompts.router, prefix="/api/v1", tags=["reflections"])
 app.include_router(cron.router, prefix="/api/v1", tags=["cron"])
 app.include_router(share.router, prefix="/api/v1", tags=["share"])
 app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])

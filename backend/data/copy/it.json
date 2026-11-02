@@ -22,6 +22,11 @@
       "high": "Il tuo umore generale è stato ottimo — mantieni questo ritmo.",
       "mid": "Il tuo umore è abbastanza stabile. Ogni tanto ascolta come stai.",
       "low": "Ultimamente l'umore è un po' basso. Abbi molta cura di te — io sono qui."
+    },
+    "analysis": {
+      "facts": "Oggi hai segnato {label}. Frasi con parole tue: {count}.",
+      "degraded_summary": "{facts} Mi mancano ancora parole tue per indicare uno schema.",
+      "crisis_next_step": "Parla adesso con qualcuno di cui ti fidi, o chiama il numero qui sopra."
     }
   },
   "levels": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Un anno fa oggi",
       "anniversary_n": "{n} anni fa oggi",
       "intro": "Qualcosa che hai scritto:"
+    },
+    "quote": {
+      "title": "Una frase tua",
+      "intro": "Qualcosa che hai scritto tu:",
+      "source_memory": "Da un ricordo che hai salvato · {date}",
+      "source_reflection": "Da una riflessione che hai salvato · {date}",
+      "own_words": "Questa frase l'hai scritta tu — nessuna IA l'ha scritta al posto tuo.",
+      "draft_note": "Salvata da una riflessione abbozzata dall'IA; la formulazione potrebbe non essere tutta tua."
     },
     "review": {
       "empty": "Ancora niente da ripassare per il {year}",

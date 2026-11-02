@@ -295,6 +295,71 @@ async def test_illegal_command_is_parked_in_final_dlq(kwargs: dict, reason: str)
     assert stats.rejected == 1 and stats.rejects_by_reason == {reason: 1}
 
 
+IDENTITY_CASES = json.loads(
+    (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "mq_identity_cases.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize("identity_key", IDENTITY_CASES["variants"])
+async def test_body_identity_variant_is_rejected_before_any_handler(identity_key: str) -> None:
+    """T7-03：体内身份键变体在任何 handler／发布之前就被拒，管道面零写入。
+
+    判据用三份互相独立的证人：handler 调用表（领域侧）、``pub.published``（回投面）、
+    ``stats.rejected``（留痕面）。只判其中一个时，「handler 被调了但产不出候选」
+    与「handler 根本没被调」会长得一样。
+    """
+    calls: list[Command] = []
+    reg = Registry()
+
+    async def handler(command: Command) -> Proposal:
+        calls.append(command)
+        return Proposal(
+            kind="pattern",
+            body={"kind": "KIND_PATTERN", "safety": {"status": "SAFETY_STATUS_OK"}},
+        )
+
+    reg.register("pattern", handler)
+    pub = FakePublisher()
+    consumer, _, dlq, stats = build(reg, publisher=pub)
+    body = dict(IDENTITY_CASES["command"]["base_body"])
+    body[identity_key] = IDENTITY_CASES["body_user"]
+
+    decision = await consumer.handle(FakeMessage(body=body), queue=QUEUE)
+    assert decision.action == REJECT and decision.reason == "foreign_user_id", decision
+    assert calls == [], "拒绝之前 handler 已经被调用"
+    assert pub.published == [], "拒绝之前已经产出候选"
+    assert stats.rejected == 1 and stats.rejects_by_reason == {"foreign_user_id": 1}
+    assert dlq.parked and dlq.parked[0][1] == "foreign_user_id"
+
+
+async def test_legal_command_without_body_identity_key_reaches_handler() -> None:
+    """正例：不带身份键的命令照常进门、产出候选（否则上面的零写入证人可以被「全拒」蒙混）。"""
+    calls: list[Command] = []
+    reg = Registry()
+
+    async def handler(command: Command) -> Proposal:
+        calls.append(command)
+        return Proposal(
+            kind="pattern",
+            body={"kind": "KIND_PATTERN", "safety": {"status": "SAFETY_STATUS_OK"}},
+        )
+
+    reg.register("pattern", handler)
+    pub = FakePublisher()
+    consumer, _, _, _ = build(reg, publisher=pub)
+
+    decision = await consumer.handle(
+        FakeMessage(body=dict(IDENTITY_CASES["command"]["base_body"])), queue=QUEUE
+    )
+    assert decision.action == ACK, decision
+    assert len(calls) == 1
+    assert len(pub.published) == 1
+
+
 async def test_oversized_body_is_rejected_not_requeued() -> None:
     reg = await registered_handler()
     handler, _, dlq, _ = build(reg, max_body_bytes=32)

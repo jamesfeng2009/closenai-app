@@ -6,7 +6,7 @@ Pydantic 数据模型定义。
 """
 import re
 from datetime import datetime, time
-from typing import Optional, List, Literal, Dict
+from typing import Optional, List, Literal, Dict, Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -119,6 +119,84 @@ class MoodTrendResponse(BaseModel):
     summary: str       # 趋势总结
 
 
+# ═══ Mood Analysis (KG-28 三层次情绪分析) ═══
+
+# 三档深度。`depth` 只控制**上下文窗口、输出结构与 token 上限**，不控制人格——
+# 方案 §6.2.2 明写「同一个 AI、同一套数据，不做三个人格」，
+# 所以这里是一个枚举而不是三个端点/三个 system prompt 人设。
+MoodAnalysisDepth = Literal["light", "explore", "deep"]
+MoodSafetyStatus = Literal["ok", "degraded", "crisis"]
+
+
+class MoodAnalysisRequest(BaseModel):
+    """三层次分析请求。
+
+    刻意**没有** `checkin_id`：这个入口分析的是「你今天的签到」，接受任意 id 就得
+    做归属校验 + 换一套证据窗口，而前端永远只传今天。留一个用不上的字段等于
+    给契约加一条没人验证的入参（方案 §6.2.1 的这条字段按此作废，见结案文档勘误）。
+    """
+    depth: MoodAnalysisDepth = Field("light", description="轻松/探索/深潜")
+    focus: Optional[str] = Field(
+        None, max_length=200, description="可选：想让分析聚焦的那句话（≤200 字符）"
+    )
+    request_id: Optional[str] = Field(
+        None, max_length=64, description="客户端幂等键（10 分钟窗口内同键返回同一结果）"
+    )
+
+
+class MoodAnalysisEvidence(BaseModel):
+    """一条证据：逐字命中用户原文的引用。
+
+    `source_type` 两格：`memory`（记忆行）与 `reflection`（成长记录里 record_type=reflection
+    那类，即用户保存下来的反思）。没有 `mood_checkin` 这一格是**数据形状决定的**：
+    `mood_checkins` 表没有备注列（用户签到的那句话其实沉淀成了一条 preference 记忆），
+    所以签到行本身能提供的只有 emoji，而 emoji 不是可以逐字引用的原话。
+    """
+    source_type: Literal["memory", "reflection"]
+    source_id: str
+    excerpt: str = Field(..., description="命中所在的整段用户原文（≤500 字符）")
+    occurred_at: datetime
+
+
+class MoodAnalysisPattern(BaseModel):
+    """一个「可能的模式」。措辞是候选，不是结论。"""
+    description: str
+    confidence: float = Field(..., ge=0, le=1)
+
+
+class MoodAnalysisNextStep(BaseModel):
+    text: str
+    action: Literal["reflect", "checkin", "goal", "none"]
+
+
+class MoodAnalysisQuota(BaseModel):
+    """本池当日用量（含刚刚这一次）。"""
+    used: int
+    limit: int
+
+
+class MoodAnalysisResponse(BaseModel):
+    """三层次分析响应。
+
+    `safety_status="degraded"` 时 `pattern` 恒为 None、`summary` 来自确定性模板——
+    引用没过逐字校验就不给解释，这是这个功能唯一对外承诺的那一条（§6.2.3 第 5 步）。
+    """
+    analysis_id: str
+    depth: MoodAnalysisDepth
+    created_at: datetime
+    summary: str
+    pattern: Optional[MoodAnalysisPattern] = None
+    alternatives: List[str] = Field(default_factory=list)
+    evidence: List[MoodAnalysisEvidence] = Field(default_factory=list)
+    next_step: Optional[MoodAnalysisNextStep] = None
+    safety_status: MoodSafetyStatus
+    # 本次产出对应的 ai_generation_runs 留痕行；被闸门丢弃/调用异常时为 None
+    generation_run_id: Optional[str] = None
+    # 危机出口**不带**这一格（used=0/limit=0 那种占位会被前端渲染成「今天还能分析 0 次」，
+    # 而正在说想伤害自己的人不该先读到一个计数器）。
+    quota: Optional[MoodAnalysisQuota] = None
+
+
 # ═══ Growth Dashboard (P0-F07) ═══
 
 class GrowthMetrics(BaseModel):
@@ -146,6 +224,20 @@ class MilestoneItem(BaseModel):
     achieved_at: Optional[datetime] = None
 
 
+class GrowthFeatures(BaseModel):
+    """服务端开关快照（KG-28 方案 §6.2.5）——前端按它决定入口渲不渲染。
+
+    刻意**只有**这一个键：方案里并列写的 `insight_pipeline_enabled` 在 backend/config.py
+    里没有对应的 settings 字段、也没有任何消费者，加进去等于发一条恒为 false、
+    前端却要永远背着它的分支。开关真落地时再加。
+
+    为什么不单开 `GET /app-config`（方案 §4 的那条）：这是一次 feature-flag 读取，
+    却要在契约登记表上多占一行、多一条端点、多一轮 N8 切流判定。dashboard 本来每次进
+    首页都要拉，搭这趟车不加一次网络往返。
+    """
+    mood_analysis_depths: bool = False
+
+
 class GrowthDashboardResponse(BaseModel):
     """成长仪表盘响应。"""
     date: str
@@ -164,6 +256,9 @@ class GrowthDashboardResponse(BaseModel):
     milestones: List[MilestoneItem] = []   # 里程碑徽章（含未达成占位）
     streak_freeze_count: int = 0           # 剩余 Streak 冻结券
     is_pro: bool = False                   # 洞察分级呈现（§5.20）：免费态模糊 + 解锁角标
+    # 旧缓存兜底：客户端把整个 dashboard 存在 app_settings@dashboard_cache，
+    # 升级后第一次读到的旧对象没有这一格 ⇒ 缺省必须是「功能关」。
+    features: GrowthFeatures = Field(default_factory=GrowthFeatures)
 
 
 class WeeklyInsightResponse(BaseModel):
@@ -185,10 +280,38 @@ class ReflectionCreate(BaseModel):
     """保存 Reflection 请求。"""
     content: str = Field(..., max_length=4000, description="Reflection 内容")
     related_memory_ids: Optional[List[str]] = Field(None, description="关联的记忆 ID 列表（来自草稿）")
+    # KG-26 溯源：从提示库选的提示要能指回具体哪一条、哪个库版本。
+    # 三个字段同时存在才叫「由提示产生」，所以 prompt_id 与 prompt_version 必须成对给出。
+    prompt_id: Optional[str] = Field(None, description="提示库条目 id（rp-001…）")
+    prompt_version: Optional[str] = Field(None, description="提示库版本；与当前库版本不一致返回 40001")
+    source: Literal["manual", "prompt", "draft", "mood_analysis"] = Field(
+        "manual", description="这条反思是怎么产生的"
+    )
+
+    @field_validator("content")
+    @classmethod
+    def _content_not_blank(cls, value: str) -> str:
+        """空白正文不入反思表（KG-26 的空内容闸）。
+
+        只有空格的 `content` 过得了 `max_length`，却会真的写出一条成长记录——
+        它会进 `/growth/timeline` 的计数、进周报的「你写了 N 条」，
+        而用户回看时看到的是空。RequestValidationError 统一包成 40001。
+        """
+        if not value.strip():
+            raise ValueError("反思内容不能为空（只有空格也算空）")
+        return value
 
 
 class ReflectionResponse(BaseModel):
-    """Reflection 响应。"""
+    """Reflection 响应。
+
+    形状与 Go 的 `reflectionPayload` 逐字对齐（N8 批 5 的字节对账闸
+    `test_reflections_falsy_split_exact_type_and_limit_match_go` 钉这一格）。
+    KG-26 的提示溯源**只进写侧**（`ReflectionCreate` 三字段 → `growth_records.metadata_json`），
+    不在这里加格：`reflections` 是「键先行、path 不上刀」的待切流域，Python 单方面加字段
+    等于给下一刀留一个「Go 没有这两格」的静默降级。要在时间线上读出提示，
+    得 Go 侧同批改 `metadata_json` 解析＋重录字节夹具，那是另一票。
+    """
     id: str
     content: str
     related_memory_ids: Optional[List[str]] = None
@@ -598,6 +721,19 @@ class MemoryCardRequest(BaseModel):
     memory_id: str = Field(..., max_length=36)
 
 
+class QuoteCardRequest(BaseModel):
+    """金句卡分享（KG-30）：只接「来源是哪一条」，正文一律服务端取。
+
+    前端**不许**把要分享的句子传上来：那样这个端点就成了一张任意文本 → 品牌 PDF
+    （带水印、二维码、短链）的生成器，而它对外承诺的是「这是你自己写的话」。
+    id 取不到／不是本人／是 AI 抽取的，都在服务端拒（见 `share_service` 的判据）。
+    """
+    source_type: Literal["memory", "reflection"] = Field(
+        ..., description="原话来自记忆还是反思；AI 产出类型不在允许集合内"
+    )
+    source_id: str = Field(..., max_length=36, description="来源记录 id")
+
+
 class JourneyAckRequest(BaseModel):
     """剧本事件已读回执（红点消费；非本人事件按 40402 处理）。"""
     event_id: str = Field(..., max_length=36)
@@ -747,10 +883,15 @@ class AnalyticsEvent(BaseModel):
     - event: 事件名（如 screen_view / checkin / chat_sent）
     - properties: 行为属性（后端按白名单匿名化，剔除内容字段）
     - occurred_at: 真实发生时间（UTC，离线延迟事件用此时间保证口径准确）
+    - event_id: 客户端生成的稳定幂等键（T7-02）。不传＝旧客户端，响应保持
+      `{relayed, dropped}` 的旧形状；任一条带了它，整批走逐事件确认形状。
+      类型刻意是 Any：非法值由服务层按「永久拒绝」逐条回报，而不是让 Pydantic
+      把整批打成 422——两种库（Python/Go）对 422 体逐字对齐的代价远大于收益。
     """
     event: str
     properties: Optional[Dict] = None
     occurred_at: datetime
+    event_id: Any = None
 
 
 class AnalyticsBatchRequest(BaseModel):

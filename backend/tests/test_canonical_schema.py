@@ -70,8 +70,10 @@ W5_QUIET_REVISION = "b2d4f6a8c0e2"  # T5-02 users.quiet_start/quiet_end
 W5_HEAD_REVISION = "c3e5a7b9d1f2"  # T5-03 chat_messages 幂等键 + journey 日序唯一
 T101_EXPORT_REVISION = "d4f6a8b0c2e4"  # T1-01 data_export_jobs
 T102_ERASURE_REVISION = "e5a7b9d1f3a5"  # T1-02 posthog_erasure_retries
-# W4 行动闭环（2026-10-19）：T4-01 给 personal_commitments 加 goal_id/skipped_at（当前 head）
+# W4 行动闭环（2026-10-19）：T4-01 给 personal_commitments 加 goal_id/skipped_at
 T401_COMMITMENT_REVISION = "f6b8d0e2a4c6"
+# W7 可信生产（2026-10-25）：T7-02 分析事件逐事件接收台账（当前 head）
+T702_ANALYTICS_RECEIPTS_REVISION = "b7c9d1e3f5a2"
 
 # N2 的 21 张新表（ai_generation_runs 属 O4 已交付，N2 沿用同一份 DDL，不在此列）
 N2_TABLES = (
@@ -212,9 +214,12 @@ def test_migration_graph_is_single_head_with_n7_on_top():
 
     script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
     heads = script.get_heads()
-    assert heads == [T401_COMMITMENT_REVISION], (
-        f"alembic head = {heads}，T4-01 之后须是单头 {T401_COMMITMENT_REVISION}"
+    assert heads == [T702_ANALYTICS_RECEIPTS_REVISION], (
+        f"alembic head = {heads}，T7-02 之后须是单头 {T702_ANALYTICS_RECEIPTS_REVISION}"
     )
+    assert script.get_revision(T702_ANALYTICS_RECEIPTS_REVISION).down_revision == (
+        T401_COMMITMENT_REVISION), (
+        "T7-02 的接收台账件没挂在 T4-01 的承诺件之上，链形状变了")
     # 新件必须挂在既有 head 之上（不是另起一条链）：退两件分别回到 T4-01 与 T1-01 的导出件。
     assert script.get_revision(T401_COMMITMENT_REVISION).down_revision == T102_ERASURE_REVISION, (
         "T4-01 的承诺件没挂在 T1-02 的重试台账件之上，链形状变了")

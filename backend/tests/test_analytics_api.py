@@ -86,3 +86,50 @@ async def test_endpoint_reports_failure_as_dropped(app, make_user, monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["data"] == {"relayed": 0, "dropped": 2}
     assert len(calls) == 2
+
+
+# ── T7-02：带 event_id 的逐事件确认形状 ─────────────────────────────────────
+
+
+async def test_endpoint_ack_shape_and_key_order(app, make_user, monkeypatch):
+    """event_id 出现即切逐事件形状；键序与 Go 侧 struct 字段一致。"""
+    await make_user("u1", analytics_consent=True)
+    monkeypatch.setattr(analytics_module, "_relay_to_posthog",
+                        lambda *a, **k: True)
+    resp = await _post(app, {
+        "events": [
+            {"event": "checkin", "occurred_at": "2026-08-07T01:30:00Z",
+             "event_id": "e-a"},
+        ]
+    })
+    assert resp.status_code == 200
+    assert resp.text.index('"relayed"') < resp.text.index('"dropped"')
+    assert resp.text.index('"dropped"') < resp.text.index('"accepted"')
+    assert resp.text.index('"accepted"') < resp.text.index('"duplicate"')
+    assert resp.text.index('"duplicate"') < resp.text.index('"retryable"')
+    assert resp.text.index('"retryable"') < resp.text.index('"permanent"')
+    assert resp.text.index('"permanent"') < resp.text.index('"results"')
+    assert resp.json()["data"] == {
+        "relayed": 1,
+        "dropped": 0,
+        "accepted": 1,
+        "duplicate": 0,
+        "retryable": 0,
+        "permanent": 0,
+        "results": [{"event_id": "e-a", "status": "accepted"}],
+    }
+
+
+async def test_endpoint_legacy_shape_is_still_byte_compatible(app, make_user, monkeypatch):
+    """不带 event_id 的旧客户端仍拿到只有两格的 data（N8 夹具冻结的字节）。"""
+    await make_user("u1", analytics_consent=True)
+    monkeypatch.setattr(analytics_module, "_relay_to_posthog",
+                        lambda *a, **k: True)
+    resp = await _post(app, {
+        "events": [
+            {"event": "checkin", "occurred_at": "2026-08-07T01:30:00Z"},
+        ]
+    })
+    assert resp.status_code == 200
+    assert resp.json()["data"] == {"relayed": 1, "dropped": 0}
+    assert '"results"' not in resp.text

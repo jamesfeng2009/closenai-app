@@ -22,6 +22,11 @@
       "high": "Tu ánimo general ha sido muy bueno; mantiene ese ritmo.",
       "mid": "Tu ánimo se mantiene estable. Escúchate de vez en cuando.",
       "low": "Últimamente te has sentido algo baja o bajo. Cuídate mucho; aquí estaré."
+    },
+    "analysis": {
+      "facts": "Hoy te registraste como {label}. Frases con tus propias palabras: {count}.",
+      "degraded_summary": "{facts} Aún no tengo suficientes frases tuyas para señalar un patrón.",
+      "crisis_next_step": "Habla ahora con alguien de tu confianza o llama al número de arriba."
     }
   },
   "levels": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Hace un año, hoy",
       "anniversary_n": "Hace {n} años, hoy",
       "intro": "Algo que escribiste:"
+    },
+    "quote": {
+      "title": "Una frase tuya",
+      "intro": "Algo que escribiste tú:",
+      "source_memory": "De un recuerdo que guardaste · {date}",
+      "source_reflection": "De una reflexión que guardaste · {date}",
+      "own_words": "Tú escribiste esta frase; ninguna IA la escribió por ti.",
+      "draft_note": "Guardada de una reflexión que redactó la IA; puede que no sea del todo tu redacción."
     },
     "review": {
       "empty": "Aún no hay nada que repasar de {year}",

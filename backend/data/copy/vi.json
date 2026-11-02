@@ -22,6 +22,11 @@
       "high": "Tâm trạng chung của bạn rất tốt — giữ nhịp này nhé.",
       "mid": "Tâm trạng khá ổn định. Thỉnh thoảng hãy lắng nghe chính mình.",
       "low": "Dạo này tâm trạng hơi trầm. Chăm sóc bản thân nhiều hơn nhé — mình vẫn ở đây."
+    },
+    "analysis": {
+      "facts": "Hôm nay bạn ghi nhận là {label}. Câu do chính bạn viết: {count}.",
+      "degraded_summary": "{facts} Mình chưa có đủ câu chữ của chính bạn để chỉ ra một khuôn mẫu.",
+      "crisis_next_step": "Hãy nói chuyện với người bạn tin tưởng ngay bây giờ, hoặc gọi số ở trên."
     }
   },
   "levels": {
@@ -408,7 +413,7 @@
   },
   "share": {
     "brand": {
-      "watermark": "ClosenAI — ghi nhớ mọi điều bạn đã kể",
+      "watermark": "ClosenAI — nó ghi nhớ những gì bạn chọn chia sẻ",
       "cta": "Quét để tải xuống"
     },
     "unit": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Một năm trước vào hôm nay",
       "anniversary_n": "{n} năm trước vào hôm nay",
       "intro": "Một điều bạn từng viết:"
+    },
+    "quote": {
+      "title": "Một câu bạn tự viết",
+      "intro": "Một điều chính bạn đã viết:",
+      "source_memory": "Từ một ký ức bạn đã lưu · {date}",
+      "source_reflection": "Từ một bản suy ngẫm bạn đã lưu · {date}",
+      "own_words": "Câu này do chính bạn gõ — không phải AI viết thay bạn.",
+      "draft_note": "Được lưu từ bản suy ngẫm do AI phác thảo — câu chữ có thể không hoàn toàn là của bạn."
     },
     "review": {
       "empty": "Năm {year} chưa có ghi chép nào để nhìn lại",

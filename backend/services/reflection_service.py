@@ -7,8 +7,9 @@ Reflection Card 服务 (P0-F04)。
 配额（PRD §2 成本控制）：草稿生成消耗 1 次 LLM 调用，前置统一免费配额校验，超额 40301。
 新用户（无记忆无签到历史）：不生成草稿，返回对话式引导文案（PRD §4 fallback）。
 """
+import json
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +28,7 @@ from backend.repositories import (
     user_repository,
 )
 from backend.services.quota_service import quota_service
+from backend.services import prompt_library
 from backend.ai.safety import safety_service
 
 logger = logging.getLogger("closenai.reflection")
@@ -109,11 +111,64 @@ class ReflectionService:
         user_id: str,
         content: str,
         related_memory_ids: Optional[List[str]] = None,
+        prompt_id: Optional[str] = None,
+        prompt_version: Optional[str] = None,
+        source: str = "manual",
     ) -> ReflectionResponse:
-        """保存 Reflection 为成长记录（透传关联记忆 ID 列表）。"""
+        """保存 Reflection 为成长记录（透传关联记忆 ID 列表）。
+
+        KG-26 的溯源口径：`prompt_id` + `prompt_version` 写进 `growth_records.metadata_json`，
+        簇名进 `tags`。版本必须等于**当前库版本**，否则 40001——按提示统计「保存率」时，
+        旧版本的草稿文本和新版本的提示不是一回事，静默收下就等于把两个版本的数混在一起。
+        前端拿到 40001 会提示重新选择，用户那一次点击不会白掉。
+        """
         await user_repository.require_user(db, user_id)
+
+        tags: Optional[List[str]] = None
+        # KG-28 补的这格：`source` 此前只在「带 prompt_id」那条分支里落库，
+        # 于是**自己写的**和**采纳 AI 草稿的**在库里是同一形状（metadata_json 都是 NULL）。
+        # 后果不是不好看，是假话：KG-30 的金句卡按 `metadata_json.source` 判
+        # 「这句是不是 AI 起草的」（share_service._reflection_metadata_source），
+        # 判据永远落到 False，于是 AI 起草的句子会被印成「这句话是你自己敲下的」。
+        # 同一个字段还喂 KG-28 的证据池（AI 起草的反思不能当用户原话引用）。
+        metadata: Dict[str, Any] = {"source": source}
+        if prompt_id is not None or prompt_version is not None:
+            if not (prompt_id and prompt_version):
+                raise AppException(
+                    ErrorCode.INVALID_PARAMS, "prompt_id 与 prompt_version 必须成对给出"
+                )
+            entry = prompt_library.get(str(prompt_id))
+            if entry is None:
+                raise AppException(ErrorCode.INVALID_PARAMS, f"提示不存在：{prompt_id}")
+            if prompt_version != prompt_library.version():
+                raise AppException(
+                    ErrorCode.INVALID_PARAMS,
+                    f"提示库版本已更新（当前 {prompt_library.version()}），请重新选择提示",
+                )
+            if source != "prompt":
+                raise AppException(
+                    ErrorCode.INVALID_PARAMS, "带 prompt_id 保存时 source 必须是 prompt"
+                )
+            tags = [entry["cluster"]]
+            metadata.update(
+                {
+                    "source": "prompt",
+                    "prompt_id": entry["id"],
+                    "prompt_version": prompt_version,
+                    "cluster": entry["cluster"],
+                    "function": entry["function"],
+                }
+            )
+        metadata_json = json.dumps(metadata, ensure_ascii=False)
+
         record = await growth_repository.create(
-            db, user_id, "reflection", content, related_memory_ids
+            db,
+            user_id,
+            "reflection",
+            content,
+            related_memory_ids,
+            tags=tags,
+            metadata_json=metadata_json,
         )
         return ReflectionResponse(
             id=record.id,

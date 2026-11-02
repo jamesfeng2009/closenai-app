@@ -126,5 +126,5 @@ def test_purged_tables_are_witnessed_in_doc():
     rows = set(_doc_rows())
     assert "chat_messages" in rows
     assert rows & {key for _, key in PURGE_TARGETS}, "文档与 PURGE_TARGETS 零交集＝对账失效"
-    # 计数证人：台账是全量而不是样例（43 张与代码集合同量级，掉到个位数就是解析器瞎了）
+    # 计数证人：台账是全量而不是样例（44 张与代码集合同量级，掉到个位数就是解析器瞎了）
     assert len(rows) >= len(EXPECTED), f"§二 只解析出 {len(rows)} 行，代码侧有 {len(EXPECTED)} 张"

@@ -57,6 +57,7 @@ from backend.ai.mq.contract import (
     TASK_TYPE_FIELD,
     Command,
     ContractError,
+    normalise_identity_key,
     parse_command,
 )
 from backend.services import ai_observation
@@ -399,22 +400,21 @@ def test_the_wire_shape_mirror_is_publishers_own_code() -> None:
     assert re.search(r"Body:\s*\[\]byte\(msg\.Payload\),", src), "publisher 的体来源变了"
 
 
-@pytest.mark.parametrize("junk", ["user_id", "userId", "UserID", "USER_ID", "userid"])
+@pytest.mark.parametrize(
+    "junk", ["user_id", "userId", "UserID", "USER_ID", "userid", "user-id", "User-Id"]
+)
 def test_body_with_any_user_identity_form_is_permanently_rejected(junk: str) -> None:
     """`TaskRequestBody` 那条「连键名都不写」的约束，对面是**真判**的。
 
-    Python 的归一规则是 `k.lower().replace("_","")=="userid"`（`contract.py:284`），
-    这里逐字复现它去构造变体：Go 侧将来若图省事把候选所属用户写进体里，
-    这条命令不是「被忽略」而是被永久拒绝 ⇒ 链断在第一步。
+    归一规则在 T7-03（2026-10-25）收紧为「小写 + 剥 `_`/`-`」。在此之前这里只覆盖
+    大小写与下划线，连字符写法会被放行——那是本闸自己点名的缺口，现在补上
+    （用例表与 Go 入站面共用 ``contracts/mq_identity_cases.json``）。
 
-    ⚠️ 变体面只列**那条规则真的覆盖的形态**（大小写＋下划线）。测「user-id」这种连字符
-    写法会被拒是**假的**：`replace("_","")` 不动连字符，`"user-id"` 归一后是 `"user-id"`，
-    判不出 userid ⇒ 今天它会被放行（本闸 2026-10-17 实测）。这条已按「发现的缺陷不顺手修」
-    记进工作单的 push/契约桶，不混进 D-G14 的点名范围。
+    构造方式不变：把变体键塞进 Go 真正写出的命令体，走对面的真解码器。
     """
     body = json.loads(go_command_body("Insight", "pattern", "cnd-1"))
     body[junk] = "u-someone-else"
-    assert junk.lower().replace("_", "") == "userid", junk
+    assert normalise_identity_key(junk) == "userid", junk
     with pytest.raises(ContractError) as exc:
         deliver(
             json.dumps(body, sort_keys=True).encode(),

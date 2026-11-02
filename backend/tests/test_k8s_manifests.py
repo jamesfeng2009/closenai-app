@@ -301,6 +301,49 @@ def test_go_bound_contract_operations_are_registered_in_go():
     assert len(go_answered) == 10, f"归 go-api 的契约操作 {len(go_answered)} 个：{go_answered}"
 
 
+def test_mood_analysis_stays_on_py_api():
+    """KG-28 的 `POST /api/v1/mood/analysis` 判给谁——必须是 py-api，且这条判据要能被打红。
+
+    上一条全绿不代表这一条：它是**反向**判据（只有判给 go-api 的操作才去查 Go 注册），
+    新端点今天判给 py-api 时它一眼都不看。单独钉的原因是 mood 是**同域混切**的域：
+    批 5 用两条 Exact 切走 history/trend，而今天清单里**没有**任何指 go-api 的 mood 前缀规则。
+    后续若有人图省事把两条 Exact 并成一条 `Prefix /api/v1/mood`，这条新 path 会在同一次
+    改动里被静默搬进 go-api——线上表现是 POST /mood/analysis 404，而且**与灰度百分比无关**
+    （path 没匹配上进不到 handler，0% 也救不回来）。这正是 KG-26 在 reflections 上踩过的坑。
+
+    反向归零闸配正向证人：不仅断言「没有 mood 的 Prefix 规则」，还断言 mood 域指 go-api
+    的就是且仅是那两条 Exact——两条少一条，本条同样报红，逼着重读而不是继续绿。
+    """
+    entries = _ingress_entries()
+    path = "/api/v1/mood/analysis"
+
+    # 前提：这条操作确实在契约面上（否则下面所有断言都在扫一个不存在的空集）
+    assert path in {p for _, p in _operations()}, "契约里没有 /mood/analysis：先重跑 export_contract.py"
+
+    winner = _route(path, entries)
+    assert winner["path"] == "/api/v1" and winner["pathType"] == "Prefix", (
+        f"{path} 被 {winner['path']}（{winner['pathType']}）接管，不再走 /api/v1 兜底"
+    )
+    assert winner["backend"] == "py-api", f"{path} 落到 {winner['backend']}"
+
+    # 正向证人：mood 域切给 Go 的就是这两条 Exact
+    go_mood = sorted(
+        (e["path"], e["pathType"]) for e in entries
+        if e["backend"] == "go-api" and e["path"].startswith("/api/v1/mood")
+    )
+    assert go_mood == [("/api/v1/mood/history", "Exact"), ("/api/v1/mood/trend", "Exact")], go_mood
+
+    # 且**没有**任何 mood 前缀规则（无论 backend 是谁）——它是上面那条并刀动作的显形点
+    prefixes = [e for e in entries
+                if e["pathType"] == "Prefix" and e["path"].startswith("/api/v1/mood")]
+    assert not prefixes, f"出现了 mood 域的 Prefix 规则，会把未切的端点一起搬走：{prefixes}"
+
+    # 判据的「为什么」也钉住：Go 侧今天答不了这条，所以它只能留在 py-api
+    assert ("POST", path) not in go_ops(), (
+        "Go 已注册 POST /mood/analysis：切流形态变了，本条与 Ingress 的判据要一起重读"
+    )
+
+
 def test_cutover_keys_without_ingress_path_stay_unrouted():
     """「键先行、path 不上刀」这一档可证——它今天是既有清单闸的反向盲区。
 

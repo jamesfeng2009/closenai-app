@@ -25,6 +25,7 @@ from backend.core.time_utils import (
 )
 from backend.models.schemas import (
     GrowthDashboardResponse,
+    GrowthFeatures,
     GrowthMetrics,
     WeeklyInsightResponse,
 )
@@ -191,6 +192,10 @@ class GrowthService:
             milestones=milestones,
             streak_freeze_count=user.streak_freeze_count,
             is_pro=user.tier != FREE_TIER,
+            # KG-28 的开关快照：前端 Home 的三档入口只看这一格，不看别处
+            features=GrowthFeatures(
+                mood_analysis_depths=settings.mood_analysis_depths_enabled
+            ),
         )
 
     def _local_date(self, dt, tz: str | None = None):

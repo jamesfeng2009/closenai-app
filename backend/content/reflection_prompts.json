@@ -1,0 +1,579 @@
+{
+  "version": "2026-11-1",
+  "clusters": [
+    {
+      "key": "reflection_method",
+      "title": { "en": "How to reflect", "zh": "怎么反思" },
+      "hint": {
+        "en": "Start from what happened, not from what you concluded about yourself.",
+        "zh": "从「发生了什么」开始，不从「我是个什么人」开始。"
+      }
+    },
+    {
+      "key": "long_term_understanding",
+      "title": { "en": "Understanding yourself over time", "zh": "长期的自我理解" },
+      "hint": {
+        "en": "Look across your own records instead of answering in the moment.",
+        "zh": "把眼光放到你自己记下的那些条上，而不是只回答此刻。"
+      }
+    },
+    {
+      "key": "action_outcome",
+      "title": { "en": "Action and outcome", "zh": "行动与结果" },
+      "hint": {
+        "en": "One action small enough to try, and what you would count as its result.",
+        "zh": "一个小到能试的行动，以及你打算凭什么说它有结果。"
+      }
+    },
+    {
+      "key": "ai_credibility",
+      "title": { "en": "Checking the AI's insights", "zh": "核对 AI 的洞察" },
+      "hint": {
+        "en": "An insight earns trust by pointing back at your own records.",
+        "zh": "洞察要靠指回你自己的记录来赢得信任。"
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "id": "rp-001",
+      "cluster": "reflection_method",
+      "function": "reflect",
+      "title": { "en": "What the camera would have caught", "zh": "摄像机拍得到的部分" },
+      "question": {
+        "en": "Write one thing that happened today using only what a camera and a microphone could have caught — no adjectives about people.",
+        "zh": "写下今天发生的一件事，只写摄像机和麦克风拍得到的部分——不写对人的形容。"
+      },
+      "why": {
+        "en": "Once the event and your reading of it sit in different sentences, you have something you can check later.",
+        "zh": "事件和你的解读分在两句里，之后才有可对的东西。"
+      },
+      "follow_up": {
+        "en": "Which words in your sentence would the camera have missed?",
+        "zh": "你那句话里，哪些词是摄像机拍不到的？"
+      }
+    },
+    {
+      "id": "rp-002",
+      "cluster": "reflection_method",
+      "function": "mood",
+      "title": { "en": "One feeling, plainly named", "zh": "给一种感觉起朴素的名字" },
+      "question": {
+        "en": "Name today's main feeling in the dullest words you can find, then write the moment it started.",
+        "zh": "用你能找到的最平淡的词说出今天主要的那个感觉，再写下它开始的那一刻。"
+      },
+      "why": {
+        "en": "Grand words finish the story too early; a plain name leaves the moment describable.",
+        "zh": "大词会把故事提前写完，朴素的名称才让那个时刻还能被描述。"
+      },
+      "follow_up": {
+        "en": "Would you still use that word if a stranger read the sentence?",
+        "zh": "如果换个陌生人读这句，你还会用同一个词吗？"
+      }
+    },
+    {
+      "id": "rp-003",
+      "cluster": "reflection_method",
+      "function": "reflect",
+      "title": { "en": "What the feeling made you do", "zh": "那个感觉让你做了什么" },
+      "question": {
+        "en": "Pick one action from today and write what it cost you and what it saved you.",
+        "zh": "挑今天的一个动作，写下它花了你什么、又给你省了什么。"
+      },
+      "why": {
+        "en": "Behaviour is easier to verify than mood, and the cost is where the trade-off shows.",
+        "zh": "行为比情绪好核对，而取舍就写在代价里。"
+      },
+      "follow_up": {
+        "en": "Would you pay that cost again tomorrow?",
+        "zh": "明天你还愿意付一次这个代价吗？"
+      }
+    },
+    {
+      "id": "rp-004",
+      "cluster": "reflection_method",
+      "function": "reflect",
+      "title": { "en": "The thing you skipped", "zh": "你没做的那件" },
+      "question": {
+        "en": "Write the smallest thing you meant to do today and did not, without explaining why.",
+        "zh": "写下今天你本来要做、最小额度上没做的一件事，先不解释原因。"
+      },
+      "why": {
+        "en": "Explanation arrives fast and hides the fact; the unexplained gap is the useful part.",
+        "zh": "原因来得太快会把事实盖住，那个没解释的空档才是有用的部分。"
+      },
+      "follow_up": {
+        "en": "What is the first sentence you would write if it got done?",
+        "zh": "如果它被做完了，你会写下的第一句是什么？"
+      }
+    },
+    {
+      "id": "rp-005",
+      "cluster": "reflection_method",
+      "function": "mood",
+      "title": { "en": "Less bad than expected", "zh": "比预期好一点的地方" },
+      "question": {
+        "en": "Find one moment today that turned out less bad than you had predicted, and write what you had expected.",
+        "zh": "找今天一个比你预想的要好的时刻，并写下你原本预计会怎样。"
+      },
+      "why": {
+        "en": "Predictions you never write down can't be corrected; this one can.",
+        "zh": "没写下来的预计没法修正，这一条可以。"
+      },
+      "follow_up": {
+        "en": "How did you know it would be that bad — what was the evidence?",
+        "zh": "你凭什么判定会那么糟——依据是什么？"
+      }
+    },
+    {
+      "id": "rp-006",
+      "cluster": "reflection_method",
+      "function": "reflect",
+      "title": { "en": "Where your attention actually was", "zh": "注意力当时真在哪" },
+      "question": {
+        "en": "Choose one conversation from today and write what you were paying attention to while it happened.",
+        "zh": "挑今天的一段对话，写下当时你的注意力真正落在什么上面。"
+      },
+      "why": {
+        "en": "What you listened for shapes what you remember, and the record keeps only one version.",
+        "zh": "你在听什么决定了你记住什么，而记录只留一个版本。"
+      },
+      "follow_up": {
+        "en": "What did the other person probably want you to notice?",
+        "zh": "对方大概希望你注意到的是什么？"
+      }
+    },
+    {
+      "id": "rp-007",
+      "cluster": "reflection_method",
+      "function": "reflect",
+      "title": { "en": "The need you didn't say out loud", "zh": "你没说出口的那个需要" },
+      "question": {
+        "en": "Write one thing you wanted today and asked for differently — or not at all.",
+        "zh": "写下今天你其实想要、但用了别的方式绕（或压根没提）的一件事。"
+      },
+      "why": {
+        "en": "Indirect requests are the clearest evidence of what you expect to happen when you ask.",
+        "zh": "绕弯的请求最能说明：你预计开口之后会发生什么。"
+      },
+      "follow_up": {
+        "en": "What did you think would happen if you had said it directly?",
+        "zh": "如果你当时直接说，你猜会发生什么？"
+      }
+    },
+    {
+      "id": "rp-008",
+      "cluster": "reflection_method",
+      "function": "mood",
+      "title": { "en": "The body arrived first", "zh": "身体先到" },
+      "question": {
+        "en": "Write where you felt today's tension physically, and what had happened in the ten minutes before.",
+        "zh": "写下今天那份紧绷在身体哪里，以及之前十分钟发生了什么。"
+      },
+      "why": {
+        "en": "A physical marker plus a preceding event gives you two things to compare next time.",
+        "zh": "一个身体标记加上前因事件，下次就有两样东西可比。"
+      },
+      "follow_up": {
+        "en": "Has this pairing shown up in your earlier check-ins?",
+        "zh": "这个搭配在你以前的签到里出现过吗？"
+      }
+    },
+    {
+      "id": "rp-009",
+      "cluster": "long_term_understanding",
+      "function": "reflect",
+      "title": { "en": "A line you keep drawing", "zh": "你反复写的那句" },
+      "question": {
+        "en": "Look back through your records and copy out a sentence you have basically written more than once.",
+        "zh": "翻你自己的记录，抄出一句你基本上写过不止一次的话。"
+      },
+      "why": {
+        "en": "Repetition is the only long-term signal this app can honestly show you; the wording is the data.",
+        "zh": "重复是这个应用能诚实给你的长期信号，措辞本身就是数据。"
+      },
+      "follow_up": {
+        "en": "In the version you wrote first, what did you want that you don't mention now?",
+        "zh": "在你最早写的那版里，有什么是现在没提的？"
+      }
+    },
+    {
+      "id": "rp-010",
+      "cluster": "long_term_understanding",
+      "function": "mood",
+      "title": { "en": "Same situation, different reaction", "zh": "同样的处境，不同的反应" },
+      "question": {
+        "en": "Find two entries about a similar situation and write how your reaction differed between them.",
+        "zh": "找两条关于相似处境的记录，写下你两次反应哪里不一样。"
+      },
+      "why": {
+        "en": "Difference inside the same kind of event is the evidence that something moved.",
+        "zh": "同类事件内部的差别，才是「有东西变了」的证据。"
+      },
+      "follow_up": {
+        "en": "What was different around you, not inside you?",
+        "zh": "你周围的什么变了，而不是你里面的什么变了？"
+      }
+    },
+    {
+      "id": "rp-011",
+      "cluster": "long_term_understanding",
+      "function": "reflect",
+      "title": { "en": "What you keep proving wrong", "zh": "你一直在推翻的那句" },
+      "question": {
+        "en": "Write a claim about yourself that your own records contradict, and name the record that contradicts it.",
+        "zh": "写一句关于你自己的说法，它被你自己的记录反驳了——指出是哪条记录。"
+      },
+      "why": {
+        "en": "A belief loses force when it has a dated counter-example attached to it.",
+        "zh": "一个信念挂上带日期的反例之后，就没那么有权威了。"
+      },
+      "follow_up": {
+        "en": "Why does that one entry not count, in your view?",
+        "zh": "按你的看法，那条记录为什么不算数？"
+      }
+    },
+    {
+      "id": "rp-012",
+      "cluster": "long_term_understanding",
+      "function": "goal",
+      "title": { "en": "The condition you keep setting", "zh": "你反复设的那个前提" },
+      "question": {
+        "en": "Write your most recent \"I'll be fine once...\" sentence, then list what actually has to happen for it.",
+        "zh": "写下你最近一句「等我……就好了」，再列出它真的需要发生什么。"
+      },
+      "why": {
+        "en": "Conditions deferred forever are the place where your effort keeps going instead of into an action.",
+        "zh": "永远往后推的前提，是你把力气花在等待而不是行动上的地方。"
+      },
+      "follow_up": {
+        "en": "Which part of that condition is inside one of your actions?",
+        "zh": "那个前提里，哪一部分落在你能做的动作内？"
+      }
+    },
+    {
+      "id": "rp-013",
+      "cluster": "long_term_understanding",
+      "function": "reflect",
+      "title": { "en": "What you did without announcing", "zh": "你没说出口但做了的" },
+      "question": {
+        "en": "List three things you did in the last month that nobody was told about.",
+        "zh": "列出最近一个月你做过的、没告诉任何人的三件事。"
+      },
+      "why": {
+        "en": "Unannounced actions are the least decorated evidence of what you actually do when it counts.",
+        "zh": "没宣告的行动是最不加修饰的证据，说明要紧的时候你真的会做什么。"
+      },
+      "follow_up": {
+        "en": "What do those three have in common that you would not say out loud?",
+        "zh": "这三件有什么共同点是你不会说出口的？"
+      }
+    },
+    {
+      "id": "rp-014",
+      "cluster": "long_term_understanding",
+      "function": "reflect",
+      "title": { "en": "Reading your older self", "zh": "读过去的自己" },
+      "question": {
+        "en": "Open an entry from at least three months ago and quote one sentence you would not write today.",
+        "zh": "打开一条至少三个月前的记录，引一句你今天不会那样写的话。"
+      },
+      "why": {
+        "en": "Change you can quote is more solid than change you feel; the quote stays checkable.",
+        "zh": "能引出来的变化比感觉到的变化结实，因为引文还能被查。"
+      },
+      "follow_up": {
+        "en": "What did that version of you get right that you still haven't acted on?",
+        "zh": "那时你看对了什么、而现在还没去做？"
+      }
+    },
+    {
+      "id": "rp-015",
+      "cluster": "long_term_understanding",
+      "function": "mood",
+      "title": { "en": "The good weeks looked like something", "zh": "好的那几周长什么样" },
+      "question": {
+        "en": "Pick your two best weeks in the records and write what was in them that this week lacks.",
+        "zh": "从记录里挑你最好的两周，写下里面有而本周没有的东西。"
+      },
+      "why": {
+        "en": "Concrete conditions from your own history are worth more than generic advice about routine.",
+        "zh": "来自你自己历史的具体条件，比通用的作息建议值钱。"
+      },
+      "follow_up": {
+        "en": "Which of those was ever actually under your control?",
+        "zh": "其中哪些是你真的能控制的？"
+      }
+    },
+    {
+      "id": "rp-016",
+      "cluster": "long_term_understanding",
+      "function": "reflect",
+      "title": { "en": "The pattern you'd rather not name", "zh": "你不太想命名的那个规律" },
+      "question": {
+        "en": "Describe, in neutral words, something that keeps recurring in your entries and that you never comment on.",
+        "zh": "用中性的词描述一件在你记录里反复出现、但你从不评论的事。"
+      },
+      "why": {
+        "en": "What a record consistently omits is as informative as what it repeats.",
+        "zh": "记录里始终被略掉的东西，和被反复写下的东西一样有信息量。"
+      },
+      "follow_up": {
+        "en": "What would change if you wrote it down once, factually?",
+        "zh": "如果你按事实写下一次，什么会改变？"
+      }
+    },
+    {
+      "id": "rp-017",
+      "cluster": "action_outcome",
+      "function": "goal",
+      "title": { "en": "Small enough for tonight", "zh": "小到今晚就能做" },
+      "question": {
+        "en": "Choose one action you can finish before tomorrow morning and write how you'll know it happened.",
+        "zh": "选一个明早之前能做完的动作，写下你凭什么知道它做了。"
+      },
+      "why": {
+        "en": "An action with a checkable trace becomes a record; without one it stays a wish.",
+        "zh": "有可查痕迹的行动会变成记录，没有就还是愿望。"
+      },
+      "follow_up": {
+        "en": "What is the smallest version of that action that still counts?",
+        "zh": "它最小、但仍算数的版本是什么？"
+      }
+    },
+    {
+      "id": "rp-018",
+      "cluster": "action_outcome",
+      "function": "goal",
+      "title": { "en": "What you planned here and actually did", "zh": "在这里计划过、真做了的" },
+      "question": {
+        "en": "Pick one action you wrote here earlier and report what happened, in one or two sentences, without grading yourself.",
+        "zh": "挑一条你之前在这里写下的行动，用一两句话汇报结果，先不给自己打分。"
+      },
+      "why": {
+        "en": "Closing the loop on your own predictions is how this app gets a result instead of a to-do list.",
+        "zh": "把自己写过的预测闭环，是这个应用拿到「结果」而不是「待办清单」的方式。"
+      },
+      "follow_up": {
+        "en": "Was the gap in the action, the plan, or the estimate of difficulty?",
+        "zh": "差距在动作上、计划上，还是难度的估计上？"
+      }
+    },
+    {
+      "id": "rp-019",
+      "cluster": "action_outcome",
+      "function": "goal",
+      "title": { "en": "If it goes well, what differs", "zh": "如果顺利，哪里会不一样" },
+      "question": {
+        "en": "Before acting, write one observable difference that will exist if this goes well.",
+        "zh": "行动之前，先写下一个「顺利的话会出现」的、可观察的差别。"
+      },
+      "why": {
+        "en": "A difference you can observe is also a difference you can be wrong about, which is the useful kind.",
+        "zh": "能观察的差别也意味着可能出错，而这一种才有用。"
+      },
+      "follow_up": {
+        "en": "Who else would notice that difference?",
+        "zh": "还有谁会注意到这个差别？"
+      }
+    },
+    {
+      "id": "rp-020",
+      "cluster": "action_outcome",
+      "function": "goal",
+      "title": { "en": "What has to be true", "zh": "什么得成立" },
+      "question": {
+        "en": "Write the two assumptions your next step depends on, and mark which one you have evidence for.",
+        "zh": "写下你下一步依赖的两个假设，标出哪一个你是有依据的。"
+      },
+      "why": {
+        "en": "Most stalled steps are waiting on an assumption nobody checked.",
+        "zh": "大多数卡住的步骤，是在等一个没人检查过的假设。"
+      },
+      "follow_up": {
+        "en": "What is the cheapest way to test the unchecked one?",
+        "zh": "测那个没依据的假设，最便宜的办法是什么？"
+      }
+    },
+    {
+      "id": "rp-021",
+      "cluster": "action_outcome",
+      "function": "goal",
+      "title": { "en": "What it cost you", "zh": "它花了你什么" },
+      "question": {
+        "en": "Write what your last commitment actually cost — time, money, sleep, or something you gave up.",
+        "zh": "写下你上一个承诺实际的花费——时间、钱、睡眠，还是你放弃的什么。"
+      },
+      "why": {
+        "en": "Costs you never write down make every future plan look free.",
+        "zh": "没记下的代价会让以后每个计划都看起来很便宜。"
+      },
+      "follow_up": {
+        "en": "Would you budget that cost again, knowing the number?",
+        "zh": "知道这个数字以后，你还会这样预算吗？"
+      }
+    },
+    {
+      "id": "rp-022",
+      "cluster": "action_outcome",
+      "function": "reflect",
+      "title": { "en": "Where you stopped early", "zh": "你在哪里提前停了" },
+      "question": {
+        "en": "Describe the moment you quit something that was still working, and what came just before it.",
+        "zh": "描述一次你在事情还有进展时就停下的时刻，以及它前面发生了什么。"
+      },
+      "why": {
+        "en": "Early stops usually have a trigger, and a trigger is something you can see coming next time.",
+        "zh": "提前停下通常有个诱因，而诱因是下次能提前看见的东西。"
+      },
+      "follow_up": {
+        "en": "What would you have needed, in that exact moment, to continue one more step?",
+        "zh": "在那一刻，你需要什么才能再多走一步？"
+      }
+    },
+    {
+      "id": "rp-023",
+      "cluster": "action_outcome",
+      "function": "goal",
+      "title": { "en": "Set the revisit", "zh": "把回访定下来" },
+      "question": {
+        "en": "Write a date, and the one thing you will look for on that date to decide whether this mattered.",
+        "zh": "写一个日期，以及那天你会看的唯一一件事，用它来判断这件事是否重要。"
+      },
+      "why": {
+        "en": "Judgement needs a date attached; otherwise the same question gets re-asked every week without new evidence.",
+        "zh": "判断需要挂一个日期，否则同一个问题每周被重问一次、依据却没变。"
+      },
+      "follow_up": {
+        "en": "What result would make you call this closed and move on?",
+        "zh": "什么样的结果会让你说「这事结了」然后往前走？"
+      }
+    },
+    {
+      "id": "rp-024",
+      "cluster": "ai_credibility",
+      "function": "reflect",
+      "title": { "en": "Which record is that claim from?", "zh": "这句话依据哪条记录" },
+      "question": {
+        "en": "Take one AI insight you were shown, and write which of your entries it could have come from. If none, say none.",
+        "zh": "挑一条你看到的 AI 洞察，写下它可能来自你的哪条记录；没有就写「没有」。"
+      },
+      "why": {
+        "en": "An insight with no source in your own records is decoration, however accurate it sounds.",
+        "zh": "在你的记录里找不到出处的洞察，无论听着多准，都只是装饰。"
+      },
+      "follow_up": {
+        "en": "Does the insight survive if you remove that entry?",
+        "zh": "把那条记录去掉，这条洞察还站得住吗？"
+      }
+    },
+    {
+      "id": "rp-025",
+      "cluster": "ai_credibility",
+      "function": "reflect",
+      "title": { "en": "One counter-example", "zh": "一个反例" },
+      "question": {
+        "en": "For a pattern you were told about, write one entry where it did not hold.",
+        "zh": "对一条告诉你的规律，写出一条它不成立的记录。"
+      },
+      "why": {
+        "en": "Patterns that survive your own counter-examples are worth acting on; the rest are summaries.",
+        "zh": "能扛住你自己反例的规律值得行动，其余的只是摘要。"
+      },
+      "follow_up": {
+        "en": "Does the counter-example weaken the pattern or narrow it?",
+        "zh": "这个反例是削弱了规律，还是缩小了它的范围？"
+      }
+    },
+    {
+      "id": "rp-026",
+      "cluster": "ai_credibility",
+      "function": "reflect",
+      "title": { "en": "Read it as a stranger", "zh": "用陌生人的耳朵读" },
+      "question": {
+        "en": "Rewrite one insight as if a stranger who had never seen your records wrote it, and note what changes.",
+        "zh": "把一条洞察改写成「一个从没看过你记录的陌生人」写出来的样子，记下什么变了。"
+      },
+      "why": {
+        "en": "Generic wording is the tell that the insight wasn't really about you.",
+        "zh": "套话式的措辞是一个信号：那条洞察其实不是在说你。"
+      },
+      "follow_up": {
+        "en": "Which half of the rewritten version is still true?",
+        "zh": "改写后的版本里，哪一半仍然是真的？"
+      }
+    },
+    {
+      "id": "rp-027",
+      "cluster": "ai_credibility",
+      "function": "reflect",
+      "title": { "en": "What would make you reject it", "zh": "什么会让你拒绝它" },
+      "question": {
+        "en": "Write what evidence would make you discard this insight, before deciding whether to keep it.",
+        "zh": "在决定留下这条洞察之前，先写下什么证据会让你丢掉它。"
+      },
+      "why": {
+        "en": "Deciding the rejection criteria first keeps agreement from being just flattery.",
+        "zh": "先写拒绝条件，能让你的「同意」不只是被说中了而已。"
+      },
+      "follow_up": {
+        "en": "If nothing would make you reject it, what is this sentence actually doing for you?",
+        "zh": "如果没什么能让你拒绝它，那这句话在替你干什么？"
+      }
+    },
+    {
+      "id": "rp-028",
+      "cluster": "ai_credibility",
+      "function": "reflect",
+      "title": { "en": "Agree, disagree, or partly", "zh": "同意、不同意，还是一半" },
+      "question": {
+        "en": "Answer one insight with \"agree\", \"disagree\", or \"partly\" and write the sentence that earns your answer.",
+        "zh": "对一条洞察回答「同意／不同意／一半」，并写下支撑你这个回答的那句话。"
+      },
+      "why": {
+        "en": "The record of your disagreement is what makes the matching insights mean something later.",
+        "zh": "你不同意的那部分被记下来，以后那些说中了的洞察才有分量。"
+      },
+      "follow_up": {
+        "en": "Which word — agree, disagree, partly — leads to a next action here?",
+        "zh": "同意、不同意、一半——哪个答案在这里能接出一个行动？"
+      }
+    },
+    {
+      "id": "rp-029",
+      "cluster": "ai_credibility",
+      "function": "reflect",
+      "title": { "en": "True but useless", "zh": "对，但没用" },
+      "question": {
+        "en": "Find one insight you believe and that you have never acted on; write why acting on it would be hard.",
+        "zh": "找一条你相信、却从没照着做过的洞察，写下照着做难在哪。"
+      },
+      "why": {
+        "en": "Agreement is cheap. The obstacle after agreement is where your actual constraint lives.",
+        "zh": "点头很便宜。点头之后的那个障碍，才是你真实约束在的地方。"
+      },
+      "follow_up": {
+        "en": "What is the smallest action that would test it despite the obstacle?",
+        "zh": "绕过那个障碍，能试的最小行动是什么？"
+      }
+    },
+    {
+      "id": "rp-030",
+      "cluster": "ai_credibility",
+      "function": "reflect",
+      "title": { "en": "Turn the label back into an event", "zh": "把标签还原成一件事" },
+      "question": {
+        "en": "Take one word you were described with (avoidant, sensitive, driven...) and write the specific event that earned it.",
+        "zh": "挑一个用来描述你的词（回避、敏感、有干劲……），写下它具体是从哪件事来的。"
+      },
+      "why": {
+        "en": "A label without an event can't be argued with, updated, or deleted — and it shouldn't be trusted.",
+        "zh": "没有事件的标签没法争、没法更新、也没法删——它也不值得被相信。"
+      },
+      "follow_up": {
+        "en": "If that event had gone differently, would the label still apply?",
+        "zh": "如果那件事换个走向，这个标签还成立吗？"
+      }
+    }
+  ]
+}

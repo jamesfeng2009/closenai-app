@@ -161,6 +161,40 @@ class MemoryRepository:
         )
         return list(result.scalars().all())
 
+    async def list_own_words(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        start: datetime,
+        end: datetime,
+        limit: int = 20,
+    ) -> List[Memory]:
+        """窗口内**用户自己写下**的记忆（KG-28 三层次分析的证据池）。
+
+        三个过滤条件各挡一类伪证据，缺一个「这是你的原话」这句话就站不住：
+        - `status='current'` + 未软删：被取代的旧信念不是用户现在的说法；
+        - `source='self'`：他人转述（others）与假设句（hypothetical）不是用户本人的话；
+        - `generation_run_id IS NULL`：AI 抽取生成的记忆（O4 的回链）——
+          拿 AI 写的句子去「证明」一个关于用户的模式，是自我引用。
+        `id` 次级键与 `list`/`list_between` 同口径：PG 的 `now()` 是事务级时间戳，
+        同事务写入的多行 created_at 逐位相同，少了它 LIMIT 落在谁身上由查询计划决定。
+        """
+        result = await db.execute(
+            select(Memory)
+            .where(
+                Memory.user_id == user_id,
+                Memory.created_at >= start,
+                Memory.created_at < end,
+                Memory.deleted == False,  # noqa: E712
+                Memory.status == "current",
+                Memory.source == "self",
+                Memory.generation_run_id.is_(None),
+            )
+            .order_by(Memory.created_at.desc(), Memory.id.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def count_between(
         self, db: AsyncSession, user_id: str, start: datetime, end: datetime
     ) -> int:

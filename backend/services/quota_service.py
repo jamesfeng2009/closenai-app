@@ -18,13 +18,22 @@ tier 语义：free 受上述每日上限约束；pro / pro_plus 走高限（≈�
 - is_daily_quota_exceeded 保留为「任一池耗尽」的合集判定，仅用于兼容历史
   调用方；新代码应按入口类型选择 is_chat_quota_exceeded /
   is_proactive_quota_exceeded。
+
+第三个池（KG-28，方案 §6.2.4）：三层次情绪分析走 is_mood_analysis_quota_exceeded，
+事实源不是消息表而是 ai_generation_runs 的 purpose——它既不吃统一池也不吃对话轮数。
+理由写在 config 的 free_daily_mood_analyses 注释里，一句话版：深潜一次烧掉的 token
+相当于好几条主动消息，混在一个池里会让「今天还能不能收到主动消息」变成分析的副产品。
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.core.time_utils import local_day_start_utc
 from backend.models.user import User
-from backend.repositories import chat_repository, mood_repository
+from backend.repositories import (
+    chat_repository,
+    generation_run_repository,
+    mood_repository,
+)
 
 FREE_TIER = "free"
 
@@ -37,6 +46,22 @@ _CHAT_ROUND_LIMITS = {
     "pro": "pro_daily_chat_rounds",
     "pro_plus": "pro_plus_daily_chat_rounds",
 }
+_MOOD_ANALYSIS_LIMITS = {
+    "pro": "pro_daily_mood_analyses",
+    "pro_plus": "pro_plus_daily_mood_analyses",
+}
+
+# KG-28 三档分析在 ai_generation_runs 里的 purpose（必须与
+# backend/services/mood_analysis_service.py 传给 llm.complete 的 purpose 逐字相同；
+# 两边不一致的后果是配额永远数不到，免费档变成不限）。
+MOOD_ANALYSIS_PURPOSES = (
+    "services.mood_analysis.light",
+    "services.mood_analysis.explore",
+    "services.mood_analysis.deep",
+)
+# error 那次用户没拿到任何产出，不扣额度；fallback（产出被闸门丢弃后降级）
+# 仍然是一次真实消耗，扣。
+_MOOD_ANALYSIS_COUNTED_STATUSES = ("ok", "fallback")
 
 
 class QuotaService:
@@ -93,6 +118,43 @@ class QuotaService:
         if await self.chat_rounds_today(db, user) >= self._chat_round_limit(user.tier):
             return True
         return await self.is_proactive_quota_exceeded(db, user)
+
+    def _mood_analysis_limit(self, tier: str) -> int:
+        """KG-28 三层次分析每日上限。"""
+        key = _MOOD_ANALYSIS_LIMITS.get(tier)
+        return getattr(settings, key) if key else settings.free_daily_mood_analyses
+
+    async def mood_analysis_used_today(self, db: AsyncSession, user: User) -> int:
+        """KG-28 分析已用量：用户本地今日在 ai_generation_runs 里的分析调用条数。
+
+        计数窗口用 `local_day_start_utc(user.timezone)`，与另外两个池同一口径——
+        三个池若各按不同日历切法统计，主页就会出现「还有额度」和「已用完」同时成立。
+        """
+        day_start = local_day_start_utc(user.timezone)
+        return await generation_run_repository.count_since(
+            db,
+            user.id,
+            day_start,
+            MOOD_ANALYSIS_PURPOSES,
+            statuses=_MOOD_ANALYSIS_COUNTED_STATUSES,
+        )
+
+    async def is_mood_analysis_quota_exceeded(self, db: AsyncSession, user: User) -> bool:
+        """KG-28 分析入口配额判定（独立池，与统一池/对话轮数互不影响）。"""
+        return await self.mood_analysis_used_today(db, user) >= self._mood_analysis_limit(
+            user.tier
+        )
+
+    async def mood_analysis_quota(self, db: AsyncSession, user: User) -> dict:
+        """给响应的 quota 块：{used, limit}。
+
+        由**调用后**读取才有意义（本次调用的留痕行已由 record_run 独立提交），
+        所以响应里的 used 含这一次——用户看到的「今天用了 1 次」是他刚点的那次。
+        """
+        return {
+            "used": await self.mood_analysis_used_today(db, user),
+            "limit": self._mood_analysis_limit(user.tier),
+        }
 
 
 quota_service = QuotaService()

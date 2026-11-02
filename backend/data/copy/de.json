@@ -22,6 +22,11 @@
       "high": "Deine Stimmung war insgesamt richtig gut — behalte diesen Rhythmus bei.",
       "mid": "Deine Stimmung ist recht stabil. Höre gelegentlich in dich hinein.",
       "low": "In letzter Zeit war deine Stimmung etwas gedrückt. Sei besonders gut zu dir — ich bin da."
+    },
+    "analysis": {
+      "facts": "Heute hast du {label} eingetragen. Sätze in deinen eigenen Worten: {count}.",
+      "degraded_summary": "{facts} Mir fehlen noch zu viele eigene Worte von dir, um ein Muster zu benennen.",
+      "crisis_next_step": "Sprich jetzt mit jemandem, dem du vertraust, oder ruf die Nummer oben an."
     }
   },
   "levels": {
@@ -408,7 +413,7 @@
   },
   "share": {
     "brand": {
-      "watermark": "ClosenAI — es erinnert sich an alles, was du erzählt hast",
+      "watermark": "ClosenAI — es erinnert sich an das, was du ihm anvertraust",
       "cta": "Zum Herunterladen scannen"
     },
     "unit": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Vor einem Jahr heute",
       "anniversary_n": "Vor {n} Jahren heute",
       "intro": "Etwas, das du geschrieben hast:"
+    },
+    "quote": {
+      "title": "Ein Satz von dir",
+      "intro": "Etwas, das du selbst geschrieben hast:",
+      "source_memory": "Aus einer Erinnerung, die du gespeichert hast · {date}",
+      "source_reflection": "Aus einer Reflexion, die du gespeichert hast · {date}",
+      "own_words": "Diesen Satz hast du selbst getippt — keine KI hat ihn für dich geschrieben.",
+      "draft_note": "Gespeichert aus einer von der KI entworfenen Reflexion — der Wortlaut stammt vielleicht nicht ganz von dir."
     },
     "review": {
       "empty": "Für {year} gibt es noch nichts zurückzublicken",

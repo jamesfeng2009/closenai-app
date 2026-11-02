@@ -23,6 +23,11 @@
       "high": "Your overall mood has been great — keep the rhythm going.",
       "mid": "Your mood is mostly steady. Check in with yourself now and then.",
       "low": "Things have felt a bit low lately. Take extra care of yourself — I'm here."
+    },
+    "analysis": {
+      "facts": "Today you checked in as {label}. Lines in your own words: {count}.",
+      "degraded_summary": "{facts} I don't have enough of your own words to name a pattern yet.",
+      "crisis_next_step": "Please talk to someone you trust now, or call the number above."
     }
   },
   "levels": {
@@ -453,6 +458,14 @@
       "anniversary_one": "A Year Ago Today",
       "anniversary_n": "{n} Years Ago Today",
       "intro": "Something you wrote:"
+    },
+    "quote": {
+      "title": "A Line You Wrote",
+      "intro": "Something you wrote yourself:",
+      "source_memory": "From a memory you saved · {date}",
+      "source_reflection": "From a reflection you saved · {date}",
+      "own_words": "You typed this sentence yourself — no AI wrote it for you.",
+      "draft_note": "Saved from a reflection the AI drafted — the wording may not be entirely yours."
     },
     "review": {
       "empty": "Nothing to review yet for {year}",

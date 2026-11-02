@@ -5,6 +5,7 @@
     GET  /api/v1/share/personality-card    — 性格名片导出（JSON）
     POST /api/v1/share/first-read-card     — 初读卡分享（PDF，P1-B01）
     POST /api/v1/share/memory-card         — 记忆卡分享（PDF，M4）
+    POST /api/v1/share/quote-card          — 金句卡分享（PDF，KG-30：只出用户自己的原话）
     GET  /api/v1/share/on-this-day         — 记忆考古候选（§10.1 ①「N 年前的今天」）
     GET  /api/v1/share/year-in-review      — 年度报告卡（JSON，自然年统计 + 深链）
     GET  /api/v1/share/year-in-review/pdf  — 年度报告卡（PDF）
@@ -28,7 +29,11 @@ from backend.core.errors import AppException, ErrorCode
 from backend.core.rate_limit import FixedWindowLimiter, client_ip
 from backend.core.response import success
 from backend.database import get_db
-from backend.models.schemas import LifeArchiveExportRequest, MemoryCardRequest
+from backend.models.schemas import (
+    LifeArchiveExportRequest,
+    MemoryCardRequest,
+    QuoteCardRequest,
+)
 from backend.services.share_service import ShareService, share_service
 
 router = APIRouter(route_class=CommitBeforeResponseRoute)
@@ -104,6 +109,26 @@ async def memory_card_pdf(
         iter([pdf]),
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="closenai_memory_card.pdf"'},
+    )
+
+
+@router.post("/share/quote-card")
+async def quote_card_pdf(
+    req: QuoteCardRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+    service: ShareService = Depends(get_share_service),
+):
+    """金句卡分享 PDF（KG-30）：某条**自己写下的原话** + 日期 + 品牌与深链。
+
+    请求体只有「来源是哪一条」，句子一律服务端从库取——端点不该变成任意文本
+    生成带本人推荐码 PDF 的机器。归属不符 40403／40402，AI 抽取的记忆 40405。
+    """
+    pdf = await service.export_quote_card_pdf(db, user_id, req.source_type, req.source_id)
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="closenai_quote_card.pdf"'},
     )
 
 

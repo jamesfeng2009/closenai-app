@@ -8,6 +8,7 @@
 禁止：在此层中编写任何业务逻辑或数据访问逻辑。
 """
 from backend.database import Base
+from backend.models.analytics import AnalyticsEventReceipt
 from backend.models.auth import RefreshToken
 # N2 canonical 权威表：注册进 Base.metadata 即可（purge 清单与闸门按元数据逐表对账），
 # Python 侧不读写，口径见 backend/models/canonical.py 模块 docstring。
@@ -57,6 +58,7 @@ from backend.models.user import User
 
 __all__ = [
     "Base",
+    "AnalyticsEventReceipt",
     "ChatMessage",
     "GrowthRecord",
     "JourneyEvent",

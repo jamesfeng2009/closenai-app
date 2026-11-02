@@ -38,6 +38,7 @@ from backend.models.canonical import (
     UserFeedback,
 )
 from backend.models.chat import ChatMessage
+from backend.models.analytics import AnalyticsEventReceipt
 from backend.models.consent import UserConsent
 from backend.models.erasure import PostHogErasureRetry
 from backend.models.generation_run import AiGenerationRun
@@ -105,6 +106,8 @@ PURGE_TARGETS = (
     # 表由 PURGE_TARGETS 删行，盘上的 zip 由下面的 purge_user 先取路径再删——
     # 反过来说，导出靶正是从这份清单派生的，所以新表登记进这里就自动进导出。
     (DataExportJob, "data_export_jobs"),
+    # T7-02 逐事件接收台账：user_id 是用户数据（他送过哪些事件 id），注销一起删。
+    (AnalyticsEventReceipt, "analytics_event_receipts"),
     # ── N2 canonical 权威表（Go 是唯一写入口，Python 只负责注销清理）──
     # 无外键、无级联（D-5），所以关联表必须自己出现在清单里，否则永远删不净。
     (FactEvidence, "fact_evidence"),

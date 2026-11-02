@@ -23,6 +23,7 @@ import backend.models  # noqa: F401  注册全部表到 Base.metadata
 from backend.core import generation_run
 from backend.ai import llm as llm_mod
 from backend.ai.llm import llm
+from backend.config import settings
 from backend.core.logging import set_trace_id, set_user_id
 from backend.database import Base
 from backend.models.generation_run import AiGenerationRun
@@ -113,6 +114,9 @@ def fake_llm(monkeypatch, run_store):
     monkeypatch.setattr(llm, "embed", llm_mod.embed)
     client = FakeClient()
     monkeypatch.setattr(llm_mod, "_client", client)
+    # chat/embedding 共用这个假客户端：清空 embedding_provider，
+    # 否则 .env 里的分离配置会让 embed 绕过假客户端去连真实端点（出网失败）。
+    monkeypatch.setattr(settings, "embedding_provider", "")
     set_user_id("u-run")
     set_trace_id("t-run")
     return client

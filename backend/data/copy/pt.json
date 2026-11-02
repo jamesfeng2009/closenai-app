@@ -22,6 +22,11 @@
       "high": "Seu humor geral esteve ótimo — mantenha esse ritmo.",
       "mid": "Seu humor está bem estável. De vez em quando, olhe para dentro.",
       "low": "Ultimamente o humor está um pouco para baixo. Cuide-se bem — estou aqui."
+    },
+    "analysis": {
+      "facts": "Hoje você registrou {label}. Frases com as suas palavras: {count}.",
+      "degraded_summary": "{facts} Ainda faltam palavras suas para eu apontar um padrão.",
+      "crisis_next_step": "Fale agora com alguém de sua confiança ou ligue para o número acima."
     }
   },
   "levels": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Há um ano, hoje",
       "anniversary_n": "Há {n} anos, hoje",
       "intro": "Algo que você escreveu:"
+    },
+    "quote": {
+      "title": "Uma frase sua",
+      "intro": "Algo que você mesmo escreveu:",
+      "source_memory": "De uma lembrança que você salvou · {date}",
+      "source_reflection": "De uma reflexão que você salvou · {date}",
+      "own_words": "Você digitou esta frase — nenhuma IA a escreveu por você.",
+      "draft_note": "Salva de uma reflexão que a IA rascunhou; a redação pode não ser totalmente sua."
     },
     "review": {
       "empty": "Ainda não há nada para relembrar de {year}",

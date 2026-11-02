@@ -3,8 +3,11 @@ Reflection Card 路由 (P0-F04)。
 
 端点：
     POST /api/v1/reflections/generate  — 生成今日 Reflection 草稿
-    POST /api/v1/reflections           — 保存 Reflection
+    POST /api/v1/reflections           — 保存 Reflection（可带提示库溯源）
     GET  /api/v1/reflections           — 列出最近 Reflection
+
+提示库本体在 `backend/routers/reflection_prompts.py`（`GET /api/v1/reflection-prompts`）：
+它不吃 DB、也不该跟着 `/api/v1/reflections` 这段前缀被切给 Go，所以不放本文件。
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,9 +56,22 @@ async def save_reflection(
     user_id: str = Depends(get_current_user),
     service: ReflectionService = Depends(get_reflection_service),
 ):
-    """保存 Reflection 为成长记录（可携带草稿关联的 related_memory_ids）。"""
+    """保存 Reflection 为成长记录。
+
+    可携带草稿关联的 `related_memory_ids`，以及提示库溯源
+    （`prompt_id` + `prompt_version` + `source="prompt"`，KG-26）；
+    溯源字段非法（提示不存在／库版本过期／成对缺失）返回 40001。
+    """
     return success(
-        await service.save(db, user_id, request.content, request.related_memory_ids)
+        await service.save(
+            db,
+            user_id,
+            request.content,
+            request.related_memory_ids,
+            prompt_id=request.prompt_id,
+            prompt_version=request.prompt_version,
+            source=request.source,
+        )
     )
 
 

@@ -85,7 +85,7 @@ def test_openapi_baseline_is_current():
 
 
 def test_register_count_equals_decorator_count():
-    """N0 验收：清单条数 == 115 个 router 端点 + app 级路由。
+    """N0 验收：清单条数 == 117 个 router 端点 + app 级路由。
 
     97 → 99：W5 T5-01（2026-10-18）新增 GET/POST /user/consents 两条合规台账端点。
     99 → 104：T1-01（2026-10-18）新增 /user/export 申请·列表·状态·下载四条，
@@ -100,12 +100,22 @@ def test_register_count_equals_decorator_count():
     随 T4-02 一并接」），Go 面建成后同批接线，不是新加的业务面。
     114 → 115：T4-03（2026-10-19）新增 POST /actions/{action_id}/outcomes 一条纯转发端点
     （行动结果面，Go 的 /internal/v3/actions/{id}/outcomes）。
+    115 → 116：KG-26（2026-11-01）新增 GET /reflection-prompts 一条静态内容端点
+    （反思提示库；Python 本地读 `backend/content/reflection_prompts.json`，不转 Go、
+    不耗 LLM 配额，因此不进 N8 切流名单）。
+    116 → 117：KG-30（2026-11-01）新增 POST /share/quote-card 一条金句卡 PDF
+    （只接 source_type/source_id，正文一律服务端从库取；`share` 不是 N8 切流域，
+    所以不必登记 Go 声明表——同 §6.3 的判据）。
+    117 → 118：KG-28（2026-11-02）新增 POST /mood/analysis 一条三层次情绪分析。
+    mood 域切给 Go 的是两条 **Exact** path（/mood/history、/mood/trend），新路径
+    不在 Exact 名单里 ⇒ 自动落回 `Prefix /api/v1 → py-api`，所以这条既不进切流名单
+    也不登记 Go 声明表；Ingress 侧由 `test_mood_analysis_stays_on_py_api` 钉住。
     """
     router_ops, app_ops = count_decorators()
-    assert router_ops == 115, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
+    assert router_ops == 118, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
     assert app_ops == 1, f"app 级路由应为 1（GET /health），实得 {app_ops}"
     rows = table_rows("## 五、端点登记表")
-    assert len(rows) == router_ops + app_ops == 116
+    assert len(rows) == router_ops + app_ops == 119
 
 
 def test_no_unregistered_or_stale_endpoint():
@@ -145,7 +155,8 @@ def test_sse_contract_is_exactly_one_and_events_registered():
 def test_pdf_endpoints_match_source_count():
     """PDF 端点条数与源码里 application/pdf 的 handler 数一致（按装饰器去重）。"""
     rows = [r for r in table_rows("## 五、端点登记表") if r[3] == "PDF 二进制"]
-    assert len(rows) == 5, f"PDF 端点数变化：{len(rows)}"
+    # 5 → 6：KG-30（2026-11-01）的 POST /share/quote-card
+    assert len(rows) == 6, f"PDF 端点数变化：{len(rows)}"
     share_src = (ROOT / "backend" / "routers" / "share.py").read_text()
     assert share_src.count('media_type="application/pdf"') == len(rows)
     pdf_section = (CONTRACTS / "endpoints.md").read_text().split("## 七、二进制")[1]

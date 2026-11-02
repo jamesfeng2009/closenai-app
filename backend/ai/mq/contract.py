@@ -250,6 +250,34 @@ def _as_str(raw: Any) -> str:
     return str(raw)
 
 
+# ── 体内身份键（T7-03）─────────────────────────────────────────────────────────
+#
+# 归属只认 header（15:49 把 user_id 归 Envelope）。体内出现任何「读起来像 user id」
+# 的顶层键都必须**拒绝**而不是静默忽略——否则「按 A 用户跑、产出记到 B 头上」就有了
+# 第二处入口。归一规则由 ``contracts/mq_identity_cases.json`` 跨语言钉住：
+# 小写并剥掉 ``_`` 与 ``-`` 后等于 ``userid``。
+#
+# ⚠️ 2026-10-25 之前这里只剥下划线，``user-id`` 这种连字符形态永远进不了拒绝面
+# （工作单与 ``docs/closenai-review-competitive-seo-geo-2026-10-25.md`` 都登记过）。
+# 只扫**顶层键**是刻意的：归属是 envelope 级事实，嵌套键属于各域自己的载荷。
+IDENTITY_KEY_CANONICAL = "userid"
+_IDENTITY_KEY_SEPARATORS = str.maketrans("", "", "_-")
+
+
+def normalise_identity_key(key: Any) -> str:
+    """把体内键名归一到「读起来是不是 user id」这一层判据上。"""
+    return _as_str(key).strip().lower().translate(_IDENTITY_KEY_SEPARATORS)
+
+
+def is_identity_key(key: Any) -> bool:
+    return normalise_identity_key(key) == IDENTITY_KEY_CANONICAL
+
+
+def foreign_identity_keys(body: Mapping[str, Any]) -> list[str]:
+    """体内顶层出现过的身份键（排序后返回，便于日志与断言逐字比对）。"""
+    return sorted(k for k in body if isinstance(k, str) and is_identity_key(k))
+
+
 def _normalise_schema_version(raw: Any, *, where: str) -> str:
     """把 ``1``／``"1"``／``b"1"`` 归一成 ``"1"``；不认识就抛永久拒绝。
 
@@ -375,12 +403,14 @@ def parse_command(
     # Candidate/TaskRequested 两侧都把 user_id 标了 reserved），而候选的属性面由
     # encode_candidate 从**命令**继承。静默吃下一个不同的体内 id ＝「按 A 用户跑、
     # 产出记到 B 头上」的跨用户通路（变异靶 M5），所以两处同时出现就当冲突拒掉。
-    foreign = {k: v for k, v in parsed.items() if k.lower().replace("_", "") == "userid"}
+    # 变体面（user_id／userId／user-id／大小写）统一走 normalise_identity_key，
+    # 由 ``contracts/mq_identity_cases.json`` 与 Go 入站面逐条对照（T7-03）。
+    foreign = foreign_identity_keys(parsed)
     if foreign:
         raise ContractError(
             REASON_FOREIGN_USER_ID,
-            f"{routing_key} 的 body 里出现了 {sorted(foreign)}；归属只认 header "
-            f"{HEADER_USER_ID}，两处不一致时宁可拒",
+            f"{routing_key} 的 body 里出现了身份键 {foreign}；归属只认 header "
+            f"{HEADER_USER_ID}，任何体内身份键（含连字符／大小写变体）都拒绝",
         )
 
     # T2-01：来源指针的判据排在**体内身份之后**——一条同时写了别人 user_id 和 sourceRef 的

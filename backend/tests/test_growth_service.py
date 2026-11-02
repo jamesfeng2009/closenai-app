@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from backend.config import settings
 from backend.core.errors import AppException
 from backend.repositories import growth_repository
 from backend.services.growth_service import growth_service, tag_record_content
@@ -54,6 +55,21 @@ async def test_dashboard_is_pro_flag(db, make_user, time_travel):
 
     await make_user("u1", timezone="UTC", tier="pro")
     assert (await growth_service.get_dashboard(db, "u1")).is_pro is True
+
+
+async def test_dashboard_features_mirror_the_mood_analysis_flag(db, make_user, monkeypatch):
+    """`features.mood_analysis_depths` 是前端三档入口的唯一判据，必须跟着 settings 走。
+
+    两侧不同源：另一侧是字面量。若 growth_service 里把它写死成 False（或忘了读），
+    第二个断言当场报红；若写死成 True，第一个断言报红。前端只看这一格决定渲不渲染，
+    所以这一格漏读的后果是「开关关着但入口还在」——点了才 40402，那正是 §6.2.5 要避免的。
+    """
+    await make_user("u1", timezone="UTC")
+    assert settings.mood_analysis_depths_enabled is False  # 默认态
+    assert (await growth_service.get_dashboard(db, "u1")).features.mood_analysis_depths is False
+
+    monkeypatch.setattr(settings, "mood_analysis_depths_enabled", True)
+    assert (await growth_service.get_dashboard(db, "u1")).features.mood_analysis_depths is True
 
 
 def test_tag_record_content_keyword_rules():

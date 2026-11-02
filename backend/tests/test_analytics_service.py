@@ -1,19 +1,33 @@
 """analytics_service：consent 校验 + 匿名化 + PostHog 中继。"""
+import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+from backend.models.analytics import AnalyticsEventReceipt
 from backend.models.schemas import AnalyticsEvent
 from backend.services import analytics_service as analytics_module
 from backend.services.analytics_service import analytics_service
 
+# 三侧（Python / Go / React Native）共读同一份逐事件确认用例。
+ACK_CASES_PATH = (
+    Path(__file__).resolve().parents[2] / "contracts" / "analytics_ack_cases.json"
+)
 
-def _ev(event="screen_view", properties=None, occurred_at=None):
+
+def _ack_cases():
+    doc = json.loads(ACK_CASES_PATH.read_text(encoding="utf-8"))
+    return doc["cases"]
+
+
+def _ev(event="screen_view", properties=None, occurred_at=None, event_id=None):
     return AnalyticsEvent(
         event=event,
         properties=properties,
         occurred_at=occurred_at or datetime(2026, 8, 7, 1, 30, tzinfo=timezone.utc),
+        event_id=event_id,
     )
 
 
@@ -249,3 +263,215 @@ def test_relay_returns_true_when_capture_succeeds(monkeypatch):
          "timestamp": ts}
     ]
     assert fake.project_api_key == "phk_test"
+
+
+# ── T7-02：逐事件确认 + event_id 幂等 ─────────────────────────────────────────
+
+
+def _statuses(result):
+    return [(item["event_id"], item["status"]) for item in result["results"]]
+
+
+async def test_ack_mode_mixed_statuses_and_counts(db, make_user, monkeypatch):
+    """同一批 accepted / retryable 混合：返回逐条结果与分项计数，且总数守恒。"""
+    await make_user("u1", analytics_consent=True)
+    seen = _result_stub(monkeypatch, [True, False])
+    result = await analytics_service.relay_batch(
+        db,
+        "u1",
+        [_ev("a", event_id="e-a"), _ev("b", event_id="e-b")],
+    )
+    assert seen == ["a", "b"]
+    assert _statuses(result) == [
+        ("e-a", "accepted"),
+        ("e-b", "retryable"),
+    ]
+    assert result["relayed"] == result["accepted"] == 1
+    assert result["retryable"] == 1 and result["permanent"] == 0
+    assert result["dropped"] == 1
+    assert result["accepted"] + result["duplicate"] + result["dropped"] == 2
+    # 失败那条的认领行必须退掉，否则下一次重试永远撞 in_flight。
+    from backend.models.analytics import AnalyticsEventReceipt
+    from sqlalchemy import select
+    rows = (await db.execute(select(AnalyticsEventReceipt))).scalars().all()
+    assert [(r.event_id, r.status) for r in rows] == [("e-a", "accepted")]
+
+
+async def test_ack_mode_duplicate_does_not_relay_twice(db, make_user, monkeypatch):
+    """重复提交同一个 event_id：第二次落 duplicate，分析平台只收到一次。"""
+    await make_user("u1", analytics_consent=True)
+    calls = _capture_stub(monkeypatch)
+    first = await analytics_service.relay_batch(
+        db, "u1", [_ev("a", event_id="e-a")]
+    )
+    second = await analytics_service.relay_batch(
+        db, "u1", [_ev("a", event_id="e-a")]
+    )
+    assert first["results"] == [{"event_id": "e-a", "status": "accepted"}]
+    assert second["results"] == [{"event_id": "e-a", "status": "duplicate"}]
+    assert first["accepted"] == 1 and second["duplicate"] == 1
+    assert len(calls) == 1
+
+
+async def test_ack_mode_retry_after_relay_failure_is_not_a_duplicate(db, make_user, monkeypatch):
+    """可重试失败留下的不是「已接受」：下一次必须真的重发，而不是被幂等键挡成 duplicate。"""
+    await make_user("u1", analytics_consent=True)
+    seen = _result_stub(monkeypatch, [False, True])
+    first = await analytics_service.relay_batch(
+        db, "u1", [_ev("a", event_id="e-a")]
+    )
+    second = await analytics_service.relay_batch(
+        db, "u1", [_ev("a", event_id="e-a")]
+    )
+    assert first["results"][0]["status"] == "retryable"
+    assert first["results"][0]["reason"] == "relay_failed"
+    assert second["results"][0]["status"] == "accepted"
+    assert seen == ["a", "a"]
+
+
+async def test_ack_mode_duplicate_within_one_batch_relays_once(db, make_user, monkeypatch):
+    """同一批里同一 event_id 出现两次：第二条 duplicate，不发起第二次外发。"""
+    await make_user("u1", analytics_consent=True)
+    calls = _capture_stub(monkeypatch)
+    result = await analytics_service.relay_batch(
+        db, "u1", [_ev("a", event_id="e-a"), _ev("a", event_id="e-a")]
+    )
+    assert [item["status"] for item in result["results"]] == ["accepted", "duplicate"]
+    assert len(calls) == 1
+
+
+async def test_ack_mode_in_batch_duplicate_relays_once_even_after_failure(
+    db, make_user, monkeypatch
+):
+    """首条中继失败也不许让同批的第二条再发一次。
+
+    这是「同批去重」真正的靶：首条成功时，台账已经是 accepted，第二条就算漏过去
+    也会被 claim 判成 duplicate；只有首条失败（认领行被 release）时才分得清——
+    去掉 seen_in_batch 检查，第二条会重新认领并再外发一次，同一事件翻倍。
+    """
+    await make_user("u1", analytics_consent=True)
+    calls = []
+
+    def _stub(distinct_id, event, properties, occurred_at):
+        calls.append(event)
+        return False
+
+    monkeypatch.setattr(analytics_module, "_relay_to_posthog", _stub)
+    result = await analytics_service.relay_batch(
+        db, "u1", [_ev("a", event_id="e-a"), _ev("a", event_id="e-a")]
+    )
+    assert [item["status"] for item in result["results"]] == ["retryable", "duplicate"]
+    assert len(calls) == 1
+
+
+async def test_ack_mode_permanent_reasons(db, make_user, monkeypatch):
+    """consent 关 / 用户不存在 / event_id 无效 ⇒ 逐条 permanent，带机器码 reason。"""
+    calls = _capture_stub(monkeypatch)
+
+    await make_user("u1", analytics_consent=False)
+    result = await analytics_service.relay_batch(
+        db, "u1", [_ev("a", event_id="e-a")]
+    )
+    assert result["results"] == [
+        {"event_id": "e-a", "status": "permanent", "reason": "consent_off"}
+    ]
+    assert result["permanent"] == 1 and result["dropped"] == 1
+
+    result = await analytics_service.relay_batch(
+        db, "u-missing", [_ev("a", event_id="e-a")]
+    )
+    assert result["results"][0]["reason"] == "user_not_found"
+
+    await make_user("u2", analytics_consent=True)
+    result = await analytics_service.relay_batch(
+        db,
+        "u2",
+        [
+            _ev("a", event_id=""),
+            _ev("a", event_id=123),
+            _ev("a", event_id="x" * 129),
+        ],
+    )
+    assert [item["reason"] for item in result["results"]] == [
+        "invalid_event_id", "invalid_event_id", "invalid_event_id"
+    ]
+    assert calls == []
+
+
+async def test_ack_mode_null_event_id_only_stays_legacy(db, make_user, monkeypatch):
+    """event_id 全是 None（缺省/null）⇒ 仍是旧形状，与「整批没这个键」同义。"""
+    await make_user("u1", analytics_consent=True)
+    _capture_stub(monkeypatch)
+    result = await analytics_service.relay_batch(
+        db, "u1", [_ev("a"), _ev("b", event_id=None)]
+    )
+    assert result == {"relayed": 2, "dropped": 0}
+
+
+async def test_ack_mode_keeps_property_whitelist(db, make_user, monkeypatch):
+    """逐事件模式不得顺手放宽匿名化：内容字段仍然出不了网。"""
+    await make_user("u1", analytics_consent=True)
+    calls = _capture_stub(monkeypatch)
+    await analytics_service.relay_batch(
+        db,
+        "u1",
+        [_ev("checkin", {"screen": "home", "reflection_text": "隐私正文"},
+             event_id="e-a")],
+    )
+    assert calls[0]["properties"] == {"screen": "home"}
+
+
+# ── 跨层共享契约用例（contracts/analytics_ack_cases.json）─────────────────────
+
+
+@pytest.mark.parametrize("case", _ack_cases(), ids=lambda c: c["name"])
+async def test_shared_ack_contract_cases(case, db, make_user, monkeypatch):
+    """服务端响应必须逐条命中共享用例，且内容字段一次都不许外发。
+
+    同一份文件的 `expected.local` 由 frontend/__tests__/analyticsAckContract.test.ts
+    消费，`expected.results` 由 go-core 的解析测试消费。三侧读同一份期望，
+    「前后端各自觉得自己对」才会被这份文件戳穿。
+    """
+    if case["user_found"]:
+        await make_user("u1", analytics_consent=case["consent"])
+    for event_id, status in case["prior"].items():
+        db.add(AnalyticsEventReceipt(user_id="u1", event_id=event_id, status=status))
+    await db.flush()
+
+    attempts = []
+    failing = set(case["relay_fail"])
+
+    def _stub(distinct_id, event, properties, occurred_at):
+        ok = event not in failing
+        attempts.append({"event": event, "properties": properties, "ok": ok})
+        return ok
+
+    monkeypatch.setattr(analytics_module, "_relay_to_posthog", _stub)
+
+    events = [
+        _ev(
+            raw["event"],
+            raw.get("properties"),
+            datetime.fromisoformat(raw["occurred_at"]),
+            raw.get("event_id"),
+        )
+        for raw in case["events"]
+    ]
+    result = await analytics_service.relay_batch(db, "u1", events)
+
+    expected = case["expected"]
+    assert result["results"] == expected["results"]
+    assert {key: result[key] for key in expected["counts"]} == expected["counts"]
+    # 守恒：任何一条都恰好落进 accepted / duplicate / dropped 之一。
+    assert result["accepted"] + result["duplicate"] + result["dropped"] == len(events)
+
+    relayed_attempts = [a for a in attempts if a["ok"]]
+    accepted = [r for r in expected["results"] if r["status"] == "accepted"]
+    assert len(relayed_attempts) == len(accepted)
+    if not accepted:
+        assert attempts == []
+    for attempt in attempts:
+        assert attempt["properties"] == {"screen": "home"}, (
+            f"{case['name']}: 白名单外的 reflection_text 出网了"
+        )
+

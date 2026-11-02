@@ -1,0 +1,11 @@
+# T7-12：开发/测试/构建工具的依赖输入（运行锁之上再加三样）。
+#
+# 生成方式见 scripts/lock_backend_deps.sh；装法见 scripts/install_backend_deps.sh --dev。
+# 为什么分家而不是并进 requirements.txt：
+#   · pypdf 只在测试里读 PDF 元数据（backend/tests/test_generation_run.py、
+#     test_on_this_day.py），运行镜像不需要它；
+#   · grpcio-tools 带 protoc 与插件，装进镜像白加约 22M（requirements.txt 的 R1 段逐字写过）。
+#   · 但 CI 要跑这两样，所以开发锁是「-r 运行锁 + 三样」——共享包的版本由继承保证不漂。
+-r requirements.txt
+pypdf>=4.0.0
+grpcio-tools~=1.84.0

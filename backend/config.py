@@ -83,6 +83,14 @@ class Settings(BaseSettings):
     openai_model: str = ""
     openai_lite_model: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
+    # 高质量档（可选）：低频、非流式、预算充足的调用才用（如 token.agi.bar 的 k3.1-pro）。
+    # 留空 = 未配置，主路径不受任何影响；调用方显式传 model=get_pro_model() 才会走到。
+    openai_pro_model: str = ""
+    # Embedding 独立 provider（空 = 跟随 llm_provider，保持 B12 语义不变）
+    # 用途：chat 换到第三方 OpenAI 兼容端点、向量仍留 DashScope。
+    # 背景：代理类端点常只放行 chat 模型（如 token.agi.bar 的 key 白名单只含 3 个 chat 模型，
+    # 打 /v1/embeddings 返回 403），若 embedding 跟着切，_embed_or_none 会静默吞错 → 全链路失忆。
+    embedding_provider: str = ""
 
     # 支持语言（多语言，15 种：13 种首发 + vi 越南语 + km 高棉语）
     supported_languages: List[str] = [
@@ -190,6 +198,17 @@ class Settings(BaseSettings):
     pro_plus_daily_chat_rounds: int = 1000  # Pro+ 每日对话轮次高限
     free_personality_refreshes: int = 3  # 免费性格画像刷新（总计）
     pro_personality_refreshes: int = 5   # Pro 性格画像刷新（每月）
+
+    # KG-28 三层次情绪分析（方案 §6.2.4）：**独立配额维度**，从 ai_generation_runs 按
+    # purpose 计数，不挤占上面那个统一池——一次「深潜」若吃掉 5 条主动消息额度的一半，
+    # 用户当天就再收不到主动消息，实验读数也会被这条耦合污染。
+    free_daily_mood_analyses: int = 1
+    pro_daily_mood_analyses: int = 20
+    pro_plus_daily_mood_analyses: int = 50
+    # 实验开关（§6.2.5）。默认关：关时 POST /mood/analysis 在**任何业务判定之前**返回
+    # 40402（不暴露这个功能存在），GET /growth/dashboard 的 features.mood_analysis_depths
+    # 为 false，前端不渲染三档选择器。回滚＝删掉 ConfigMap 里这一行，不删数据。
+    mood_analysis_depths_enabled: bool = False
 
     # 定时任务
     cron_secret: str = ""

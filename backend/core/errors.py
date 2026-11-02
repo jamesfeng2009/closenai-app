@@ -58,6 +58,10 @@ class ErrorCode(IntEnum):
     RESOURCE_NOT_FOUND = 40402
     MEMORY_NOT_FOUND = 40403
     EMAIL_NOT_REGISTERED = 40404  # 邮箱未注册（reset 内部使用，对外不泄露）
+    # KG-30 金句卡：这一格必须是 404xx 而不是 40001——前端按码分文案，
+    # 「这句话不是你的原话」和「参数写错了」对用户是两件完全不同的事，
+    # 混成 40001 会让人以为是自己点错了，而不是发现自己点的是一条 AI 抽取的记忆。
+    QUOTE_SOURCE_NOT_ORIGINAL = 40405  # KG-30：金句卡的来源是 AI 抽取的记忆，不是用户自己写的原话
     # 冲突
     ALREADY_CHECKED_IN = 40901
     SUBSCRIPTION_ALREADY_EXISTS = 40902

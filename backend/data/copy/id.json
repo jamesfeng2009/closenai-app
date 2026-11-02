@@ -22,6 +22,11 @@
       "high": "Suasana hatimu secara keseluruhan bagus — pertahankan ritmenya.",
       "mid": "Suasana hatimu cukup stabil. Sesekali perhatikan perasaanmu sendiri.",
       "low": "Beberapa waktu ini hatimu terasa agak rendah. Jagalah dirimu baik-baik, aku di sini."
+    },
+    "analysis": {
+      "facts": "Hari ini kamu mencatat suasana sebagai {label}. Kalimat tulisanmu sendiri: {count}.",
+      "degraded_summary": "{facts} Aku belum punya cukup kalimat dari kata-katamu sendiri untuk menyebut sebuah pola.",
+      "crisis_next_step": "Bicaralah sekarang dengan orang yang kamu percaya, atau hubungi nomor di atas."
     }
   },
   "levels": {
@@ -408,7 +413,7 @@
   },
   "share": {
     "brand": {
-      "watermark": "ClosenAI — ia mengingat semua yang Anda ceritakan",
+      "watermark": "ClosenAI — ia mengingat apa yang Anda pilih untuk dibagikan",
       "cta": "Pindai untuk mengunduh"
     },
     "unit": {
@@ -448,6 +453,14 @@
       "anniversary_one": "Setahun yang Lalu",
       "anniversary_n": "{n} Tahun yang Lalu",
       "intro": "Sesuatu yang kamu tulis:"
+    },
+    "quote": {
+      "title": "Satu Kalimat dari Anda",
+      "intro": "Sesuatu yang kamu tulis sendiri:",
+      "source_memory": "Dari kenangan yang kamu simpan · {date}",
+      "source_reflection": "Dari refleksi yang kamu simpan · {date}",
+      "own_words": "Kalimat ini kamu ketik sendiri — bukan AI yang menuliskannya untukmu.",
+      "draft_note": "Disimpan dari refleksi yang disusun AI — pilihan katanya mungkin tidak seluruhnya dari kamu."
     },
     "review": {
       "empty": "Belum ada catatan untuk ditinjau pada {year}",

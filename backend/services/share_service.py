@@ -145,6 +145,28 @@ def _as_aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def _reflection_metadata_source(record) -> Optional[str]:
+    """读 `growth_records.metadata_json.source`（KG-26 写侧落的那格，KG-30 在这里取用）。
+
+    读法与写侧同源，且**坏 JSON 不抛**：一张分享卡不该因为某条历史行的 metadata
+    被人手改坏就 500，退回 `None`（＝按「没有溯源」处理，卡照出、按你原话的口径写）。
+    """
+    raw = getattr(record, "metadata_json", None)
+    if not raw:
+        return None
+    if isinstance(raw, dict):
+        value = raw.get("source")
+        return value if isinstance(value, str) else None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    value = parsed.get("source")
+    return value if isinstance(value, str) else None
+
+
 # 三档导出窗口：1y=近 365 天，all=全量，legacy=全量 + 跨年对比 + 里程碑全史
 LIFE_ARCHIVE_SCOPES = ("1y", "all", "legacy")
 LIFE_ARCHIVE_WINDOW_DAYS = {"1y": 365, "all": None, "legacy": None}
@@ -458,6 +480,102 @@ class ShareService:
             "",
             date_label,
         ]
+
+    # 金句卡正文上限（KG-30）：280 个字符是「一张 A4 卡排得下、用户自己也读得完」的口径，
+    # 不是数据库的限制。超长必须**服务端裁**而不是让 reportlab 溢出到第二页：
+    # 前端本地预览按同一个数字裁，两边不一样就会出现「预览一句、导出的卡是另一句」。
+    QUOTE_MAX_CHARS = 280
+
+    async def export_quote_card_pdf(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        source_type: str,
+        source_id: str,
+        *,
+        language: Optional[str] = None,
+    ) -> bytes:
+        """金句卡 PDF：把**用户自己写下的一句原话**排成可分享的卡（KG-30）。
+
+        三条边界都做成判据，不是写成文案：
+
+        1. **正文只从库里取**，端点不接受调用方传句子。否则这个端点就变成
+           「任意文本 → 带品牌水印、二维码、本人短链的 PDF」的生成器，
+           而它对外承诺的是「这是你自己写的话」——转发出去的那张卡带着本人的推荐码。
+        2. **AI 抽取的记忆不出卡**（`generation_run_id` 非空 → 40405）。
+           卡上写着「你说过的话」而句子是机器整理出来的，是这款产品最不该犯的那种冒充；
+           用 40405 而不是 40001，是因为前端要能区分「这句不是你的原话」和「我点错了」。
+        3. **AI 草稿保存下来的反思出卡，但改口径**（`quote.draft_note`）：
+           用户确实按了保存，可那句可能一个字都不是他写的，所以不能印「你的原话」。
+           这里给的是**看得见的披露**，不是 PDF 的 AIGC 元数据标识（`_aigc_metadata`）：
+           metadata 只能标「整份是 AI 产出」，而草稿被改写过再保存的那一类会被误标；
+           一行明写在卡上的话，转发出去之后仍然跟着这张卡。
+
+        软删除／不是本人的 id 一律 40403／40402，与记忆卡同口径：
+        「别人的 id」和「不存在的 id」在字节上必须是同一个回答（决策点 ⑤），
+        不能靠这条端点探测谁有什么。
+        """
+        user = await user_repository.get_user(db, user_id)
+        lang = (language or (user.language if user else "") or "en")
+
+        if source_type == "memory":
+            memory = await memory_repository.get(db, source_id, user_id)
+            if memory is None or memory.status != "current":
+                raise AppException(
+                    ErrorCode.MEMORY_NOT_FOUND, "记忆不存在 / Memory not found"
+                )
+            if memory.generation_run_id:
+                raise AppException(
+                    ErrorCode.QUOTE_SOURCE_NOT_ORIGINAL,
+                    "这条记忆是 AI 整理出来的，不是你的原话 / "
+                    "That memory was extracted by AI, not written by you",
+                )
+            content = memory.content
+            created_at = memory.created_at
+            source_key = "quote.source_memory"
+            draft = False
+        elif source_type == "reflection":
+            record = await growth_repository.get_owned(
+                db, user_id, source_id, "reflection"
+            )
+            if record is None:
+                raise AppException(
+                    ErrorCode.RESOURCE_NOT_FOUND,
+                    "反思不存在或不是你自己保存的 / Reflection not found",
+                )
+            content = record.content
+            created_at = record.created_at
+            source_key = "quote.source_reflection"
+            # metadata 的读法与 KG-26 写侧同源：坏 JSON 当「没有溯源」，不让一张卡 500
+            draft = _reflection_metadata_source(record) in ("draft", "mood_analysis")
+        else:  # pragma: no cover — Literal 已在 schema 拦掉 40001
+            raise AppException(ErrorCode.INVALID_PARAMS, "source_type 只能是 memory/reflection")
+
+        text = (content or "").strip()
+        if not text:
+            raise AppException(
+                ErrorCode.RESOURCE_NOT_FOUND,
+                "这句话是空的，没有可分享的原话 / Nothing to share from this record",
+            )
+        shown = text if len(text) <= self.QUOTE_MAX_CHARS else text[: self.QUOTE_MAX_CHARS - 1].rstrip() + "…"
+        zone = safe_zoneinfo((user.timezone if user else "") or "UTC")
+        date_label = ""
+        if created_at is not None:
+            stamped = created_at if created_at.tzinfo else created_at.replace(tzinfo=timezone.utc)
+            date_label = stamped.astimezone(zone).strftime("%Y-%m-%d")
+
+        lines = [
+            copy.t("share", "quote.intro", lang),
+            "",
+            f"「{shown}」",
+            "",
+            copy.t("share", source_key, lang).format(date=date_label) if date_label else "",
+            copy.t(
+                "share", "quote.draft_note" if draft else "quote.own_words", lang
+            ),
+        ]
+        brand = await self._brand_for(db, user_id, lang.startswith("zh"))
+        return self._render_pdf(copy.t("share", "quote.title", lang), lines, brand=brand)
 
     async def export_year_in_review(
         self, db: AsyncSession, user_id: str, year: Optional[int] = None, language: str = "en"

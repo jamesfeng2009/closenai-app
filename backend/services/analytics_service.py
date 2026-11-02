@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import settings
 from backend.core.time_utils import utc_now
 from backend.repositories import user_repository
+from backend.repositories.analytics_receipt_repository import analytics_receipt_repository
 
 logger = logging.getLogger("closenai.analytics")
 
@@ -180,32 +181,116 @@ async def erase_person_data(distinct_id: str) -> dict:
     return {"erased": False, "reason": f"http_{res.status_code}"}
 
 
+# event_id 的长度上限。不跟客户端 UUID 绑死：旧版本可能用别的稳定串，
+# 这里只拦「空串 / 非字符串 / 长到会撑爆列」这三类明显无效值。
+MAX_EVENT_ID_LENGTH = 128
+
+
+def _valid_event_id(value) -> str | None:
+    if isinstance(value, str) and 0 < len(value) <= MAX_EVENT_ID_LENGTH:
+        return value
+    return None
+
+
+def _ack_item(event, status: str, reason: str | None = None) -> dict:
+    """逐事件结果。键序 event_id → status → reason（reason 缺席即不写）。"""
+    item = {"event_id": getattr(event, "event_id", None), "status": status}
+    if reason:
+        item["reason"] = reason
+    return item
+
+
+def _ack_response(results: list[dict]) -> dict:
+    """把逐条结果汇总成批次计数。
+
+    口径：
+    - accepted  = 本次真的送到分析平台并落了 accepted 台账；
+    - duplicate = 之前已经 accepted，本次不再外发；
+    - retryable = 本次没送成 / 正被另一请求认领，前端应退避重试；
+    - permanent = 不允许重试（consent 关、用户不存在、event_id 无效）。
+    `dropped = retryable + permanent`（「没落到分析平台」的两种原因），
+    因此 accepted + duplicate + dropped == len(events) 恒成立。
+    """
+    counts = {"accepted": 0, "duplicate": 0, "retryable": 0, "permanent": 0}
+    for item in results:
+        counts[item["status"]] += 1
+    return {
+        "relayed": counts["accepted"],
+        "dropped": counts["retryable"] + counts["permanent"],
+        "accepted": counts["accepted"],
+        "duplicate": counts["duplicate"],
+        "retryable": counts["retryable"],
+        "permanent": counts["permanent"],
+        "results": results,
+    }
+
+
 class AnalyticsService:
     """分析中继服务。"""
 
     async def relay_batch(
         self, db: AsyncSession, user_id: str, events: list
     ) -> dict:
-        """中继一批前端离线事件，返回 {"relayed": n, "dropped": m}。
+        """中继一批前端离线事件。
 
-        校验用户 analytics_consent（未同意 / 用户不存在 → 整批丢弃）；
-        匿名化后按 occurred_at 真实时间上报 PostHog。
+        两种响应形状由**请求里有没有 event_id** 决定（T7-02）：
+        - 一条都没有：旧客户端，返回 `{"relayed", "dropped"}`，字节与 N8 冻结夹具一致；
+        - 任一条带了：返回逐事件 `accepted/duplicate/retryable/permanent` 结果与分项计数。
 
-        **计数只认真正送出去的那几条**（D-G18）：`relayed + dropped == len(events)`，
-        未同意与「中继没发生」都落 `dropped`。为什么这一格不许含糊：它是整条链路上
-        只有后端能说真话的地方——前端 `analytics.ts:103-106` 拿到 200 就 markSynced +
-        cleanupSynced，压根没读 dropped（已登记的缺陷，本批不改前端），所以这里的数字
-        一旦说谎，两侧就再没有任何地方留着「这批其实没落到分析平台」这件事。
+        旧形状的计数规则不变（D-G18）：`relayed + dropped == len(events)`，
+        只认真正送出去的。新形状下 `accepted + duplicate + dropped == len(events)`。
         """
         user = await user_repository.get_user(db, user_id)
+        ack_mode = any(getattr(ev, "event_id", None) is not None for ev in events)
+
+        if not ack_mode:
+            if not user or not user.analytics_consent:
+                return {"relayed": 0, "dropped": len(events)}
+            relayed = 0
+            for ev in events:
+                props = anonymize_properties(ev.properties)
+                if _relay_to_posthog(user_id, ev.event, props, ev.occurred_at):
+                    relayed += 1
+            return {"relayed": relayed, "dropped": len(events) - relayed}
+
         if not user or not user.analytics_consent:
-            return {"relayed": 0, "dropped": len(events)}
-        relayed = 0
+            reason = "user_not_found" if not user else "consent_off"
+            return _ack_response(
+                [_ack_item(ev, "permanent", reason) for ev in events]
+            )
+
+        results: list[dict] = []
+        seen_in_batch: set[str] = set()
         for ev in events:
+            event_id = _valid_event_id(ev.event_id)
+            if event_id is None:
+                results.append(_ack_item(ev, "permanent", "invalid_event_id"))
+                continue
+            if event_id in seen_in_batch:
+                # 同一批里出现两次：第二条不是「重试」，是重复提交，直接判 duplicate。
+                results.append(_ack_item(ev, "duplicate"))
+                continue
+            seen_in_batch.add(event_id)
+            claimed, prior = await analytics_receipt_repository.claim(
+                db, user_id, event_id
+            )
+            if not claimed:
+                if prior == "accepted":
+                    results.append(_ack_item(ev, "duplicate"))
+                else:
+                    # pending 或并发下读不到行：都当作「可重试」，绝不重复外发。
+                    results.append(_ack_item(ev, "retryable", "in_flight"))
+                continue
             props = anonymize_properties(ev.properties)
             if _relay_to_posthog(user_id, ev.event, props, ev.occurred_at):
-                relayed += 1
-        return {"relayed": relayed, "dropped": len(events) - relayed}
+                await analytics_receipt_repository.mark_accepted(db, user_id, event_id)
+                results.append(_ack_item(ev, "accepted"))
+            else:
+                # 没送到就不许留下 accepted：删掉认领行，下一次重试能重新进来。
+                await analytics_receipt_repository.release(db, user_id, event_id)
+                results.append(_ack_item(ev, "retryable", "relay_failed"))
+        await db.flush()
+        return _ack_response(results)
 
 
 analytics_service = AnalyticsService()

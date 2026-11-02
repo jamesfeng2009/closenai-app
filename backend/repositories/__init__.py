@@ -22,6 +22,10 @@ from backend.repositories.erasure_repository import (
     erasure_repository,
 )
 from backend.repositories.export_repository import ExportRepository, export_repository
+from backend.repositories.generation_run_repository import (
+    GenerationRunRepository,
+    generation_run_repository,
+)
 from backend.repositories.growth_repository import GrowthRepository, growth_repository
 from backend.repositories.journey_repository import (
     JourneyRepository,
@@ -68,6 +72,8 @@ __all__ = [
     "erasure_repository",
     "ExportRepository",
     "export_repository",
+    "GenerationRunRepository",
+    "generation_run_repository",
     "GrowthRepository",
     "growth_repository",
     "JourneyRepository",
