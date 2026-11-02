@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BOARD = ROOT / "CLOSENAI_V3_TASK_BOARD.md"
 
 STATUSES = ("TODO", "DOING", "BLOCKED", "REVIEW", "DONE", "CANCELLED")
-WAVES = ("W0", "W1", "W2", "W3", "W4", "W5", "W6")
+WAVES = ("W0", "W1", "W2", "W3", "W4", "W5", "W6", "W7")
 
 ID_RE = re.compile(r"^T\d-\d{2}$")
 SUMMARY_RE = re.compile(

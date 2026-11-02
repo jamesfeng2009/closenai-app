@@ -1,0 +1,51 @@
+{
+  "_comment": "AGIBar token proxy — OpenAI-compatible client config. base_url must end with /v1.",
+  "provider": "agibar",
+  "base_url": "https://token.agi.bar/v1",
+  "api_key": "sk-agi_bar-static",
+  "api_style": "openai-chat-completions",
+  "models": {
+    "deepseek-v4-flash": "usable, reasoning model",
+    "MiniMax-M3.1-Flash": "usable, reasoning model",
+    "k3.1-pro": "usable with limits"
+  },
+  "model_limits": {
+    "all_models": [
+      "Reasoning models: reasoning_tokens are billed inside max_tokens. Small budgets return finish_reason=length with EMPTY content. Verified: max_tokens=10 -> 0/3 usable replies on both deepseek-v4-flash and MiniMax-M3.1-Flash.",
+      "/v1/embeddings -> 403: key allowlist contains only the 3 chat models.",
+      "k3.1-pro is quota-gated by the upstream Kimi membership (5-hour window) and intermittently returns 429."
+    ],
+    "k3.1-pro": "Rejects any temperature other than 1 (400). Reasoning overhead measured at 250-310 tokens per short reply, so max_tokens<800 returns empty or truncated content (max_tokens=300 gave 12 chars once, empty another time). Non-streaming only: first CONTENT delta arrives at 11.2s while reasoning deltas stream from 3.6s.",
+    "temperature_support": {
+      "deepseek-v4-flash": [0, 0.7, 1],
+      "MiniMax-M3.1-Flash": [0, 0.7, 1],
+      "k3.1-pro": [1]
+    }
+  },
+  "capabilities": {
+    "chat_completions": true,
+    "responses_api": true,
+    "anthropic_messages": true,
+    "gemini_generate_content": true,
+    "embeddings": false,
+    "low_token_budget_short_answers": false,
+    "note": "Do not use for classification / short-verdict workloads that cap max_tokens around 10."
+  },
+  "closenai_backend": {
+    "evaluated": "2026-10-24",
+    "verdict": "NOT ADOPTED — reverted to dashscope",
+    "blocking_findings": [
+      "backend/ai/safety.py classifier runs lite=True + max_tokens=10 + temperature=0.0 and treats an EMPTY verdict as safe (`safe = \"UNSAFE\" not in verdict`). With AGIBar every classifier call returned empty content, so the safety gate silently passed 100% of content. Reproduced end-to-end.",
+      "No embedding endpoint (403), so chat and embedding must be split via settings.embedding_provider."
+    ],
+    "kept_code_change": "backend/config.py + backend/ai/llm.py now support settings.embedding_provider (empty = follow llm_provider, B12 semantics unchanged). Useful for any future chat-only proxy.",
+    "if_retried": "Set LLM_PROVIDER=openai and uncomment the OPENAI_* block in backend/.env, AND raise the safety classifier budget (or switch it to a non-reasoning model) first. Otherwise the safety gate does not exist.",
+    "k3_as_custom_model": {
+      "added": "2026-10-24",
+      "how": "OPENAI_PRO_MODEL=k3.1-pro + explicit caller opt-in via llm.complete(model=get_pro_model())",
+      "enforcement": "backend/ai/llm.py MODEL_CONSTRAINTS['k3.1-pro'] = {drop_temperature, min_max_tokens: 800, streaming: false}. Only applies when the model id is passed explicitly; the default lite/main path is untouched.",
+      "verified_live": "complete(model='k3.1-pro', max_tokens=10, temperature=0.0) -> normalized to max_tokens=800 + temperature dropped -> 48-char reply that would otherwise have been empty.",
+      "not_suitable_for": "streaming chat, safety classifier, any call capping max_tokens under 800"
+    }
+  }
+}
