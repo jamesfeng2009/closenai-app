@@ -1,8 +1,8 @@
 # CLOSENAI V3 任务台账（Task Board）
 
-> **配套方案：** `CLOSENAI_V3_REMEDIATION_PLAN.md`（本文件只记"做什么/怎么做/做到哪"，不复述方案论证）
-> **审计基准：** `master@b2ceed5`｜**建立日期：** 2026-10-18｜**最后更新：** 2026-10-18
-> **任务数：** 33（W0 6 / W1 4 / W2 5 / W3 5 / W4 4 / W5 5 / W6 4）
+> **配套方案：** `CLOSENAI_V3_REMEDIATION_PLAN.md`；增长与价值验证论证见 `docs/closenai-review-competitive-seo-geo-2026-10-25.md`
+> **审计基准：** `master@b2ceed5`｜**建立日期：** 2026-10-18｜**最后更新：** 2026-10-25
+> **任务数：** 47（W0 6 / W1 4 / W2 6 / W3 5 / W4 4 / W5 5 / W6 4 / W7 13）
 > **进度口径：** 只有 `DONE` 算完成；`TODO/DOING/REVIEW/BLOCKED` 都算未完成。
 
 ---
@@ -47,15 +47,15 @@
 
 ### 0.4 角色
 
-`BE` = Python 后端｜`GO` = Go 内核｜`FE` = 前端｜`PLAT` = 平台/DevOps｜`ARCH` = 方案负责人
+`BE` = Python 后端｜`GO` = Go 内核｜`FE` = 前端｜`PLAT` = 平台/DevOps｜`ARCH` = 方案/产品负责人｜`GROWTH` = 内容/用户研究/分发
 
-### 0.5 进度总览（快照 2026-10-20）
+### 0.5 进度总览（快照 2026-10-25）
 
 | 指标 | 值 |
 |---|---|
-| 任务总数 | **34** |
-| `DONE` | **31**（91%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T4-04、T5-01、T5-02、T5-03、T5-04、T5-05、T6-01、T6-02、T6-03、T6-04） |
-| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ 0 / **0** |
+| 任务总数 | **47** |
+| `DONE` | **37**（79%，T0-04、T0-05、T0-06、T1-01、T1-02、T1-03、T1-04、T2-01、T2-02、T2-03、T2-04、T2-05、T2-06、T3-01、T3-02、T3-03、T3-04、T3-05、T4-01、T4-02、T4-03、T4-04、T5-01、T5-02、T5-03、T5-04、T5-05、T6-01、T6-02、T6-03、T6-04、T7-01、T7-02、T7-03、T7-06、T7-12、T7-13） |
+| `DOING` / `REVIEW` / `BLOCKED` / `TODO` | 0 / **3**（T0-01、T0-02、T0-03）/ **7**（T7-04、T7-05、T7-07…T7-11）/ **0** |
 
 | 波次 | 任务范围 | 完成/总数 | 出口标准 |
 |---|---|---|---|
@@ -66,6 +66,8 @@
 | W4 行动闭环 | `T4-01`…`T4-04` | 4/4 | 洞察→行动→结果一条端到端（**2026-10-20 T4-04 后：那半句「端到端」到了屏上——洞察卡一枚 CTA → 弹层两步写（可先建目标）→ 行动区三分区行内完成/跳过 → 完成后四选一记结果，六条出口全走 T3-03 那条转发链，`truncated` 与 `changed=false` 各有第二句话。仍是零的两项：产品流量（真机 prebuild 未取证）与 `cancel`/`cancelled` 那一格（有词表无入口）**） |
 | W5 隐私与主动消息 | `T5-01`…`T5-05` | 5/5 | 关闭/静默/幂等三闸全绿（**2026-10-20 T5-04 补上第五格：`proactives` 八态从此有一条只读审计面＋CLI，「为什么没发出去」不再靠手抄 SQL**） |
 | W6 架构收敛 | `T6-01`…`T6-04` | 4/4 | 单一 DDL、单一事实源、隔离生效（**2026-10-20 T6-03 把前两句落地：canonical DDL 的属主只剩 `backend/alembic/`，`go-core/db/schema/` 那三份从「手写第二真源」变成「导出器的派生物」；同日 T6-04 落地最后半句——`ENVIRONMENT` 收成两侧同一张逐字小写词表，`staging` 与 production 同受保护档，非生产档的 `DATABASE_URL` 命中 `PROD_DB_FINGERPRINTS` 即在建连之前拒启（Python 侧独立实现同一判据，由一份跨语言用例表对账），production 档任一切流键 > 0 而没有 `CLOSEN_CUTOVER_APPROVED=1` 同样拒启，crontab 只能经 `deploy/schedule/install-crontab.sh` 安装且非生产档拒装。仍是零的那半句＝**线上生效**：这三道闸全部跑在本机单测与清单面里，VPS／k3s 上真起一次、真机启动失败现场日志与 `crontab -l` 对账都取不了证，归 T0-01**） |
+
+| W7 可信生产与价值增长 | `T7-01`…`T7-13` | 6/13 | 数据完整性缺陷清零；生产现场可验收；种子用户完成核心循环；SEO/GEO 有内容、来源与测量，不以页面数量或单次 AI 回答结案 |
 
 > 这是**快照**，会随更新过期。以 `python scripts/task_board.py` 的输出为准（该脚本同时是 `--check` 的判据来源）。
 
@@ -109,6 +111,20 @@
 | T6-02 | 切流 path×method 矩阵约束 | GO | — | W6 | DONE | 2026-10-19 结案：三张真源（`50-ingress.yaml` 归属 × `contracts/endpoints.md` 的 path×方法 × `httpapi/routes.go` 声明表）对账，生成 `contracts/cutover-matrix.md`（8 个 `CLOSEN_CUTOVER_*` 键 ↔ 8 行，不可切项带 D-10 原因）；`go test -p 1 ./...` 全绿（cutover 17 PASS、cutover＋httpapi 124 PASS）；`pytest` 受影响面 **84 passed / 1 skipped**；变异自证 **打红 13/13、保持绿 3/3、未跑 0、残留 0**——过程中抓到并修掉两处「判据在真坏料上绿」（Ingress 解析跨规则串味、`gated` 掏空无人判） |
 | T6-03 | 迁移单一化（canonical DDL 去重） | GO+BE | — | W6 | DONE | 2026-10-20 结案：`scripts/export_pg_schema.py` 重写成唯一生成器（一次性空库 → `alembic upgrade head` → `pg_dump`，表名单从迁移件 `_TABLES` 推导、不再手抄），三份快照＋`body.sha256` 逐字节指纹全部由它产出；新闸 `go-core/db/schema/drift_test.go` 6 条（离线，CI 的 go 作业没有 PG 也能判红）＋`backend/tests/test_pg_schema_snapshot.py` 5 条；head 字面量归零改走 `backend/core/alembic_chain.py` 推导。**按实况改判**：§怎么做.3 那句「0001 只保留 refresh_tokens」实测不可行（摘掉 `public.users` ⇒ sqlc 报 `relation "users" does not exist`，消费点 `db/queries/canonical.sql:503-510`），users 留在 0001 但已从「手写副本」变成「派生物」。实测：Go `go test -p 1 ./...` **20 包 ok／0 FAIL**、`./internal/store -v` **110 PASS**（真库）、backend 全量 **1604 passed／3 skipped／0 failed**、本票两份闸 **30 passed**、`sqlc diff` exit 0；变异自证 `scripts/mutate_t603_gates.py` **打红 21/21、保持绿 6/6、未跑 0、残留 0**；CI 工具链补 pg_dump＋sqlc（否则那两条闸在流水线里只是 skip）。未取证一条：`--check` 摘掉 pg_dump 版本签名两行以挡 CI 与本机 minor 不同，本机没有第二个 pg_dump，只能待流水线首跑核实（反面由 C3／C4 钉住）。 |
 | T6-04 | staging/prod 隔离与切流键闸 | PLAT | T0-01 | W6 | DONE | 2026-10-20 结案：`ENVIRONMENT` 词表两侧同集合（逐字 `development\|staging\|production\|prod`，词表外拒启）＋`staging` 归受保护档，非生产档 `DATABASE_URL` 命中 `PROD_DB_FINGERPRINTS` 在建连之前拒启（Go `config/env_isolation.go` 与 Python `core/env_isolation.py` **各写一份**、由 `go-core/testdata/env_isolation_cases.json` 逐格对账），`production` 档任一切流键 > 0 而无 `CLOSEN_CUTOVER_APPROVED=1` 同样拒启，crontab 走 `deploy/schedule/install-crontab.sh` 且非生产档拒绝安装。**按默认值改判两格**：§怎么做.1 的 `CLOSEN_ENV` 不新增（D-T604-1），§怎么做.3 的「两套 .env 分别固定」落到 compose overlay＋两份 example（D-T604-9 用脚本而不是 README 承担约束）。实测：`gofmt -l` 零输出、`go build`／`go vet` 干净、`go test -p 1 ./... -count=1` **20 包 ok／0 FAIL／856 条顶层 PASS／1 SKIP**（SKIP 是 broker 用例缺 `CLOSEN_AMQP_CONTAINER`，与本票无关），点名三包 `-v` **64 PASS／0 FAIL**，backend 全量带实库＋实 broker **1653 passed／4 skipped／0 failed（130.99s）**，本票五份闸聚焦 **99 passed／1 skipped**。变异自证 `scripts/mutate_t604_gates.py` **打红 44/44、保持绿 6/6、未跑 0、残留 0**（14 个靶文件 copy2＋`filecmp(shallow=False)` 逐字节写回），过程中抓到并修掉五条「红点不落在判据上／闸在真坏料上绿」：BSD BRE 的 `[0-9]+` 等价变异、`LC_ALL=C` 下 `$PORTS）` unbound variable、`set -e` 里 grep 无匹配裸退、Python `.lower()` 折叠那一格当时没有任何测会红（先补断言才打红）、**overlay 的 `ports:` 少 `!override` ⇒ compose 把 prod 基线的 127.0.0.1:8000 追加进 staging 展开**（只读 overlay 文本的闸看不见合并语义，补了判展开结果的闸与 D5 靶）。**未跑（不算绿）**：VPS／k3s 上 `ENVIRONMENT=staging` 真起一次、真机带生产指纹启动失败的现场日志、`crontab -l` 与闸对账——三格同 2026-10-19 记的取证能力缺口。新登记的缺陷见本票末段（首条是 `email_service.py:36` 的档籍判据与本票 D-T604-3 反着来）。 |
+
+| T7-01 | P0 签到备注与本机会话清理的数据完整性 | FE | — | W7 | DONE | 2026-10-25 结案：合并同步保留本地 note/intensity；清理失败逐项上抛并可重试；Jest 1569 绿、tsc 0 错、变异 7 红 1 绿 |
+| T7-02 | P0 分析事件按结果落库与幂等重试 | FE+BE+GO | — | W7 | DONE | 2026-10-25 结案：逐事件 accepted/duplicate/retryable/permanent，event_id 台账幂等；前端按结果删除/退避/死信；变异 13 红 2 绿 |
+| T7-03 | P0 MQ 体内身份键契约收紧 | BE+GO | — | W7 | DONE | 2026-10-25 结案：归一规则「小写＋剥 `_`/`-`」两侧同形，9 种变体统一 `foreign_user_id` 且零领域写入；共享用例 `contracts/mq_identity_cases.json`；变异 7 红 2 绿 |
+| T7-04 | P0 生产现场验收与既有 REVIEW 结案 | PLAT+BE+FE | T0-01、T0-02、T0-03、T7-01、T7-02、T7-03 | W7 | BLOCKED | 2026-10-26 阻塞：缺现役 VPS/k3s 现场授权与 7 天调度/告警/备份记录，R5 六条无真 broker+PG 未跑，真机 StoreKit/导出/删除未取证；可验的清单面已实测（feature_status --check 通过） |
+| T7-05 | P0 唯一官网、统一定位与法务阻断清零 | ARCH+GROWTH | — | W7 | BLOCKED | 2026-10-26 阻塞：线上是 `web/`（Cloudflare Pages `closenai-web`），法务页仍是「［运营主体全称］」占位与未来生效日 2026-11-01；`site/` 是未发布的第二源且带「AI companion / remembers everything」冲突文案；运营主体与法务确认仓库内无据 |
+| T7-06 | P0 指标字典、漏斗与数据质量看板 | ARCH+BE+FE | T7-02 | W7 | DONE | 2026-10-26 结案：七格漏斗只数业务表＋按周/语言/平台分群，投递六格未知即 null，抽样对账与静态看板；18 条闸＋变异 7 红 2 绿；真库装载未跑 |
+| T7-07 | P0 10–20 名种子用户核心价值实验 | ARCH+GROWTH | T7-04、T7-05、T7-06 | W7 | BLOCKED | 2026-10-26 阻塞：无招募名单、知情同意与访谈原话；T7-04/T7-05 未结，真实产品流量为零，不能拿测试账号冒充有效样本 |
+| T7-08 | P1 技术 SEO 与双语内容底座 | GROWTH+PLAT | T7-05 | W7 | BLOCKED | 2026-10-26 阻塞：依赖 T7-05 定唯一源；线上审计已记（3 URL 200、canonical 对、hreflang 缺、sitemap 仅 3 条、法务页双 H1）；无 GSC/Bing/百度账号与提交记录，双语内容未写 |
+| T7-09 | P1 GEO 可引用内容与真实第三方分发 | GROWTH+ARCH | T7-08 | W7 | BLOCKED | 2026-10-26 阻塞：依赖 T7-08；robots 仅 `User-agent: *`、无 AI 爬虫分组，无关于/作者/纠错页，无第三方分发记录 |
+| T7-10 | P1 搜索/生成式引用测量与月度复盘 | GROWTH+PLAT | T7-06、T7-08、T7-09 | W7 | BLOCKED | 2026-10-26 阻塞：依赖 T7-08/T7-09；无 20–30 问题基线、无平台数据与爬虫日志、无月度复盘 |
+| T7-11 | P2 付费与获客扩张闸门 | ARCH+GROWTH | T7-04、T7-07、T7-10 | W7 | BLOCKED | 2026-10-26 阻塞：T7-04/T7-07/T7-10 未过，付费转化、退款、交付失败与渠道预算均无数据；按验收保持不投放 |
+| T7-12 | P1 Python 依赖可重复安装 | PLAT+BE | — | W7 | DONE | 2026-10-26 结案：运行锁 74 包／开发锁 77 包全 `==`+`--hash=sha256`；镜像与 CI 走 `--require-hashes`；两个干净环境 × 77 包快照逐条一致；变异 7 红 2 绿 |
+| T7-13 | P1 订阅接口原子限流 | PLAT | — | W7 | DONE | 2026-10-26 结案：KV 先读后写改为 D1 单条 `INSERT … ON CONFLICT … RETURNING` 原子自增；故障与无 IP 均失败关闭；13 条 Node 闸＋变异 7 红 2 绿；D1 建库/绑定与线上部署未执行 |
 
 ---
 
@@ -1240,6 +1256,302 @@ canonical 22 表 + outbox 在 `backend/alembic/` 与 `go-core/db/schema/` 各写
 > 另外复钉了两条既有口径：验证码明文与完整邮箱不许进日志（靶 E5）、SDK 抛错不许被吞（E4 打的是「判据还在但 `raise` 被掏空」）。
 > 变异靶 E1-E5＋GR9 全打红（E3 第一轮空过一次：它绕的是 key 那一行，dev 照旧降级 ⇒ 正向证人不会红——入射角必须打在档籍判据本身）；本票七份闸＋`test_auth_infra`（邮件的调用方那侧）一起跑 **134 passed／1 skipped**（唯一 skip 仍是无可达集群那条）。
 > **发现缺陷（本票不顺手修，登记）**：① **（批 3 已修，见上方 ⑫）`backend/services/email_service.py` 曾用 `settings.environment == "production"` 逐字判生产档**——它既不含 `prod` 别名也不认 `staging`，于是 D-T604-3 说「staging 与 production 同档」而这一格反着来：staging 上 `resend_api_key` 没配时验证码邮件走 DEV 告警降级、接口照返回成功而邮件根本不存在，用户被永久挡在登录外。修法应是走 `env_isolation.is_production()`／受保护档判据，并连邮件那批测一起重定；本票 §怎么做没点名它，按「不顺手修」登记。**2026-10-20 批 3 已按这句落地**（判据换成 `is_protected`、新增 `test_email_delivery_tier.py` 八条、变异靶 E1-E5／GR9）。② **`Goals: goalBrowser` 那一格只能用反证**：装配证人已补齐三格（I15 打红的是 `OutcomeWrites`），但摘掉 `Goals: goalBrowser` 会让 `goalBrowser` 变成未使用变量——红的是编译而不是判据，所以「掉一格」的靶只能取 `candidateDomain` 那一侧；这条限制写进变异用例的描述，不留成隐形豁口。③ **T6-03 缺陷③（部署侧 PG minor 与快照来源不同会重排 dump 主体格式）本票没触达**——本机仍只有一个 pg_dump，那句「与 staging/prod 的隔离取证一起在 T6-04 验」在本票只完成了隔离那半句，minor 那半句仍是未跑。④ **真机三格（按「未跑」登记，不算绿）**：`ENVIRONMENT=staging` 在 VPS／k3s 上真起一次、go-api／py-api 带生产指纹启动失败的现场日志、生产宿主上 `crontab -l` 与闸对账——三格同 2026-10-19 记的取证能力缺口（本机无 kubeconfig、无第二套库），归 **T0-01** 的部署动作。⑤ **`scripts/backfill_idempotency.py:168` 自己 `create_async_engine`，没过这道闸**（2026-10-20 code review 抓到）：批 2 把闸接到 `backend/database.py` 与 `alembic/env.py` 两个建连点，而这条运维脚本绕过它们——它在 `ENVIRONMENT=staging` 的机器上手动一跑，就能连上 `DATABASE_URL` 指的那个库直接写，正是本票要切断的「第二套写方」。不在本票 §怎么做 点名的四件套里（它列的是进程入口与迁移），按「不顺手修」登记；修法与装配证人同形状：脚本自己那一句前加 `require_db_isolation`，并给它补一条「先过闸再建 engine」的先后判据。⑥ **本轮全量重跑的取证环境降级**：`/tmp/t206_env.sh`（`TEST_DATABASE_URL`＋`CLOSEN_AMQP_URL`）随 `/tmp` 清理丢失，Go 侧 113＋12 条集成测与 pytest 的 R5 那条「缺前置不许当绿」证人因此没跑到（见 ⑦）；本机没有本地 PG 镜像、拉起要下载，按「本机是工作机，禁止长占」没有自取。这一格与 ④ 那三格同属 2026-10-19 记的取证能力缺口：**下一轮要么把这份 env 固定成仓外的受管文件（不落凭据、只落点名的键名与来源），要么这些族就一直按「未跑」登记**。
+
+---
+
+### T7-01 · P0 签到备注与本机会话清理的数据完整性
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| DONE | FE | — | M |
+
+**优先级**：P0。出处：`docs/closenai-review-competitive-seo-geo-2026-10-25.md` §3.2；本票只修用户内容覆盖和本机清理失败被吞，不扩展签到功能。
+
+**怎么做**
+1. 为 `syncMoodHistory` 选择唯一口径：服务端历史响应返回完整 note/intensity，或本地同 ID upsert 合并时保留服务端未提供的字段；不得再无条件写 `note: null`。
+2. 让 SQLite 用户数据清理、SecureStore 删除和引导标记清理返回真实结果；失败可重试，UI 区分服务端注销成功与本机清理未完成。
+3. 保留当前“登出不注销 push token”的既有产品裁决，不顺带改 B-04。
+4. 补本地已有备注/强度、服务端缺字段、SQLite 清理失败、SecureStore 删除失败及重试成功的回归测试；每条新闸按仓库规则做变异自证。
+
+**验收**
+- 本地签到含非空 note 和非默认 intensity 时，历史同步后两值不丢；正常全量同步仍幂等。
+- 任一本地清理步骤失败时不得展示“本机数据已全部删除”，重试成功后才能进入完成态。
+- 受影响 Jest/tsc 全绿，新闸变异打到各自判据并报告实测红/绿/未跑计数。
+
+> 结案 2026-10-25｜master 工作区（未推）｜**签到历史同步不再用「服务端没返回」当理由抹掉用户写的备注与本地强度，本机清理没做干净也不再假装完成**。**四件套**：入口＝`HomeScreen.syncMoodHistory`／`HomeScreen` 与 `ReflectScreen` 的签到落库／`AuthContext.logout|deleteMyAccount` 的会话重置；执行＝`MoodCheckinRepository.mergeRemoteCheckin|mergeRemoteHistory`（同 id 合并，保留服务端契约没有的 note/intensity）与 `session.ts` 的 `LocalCleanupError`（`secure_store|sqlite|onboarding` 三落点，SQLite 失败先显式 ROLLBACK）；交付＝`clearAuth` 逐键删除并返回失败标签、ProfileScreen 对「服务端已成功、本机没清干净」给独立文案＋重试、15 语言新增 `errors.localCleanupFailed`；失败恢复＝重试只重跑本机清理，`notifySessionReset` 无论成败都触发（内存 token 已置空，不能把人留在已登录界面）。
+> 口径选择（工单第 1 条二选一）：选**本地同 ID 合并**，不改后端响应与 Go/N8 历史契约——服务端 `MoodCheckinResponse` 没有 note 列，改它要连带 Go 查询、逐字节响应夹具与 N8 金样，而本票边界写明「不扩展签到功能」。无 note 输入时也不再用 null 覆盖当天既有备注；Reflect 仍写用户刚输入的那句。
+> 实测：`npx jest` **55 suites / 1569 passed / 0 failed**；`npx tsc --noEmit` 0 错；新增回归覆盖「本地 note+非默认 intensity 经历史同步保留」「重复全量同步幂等」「SQLite/SecureStore/引导标记失败各报各的落点」「重试成功」；`clearAuth` 单键失败仍删其余键。
+> 变异自证 `scripts/mutate_t701_gates.py`：**打红 7/7、保持绿 1/1、未跑 0、残留 0**（串行、copy2＋filecmp 逐字节写回；M1/M2 各打掉一处保留逻辑，M3/M4 打掉失败上报，M5 打掉逐键删除，M6/M7 打掉两处整行覆盖；G1 只改注释仍绿）。api.ts 的 `clearAuth` 净增 11 行，`contracts/endpoints.md` 里 86 处 `api.ts:N` 出处行号按现状整体校准（三条接线闸复跑绿）。
+
+---
+
+### T7-02 · P0 分析事件按结果落库与幂等重试
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| DONE | FE + BE + GO | — | L |
+
+**优先级**：P0。出处：评审 §3.2 与 §8；`relayed/dropped` 是服务端结果，不得把 HTTP 成功等同于所有事件已接收。
+
+**怎么做**
+1. 核对批量事件契约，给每个事件稳定 event_id；服务端返回逐事件 accepted/rejected/duplicate 结果，数据库写入按 event_id 幂等。
+2. 前端只删除已接受或已确认重复的事件；可重试失败保留并退避，永久拒绝进入有原因的死信状态，不得无限重发。
+3. 撤回分析同意仍清空本地队列；日志与事件属性不得新增敏感正文。
+4. 覆盖部分成功、重复提交、网络重试、永久拒绝、并发 flush 和撤回同意；前后端使用同一批契约用例。
+
+**验收**
+- 一批中 accepted、duplicate、retryable、permanent 混合时，本地保留/删除逐条正确，重试不会让服务端有效事件翻倍。
+- 看板输入可区分 queued、accepted、relayed、dropped、duplicate；不能再用 `sent=pending.length` 代表中继成功。
+- 契约、后端、Jest 测试和变异自证通过；真实中继不可用时按未跑登记。
+
+> 结案 2026-10-25｜master 工作区（未推）｜**`/analytics/batch` 不再把 HTTP 200 当作「所有事件已接收」：带 `event_id` 的批次按条回报 accepted/duplicate/retryable/permanent，服务端用 `(user_id,event_id)` 台账做幂等，前端只删确认接收的行，其余退避或进有原因的死信**。**四件套**：入口＝`POST /api/v1/analytics/batch`（Python `analytics_service.relay_batch`／Go `handleAnalyticsBatch`）；执行＝`analytics_event_receipts`（alembic `b7c9d1e3f5a2`，`INSERT … ON CONFLICT DO NOTHING` 的 rowcount 判定认领胜负，`pending→accepted`，中继失败 `release`）＋前端 SQLite v3（`event_id/attempts/next_retry_at/dead_reason/dead_at` + event_id 唯一索引）；交付＝`flushAnalytics` 按 results 落库、指数退避 30s×2^(n-1) 封顶 1h、5 次到顶写 `retry_exhausted:<reason>`、撤回同意 `clearAll`（含死信）；失败恢复＝缺 results/旧后端一律按未确认保留，`in_flight` 可重试，永久拒绝带服务端机器码进死信。
+> 契约选择：响应形状由**请求里有没有非 null 的 event_id** 决定——不新增路由、不改旧形状字节，N8 冻结夹具与切流矩阵不动；`event_id: Any = None` 让非法值逐条 permanent 而不是整批 422（Python/Go 同判）。
+> 跨层用例：`contracts/analytics_ack_cases.json` 5 条（mixed_statuses / in_batch_duplicate / consent_off / user_not_found / id_length_boundary），Python、Go、Jest 三侧共读；`local` 列是前端落库后的队列状态。
+> 实测：`pytest backend/tests` **1620 passed / 90 skipped / 1 failed**（唯一红是 `test_r5_interop_broker.py::test_case_plan_fully_ran`：本机无 `CLOSEN_AMQP_URL`，六条跨进程用例一条没跑，按未跑登记，与 T7-02 无关）；Go `go test ./...` **全绿**；Jest **57 suites / 1583 passed**；`tsc --noEmit` 0 错；`test_analytics_service.py` 26 passed；数据血缘/导出 39 passed（新表已登记 `docs/data-lineage.md` 并加入导出排除）。契约重导：107 paths / 116 operations，`endpoints.md` 的 `api.ts:N` 行号整体校准，台账真实性闸 3 passed。
+> 变异自证 `scripts/mutate_t702_gates.py`：**打红 13/13、保持绿 2/2、未跑 0、残留 0**（串行、copy2＋filecmp 逐字节写回；M1–M4 打前端「删/退避/死信」，M5–M8 打 Python 同批去重/失败落账/新旧形状/长度边界，M9–M13 打 Go ack 判据/台账状态/长度/键序/accepted 落账；G1/G2 只改注释仍绿）。初跑时 M5/M12 未红——补了「首条失败时同批第二条不得再发」与逐条键序断言后复跑才红，记在这里防下次回退成假绿。
+> **未跑（不算绿）**：真 PG 上执行 `b7c9d1e3f5a2` 与真实 PostHog 中继（本机无 `TEST_DATABASE_URL`，5 条 PG 快照/迁移用例 skip；无 relay 凭证），按 T7-04 现场验收补证。
+
+---
+
+### T7-03 · P0 MQ 体内身份键契约收紧
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| DONE | BE + GO | — | M |
+
+**优先级**：P0（防跨用户归属的契约前置）。当前只确认 `user-id` 校验缺口，不宣称已有可利用跨用户写入。
+
+**怎么做**
+1. 在共享契约中定义体内身份键规范化规则，至少覆盖 `user_id`、`userId`、`user-id` 及大小写变体；归属仍只认受信 header。
+2. Python 解析与 Go 对映入口按同一规则在任何 handler/领域写入前拒绝；歧义键不得静默忽略。
+3. 用跨语言用例表覆盖合法消息、每种身份键变体、header/body 冲突和零写入证人。
+
+**验收**
+- 所有登记的体内身份键变体都返回同一个契约 reason，handler 与仓储写入计数均为零。
+- 合法消息保持通过；跨语言测试、契约重导和变异自证通过，缺 broker 的用例不算绿。
+
+> 结案 2026-10-25｜master 工作区（未推）｜**体内身份键不再有「换个拼写就溜过去」的洞：`user_id`／`userId`／`user-id`／大小写共 9 种变体在 Python 消费者与 Go 两条入站面上都返回同一个 `foreign_user_id`，且拒绝发生在任何 handler／领域写入之前**。**四件套**：共享契约＝`contracts/mq_identity_cases.json`（归一规则「小写 → 剥 `_` 与 `-` → `userid`」、9 变体＋4 非身份键、三张面的正例体、`reject_reason` 字面量，Python/Go 测试读同一份）；Python 执行＝`contract.py` 的 `normalise_identity_key`／`is_identity_key`／`foreign_identity_keys`，`parse_command` 在归属头校验之后、来源指针之前拒绝（覆盖 2026-10-17 登记的连字符缺口）；Go 执行＝新增 `inbound/identity_keys.go`，`Decode`（候选面，允许面为空）与 `DecodeEvent`（事件面，只准契约上的 `userId` 拼写）都在解码前调用，事件面的头体冲突仍走既有 `source_user_id_mismatch`；零写入证人＝Python 用 handler 调用表＋`pub.published`＋`stats.rejected` 三份独立计数，Go 用 `fakeDomain` 的 admits/evidences/proactives/sources 与 ACK 记录逐条数。**按实况改判两处**：候选面 `userId` 的拒绝码从 `candidate_payload_invalid` 改为 `foreign_user_id`（原来是 protojson 未知字段顺带拒，跨语言码面分叉）、事件面 `user_id` 从 `payload_not_json` 改为 `foreign_user_id`（原来看起来像「体不是 JSON」）；两条旧断言同步改并补注释。**实测**：聚焦 Python 四份闸 **117 passed**（新增 `test_mq_identity_contract.py` 14 条＋`test_ai_mq_consumer.py` 9 变体＋1 正例）；Go 入站包全绿，新增 5 个测试函数／17 个子用例（候选面 9 变体、事件面 8 变体＋正例＋冲突）逐条 PASS；backend 全量 **1646 passed／90 skipped／1 failed**（唯一失败仍是 `test_r5_interop_broker.py::test_case_plan_fully_ran`，`CLOSEN_AMQP_URL` 未给的既有环境缺口）；Go `go test ./...` **全部包 ok／0 FAIL**。**变异自证** `scripts/mutate_t703_gates.py`：**打红 7/7、保持绿 2/2、未跑 0、残留 0**（4 个靶文件 copy2＋`filecmp(shallow=False)` 写回）。过程中抓到一条假绿并修掉：M7 改 Go 码值首轮仍绿——测试拿 Go 常量比自己（断言两侧同源），已改为与共享用例的 `reject_reason` 字面量比，二次运行才红。**未跑（不算绿）**：真 broker＋真 PG 的 R5 六条跨进程用例（本机无 `CLOSEN_AMQP_URL`）；产品流量仍为零，因此本次只确认「契约缺口已收紧」，不宣称历史上存在过可利用的跨用户写入。
+
+---
+
+### T7-04 · P0 生产现场验收与既有 REVIEW 结案
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| BLOCKED | PLAT + BE + FE | T0-01、T0-02、T0-03、T7-01、T7-02、T7-03 | XL |
+
+**优先级**：P0。目标是把已有代码面 REVIEW 变成现场证据，不新造第二套部署。
+
+**怎么做**
+1. 在现役 VPS/k3s 复核镜像、端口、健康检查、worker 重启重投、备份恢复、staging/prod 隔离和生产审批闸。
+2. 对账 `crontab -l`、路由、调度日志和告警落点；在具备 PG/broker 前置的环境实际执行 R5 六条跨进程用例。
+3. 真机完成 StoreKit 沙盒购买、恢复、退款/撤销，以及 PDF 和通用导出的下载/打开/失败恢复。
+4. 用证据逐条结案 T0-01/T0-02/T0-03 和可升态功能；失败项保留 REVIEW/BLOCKED，不用本机结果代替线上。
+
+**验收**
+- 生产进程、调度、告警、备份恢复各有带日期的现场记录；关键链连续 7 天无未解释调度失败。
+- R5 六条实际运行；付费、导出、删除及失败恢复均有真机/服务端对账证据。
+- `feature_status.py --check` 通过，升态只按真实证据；T0 三项满足各自原验收后才转 DONE。
+
+> 阻塞 2026-10-26｜master 工作区（未推）｜**本票的验收对象是生产现场，本机拿不出任何一条线上证据，故记 BLOCKED，不用本机结果代替线上**。**已实测（可验部分）**：`python3 scripts/feature_status.py --check` → exit 0（「台账一致：12 条 feature 覆盖 §16 10 行矩阵；IMPLEMENTED 1／WIRED 6／E2E_VERIFIED 5」）——这只证明功能状态清单自身自洽，不证明「线上已升态」。**四条阻塞逐条对验收**：①现役 VPS/k3s 复核（镜像、端口、健康检查、worker 重启重投、备份恢复、staging/prod 隔离、生产审批闸）：本机唯一 kube 上下文是 `orbstack`（本地模拟），`KUBECONFIG` 未设置，且未获生产操作授权 ⇒ 一项现场记录都没取到；②R5 六条：`CLOSEN_AMQP_URL` 与 `TEST_DATABASE_URL` 均为空 ⇒ `test_r5_interop_broker.py` 的 `CASE_PLAN` 六条（chain_outbox_to_canonical／candidate_id_derivation／metric_surfaces_share_vocabulary／replay_is_absorbed_by_inbox／bad_candidate_rejects_with_shared_reason／python_never_consumes_candidate_plane）**一条都没跑**，按该文件自己的口径 skip≠绿；③真机 StoreKit 沙盒购买/恢复/退款撤销，PDF 与通用导出的下载/打开/失败恢复：本机只有 Xcode 工具链，无签名真机与服务器对账记录；④「关键链连续 7 天无未解释调度失败」需要线上 `crontab -l`、调度日志、告警落点与一个观测窗口起点，今天无法给出。**解阻条件（缺一不可）**：拿到生产只读/操作授权并明确 7 天窗口起点；提供可连的真 PG 与真 broker（或授权在本机 OrbStack 起等价栈并声明它不能替代线上）；提供可签名的真机与沙盒账号。在此之前 T0-01/T0-02/T0-03 及依赖本票升态的功能维持原状态。**未跑（不算绿）**：①–④ 全部。
+
+---
+
+### T7-05 · P0 唯一官网、统一定位与法务阻断清零
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| BLOCKED | ARCH + GROWTH | — | M |
+
+**优先级**：P0。SEO/GEO 前置；定位统一为“有证据的长期自我理解 + 可验证的成长行动”，不得回退为泛 AI 陪伴或绝对化记忆承诺。
+
+**怎么做**
+1. 决定唯一官网源码与发布项目；若采用 `site/`，先对账 `web/` 的公开 URL、Cloudflare Functions、隐私/条款和重定向，再切换。
+2. 全站替换 AI companion、“remembers everything”等冲突文案，中英术语与 App Store/应用内一致。
+3. 填真实运营主体、联系方式和生效日期；逐项核对供应商、保留期限、导出删除和模型训练承诺。
+4. 旧发布源只读归档并留指向，不删除历史证据；建立 URL 与文案禁用词闸。
+
+**验收**
+- 生产只由一个源码源发布；既有公开 URL 无意外 404，隐私/条款无占位符和未来生效日期。
+- 首页、法务页、App Store 准备文案对产品实体和隐私承诺一致；法务/负责人确认有记录。
+- 自动化检查 canonical、互指链接、占位符和冲突定位文案，全部通过后才允许切换。
+
+> 阻塞 2026-10-26｜master 工作区（未推）｜**能查的已查完，卡在三个必须由人给的事实上：运营主体是谁、法务页何时真生效、发布源切换给不给授权**。**① 线上是 `web/`，不是 `site/`**：`scripts/deploy_web.sh:14` 的 `PROJECT="closenai-web"`、`:25` `wrangler pages deploy . --cwd web`，`scripts/deploy_pages.py:14` `ROOT=…/web`；线上 `/privacy` 的 class 集合（`box/en/fill/lang/meta/on/warn/wrap`）与 `web/privacy.html` 逐项相同、与 `site/dist/privacy/index.html`（`atmos/btn-store/foot-links/grain/intro/kicker/legal/logo`）不同；线上首页含「成长陪伴」（只在 `web/index.html:527`），不含 `site/` 的「AI companion」「remembers everything」。`site/astro.config.mjs` 仍写着「CF Pages build output = site/dist」，与实际发布路径矛盾。**② 法务页线上仍是占位与未来日期**：`web/privacy.html:52/174` 与 `web/terms.html:51/138` 写 `生效日期 2026-11-01`（今天 2026-10-26，尚未生效），`web/privacy.html:54` 与 `web/terms.html:53` 写 `［运营主体全称］`；实测线上 `https://closenai.app/privacy` 与 `/terms` 均 200，且正文里同样出现 `运营主体全称` 1 次、`2026-11-01` 2 次——**占位符已经公开**。仓库内没有任何真实公司/个体主体名称、注册地址或法务审阅记录可替换。**③ 第二源带着冲突定位**：`site/src/i18n.ts:12/14/26/79/90` 仍有 `AI companion`、`It remembers everything you tell it`、`A companion that keeps the whole picture`、`remembers everything`，`site/dist` 是它的旧构建；只要有人把 `site/` 接上 Pages，就会与「有证据的长期自我理解＋可验证成长行动」的定位冲突。**④ 公开 URL 现状**：`/`、`/privacy`、`/terms`、`/robots.txt`、`/sitemap.xml`、`/r/` 均 200，不存在的路径 404；但 `site/` 时代的 `/zh/`、`/zh/privacy` 现在 **404**——若它们曾被分享过，切换/收敛源时需要留重定向（本机无访问日志，无法确认历史公开面）。**未做（故不能结案）**：不编造运营主体、地址、联系方式与生效日期；不替法务签字；不在未授权下改发布源或部署；`canonical`/互指/占位符/冲突文案的自动闸尚未落地（它必须钉在最终选定的源上，现在钉哪个都是错的）。**解除阻塞需要**：真实运营主体全称与联系方式、法务确认的生效日期与审阅记录、书面授权选定的唯一发布源（`web/` 或 `site/`）与切换窗口；拿到这三样后按验收三条一次做完并跑自动闸。
+
+---
+
+### T7-06 · P0 指标字典、漏斗与数据质量看板
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| DONE | ARCH + BE + FE | T7-02 | M |
+
+**优先级**：P0。先能可信测量，再招募种子用户；不以事件发送量替代服务端接受量。
+
+**怎么做**
+1. 定义首次反思、首条有证据洞察、首次行动、到期结果、第二次核心循环和付费交付事件；每格给 owner、触发点、机器码和隐私边界。
+2. 建注册→反思→洞察→行动→结果漏斗，按注册周、语言和平台切分；保留洞察纠正和失败出口。
+3. 看板同时展示 queued、accepted、relayed、dropped、duplicate 和延迟，并做设备/服务端抽样对账。
+
+**验收**
+- 每个核心事件可从 UI 触发点追到服务端接受记录，测试事件不污染正式指标。
+- 构造 accepted/dropped/duplicate 混合批次，看板数字与权威存储逐格一致。
+- 能导出指定队列的核心循环转化和第二次自然复用结果；无真实用户时明确显示零，不造演示数据。
+
+> 结案 2026-10-26｜master 工作区（未推）｜**指标从「数事件」改成「数业务表」，漏斗、投递质量与看板同源导出**。**四件套**：`backend/services/metrics_export.py`（口径与纯函数）、`scripts/export_metrics.py`（CLI：`--since/--until/--input/--batch-stats/--json/--html/--strict`）、`docs/metrics-dictionary.md`（与代码逐行对账的字典）、`backend/tests/test_metrics_export.py`（18 条闸）。**口径三条**：①注册/反思/有证据洞察/行动/结果/第二次循环/付费交付全部从 `users`、`growth_records(record_type='reflection')`、`insights`+`insight_evidence(status='published')`、`personal_commitments`、`outcomes(origin='user_statement')`、`user_entitlements`+`share_exports` 数出来，分析事件不参与漏斗；②窗口内没有真实用户时七格全 0 且 `data_status="no_users"`，看板写「没有真实用户…不填演示数据」，没有批次日志时 `dropped` 是 `null` 而不是 0；③`@closenai.test`（`TEST_USER_SUFFIXES`）按装载层排除并在 `test_users_excluded` 报数。**七格字典**：每格都写了 owner、UI 触发文件与符号、`api.ts` 函数、服务端入口、权威表和隐私边界（只取时间/计数/词表，不读正文、statement、note、导出 payload）；`test_every_ui_trigger_and_api_symbol_exists` 实读 `AuthScreen.tsx`/`ReflectScreen.tsx`/`InsightsScreen.tsx`/`GrowthRecordsScreen.tsx`/`iap.ts` 与 `api.ts` 核对符号存在，`test_dictionary_doc_matches_code` 防代码与文档各自漂移。**漏斗**：注册窗口起含止不含，按 ISO 周（`by_cohort`）、`users.language`、`push_tokens` 平台（apns/fcm）切分；`first_loop_outcome` 要求 `反思 ≤ 洞察 ≤ 行动 < 结果` 且取最早结果；`second_cycle` 要求第一次结果之后反思/洞察/行动**三件都重新出现**再来一条新结果——补记旧行动的结果不算（单测里 `one-loop` 两条结果 → 第二次循环 0）；纠正与失败出口随漏斗一起出（`quality.rejected_insights/corrections/failure_outcomes`，失败＝`result='worse'`）。**投递六格**：`summarize_delivery` 出 queued/pending、accepted/relayed、duplicate、dropped、延迟 p50/p95，恒等式 `accepted+duplicate+dropped+queued == total` 只在批次 dropped **有值且 total>0** 时判定，台账 `retryable+permanent` 单独记 `ledger_dropped`、**不顶替** `dropped`；`reconcile_sampling` 按事件出设备/服务端/差，`tolerance` 可配。**看板**：`render_dashboard_html` 零依赖静态页，七格与六格同页，插值一律 `html.escape`，未知格显示「未知」。**实测**：`pytest backend/tests/test_metrics_export.py -q` → **18 passed**；CLI 离线跑两例——1 条构造用户（2026-11 窗口）→ `data_status=ok`、`total_users=1`、`first_outcome=1`、`by_cohort=2026-W45`、`by_language=zh`、`quality=1/2/0`、批次 `dropped=2`、`sampling.clean=true`，`--strict` exit 0；空输入 → `no_users`＋七格全 0＋看板投递区写「未提供台账输入」，无演示数据；`--html` 两例均生成。**变异自证** `scripts/mutate_t706_gates.py`：**打红 7/7、保持绿 2/2、未跑 0、残留 0**（`metrics_export.py`＋`metrics-dictionary.md` copy2＋`filecmp(shallow=False)` 写回；红靶＝第二次循环降级成多数一条结果、撤掉时间顺序、`data_status` 恒 ok、关掉测试账号排除、台账顶替 dropped、抽样漂移不报、看板不转义）。**未跑（不算绿）**：`load_journeys`/`load_delivery` 的真库装载与「看板数字与权威存储逐格一致」只在构造事实与单测里成立——本机无 PG（`TEST_DATABASE_URL` 未给），未对生产库跑过一次导出；看板只输出到本机文件，未部署到任何域名；「UI 触发点到服务端接受记录」的链路核对到符号与路由定义，未在生产复现一次真实事件。
+
+---
+
+### T7-07 · P0 10–20 名种子用户核心价值实验
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| BLOCKED | ARCH + GROWTH | T7-04、T7-05、T7-06 | L |
+
+**优先级**：P0。验证核心价值，不做泛流量增长；样本门槛是内部实验建议，不是行业基准。
+
+**怎么做**
+1. 招募 10–20 名已有日记/复盘习惯的目标用户，记录招募来源、知情同意和无效样本排除理由。
+2. 观察首次记录→有证据洞察→行动→到期结果全过程，每周访谈，保存具体问题和原话，不代用户完成关键步骤。
+3. 每周只修阻断核心循环的问题；按“招募不匹配/首次价值太慢/价值不成立”记录假设和证据。
+
+**验收**
+- 至少 10 名有效参与者独立完成一次完整核心循环，或明确未达门并停止扩张。
+- 至少 5 名在无人工提醒下完成第二次循环，并能指出一次具体有价值的证据/回访；未达门同样如实记录。
+- 输出保留、修改、停止三类决策及证据；不得只报注册数、满意度或挑选后的好评。
+
+> 阻塞 2026-10-26｜master 工作区（未推）｜**一个种子用户都还没招，不能把「没跑」写成「未达门」**。**仓库证据**：全仓检索「种子用户 / 招募 / 访谈」只命中本台账的任务条文，没有招募来源表、知情同意文本、访谈提纲或原话记录；`T7-04` 仍 BLOCKED（生产现场与真机取证未做），`T7-05` 仍 BLOCKED（官网主体/法务页占位），`T7-06` 的漏斗装载器 `load_journeys`/`load_delivery` 也未对真库跑过——**当前没有任何一条真实核心循环数据可用来筛有效样本**。**不做的理由**：验收要求「至少 10 名有效参与者」「至少 5 名无人工提醒完成第二次循环」，这两句只能由真人跑出来；用测试账号、内部同事或演示数据凑数就是伪造，且违反 `T7-06` 已定的 `@closenai.test` 排除口径。**解除阻塞需要**：`T7-04`、`T7-05` 结案；一份写明渠道、纳排标准、知情同意与退出方式的招募方案；10–20 名符合「已有日记/复盘习惯」的真实参与者；每周访谈记录与 `T7-06` 按注册周/语言/平台的导出截图。**届时验收口径**：有效样本独立完成一次完整循环 ≥10，无提醒第二次循环 ≥5，并给出保留/修改/停止三类决策及证据；达不到就如实记「未达门并停止扩张」。
+
+---
+
+### T7-08 · P1 技术 SEO 与双语内容底座
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| BLOCKED | GROWTH + PLAT | T7-05 | M |
+
+**优先级**：P1。遵循 Google 普通 SEO 基础，不以特殊 AI 标记代替可抓取内容。
+
+**怎么做**
+1. 对全部公开 URL 验状态码、title、description、H1、canonical、hreflang/x-default、robots 和 sitemap；只提交规范 200 页面。
+2. 对齐 Organization、WebSite、MobileApplication、WebPage 与可见内容；FAQ 只标真实可见问答，不伪造评分或上架状态。
+3. 建四个主题簇的中英落地页模板与内链；先发布 2–4 篇有具体方法/模板的内容，不批量生成近义页。
+4. 接入 Search Console、Bing Webmaster Tools 和百度搜索资源平台，保存提交与索引基线。
+
+**验收**
+- 自动断链、canonical、hreflang 互指、结构化数据和 sitemap 对账全绿；移动端真实页面可用。
+- 搜索平台已接收 sitemap，首批内容可抓取；收录与实际流量按平台后续数据登记，不以提交当收录。
+- 内容没有无来源统计、虚构用户案例、医疗承诺或关键词堆砌。
+
+> 阻塞 2026-10-26｜master 工作区（未推）｜**技术面审计做完并留证，但「改哪个源」还没定，内容与提交也都缺账号**。**线上实测**（2026-10-26，浏览器 UA 取 `https://closenai.app`）：`/`、`/privacy`、`/terms`、`/robots.txt`、`/sitemap.xml`、`/r/` 均 **200**，不存在的路径 **404**；三页 `title`/`description` 齐全，`canonical` 分别指向 `/`、`/privacy`、`/terms`，首页单 `H1`、`viewport` 存在、`robots meta=index, follow, max-image-preview:large`；首页 JSON-LD 为 `WebSite`＋`Organization`＋`SoftwareApplication`，无评分/上架状态等虚构字段。**缺口**：① 三页**没有任何 `hreflang`/`x-default`**，法务页把中英两版放在同一 URL（`web/privacy.html`、`web/terms.html` 各 **2 个 `H1`**，`<html lang="zh-CN">` 覆盖英文半页）；② `sitemap.xml` 只有 3 条 URL，无语言互指、无内容页；③ 旧 Astro 源的 `/zh/`、`/zh/privacy` 现在 **404**，切换前要决定是否留重定向；④ `web/` 里没有 GSC/Bing/百度任何验证标签，搜索平台未接入；⑤ 四个主题簇与 2–4 篇双语内容**未写**——写之前必须先定 `T7-05` 的运营主体、生效日期与唯一定位，否则是返工。**未做（故不能结案）**：不改 `web/` 的 canonical/hreflang 结构（源未定）、不建搜索平台账号、不提交 sitemap、不写内容页、不宣称收录或流量。**解除阻塞需要**：`T7-05` 结案并书面确认唯一发布源；GSC/Bing/百度账号与提交权限；双语 URL 方案（同页锚点 vs `/zh/` 独立页）与 2–4 篇内容的事实来源。拿到后按验收四条逐项跑闸并保存提交与索引基线。
+
+---
+
+### T7-09 · P1 GEO 可引用内容与真实第三方分发
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| BLOCKED | GROWTH + ARCH | T7-08 | L |
+
+**优先级**：P1。目标是可引用与可核验，不保证任何生成式引擎提及。
+
+**怎么做**
+1. 每篇支柱内容开头直接回答问题，随后给步骤、边界、反例、作者、日期和来源；术语与产品实体保持一致。
+2. 建立关于/作者/纠错页；真实数据研究必须公开方法、样本、日期和匿名化授权，没有样本则不写统计。
+3. 按官方文档分别配置搜索展示、用户触发和训练爬虫；若采用“允许搜索、不允许训练”，对 OAI-SearchBot、ChatGPT-User、GPTBot 分组表达。
+4. 做垂直社区、创作者评测、访谈等真实分发；不购买批量外链，不伪造第三方口碑。
+
+**验收**
+- 至少形成一批问题→最佳回答页→来源→分发记录的对账表，每个公开主张能回链。
+- robots 分组与实际隐私策略一致，公开页面实测可访问；`llms.txt` 若做只算补充，不算结案条件。
+- 第三方提及必须真实可访问；没有引用时记录零，不用自问自答截图冒充引擎可见性。
+
+> 阻塞 2026-10-26｜master 工作区（未推）｜**可引用内容与分发的前置全空，且依赖 `T7-08`（同样阻塞）**。**现状证据**：`web/robots.txt` 只有 `User-agent: *`＋`Allow: /`＋两条 `Disallow`（`/r/`、`/api/`），**没有** `OAI-SearchBot`/`ChatGPT-User`/`GPTBot` 的任何分组，也没有「允许搜索、不允许训练」的表达；`web/` 只有 `404.html`、`index.html`、`privacy.html`、`terms.html`，**没有**关于页、作者页、纠错页，也没有 `llms.txt`；全仓没有任何垂直社区、创作者评测或访谈的分发记录（检索「访谈/评测/分发」只命中台账条文）。**不做的理由**：支柱内容要以「问题→最佳回答页→来源→分发记录」立账，作者与来源必须指向真实主体——这正是 `T7-05` 卡住的运营主体与法务信息；robots 分组必须与实际隐私策略一致，不能先写「不训练」再去改政策；第三方提及只能是真实可访问的页面，本机无法凭空产生。**未做**：不写支柱页、不加 robots 分组、不建 `llms.txt`、不做任何外部分发或口碑。**解除阻塞需要**：`T7-08` 结案（唯一源、双语落地页、搜索平台基线）；产品/隐私负责人签字的「搜索展示 / 用户触发 / 训练爬虫」策略；真实作者与纠错渠道；可执行的分发渠道清单。届时先做一批问题→页面→来源对账表，再按官方文档分组 robots 并实测抓取。
+
+---
+
+### T7-10 · P1 搜索/生成式引用测量与月度复盘
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| BLOCKED | GROWTH + PLAT | T7-06、T7-08、T7-09 | M |
+
+**优先级**：P1。测量波动与有效访问，不把单次生成回答当稳定排名。
+
+**怎么做**
+1. 固定 20–30 个中英目标问题，记录日期、语言、地区、登录态、引擎/模型、是否提及、引用 URL 与答案摘要，重复观察。
+2. 汇总 Search Console、Bing AI Performance、服务器爬虫日志和 AI 引荐流量，按问题簇和落地页对齐。
+3. 每月只根据引用缺口、内容差距和有效激活决定更新/停做事项。
+
+**验收**
+- 有可复跑的基线表和原始证据，同一问题多次结果不被人为合并成单一“排名”。
+- 能区分爬虫访问、引擎引用、引荐访问和访问后的核心激活；无数据处显示未知/零。
+- 至少完成一轮有决策的月度复盘；流量未出现也如实结案测量建设，不宣称增长达成。
+
+> 阻塞 2026-10-26｜master 工作区（未推）｜**没有平台账号、没有基线表、没有一次可复跑的引擎观测，测量无从谈起**。**现状证据**：仓库内没有任何 Search Console / Bing Webmaster / 百度搜索资源平台的验证标签或提交记录（`web/` 三页均无 `google-site-verification`、`msvalidate`、`baidu-site-verification`）；没有 20–30 个固定问题的基线文件，也没有服务器爬虫日志与 AI 引荐流量数据可汇总；`T7-06` 只交付了业务漏斗与投递质量，**不含**搜索侧数据；`T7-08`、`T7-09` 均阻塞，尚无落地页可被引用。**不做的理由**：生成式回答随日期、地区、登录态、模型版本变化，单次截图或手工拼接的「排名」正是本票要禁止的东西；在没有平台权限和日志的情况下编一张基线表就是造数。**未做**：不建问题清单、不跑引擎观测、不写月度复盘、不宣称任何提及或引用。**解除阻塞需要**：`T7-08`、`T7-09` 结案；GSC/Bing Webmaster（含 AI Performance）与百度资源平台权限；服务器访问日志导出；确定 20–30 个中英问题、地区与登录态口径。拿到后按「日期/语言/地区/登录态/引擎/是否提及/引用 URL/答案摘要」逐条留原始证据，重复观察一个月再做首次复盘。
+
+---
+
+### T7-11 · P2 付费与获客扩张闸门
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| BLOCKED | ARCH + GROWTH | T7-04、T7-07、T7-10 | M |
+
+**优先级**：P2。只有核心价值与交付稳定后才扩张；预算门槛是内部上限，不是收益承诺。
+
+**怎么做**
+1. 汇总第二次核心循环、付费转化、续费/退款、权益交付失败和模型成本，按渠道与国家切分。
+2. 为每个候选渠道写假设、预算上限、有效激活定义和停止条件，一次只开一个可归因的小实验。
+3. 未通过 T7-07 价值门或 T7-04 交付门时保持不投放，把预算回到激活和可靠性。
+
+**验收**
+- 每次实验有预算、归因、有效激活、第二次循环和退款/交付结果，不以注册量单独判胜。
+- 达到停止条件即停；无证据支持扩张时，本票可以“维持不投放”的决策结案，但不能写成增长成功。
+
+> 阻塞 2026-10-26｜master 工作区（未推）｜**按本票自己的停止条件，现在就该「维持不投放」，而不是做渠道实验**。**现状证据**：`T7-04`（生产交付门）BLOCKED、`T7-07`（价值门）BLOCKED、`T7-10`（测量门）BLOCKED；`T7-06` 的 `paid_delivery` 与投递质量装载器**未对真库跑过**，因此没有付费转化、续费/退款、权益交付失败或模型成本的实际数字；仓库内没有任何广告账户、预算授权、渠道实验记录或归因数据。**不做的理由**：验收要求每次实验有预算、归因、有效激活、第二次循环与退款/交付结果；在价值门和交付门都没过时投放，只会把预算花在留不住的用户上，也违反「一次只开一个可归因的小实验」。**本轮决策**：**维持不投放**，预算回到激活与可靠性；这是验收允许的结案形态，但本票仍记 BLOCKED，不写成「增长成功」。**解除阻塞需要**：`T7-04`、`T7-07`、`T7-10` 至少各有一轮实测结果；一份按渠道与国家切分的付费/退款/交付失败/模型成本报表；单渠道的假设、预算上限、有效激活定义与停止条件。达到后再开第一个可归因实验。
+
+---
+
+### T7-12 · P1 Python 依赖可重复安装
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| DONE | PLAT + BE | — | M |
+
+**优先级**：P1。解决 `>=` 导致的被动漂移，不做无关依赖大升级。
+
+**怎么做**
+1. 在当前已验证依赖集合上生成完整锁文件和受控安装入口，直接依赖与传递依赖版本可复现。
+2. CI 与部署使用同一锁文件；记录 Python/系统包前置，安全更新走单独升级和全量测试。
+3. 校验干净环境两次安装版本一致，冲突时失败而不是静默换版本。
+
+**验收**
+- 两个干净环境安装后的依赖快照一致，CI 不再按 `>=` 临时解析漂移。
+- 后端测试与构建结果有实测记录；缺 PG/broker 的用例仍按未跑，不由锁文件任务宣称修复。
+
+> 结案 2026-10-26｜master 工作区（未推）｜**后端依赖从「按 `>=` 现场解析」改成「两份哈希锁 + 唯一安装入口」**。**两份锁**：`backend/requirements.lock`（运行面 74 包）与 `backend/requirements-dev.lock`（开发面 77 包，通过 `-r requirements.txt` 继承，共享包版本逐条相同）；每一条都是 `==` 精确版 + `--hash=sha256:`，写文件用 `uv pip compile --generate-hashes` 生成后加统一中文表头，**不用手改**。开发面多出的三个包是 `pypdf`（仅测试解析 PDF）、`grpcio-tools`（构建期带 protoc，约 22M，不进镜像）、`setuptools`（前者的传递依赖）。**输入清单不动**：`requirements.txt` 仍是人写的范围清单，只被锁生成脚本读取、不再被任何安装入口直接安装；新增 `backend/requirements-dev.in` 记开发输入。**入口两件**：`scripts/install_backend_deps.sh --runtime|--dev`（先判 CPython ≥3.12，再 `pip install --require-hashes -r <lock>`；索引不一致直接失败，不静默换版本）、`scripts/lock_backend_deps.sh`（依赖变更后重生成两份锁，要求本机有 uv）。**消费面改完**：`deploy/Dockerfile.py-api` 改为 `COPY backend/requirements.lock` ＋ `pip install --require-hashes`，不再拷 `requirements.txt`；`.github/workflows/ci.yml` 三个作业的缓存路径与安装步骤、`mutation-nightly.yml` 全部指向开发锁与同一入口，仓库内 CI 已无任何 `requirements.txt` 安装点。**实测**：`scripts/verify_backend_lock.py --pythons python3.12,python3.13` 建两个干净 venv（3.12.10／3.13.3）、用开发锁装、`pip check` 均 `No broken requirements found`，**2 个环境 × 77 包快照逐条一致**；本机 `.venv` 用同一入口装锁，补上 5 个已声明却缺失的包（`posthog 7.75.11`、`h2 4.4.1`、`hpack 4.2.0`、`hyperframe 6.1.0`、`backoff 2.2.1`）。**后端全量**：`GOROOT=/Users/fengyu/sdk/go1.27.1 python -m pytest backend/tests -q` → **1703 passed／38 skipped／1 failed**；唯一红的是 `test_r5_interop_broker.py::test_case_plan_fully_ran`——它是「缺 broker 不许当绿」的预警闸，本机 `CLOSEN_AMQP_URL` 为空故按设计打红，**与 T7-04 登记的同一缺口，不由本票修复**；38 条 skip 逐项为 AMQP 13、`TEST_DATABASE_URL` 21＋容器 PG 2、`N2_MIGRATE_DATABASE_URL` 1、k8s 命名空间 1，全部记「未跑」。**静态闸**：`backend/tests/test_python_lock.py` 5 条（锁完整/精确/带哈希、直接依赖被覆盖且版本满足声明、开发锁为超集、镜像与 CI 都走锁并带 `--require-hashes`、说明文档含前置与入口）。**变异自证** `scripts/mutate_t712_gates.py`：**打红 7/7、保持绿 2/2、未跑 0、残留 0**（四个靶文件 copy2＋`filecmp(shallow=False)` 写回；红靶＝抽哈希、版本漂出声明、两锁版本分叉、开发锁丢 pypdf、镜像回退 `requirements.txt`、CI 回退 `requirements.txt`、文档丢 `--require-hashes`）。**口径说明**：干净环境取证用了阿里云 PyPI 镜像（哈希仍逐包校验，内容等价），原因是 `files.pythonhosted.org` 实测只有 163 KB/s、60s 才装完一台机器；镜像地址不入脚本、走 `PIP_INDEX_URL` 环境变量。**未跑（不算绿）**：镜像构建与 GitHub Actions 实跑未执行（未推、无 CI 触发）；PG/broker 用例仍按未跑，锁文件任务不宣称修复它们。
+
+---
+
+### T7-13 · P1 订阅接口原子限流
+
+| 状态 | 负责 | 依赖 | 规模 |
+|---|---|---|---|
+| DONE | PLAT | — | S |
+
+**优先级**：P1。替换 KV get/put 非原子计数，保留蜜罐、邮箱校验和重复订阅语义。
+
+**怎么做**
+1. 选择 Cloudflare 原生限流或具备原子性的计数方案，明确 IP 键、窗口、故障方向和隐私保留期。
+2. 并发请求只能按配置次数通过；合法重复邮箱仍返回 duplicate，不重复写入。
+3. 补并发、窗口过期、无 IP、存储故障和 CORS 测试；不得把真实邮箱/IP 写入测试日志。
+
+**验收**
+- 并发超过限额时只有允许数量成功，窗口过后可恢复；限流故障不会静默变成无限接受。
+- 正常 JSON/form 提交、蜜罐和重复订阅行为不回归，实测计数与配置一致。
+
+> 结案 2026-10-26｜master 工作区（未推）｜**订阅接口的每分钟三次从「并发可绕过」变成「单语句原子计数」**。**选型按实况**：Pages Functions 的绑定清单里没有 Workers 的 rate-limit 绑定（官方 `pages/functions/bindings` 只列 KV/DO/R2/D1/…），所以取任务允许的第二条路——D1 上一条 `INSERT INTO subscribe_rate_limits … ON CONFLICT(bucket_key) DO UPDATE SET count = CASE WHEN 同窗口 THEN count+1 ELSE 1 END … RETURNING count, window_start`，加计数与读结果在同一语句里，不再是 get→put。**四个口子写死**：键＝`ip:`＋`sha256(cf-connecting-ip)` 前 32 位；窗口＝60s（上限 3）；故障方向＝D1 未绑定/查询报错/语句不回行一律 `503 rate_limit_unavailable`，拒绝路径零写名单；保留期＝原始 IP 与邮箱都不进限流表，旧窗口在新窗口首个请求时清掉，完全无流量时最后一批行留到下次请求（这条限制写进了 `deploy/cloudflare/README.md`）。**保留的语义**：蜜罐短路不写任何存储；邮箱格式校验在限流之前；重复邮箱仍返回 `duplicate:true` 且名单只写一次（KV 同键覆盖）；JSON 与 form 两种提交都保留。**新增四件套**：`web/functions/api/subscribe.js`（原子计数＋失败关闭）、`deploy/cloudflare/subscribe_rate_limits.sql`（表＋窗口索引）、`deploy/cloudflare/README.md`（建库、production/preview 双绑定、验证命令）、`tests/web/subscribe.test.mjs`（13 条 Node 内置 test runner 闸，无第三方依赖）。**实测**：`node --test --test-reporter=tap tests/web/subscribe.test.mjs` **13 passed／0 failed**，覆盖并发 10 请求恰好 3 个 200、窗口 60s 后恢复且 `window_start` 前移、无 IP 400 零写、D1 故障/未绑定 503 零写、蜜罐零写、非法邮箱零写、重复邮箱只写一次、表单提交、限流键只含 32 位哈希、GET 405／OPTIONS 204 与 429 的 CORS；另用 Python `sqlite3` 直接实跑同一条 SQL（窗口 100 计到 1→4，窗口 160 回到 1→2），确认 D1 沿用的 SQLite 语义与窗口翻转不是 fake 演出来的。**变异自证** `scripts/mutate_t713_gates.py`：**打红 7/7、保持绿 2/2、未跑 0、残留 0**（两个靶文件 copy2＋`filecmp(shallow=False)` 写回；红靶分别打上限临界、窗口翻转、fail-open、无 IP 放行、蜜罐短路、重复短路、原始 IP 落库）。**未跑（不算绿）**：D1 的 `wrangler d1 create/execute` 与 Pages 的 `RATE_LIMIT_DB` 绑定、线上部署与真流量对账均未执行（无生产操作授权与凭据）；当前线上仍是旧 KV 版本，因此本次只确认代码与闸就绪，不宣称线上并发绕过已被堵住。
 
 ---
 

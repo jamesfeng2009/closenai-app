@@ -1,0 +1,71 @@
+{
+  "locale": "en-US",
+  "platform": "ios_app_store",
+  "product": "ClosenAI",
+  "compiled_on": "2026-11-02",
+  "owner": "GROWTH",
+  "limits": {
+    "title": 30,
+    "subtitle": 30,
+    "keywords": 100
+  },
+  "banned_terms": [
+    "therapy",
+    "treat",
+    "diagnose",
+    "remembers everything",
+    "AI companion",
+    "AI friend",
+    "best",
+    "#1"
+  ],
+  "competitor_brands": [
+    "rosebud",
+    "day one",
+    "dayone",
+    "replika",
+    "character.ai",
+    "notion",
+    "evernote"
+  ],
+  "fields": {
+    "title": "ClosenAI: AI Journal & Growth",
+    "subtitle_variants": [
+      {
+        "id": "A",
+        "text": "The journal that remembers you",
+        "hypothesis": "「记得你」比「AI 日记」更能让有历史的用户停下——记忆承诺是本品与通用日记器的差异点。",
+        "kill_metric": "两周后产品页浏览→安装转化低于 A 版基线或 KG-01 审计里「remembers you」被判改写；任一成立即换回 B。",
+        "claim_risk": "记忆承诺属 KG-01 四类风险之一，落地前须与真实记忆/删除能力一致（KG-23 口径：记得的是你选择分享的内容）。"
+      },
+      {
+        "id": "B",
+        "text": "It asks how it actually went",
+        "hypothesis": "「结果回访」（你上次说要做的事后来怎样）是唯一竞品没占的意图，点击的人更少但激活更准。",
+        "kill_metric": "两周后 B 版首次签到→首条证据洞察的转化率不高于 A，且安装量低于 A 的 80%；同时成立则保留 A 并停测。",
+        "claim_risk": "无绝对化承诺、无医疗词；这条的风险面只在「asks」是否被读成陪伴（ADR 决定 3：不做陪伴角色）。"
+      }
+    ],
+    "keyword_variants": [
+      {
+        "id": "mbti_enneagram",
+        "text": "mood tracker,self improvement,self discovery,personality test,mbti,enneagram,reflection,goals,diary",
+        "legal_gate": "KG-02 未签字前**不得提交**：`mbti`/`enneagram` 是他人商标词面，用作关键词需法务出具用词说明。",
+        "hypothesis": "直接买来自人格测试的意图（`mbti test free` 40.5K、`enneagram test online` 5.4K，Ubersuggest 美国/英语 2026-10-27）。",
+        "kill_metric": "8 周无曝光或无有效激活即降级替换（KG-05 规则）；若商店审核因商标词被拒，立即切保守版并记入 KG-06。"
+      },
+      {
+        "id": "conservative",
+        "text": "mood tracker,self improvement,self discovery,personality test,16 types,reflection,goals,diary,memory",
+        "legal_gate": "KG-02 未签字也可用：`16 types` 是描述性说法，不复现商标（方案 §4.4 第 1 条的保守版口径）。",
+        "hypothesis": "用 `16 types` 换掉 `mbti`/`enneagram` 两个商标词，腾出的字符给 `memory`；牺牲一部分人格测试意图换商标安全。",
+        "kill_metric": "若 `16 types` 词面 8 周零曝光，说明该说法没人搜，退回 A 版并走法务签字路径。"
+      }
+    ]
+  },
+  "play_store_short_description": {
+    "text": "An AI journal that remembers you. Track mood and revisit your growth.",
+    "limit": 80,
+    "status": "KG-07 BLOCKED：文案可复用，未提交 Play Console。"
+  }
+}
