@@ -9,9 +9,9 @@ export const T = {
   en: {
     nav: { features: 'Features', memory: 'Memory', privacy: 'Privacy', faq: 'FAQ', get: 'Get the App' },
     hero: {
-      kicker: 'iOS · 15 languages · AI companion',
-      h1Html: 'It remembers <em>everything</em> you tell it.',
-      sub: 'ClosenAI is an AI companion built on long-term memory. What you said last Tuesday, how you felt after that call, the small things you mentioned once — it keeps them, and it grows with you.',
+      kicker: 'iOS · 15 languages · AI growth journal',
+      h1Html: 'The journal that remembers <em>you</em>.',
+      sub: 'ClosenAI is an AI growth journal built on long-term memory. What you chose to share last Tuesday, how you felt after that call, the small things you mentioned once — it keeps them, and it grows with you.',
       cta1: 'Download on the App Store',
       cta2: 'See how memory works',
       note: 'Free to start · No ads · Your data stays yours',
@@ -76,7 +76,7 @@ export const T = {
       ],
     },
     fin: { kicker: 'Start tonight', h2: 'Say something worth remembering.', cta: 'Download on the App Store', note: 'Requires iOS 15+ · Free to start', unreleased: 'The iOS app is not on the App Store yet — this becomes a real download button the day it is.' },
-    foot: { tag: 'It remembers everything you tell it', privacy: 'Privacy Policy', terms: 'Terms of Service', contact: 'Contact' },
+    foot: { tag: 'It remembers what you choose to share', privacy: 'Privacy Policy', terms: 'Terms of Service', contact: 'Contact' },
     mock: {
       ai1: 'How did the interview go? You were nervous about it last week.',
       me1: 'Just finished! They asked about the project I mentioned to you before.',
@@ -87,16 +87,16 @@ export const T = {
       mem3: "Sister's birthday is May 3",
     },
     meta: {
-      title: 'ClosenAI — It remembers everything you tell it',
-      description: 'ClosenAI is an AI companion with long-term memory. It remembers what you said, how you felt, and who you are becoming. iOS, 15 languages.',
+      title: 'ClosenAI — The journal that remembers you',
+      description: 'ClosenAI is an AI growth journal with long-term memory. It remembers what you choose to share, how you felt, and who you are becoming. iOS, 15 languages.',
     },
   },
   zh: {
     nav: { features: '功能', memory: '记忆', privacy: '隐私', faq: '常见问题', get: '获取 App' },
     hero: {
-      kicker: 'iOS · 15 种语言 · AI 陪伴',
-      h1Html: '它记得你告诉过它的<em>每一句话</em>。',
-      sub: 'ClosenAI 是一个建立在长期记忆上的 AI 伙伴。上周二你说的话、那通电话之后的心情、你只随口提过一次的小事——它都记得，并且陪你一起成长。',
+      kicker: 'iOS · 15 种语言 · AI 成长日记',
+      h1Html: '一本会记得<em>你</em>的日记。',
+      sub: 'ClosenAI 是一本建立在长期记忆上的 AI 成长日记。上周二你选择说出的话、那通电话之后的心情、你只随口提过一次的小事——它都收着，并陪你一起成长。',
       cta1: '在 App Store 下载',
       cta2: '看看记忆如何运作',
       note: '免费开始 · 无广告 · 数据属于你',
@@ -161,7 +161,7 @@ export const T = {
       ],
     },
     fin: { kicker: '从今晚开始', h2: '说一句值得被记住的话。', cta: '在 App Store 下载', note: '需要 iOS 15 或更高版本 · 免费开始', unreleased: 'iOS 应用还没有上架 App Store——上架那天，这里会变成一个真的下载按钮。' },
-    foot: { tag: '它记得你告诉过它的每一句话', privacy: '隐私政策', terms: '服务条款', contact: '联系我们' },
+    foot: { tag: '你选择分享的内容，它都记得', privacy: '隐私政策', terms: '服务条款', contact: '联系我们' },
     mock: {
       ai1: '面试怎么样？你上周还为它紧张来着。',
       me1: '刚面完！他们问到了我之前跟你提过的那个项目。',
@@ -172,8 +172,8 @@ export const T = {
       mem3: '妹妹生日是 5 月 3 日',
     },
     meta: {
-      title: 'ClosenAI — 它记得你告诉过它的每一句话',
-      description: 'ClosenAI 是一个拥有长期记忆的 AI 伙伴。它记得你说过的话、你的心情，以及你正在成为的人。iOS，15 种语言。',
+      title: 'ClosenAI — 一本会记得你的日记',
+      description: 'ClosenAI 是一本拥有长期记忆的 AI 成长日记。它记得你选择分享的话、你的心情，以及你正在成为的人。iOS，15 种语言。',
     },
   },
 } as const;

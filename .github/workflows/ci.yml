@@ -53,14 +53,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements-dev.lock
+            backend/requirements-dev.in
       # go 工具链不是可选项：test_proto_cross_language / test_go_auth_interop /
       # test_r5_interop_broker 都会 shell-out 到 go（GO_BIN 缺省走 PATH）。
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.1"
       - name: Install deps
-        run: pip install -r backend/requirements.txt
+        run: bash scripts/install_backend_deps.sh --dev
       - name: Install schema toolchain (pg_dump + sqlc)
         # T6-03 的两条闸只有装了工具才真跑，否则按「宿主没有工具链」skip：
         #   · pg_dump —— `test_pg_schema_snapshot.py` 的第三条要把 alembic 重建成一次性库
@@ -159,14 +161,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements-dev.lock
+            backend/requirements-dev.in
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.1"
       - name: Install deps
-        # grpcio-tools 是构建期工具，刻意不在 requirements.txt（见其 R1 段注释），
-        # 钉法与 pyproject dev 同源：~=1.84.0。
-        run: pip install -r backend/requirements.txt "grpcio-tools~=1.84.0"
+        # 开发锁 = 运行锁 + pypdf + grpcio-tools；构建期工具的版本也在锁里。
+        run: bash scripts/install_backend_deps.sh --dev
       - name: OpenAPI/endpoint ledger idempotent re-export
         run: |
           python scripts/export_contract.py
@@ -234,7 +237,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements-dev.lock
+            backend/requirements-dev.in
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.1"
@@ -247,7 +252,7 @@ jobs:
         # 变异脚本三边都可能动：pytest 闸、jest 闸、go 测试——装齐了才有资格说「抽样跑过」。
         # T6-03 那条还要 pg_dump 与 sqlc：少一样它只能记「未跑」，抽样就成了假抽样。
         run: |
-          pip install -r backend/requirements.txt
+          bash scripts/install_backend_deps.sh --dev
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends postgresql-client
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1

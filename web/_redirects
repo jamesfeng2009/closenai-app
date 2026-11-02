@@ -1,0 +1,7 @@
+# Pages 原生已把 /privacy → privacy.html、/terms → terms.html 解析为 200，
+# 不要在此处再写 rewrite，否则会与内置的 .html → 无扩展名 308 规范化互相冲突、形成自指循环。
+#
+# 注意：rewrite 目标写 "/" 而不是 "/index.html"。
+# 写 "/index.html" 会被内部的 .html → 无扩展名 308 规范化打断，重写失败后落入 404。
+/r/*      /  200
+/support  /privacy  200

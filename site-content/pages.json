@@ -1,0 +1,178 @@
+{
+  "_comment": [
+    "KG-10～KG-14 的唯一内容源（方案 §8.1：只能有一个，`site/` 与 `web/` 都不许各留一份）。",
+    "本页集只到草稿面：发布受 KG-02（法务）与 T7-05（运营主体）两道 BLOCKED 闸，生成物落 docs/content/build/，不写 web/。",
+    "正文源在 docs/content/pages/，**不是**方案 §4.6 写的 docs/content/drafts/——那目录里已有 `scripts/export_prompts.py` 生成的",
+    "journal-prompts.en.md／.zh.md（KG-26 提示库导出物），同名会互相覆盖，且 `docs/keyword-content-gate.md` §3 明写它们不算页面。",
+    "字段契约由 backend/tests/test_seo_page_source.py 与 scripts/build_seo_pages.py 两侧同判（G01–G14 见 docs/keyword-content-gate.md）。"
+  ],
+  "domain": "https://closenai.app",
+  "output_dir": "docs/content/build",
+  "generated_on": "2026-11-03",
+  "publish_blocked_by": ["KG-02", "T7-05"],
+  "hreflang": {
+    "langs": ["en"],
+    "variants": ["en", "x-default"],
+    "note": "本批只出英文页（简报 §8.4：中文站点语言决策未定，方案 §8.1 只允许一个内容源）。x-default 与 en 同指 /en/<slug>/，两侧都在生成清单里。"
+  },
+  "cta_definitions": {
+    "waitlist": {
+      "heading": "Join the closed test",
+      "href": "https://closenai.app/#cta",
+      "label": "Join the ClosenAI closed-test list",
+      "note": "There is no App Store or Play Store link yet, so this is deliberately not a download button. The list gets one invitation and one follow-up when a goal you wrote reaches its date."
+    }
+  },
+  "pages": [
+    {
+      "slug": "ai-journal",
+      "lang": "en",
+      "cluster": "ai_credibility",
+      "task": "KG-10",
+      "question": "What does an AI journal actually do with what I write?",
+      "title": "AI Journal: What It Should Show You",
+      "description": "An AI journal should link every insight back to your own words. Here is the record, check-in, reflection and outcome loop ClosenAI keeps.",
+      "h1": "What an AI Journal Should Show You",
+      "body_md": "docs/content/pages/ai-journal.en.md",
+      "cta": "waitlist",
+      "related": ["journal-app", "self-reflection", "journal-prompts"],
+      "keyword_variants": ["ai journal", "ai journaling", "journal with ai"],
+      "template": "What the AI did / what the AI did not do — a two-column table written from our own data model.",
+      "author": "ClosenAI Growth (GROWTH)",
+      "testimonials": [],
+      "evidence": [
+        {"claim": "Insights are stored as their own entity, not as chat copy.", "ref": "backend/models/canonical.py:357", "date": "2026-11-02"},
+        {"claim": "Every insight carries evidence rows you can expand.", "ref": "backend/models/canonical.py:399", "date": "2026-11-02"},
+        {"claim": "The memory screen shows your own sentences, not a rewrite.", "ref": "frontend/src/screens/MemoriesScreen.tsx:127", "date": "2026-11-02"}
+      ]
+    },
+    {
+      "slug": "journal-app",
+      "lang": "en",
+      "cluster": "ai_credibility",
+      "task": "KG-10",
+      "question": "Why not just use a chatbot as a journal app?",
+      "title": "Journal App: Entries You Can Revisit",
+      "description": "A chatbot answers and forgets the thread. A journal app should keep entries you can revisit, compare and check. This is the difference we build around.",
+      "h1": "Choosing a Journal App That Doesn't Just Talk Back",
+      "body_md": "docs/content/pages/journal-app.en.md",
+      "cta": "waitlist",
+      "related": ["ai-journal", "mood-tracker"],
+      "keyword_variants": ["journal app", "journaling app", "diary app"],
+      "template": "Three questions to ask any journal app before you commit a year of entries to it.",
+      "author": "ClosenAI Growth (GROWTH)",
+      "testimonials": [],
+      "evidence": [
+        {"claim": "Entries are queryable records with an origin field.", "ref": "backend/models/canonical.py:511", "date": "2026-11-02"},
+        {"claim": "The growth records screen renders stored entries as list items.", "ref": "frontend/src/screens/GrowthRecordsScreen.tsx:217", "date": "2026-11-02"},
+        {"claim": "Outcome results default to unknown, so the app does not grade you.", "ref": "backend/models/canonical.py:506", "date": "2026-11-02"}
+      ]
+    },
+    {
+      "slug": "mood-tracker",
+      "lang": "en",
+      "cluster": "action_outcome",
+      "task": "KG-11",
+      "question": "What do you actually get from checking in on your mood daily?",
+      "title": "Mood Tracker: Check-Ins and Trends",
+      "description": "One-tap check-ins, a 7 and 30 day window and a heatmap you can read. This mood tracker is a record of patterns, not a verdict about you.",
+      "h1": "Mood Tracker: Check-Ins, Trends and What Came After",
+      "body_md": "docs/content/pages/mood-tracker.en.md",
+      "cta": "waitlist",
+      "related": ["goal-tracker", "self-reflection"],
+      "keyword_variants": ["mood tracker", "mood journal", "mood tracking app"],
+      "template": "The 7-day read: three columns — what changed, what stayed, what you will check next week.",
+      "author": "ClosenAI Growth (GROWTH)",
+      "testimonials": [],
+      "evidence": [
+        {"claim": "The mood window offers exactly two ranges, 7 and 30 days.", "ref": "frontend/src/screens/InsightsScreen.tsx:62", "date": "2026-11-02"},
+        {"claim": "Heat cells are built from check-ins and stay empty when there is none.", "ref": "frontend/src/screens/HomeScreen.tsx:85", "date": "2026-11-02"}
+      ]
+    },
+    {
+      "slug": "self-reflection",
+      "lang": "en",
+      "cluster": "reflection_method",
+      "task": "KG-12",
+      "question": "How do I reflect without replaying the same feelings in circles?",
+      "title": "Self-Reflection That Ends in Evidence",
+      "description": "Reflection is worth something when it leaves a claim you can check later. A weekly five-line template and the loop behind it: record, mood, reflection, outcome.",
+      "h1": "Self-Reflection That Ends in Evidence",
+      "body_md": "docs/content/pages/self-reflection.en.md",
+      "cta": "waitlist",
+      "related": ["journal-prompts", "self-improvement"],
+      "keyword_variants": ["self reflection", "reflective journaling", "self-reflection questions"],
+      "template": "The weekly five-liner: what happened, what I read into it, what I did, what came of it, one change next week.",
+      "author": "ClosenAI Growth (GROWTH)",
+      "testimonials": [],
+      "evidence": [
+        {"claim": "Insights are linked to the evidence rows that produced them.", "ref": "backend/models/canonical.py:399", "date": "2026-11-02"},
+        {"claim": "The reflection prompt library is 30 entries grouped by function.", "ref": "backend/content/reflection_prompts.json:37", "date": "2026-11-01"}
+      ]
+    },
+    {
+      "slug": "journal-prompts",
+      "lang": "en",
+      "cluster": "reflection_method",
+      "task": "KG-12",
+      "question": "What should I write on the days I have nothing to write?",
+      "title": "30 Journal Prompts, Sorted by Job",
+      "description": "Thirty original journal prompts, each with a purpose, an example and a follow-up question. They are grouped by what they are for, not by mood.",
+      "h1": "30 Journal Prompts Built From What You Already Wrote",
+      "body_md": "docs/content/pages/journal-prompts.en.md",
+      "cta": "waitlist",
+      "related": ["self-reflection", "mood-tracker", "journal-app"],
+      "keyword_variants": ["journal prompts", "journaling prompts", "reflection prompts"],
+      "prompt_source": "backend/content/reflection_prompts.json",
+      "template": "Pick the prompt by the job it does: reflect, set a goal, or check in on a feeling.",
+      "author": "ClosenAI Growth (GROWTH)",
+      "testimonials": [],
+      "evidence": [
+        {"claim": "The prompt library holds 30 entries.", "ref": "backend/content/reflection_prompts.json:37", "date": "2026-11-01"},
+        {"claim": "Prompts carry a function field, grouped reflect 18 / goal 7 / mood 5.", "ref": "backend/content/reflection_prompts.json:41", "date": "2026-11-01"}
+      ]
+    },
+    {
+      "slug": "self-improvement",
+      "lang": "en",
+      "cluster": "action_outcome",
+      "task": "KG-14",
+      "question": "What makes self-improvement survive past the first week?",
+      "title": "Self-Improvement You Can Audit",
+      "description": "Goal, action, outcome — and the gap between what you expected and what happened. A self-improvement method you can check instead of one you have to believe.",
+      "h1": "Self-Improvement You Can Audit",
+      "body_md": "docs/content/pages/self-improvement.en.md",
+      "cta": "waitlist",
+      "related": ["goal-tracker", "self-reflection", "ai-journal"],
+      "keyword_variants": ["self improvement", "personal growth tracking", "self improvement plan"],
+      "template": "The expectation-vs-actual box: what I expected, what actually happened, the gap, one change.",
+      "author": "ClosenAI Growth (GROWTH)",
+      "testimonials": [],
+      "evidence": [
+        {"claim": "Outcome rows default to result unknown.", "ref": "backend/models/canonical.py:506", "date": "2026-11-02"},
+        {"claim": "Outcomes only accept stated, acted or structured origins.", "ref": "backend/models/canonical.py:511", "date": "2026-11-02"}
+      ]
+    },
+    {
+      "slug": "goal-tracker",
+      "lang": "en",
+      "cluster": "action_outcome",
+      "task": "KG-14",
+      "question": "Can a goal tracker tell me whether I actually improved?",
+      "title": "Goal Tracker With a Follow-Up",
+      "description": "Most goal trackers record whether you showed up. This one asks what you expected to happen and brings the question back when the date arrives.",
+      "h1": "A Goal Tracker That Asks How It Actually Went",
+      "body_md": "docs/content/pages/goal-tracker.en.md",
+      "cta": "waitlist",
+      "related": ["self-improvement", "mood-tracker"],
+      "keyword_variants": ["goal tracker", "goal tracking app", "goal journal"],
+      "template": "One goal per week, written as a prediction you can be wrong about.",
+      "author": "ClosenAI Growth (GROWTH)",
+      "testimonials": [],
+      "evidence": [
+        {"claim": "Outcome entities carry a status and a result field.", "ref": "backend/models/canonical.py:505", "date": "2026-11-02"},
+        {"claim": "Growth records render as revisit items in the app.", "ref": "frontend/src/screens/GrowthRecordsScreen.tsx:66", "date": "2026-11-02"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# 无独立抓取价值，避免浪费抓取预算
+Disallow: /r/
+Disallow: /api/
+
+Sitemap: https://closenai.app/sitemap.xml
