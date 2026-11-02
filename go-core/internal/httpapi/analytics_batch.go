@@ -111,12 +111,12 @@ type analyticsAckResult struct {
 // analyticsAckResponse 的键序即 Python `_ack_response` 的 dict 顺序。
 // 不变量：accepted + duplicate + dropped == len(events)，其中 dropped = retryable + permanent。
 type analyticsAckResponse struct {
-	Relayed   int                 `json:"relayed"`
-	Dropped   int                 `json:"dropped"`
-	Accepted  int                 `json:"accepted"`
-	Duplicate int                 `json:"duplicate"`
-	Retryable int                 `json:"retryable"`
-	Permanent int                 `json:"permanent"`
+	Relayed   int                  `json:"relayed"`
+	Dropped   int                  `json:"dropped"`
+	Accepted  int                  `json:"accepted"`
+	Duplicate int                  `json:"duplicate"`
+	Retryable int                  `json:"retryable"`
+	Permanent int                  `json:"permanent"`
 	Results   []analyticsAckResult `json:"results"`
 }
 
@@ -268,7 +268,6 @@ func (s *Server) releaseReceipts(ctx context.Context, userID string, eventIDs []
 		}
 	}
 }
-
 
 // relayEvents 并发外发并等总时限到点，返回**真的送出去了几条**。
 //
