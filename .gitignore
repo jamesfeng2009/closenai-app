@@ -27,6 +27,9 @@ env/
 .env.staging
 .env.production
 !.env.*.example
+# 2026-11-03：`backend/.env-20261024.blk` 那份改名备份里有真的 DASHSCOPE_API_KEY（sk-…）。
+# 上面的 `*.env` 只挡「以 .env 结尾」的名字，挡不住 `.env-日期.blk` 这种，故点名补一条。
+*.blk
 
 # Node / React Native / Expo
 node_modules/
@@ -64,6 +67,8 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+# 2026-11-03：`.review-pytest-<随机>/` 是取证跑的 pytest 工作目录残留，里面带真实用户导出包（zip），不入库。
+.review-pytest-*/
 coverage.xml
 
 # 数据库
@@ -86,3 +91,6 @@ data/exports/
 
 # V3 原始资料包：解出来的 docs/00–21 已经入库，再存一份 zip＝仓库里多一个永不衰减的二进制副本。
 /ClosenAI_Personal_Intelligence_Runtime_V3.zip
+
+# Cloudflare API Token（临时，用完即删）
+.cf-token
