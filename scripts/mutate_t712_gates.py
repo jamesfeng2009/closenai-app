@@ -2,9 +2,13 @@
 """T7-12（Python 依赖可重复安装）的变异自证（2026-10-26）。
 
 判据不是「测试跑过」，而是「每条纪律都能被打红一次，且红在它该红的闸上」。
-7 条红靶覆盖：哈希缺失、直接依赖版本漂出声明范围、两份锁共享包版本分叉、
-开发锁丢掉仅测试用的包、镜像回退到范围依赖、CI 回退到范围依赖、说明文档丢掉前置。
-2 条绿靶证明这些闸不是「见字就红」的假红制造机。
+红靶逐条覆盖（不写条数——条数句和清单漂过一次，见本文件 GIT 历史 2026-11-04 那笔）：
+哈希缺失、直接依赖版本漂出声明范围、两份锁共享包版本分叉、开发锁丢掉仅测试用的包、
+镜像回退到范围依赖、CI 回退到范围依赖、说明文档丢掉前置、
+测试建库用了没声明的驱动（M8，2026-11-03 CI 三条红的形状）、
+锁里新增包而文档没登记那一格（M9）。
+绿靶证明这些闸不是「见字就红」的假红制造机：注释不改变判据、文档加一句不改形状、
+以及 G3——把 M8 那个连接串只写进注释，判据必须仍绿。
 
 口径照抄既有纪律（[[feedback-mutation-gates-no-concurrency]]、
 [[feedback-mutation-restore-no-git-checkout]]、[[feedback-definition-of-done-tests]]）：
@@ -31,6 +35,7 @@ DEV_LOCK = REPO / "backend" / "requirements-dev.lock"
 DOCKERFILE = REPO / "deploy" / "Dockerfile.py-api"
 CI = REPO / ".github" / "workflows" / "ci.yml"
 DOC = REPO / "docs" / "python-dependency-lock.md"
+CONFTEST = REPO / "backend" / "tests" / "conftest.py"
 
 TARGET = "backend/tests/test_python_lock.py"
 VENV_PY = REPO / ".venv" / "bin" / "python"
@@ -103,6 +108,25 @@ MUTATIONS = [
         (DOC, "--require-hashes", "--no-hashes"),
         TARGET, "依赖说明缺",
     ),
+    (
+        "M8",
+        "把测试建库的驱动换成 aiomysql（开发锁里没有它），却不往开发输入里加声明："
+        "clean env 一 import backend/database.py 就 ModuleNotFoundError"
+        "——这正是 2026-11-03 CI 三条红的形状",
+        (CONFTEST,
+         'engine = create_async_engine("sqlite+aiosqlite:///:memory:")',
+         'engine = create_async_engine("mysql+aiomysql://x/y")'),
+        TARGET, "但 `install_backend_deps.sh --dev`",
+    ),
+    (
+        "M9",
+        "开发锁新增一个包、说明文档不登记那一格：后来的人照文档装就不知道该用 --dev，"
+        "「文档说的」和「锁里的」开始分叉（本批把它做成靶，是因为这一批自己就漏改过一次）",
+        (DOC,
+         "- `aiosqlite` —— 2026-11-04 补。**这条是 CI 三条红的根因**：",
+         "- （这一格被删掉了）："),
+        TARGET, "只在开发锁里，但",
+    ),
 ]
 
 GREEN = [
@@ -118,6 +142,25 @@ GREEN = [
         "G2",
         "在说明文档里加一行 HTML 注释（不改内容）：文档闸找的是关键词，不排除注释",
         (DOC, "## 文件角色", "<!-- 注释不改变判据 -->\n## 文件角色"),
+        TARGET,
+    ),
+    (
+        "G3",
+        "在 conftest 里加一句**注释**，内容就是 M8 那个没声明的驱动连接串："
+        "判据必须仍绿——它只认建引擎的调用点，不认解释性文字（否则就成了见字就红）",
+        (CONFTEST,
+         'engine = create_async_engine("sqlite+aiosqlite:///:memory:")',
+         '# 注释里的 mysql+aiomysql://x/y 只是解释，不是调用点。\n'
+         '    engine = create_async_engine("sqlite+aiosqlite:///:memory:")'),
+        TARGET,
+    ),
+    (
+        "G4",
+        "在说明文档 aiosqlite 那一格里追加一句话（列表项形状不动）："
+        "文档闸判的是「有没有这一格」，不是字数",
+        (DOC,
+         "- `aiosqlite` —— 2026-11-04 补。",
+         "- `aiosqlite` —— 2026-11-04 补（绿闸 G4 追加的一句，不改形状）。"),
         TARGET,
     ),
 ]

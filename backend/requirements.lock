@@ -1,6 +1,7 @@
 # T7-12：Python 依赖锁（完整、带哈希）。不要手改本文件。
 # 安装：bash scripts/install_backend_deps.sh --runtime（CI/本地测试用 --dev）
 # 刷新：bash scripts/lock_backend_deps.sh（依赖变更后跑，再跑后端全量测试）
+#       只想补新依赖、不让共享包版本漂：加 --minimal
 # 判据：backend/tests/test_python_lock.py；说明：docs/python-dependency-lock.md
 aio-pika==10.1.1 \
     --hash=sha256:4849fa2b6404a3a5ebb1dc07237160e6b5d4323170075bbd43aa7c8df0ed8275 \

@@ -1,10 +1,14 @@
 """T7-12：Python 依赖锁的静态判据（不联网、不装包）。
 
-判的是四件事：
+判的是下面这些事（不写计数——计数句和表格漂过一次，见
+docs/growth/kg22-kg29-template-closure-2026-11-03.md §3）：
   1. 两份锁都是**完整**的（每个包都有 `==` 精确版本 + 至少一个 sha256 哈希）；
   2. `requirements.txt` 的每个直接依赖都在运行锁里，且锁版本满足声明的范围；
   3. 开发锁是运行锁的**超集**，共享包版本逐条相同（通过 `-r requirements.txt` 继承）；
-  4. 镜像与 CI 的安装入口都指向锁文件，并且都带 `--require-hashes`。
+  4. 镜像与 CI 的安装入口都指向锁文件，并且都带 `--require-hashes`；
+  5. 测试面真正拿去建引擎的那个 DBAPI 驱动，必须在开发锁里（2026-11-04 补，
+     见 `test_every_async_dbapi_the_test_harness_opens_is_in_the_dev_lock`）；
+  6. `requirements-dev.in` 点名的每一样，说明文档都要提到（改表同批改句）。
 
 「两个干净环境装出来一致」这件事靠 `scripts/verify_backend_lock.py` 实跑取证，
 不在本文件里假装（静态闸无法证明索引上的文件没被换掉）。
@@ -27,6 +31,13 @@ DOCKERFILE = REPO / "deploy" / "Dockerfile.py-api"
 CI = REPO / ".github" / "workflows" / "ci.yml"
 NIGHTLY = REPO / ".github" / "workflows" / "mutation-nightly.yml"
 DOC = REPO / "docs" / "python-dependency-lock.md"
+# 2026-11-04：CI 三条红（backend／contract／mutation-sample）的根因是同一件事——
+# 测试面拿去建引擎的那个驱动没人声明。所以这两个文件是判据的**另一侧**：
+# 装包清单不能只跟自己比（那是恒真），要回答「代码里真的 import 得到的驱动在不在锁里」。
+HARNESS_FILES = (
+    REPO / "backend" / "tests" / "conftest.py",
+    REPO / "backend" / "config.py",
+)
 
 REQ_LINE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^]]*\])?==([^\s;\\]+)(.*)$")
 HASH_LINE = re.compile(r"^\s+--hash=sha256:([0-9a-f]{64})\s*\\?$")
@@ -118,6 +129,59 @@ def test_dev_lock_supersets_runtime_lock() -> None:
     assert "-r requirements.txt" in DEV_IN.read_text(encoding="utf-8"), (
         "requirements-dev.in 必须继承 requirements.txt，否则两份锁会各自漂"
     )
+
+
+def test_every_async_dbapi_the_test_harness_opens_is_in_the_dev_lock() -> None:
+    """把「测试真的用它建引擎」当另一侧，而不是拿锁比清单。
+
+    2026-11-03 那三条红的形状：`backend/tests/conftest.py:46` 与 `backend/config.py:37`
+    都写 `sqlite+aiosqlite`，而 `--dev` 装出来的环境里没有 aiosqlite ⇒
+    `backend/database.py:48` 一执行就 ModuleNotFoundError。
+    口径只认**建引擎的那个调用点**：`backend/database.py` 里另有两句按驱动分支的
+    `settings.database_url.startswith(...)` 探针，它们只是连接参数选择，
+    不是「本仓真的用这个驱动建库」——把它们扫进来就成了假红。
+    （也正因为这条闸存在，本文件的示例连接串不许写被禁的那种 scheme 字面量，
+    见 `backend/tests/test_pg_env_dialect.py::test_no_hand_rolled_driver_translation_survives`。）
+    """
+    dev = parse_lock(DEV_LOCK)
+    seen: list[str] = []
+    for path in HARNESS_FILES:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if raw.lstrip().startswith("#"):
+                continue  # 注释里出现的连接串是解释，不是建引擎的调用点
+            for literal in re.findall(
+                r'create_async_engine\(\s*["\']([^"\']+)["\']|database_url:\s*str\s*=\s*["\']([^"\']+)["\']',
+                raw,
+            ):
+                url = next(part for part in literal if part)
+                if "+" not in url.split("://", 1)[0]:
+                    continue  # 单驱动方言（sqlite:///）走 stdlib，不需要第三方包
+                driver = url.split("://", 1)[0].rsplit("+", 1)[1]
+                seen.append(f"{path.name}:{driver}")
+                assert canonicalize_name(driver) in dev, (
+                    f"{path.name} 用 {driver} 建引擎，但 `install_backend_deps.sh --dev` "
+                    f"装出来的环境里没有它——clean env 一 import 就 ModuleNotFoundError"
+                )
+    assert seen, (
+        "一条驱动都没扫到：conftest／config 的建引擎写法变了 ⇒ 本闸失效，"
+        "要么按新形状重写，要么删掉，不许留一条永远为真的闸"
+    )
+
+
+def test_dev_only_packages_are_documented() -> None:
+    """开发面独有的包必须出现在说明文档里——装包清单和人的文档要同批改。"""
+    runtime = parse_lock(RUNTIME_LOCK)
+    dev = parse_lock(DEV_LOCK)
+    doc = DOC.read_text(encoding="utf-8")
+    dev_only = sorted(name for name in dev if name not in runtime)
+    assert dev_only, "开发锁没有任何独占包，与 -r requirements.txt 的继承结构不符"
+    for name in dev_only:
+        # 只认「列表项」这个形状：`- \`pypdf\``。早期版本写成 `name in doc`，
+        # 那太松——正文里顺带出现一次 `sqlite+aiosqlite` 也算过，等于没闸。
+        assert f"- `{name}`" in doc, (
+            f"{name} 只在开发锁里，但 docs/python-dependency-lock.md 没有它那一格条目"
+            "（装包清单改了、说明没改 ⇒ 后来的人照文档装，就不知道该装 --dev 还是 --runtime）"
+        )
 
 
 def test_deploy_and_ci_install_from_the_lock() -> None:

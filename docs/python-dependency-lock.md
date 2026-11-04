@@ -9,13 +9,20 @@
 | `backend/requirements.txt` | **输入清单**：人写直接依赖与范围 | 只被锁生成脚本读取，不被任何安装入口直接安装 |
 | `backend/requirements-dev.in` | 开发输入：`-r requirements.txt` + 测试/构建工具 | 只被锁生成脚本读取 |
 | `backend/requirements.lock` | 运行锁：74 个包，全部 `==` + `--hash=sha256:` | 镜像（`deploy/Dockerfile.py-api`） |
-| `backend/requirements-dev.lock` | 开发锁：77 个包，运行锁的超集，共享包版本逐条相同 | CI 与本地测试 |
+| `backend/requirements-dev.lock` | 开发锁：78 个包，运行锁的超集，共享包版本逐条相同 | CI 与本地测试 |
 
-开发锁比运行锁多三个包：
+开发锁比运行锁多四个包：
 
 - `pypdf` —— 仅测试用（PDF 用例解析产物），**不进镜像**。
 - `grpcio-tools` —— 构建期工具，带 `protoc` 与 python 插件，装进镜像白加约 22M。
 - `setuptools` —— `grpcio-tools` 的传递依赖，同样只在开发面。
+- `aiosqlite` —— 2026-11-04 补。**这条是 CI 三条红的根因**：
+  `backend/tests/conftest.py:46` 用它建每用例的内存库，`backend/config.py:37` 的默认串
+  也是 `sqlite+aiosqlite:///`；CI 的 backend 作业只给 migrate 那一步挂 `DATABASE_URL`
+  （`.github/workflows/ci.yml` 的 `Migrate CI database`），其余步骤 import
+  `backend/database.py:48` 那个模块级引擎时按默认串解析方言 ⇒
+  `ModuleNotFoundError: No module named 'aiosqlite'`，`backend`／`contract`／`mutation-sample`
+  三条作业停在同一行。生产与 staging 都带 PG 连接串，sqlite 那条路只在测试里走，所以它进开发锁不进镜像。
 
 两份锁的共享包版本必须一致（由 `backend/tests/test_python_lock.py::test_dev_lock_supersets_runtime_lock` 判）。
 
@@ -41,6 +48,19 @@ PYTHON=.venv/bin/python bash scripts/lock_backend_deps.sh
 要求本机有 `uv`。脚本对 `requirements.txt` 与 `requirements-dev.in` 分别
 `uv pip compile --generate-hashes --no-annotate --no-header`，然后写回统一的中文表头。
 刷新后必须重跑后端全量测试——锁换了等于依赖换了。
+
+**只想补一条新依赖时改用 `--minimal`**：它把**现行锁**剥成 `name==version` 当 uv 的
+constraint 再 compile，所以共享包版本一个都不动，只有输入里新增的那条进锁。
+
+```bash
+PYTHON=.venv/bin/python bash scripts/lock_backend_deps.sh --minimal
+```
+
+2026-11-04 的实测对比（就是上面 `aiosqlite` 那一条）：默认刷新让两份锁里
+**52／55 个包换了版本**（fastapi 0.141.1→0.162.0、alembic 1.18.5→1.20.1），还新增 4 个
+传递依赖并踢掉 `tqdm`；同一件事用 `--minimal` 做，锁的波面是 5 行。一笔修 CI 的提交
+背不动一整轮依赖升级的回归面——所以「只补一条」得是入口能表达的动作，
+而不是让人退回去手改锁文件（那正好违反锁文件第一行「不要手改本文件」）。
 
 ## 干净环境校验
 

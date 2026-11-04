@@ -1,11 +1,19 @@
-# T7-12：开发/测试/构建工具的依赖输入（运行锁之上再加三样）。
+# T7-12：开发/测试/构建工具的依赖输入（运行锁之上加进来的那几样，逐条点名，不写计数）。
 #
 # 生成方式见 scripts/lock_backend_deps.sh；装法见 scripts/install_backend_deps.sh --dev。
 # 为什么分家而不是并进 requirements.txt：
 #   · pypdf 只在测试里读 PDF 元数据（backend/tests/test_generation_run.py、
 #     test_on_this_day.py），运行镜像不需要它；
 #   · grpcio-tools 带 protoc 与插件，装进镜像白加约 22M（requirements.txt 的 R1 段逐字写过）。
-#   · 但 CI 要跑这两样，所以开发锁是「-r 运行锁 + 三样」——共享包的版本由继承保证不漂。
+#   · aiosqlite（2026-11-04 补，CI 三条红的根因）：测试面真的用它两处——
+#     `backend/tests/conftest.py:46` 建 `sqlite+aiosqlite:///:memory:` 的每用例库，
+#     以及 `backend/config.py:37` 那个默认串：CI 的 pytest/契约步骤只在 migrate 那一步
+#     挂 `DATABASE_URL`（见 .github/workflows/ci.yml 的 backend 作业），其余步骤 import
+#     `backend/database.py:48` 的模块级引擎时落到默认串 ⇒ `create_async_engine` 当场
+#     `ModuleNotFoundError: No module named 'aiosqlite'`。
+#     为什么只进开发不进运行：生产与 staging 都带 PG 连接串，sqlite 那条路只在测试里走。
+#   · 但 CI 要跑这几样，所以开发锁是「-r 运行锁 + 这几样」——共享包的版本由继承保证不漂。
 -r requirements.txt
+aiosqlite==0.22.1
 pypdf>=4.0.0
 grpcio-tools~=1.84.0
