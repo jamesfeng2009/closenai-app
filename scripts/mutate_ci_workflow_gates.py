@@ -22,6 +22,19 @@ M11 把提供摘掉（＝2026-11-04 那个状态，7 条用例红在 `InvalidKey
 「别处有没有抄进口令」不能被「这一步给了没有」吸收掉）。G6/G7 是它的绿闸：换成同义的随机源、
 只改这一步的显示名，都不该红。
 
+最后一批管的是**变异作业自己的取证前置**（V 族）。run 41789159667 实测：作业抽到
+`mutate_ci_workflow_gates.py` 自己时红在 `FileNotFoundError: …/.venv/bin/python`——
+磁盘上 75 条 `scripts/mutate_*.py` 里 71 条把解释器钉成 `REPO/.venv/bin/python`，
+而跑机的依赖装在 setup-python 那个解释器里，跑机上没有 `.venv` 这个目录。
+V1 把造入口那一行删掉（＝这次修复前的状态），V2 给这一步挂 `if:`（步骤还在但被条件跳过——
+判据读的是执行序列，不是「文件里有没有这段字」），V3 单独删掉 `.venv/bin/pytest` 那条证人
+（`mutate_deviation_gates.py` 直接 exec 的是控制台脚本，只验 `-m pytest` 会漏这一格），
+V4/V5 把 nightly 那侧的一次性口令与往返梯库摘掉（只补 PR 面会漏整条夜间流水线），
+V6/V7 再把同样两格从 **ci.yml 的抽样作业**上单独摘掉（backend 作业那份留着）——
+同一个串现在在一份文件里出现两次，不钉到作业上就说不清红读的是哪一格，所以 M11/M12/G6/G7
+的锚点也带上紧跟其后的那一步 name。
+G8/G9 是它的绿闸：只换这一步的显示名、只把符号链接的幂等守卫收成同义写法，都不该红。
+
 口径照抄既有纪律（[[feedback-mutation-gates-no-concurrency]]、
 [[feedback-mutation-restore-no-git-checkout]]、[[feedback-definition-of-done-tests]]）：
 **串行跑**、copy2 备份写回 ＋ `filecmp` 逐字节复核、**不用 `git checkout`**。
@@ -91,16 +104,46 @@ BASE_WITNESS = (
 )
 BASE_WITNESS_GONE = '          echo "diff base = ${sha}"\n'
 # backend 作业那条一次性口令：写 $GITHUB_ENV 的那一行、它的同义写法、以及两种「不该过」的写法。
+# 锚点必须带上**紧跟其后的那一步的 name**：同一段 heredoc 现在在 ci.yml 里出现两次
+# （backend 作业与 mutation-sample 作业各一条），只钉 `fh.write(...)` 那一行会命中 2 次，
+# 而 `replace` 是全量替换——那等于一条变异同时摘掉两个作业，判据到底红在哪一侧就说不清了。
 JWT_WRITE_LINE = '              fh.write(f"JWT_SECRET={secrets.token_urlsafe(48)}\\n")\n'
 JWT_WRITE_HEX = '              fh.write(f"JWT_SECRET={secrets.token_hex(32)}\\n")\n'
 JWT_WRITE_DEAD = '              fh.write("JWT_SECRET=ci_hardcoded_secret_value_0123456789ab\\n")\n'
-JWT_STEP_NAME = "      - name: 生成本次运行的一次性 JWT 口令\n"
+JWT_PRINT_TAIL = (
+    '          print("已生成本次运行的一次性 JWT 口令（不落盘、不入库、不跨运行）")\n'
+    "          EOF\n"
+)
+BACKEND_STEP_TAIL = JWT_PRINT_TAIL + "      - name: pytest (backend)\n"
+SAMPLE_STEP_TAIL = JWT_PRINT_TAIL + "      - name: mutation_sample（按改动抽样，串行）\n"
+BACKEND_JWT_STEP_HEAD = (
+    "      - name: 生成本次运行的一次性 JWT 口令\n"
+    "        # 为什么这一步存在（2026-11-04 实测红 7 条）：本作业此前不给 JWT_SECRET，\n"
+)
+BACKEND_JWT_STEP_RENAMED = (
+    "      - name: 给本次运行生成一次性口令（改名不改判据）\n"
+    "        # 为什么这一步存在（2026-11-04 实测红 7 条）：本作业此前不给 JWT_SECRET，\n"
+)
 BACKEND_JOB_ENV = ("    env:\n"
                    "      TEST_DATABASE_URL: "
                    "postgresql://postgres:postgres@127.0.0.1:5432/closenai_ci\n")
 BACKEND_JOB_ENV_LITERAL = BACKEND_JOB_ENV.replace(
     "    env:\n",
     "    env:\n      JWT_SECRET: ci_hardcoded_secret_value_0123456789ab\n")
+
+# 变异作业取证前置那一族（.venv 入口／它的两条证人／nightly 的口令与往返梯库）。
+VENV_DIR_LINE = '          bin_dir = pathlib.Path(".venv/bin")\n'
+VENV_STEP_HEAD = "      - name: 造 .venv 入口（变异脚本硬编码 REPO/.venv/bin/python）\n"
+VENV_CONSOLE_WITNESS_LINE = "          .venv/bin/pytest --version\n"
+VENV_GUARD_LINES = (
+    "              if not link.is_symlink() and not link.exists():\n"
+    "                  os.symlink(exe, link)\n"
+)
+N2_ENV_LINE = ("      N2_MIGRATE_DATABASE_URL: "
+               "postgresql://postgres:postgres@127.0.0.1:5432/n2_roundtrip\n")
+# ci.yml 里同一条 env 出现两次（backend 作业与 mutation-sample 作业），锚点得带上后面那格把它钉到
+# 抽样作业上——摘错作业的那一条，红是同样红，但判据到底读的是哪个作业就说不清了。
+N2_ENV_MUT = N2_ENV_LINE + "    steps:\n"
 
 # 每条：(id, 说明, (文件, 原文, 坏文), target, 名片段)
 MUTATIONS = [
@@ -205,15 +248,15 @@ MUTATIONS = [
         "把 backend 作业那条写 `$GITHUB_ENV` 的行摘掉（＝提供没了）：这就是 2026-11-04 那个状态——"
         "作业不给 JWT_SECRET，`backend/config.py:48` 的默认空串让 7 条「注册→签发 JWT」的用例"
         "全红在 `InvalidKeyError: HMAC key must not be empty.`，而本机因为 backend/.env 里有口令永远看不见",
-        (CI, JWT_WRITE_LINE, ""),
+        (CI, JWT_WRITE_LINE + BACKEND_STEP_TAIL, BACKEND_STEP_TAIL),
         TARGET, "却没给 JWT_SECRET",
     ),
     (
         "M12",
-        "把生成改成写死的串（`echo` 一个固定口令进 env）：提供这一格照样过，红必须落在"
+        "把 backend 作业的生成改成写死的串（`echo` 一个固定口令进 env）：提供这一格照样过，红必须落在"
         "「不是现生成的」上——补 env 的正当路径是每次跑现生成或走 `${{ secrets.* }}`，"
         "把口令抄进 workflow 就是凭据入库",
-        (CI, JWT_WRITE_LINE, JWT_WRITE_DEAD),
+        (CI, JWT_WRITE_LINE + BACKEND_STEP_TAIL, JWT_WRITE_DEAD + BACKEND_STEP_TAIL),
         TARGET, "不是现生成的",
     ),
     (
@@ -222,6 +265,62 @@ MUTATIONS = [
         "「别处有没有写死的口令」不跟着「这一步提供了没有」走，否则同一条红会被提供那一格吸收掉",
         (CI, BACKEND_JOB_ENV, BACKEND_JOB_ENV_LITERAL),
         TARGET, "写死的 JWT 口令",
+    ),
+    (
+        "V1",
+        "把 mutation-sample 作业造 `.venv` 那一步的入口行删掉（2026-11-04 那个状态就是「没这一步」）："
+        "磁盘上 71 条脚本硬编码 `REPO/.venv/bin/python`，抽到任何一条都红在 FileNotFoundError，"
+        "而那不是被测代码的锅——本闸把「作业没给解释器」按在作业上",
+        (CI, VENV_DIR_LINE, ""),
+        TARGET, "却没给 `.venv/bin/python` 这个入口",
+    ),
+    (
+        "V2",
+        "给造 `.venv` 那一步挂上 `if:`：步骤还在、文本还匹配，但被条件跳过的事件里"
+        "抽样那一刻仍然没有解释器。判据读的是**执行序列**，不是「文件里有没有这段字」",
+        (CI, VENV_STEP_HEAD,
+         VENV_STEP_HEAD + '        if: github.event_name == "push"\n'),
+        TARGET, "把造 `.venv` 挂在条件上",
+    ),
+    (
+        "V3",
+        "删掉 `.venv/bin/pytest --version` 这条证人（`-m pytest` 那条留着）："
+        "`mutate_deviation_gates.py` 直接 exec 的是控制台脚本，只验 `-m pytest` 会漏掉那一格，"
+        "这一步就退化成「造了个也许不能用的目录」",
+        (CI, VENV_CONSOLE_WITNESS_LINE, ""),
+        TARGET, "造完 .venv 没有 exec",
+    ),
+    (
+        "V4",
+        "把 nightly 的一次性 JWT 口令写行摘掉（ci.yml 那条留着）：全量面抽到的整文件闸先红在 "
+        "`InvalidKeyError`，`mutation_sample.py` 判「正向证人先红了」，那一格变异自证没有证据力。"
+        "只补 PR 面会漏这一整条夜间流水线",
+        (NIGHTLY, JWT_WRITE_LINE, '              fh.write("")\n'),
+        TARGET, "跑变异脚本却没给 JWT_SECRET",
+    ),
+    (
+        "V5",
+        "把 nightly 的 `N2_MIGRATE_DATABASE_URL` 摘掉（库照建）：往返梯整条 skip，"
+        "变异脚本把 skip 记「未跑」＝非零退出＝作业红，看起来像迁移面坏了而不是作业缺前置",
+        (NIGHTLY, N2_ENV_LINE, ""),
+        TARGET, "没给 N2_MIGRATE_DATABASE_URL",
+    ),
+    (
+        "V6",
+        "把 **ci.yml 的 mutation-sample 作业**那条一次性 JWT 写行摘掉（backend 作业那条留着）："
+        "两份 workflow 里三处生成口令，只打 nightly 那一格证明不了判据读到了 PR 面的抽样作业——"
+        "抽样作业抽到的整文件闸同样要签 JWT，缺它时 `mutation_sample.py` 判「正向证人先红了」，"
+        "那一格变异自证没有证据力",
+        (CI, JWT_WRITE_LINE + SAMPLE_STEP_TAIL, SAMPLE_STEP_TAIL),
+        TARGET, "跑变异脚本却没给 JWT_SECRET",
+    ),
+    (
+        "V7",
+        "把 **ci.yml 的 mutation-sample 作业**的 `N2_MIGRATE_DATABASE_URL` 摘掉（backend 作业那条留着）："
+        "同一个串在一份文件里出现两次，摘错那一格照样红，但红就不是这条判据读抽样作业的证据。"
+        "缺它时往返梯整条 skip → 变异脚本记「未跑」＝非零退出＝作业红",
+        (CI, N2_ENV_MUT, "    steps:\n"),
+        TARGET, "没给 N2_MIGRATE_DATABASE_URL",
     ),
 ]
 
@@ -273,14 +372,30 @@ GREEN = [
         "G6",
         "把一次性口令的随机源从 `secrets.token_urlsafe` 换成同义的 `secrets.token_hex`：判据认的是"
         "「每次跑现生成」这个语义，不是某一个函数名——否则整理写法就会红在无关改动上",
-        (CI, JWT_WRITE_LINE, JWT_WRITE_HEX),
+        (CI, JWT_WRITE_LINE + BACKEND_STEP_TAIL, JWT_WRITE_HEX + BACKEND_STEP_TAIL),
         TARGET,
     ),
     (
         "G7",
-        "给那条口令生成步骤**只换显示名**（run 内容一字不动）：判据按步骤的 run 找提供与随机源，"
+        "给 backend 那条口令生成步骤**只换显示名**（run 内容一字不动）：判据按步骤的 run 找提供与随机源，"
         "不认 name——这条绿同时自证 M11 的红不是「在文件里找一个名字」造成的",
-        (CI, JWT_STEP_NAME, "      - name: 给本次运行生成一次性口令（改名不改判据）\n"),
+        (CI, BACKEND_JWT_STEP_HEAD, BACKEND_JWT_STEP_RENAMED),
+        TARGET,
+    ),
+    (
+        "G8",
+        "给造 `.venv` 那一步**只换显示名**（run 内容一字不动）：判据按 `bin_dir = pathlib.Path(...)` "
+        "这一行认步骤，不认 name——否则日后整理流水线文案就会红在无关改动上",
+        (CI, VENV_STEP_HEAD, "      - name: 暴露跑机解释器给变异脚本（改名不改判据）\n"),
+        TARGET,
+    ),
+    (
+        "G9",
+        "把符号链接的幂等守卫从 `if not link.is_symlink() and not link.exists():` 收成 "
+        "`if not link.exists():`：两种写法在「链接已存在就不重复建」上等价，判据认的是这一步"
+        "真造了入口并当场 exec 证人，不是某个具体守卫——否则改一行实现细节就红",
+        (CI, VENV_GUARD_LINES,
+         "              if not link.exists():\n                  os.symlink(exe, link)\n"),
         TARGET,
     ),
 ]
@@ -410,8 +525,8 @@ def main() -> int:
             print("  " + "\n  ".join(out.splitlines()[-12:]))
             return 1
 
-        print(f"\n计数：红闸 {red_ok} 打红 / {red_fail} 未打红；"
-              f"绿闸 {green_ok} 保持绿 / {green_fail} 被误伤；异常 0")
+        print(f"\n汇总：打红 {red_ok}/{red_ok + red_fail}，绿闸 {green_ok}/{green_ok + green_fail}"
+              f"｜未打红 {red_fail}｜被误伤 {green_fail}")
         if failures:
             print("未通过：" + ",".join(failures))
         return 1 if (red_fail or green_fail) else 0

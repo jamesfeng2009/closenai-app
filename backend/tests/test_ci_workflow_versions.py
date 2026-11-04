@@ -253,3 +253,126 @@ def test_mutation_sampling_job_fetches_history_and_proves_its_diff_base() -> Non
             f"{workflow.name} 的 Resolve diff base 没有「base 真是一个提交」这个证人 ⇒ "
             "base 为空时抽样走空集分支退 0，作业绿着什么都没抽"
         )
+
+
+#: 变异作业取证前置的三格：解释器入口、.venv 证人、往返梯的空库 env。
+#: 判据读的是**解析出来的步骤序列**，不是「文件里有没有这句」——步骤存在但排在抽样之后、
+#: 或者被 `if:` 跳过，都等于没给。
+VENV_DIR_LINE = 'bin_dir = pathlib.Path(".venv/bin")'
+VENV_PYTEST_WITNESS = ".venv/bin/python -m pytest --version"
+VENV_CONSOLE_WITNESS = ".venv/bin/pytest --version"
+
+
+def _mutation_jobs() -> list[tuple[Path, str, list, dict]]:
+    """两份 workflow 里所有真跑 `scripts/mutation_sample.py` 的作业。"""
+    import yaml
+
+    found: list[tuple[Path, str, list, dict]] = []
+    for workflow in WORKFLOWS:
+        doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        for job_id, job in (doc.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            if any("scripts/mutation_sample.py" in str(s.get("run") or "") for s in steps):
+                found.append((workflow, job_id, steps, job.get("env") or {}))
+    return found
+
+
+def test_mutation_jobs_provision_the_venv_their_scripts_require() -> None:
+    """跑变异脚本的作业必须自己造出 `.venv/bin/python`，并且**在抽样之前**、无条件下造出来。
+
+    立的动机是现读 run 41789159667（2026-11-04）：mutation-sample 作业抽到
+    `scripts/mutate_ci_workflow_gates.py` 时整条红在
+    `FileNotFoundError: /home/runner/work/…/.venv/bin/python`。根因不在那条脚本：
+    磁盘上 75 条 `scripts/mutate_*.py` 里 71 条把解释器钉成 `REPO/.venv/bin/python`
+    （现读 `grep -l '.venv' scripts/mutate_*.py | wc -l`），而跑机的依赖装在 setup-python 的解释器里，
+    跑机上没有 `.venv` 这个目录——**抽样面躲不开任何钉着 .venv 的脚本**。
+    本机看不见这批红：本机真的有 `.venv`。
+
+    三格判据：① 这一步真造入口（`pathlib.Path(".venv/bin")` 出现在抽样之前的某一步），
+    ② 造完当场 exec 两个证人（`-m pytest` 与服务台脚本 `.venv/bin/pytest`——
+    `mutate_deviation_gates.py` 直接 exec 的是后者，只验前者会漏），
+    ③ 这一步不许挂在 `if:` 上被条件跳过。两侧不同源：一侧读 workflow 的步骤结构，
+    一侧是磁盘上真实的 `mutate_*.py` 计数，所以它不是「文件里有这行字」。
+    """
+    runners = _mutation_jobs()
+    assert runners, (
+        "两份 workflow 里再没有跑 `scripts/mutation_sample.py` 的作业 ⇒ 本闸恒真（空集上的绿）："
+        "变异面去哪了先确认，再谈删本闸"
+    )
+    on_disk = sorted((REPO / "scripts").glob("mutate_*.py"))
+    venv_bound = [p.name for p in on_disk if ".venv" in p.read_text(encoding="utf-8")]
+    assert venv_bound, (
+        "磁盘上再没有钉 `.venv` 的变异脚本 ⇒ 本闸的另一侧没有对象了，"
+        "先确认脚本们是不是统一改用现进程解释器，再谈删本闸"
+    )
+
+    for workflow, job_id, steps, _job_env in runners:
+        sample_at = next(i for i, s in enumerate(steps)
+                         if "scripts/mutation_sample.py" in str(s.get("run") or ""))
+        provision = [
+            (i, s) for i, s in enumerate(steps)
+            if VENV_DIR_LINE in str(s.get("run") or "")
+        ]
+        assert provision, (
+            f"{workflow.name} 的作业 {job_id} 要跑变异脚本，却没给 `.venv/bin/python` 这个入口 ⇒ "
+            f"磁盘上 {len(venv_bound)} 条脚本硬编码它，抽到任何一条都红在 FileNotFoundError "
+            "（2026-11-04 实测），而那不是被测代码的锅"
+        )
+        at, step = provision[0]
+        assert at < sample_at, (
+            f"{workflow.name} 的作业 {job_id} 造 `.venv` 排在 mutation_sample 之后（第 {at + 1} 步 "
+            f"vs 第 {sample_at + 1} 步）⇒ 抽样的那一刻解释器还不存在"
+        )
+        assert not step.get("if"), (
+            f"{workflow.name} 的作业 {job_id} 把造 `.venv` 挂在条件上（if={step['if']!r}）⇒ "
+            "被跳过的事件里作业照样绿，但脚本仍然没有解释器"
+        )
+        run_text = str(step.get("run") or "")
+        for witness in (VENV_PYTEST_WITNESS, VENV_CONSOLE_WITNESS):
+            assert witness in run_text, (
+                f"{workflow.name} 的作业 {job_id} 造完 .venv 没有 exec `{witness}` ⇒ "
+                "「这一步能不能失败」没有证据；控制台脚本那一格尤其要验，"
+                "`mutate_deviation_gates.py` 直接 exec 的就是 `.venv/bin/pytest`"
+            )
+
+
+def test_mutation_jobs_give_jwt_and_the_roundtrip_database() -> None:
+    """变异作业自己也要给 JWT 口令与往返梯的空库——「被测代码需要的外部配置，作业给齐」。
+
+    两格各自有现读的红：
+    - JWT：backend 作业缺它时 7 条用例红在 `InvalidKeyError`（2026-11-04，同上面那条闸），
+      而变异作业抽到的脚本会**整文件**跑这些闸（`mutate_deviation_gates.py`／
+      `mutate_w5_gates.py`／`mutate_batch3_gates.py` 的靶），缺口令时 `mutation_sample.py`
+      判「正向证人先红了：此时变异打红不算证据」，那一格抽样整体失去证据力。
+    - 往返梯：`test_canonical_schema.py` 的 PG 专属用例读 `N2_MIGRATE_DATABASE_URL`，
+      缺它整条梯 skip；变异脚本把 skip 记「未跑」并以非零退出（未跑 ≠ 绿），
+      所以「env 给了但库没建」和「库建了但 env 没给」两种缺法都要拦。
+    口令那一格沿用「现生成」的尺子（随机源），不许把串抄进 workflow。
+    """
+    for workflow, job_id, steps, job_env in _mutation_jobs():
+        generated = [s for s in steps
+                     if "JWT_SECRET=" in str(s.get("run") or "")
+                     and "GITHUB_ENV" in str(s.get("run") or "")]
+        declared = ("JWT_SECRET" in job_env
+                    or any("JWT_SECRET" in (s.get("env") or {}) for s in steps))
+        assert generated or declared, (
+            f"{workflow.name} 的作业 {job_id} 跑变异脚本却没给 JWT_SECRET ⇒ "
+            "抽到的整文件闸先红在 `InvalidKeyError`，`mutation_sample.py` 判"
+            "「正向证人先红了」，那一格的变异自证没有证据力"
+        )
+        if generated:
+            run_text = "\n".join(str(s.get("run") or "") for s in generated)
+            assert RANDOM_SECRET_SOURCE.search(run_text), (
+                f"{workflow.name} 的作业 {job_id} 那条 JWT_SECRET 步骤不是现生成的 ⇒ "
+                "写进 workflow 的串就是入库的凭据"
+            )
+
+        assert "N2_MIGRATE_DATABASE_URL" in job_env, (
+            f"{workflow.name} 的作业 {job_id} 没给 N2_MIGRATE_DATABASE_URL ⇒ "
+            "`test_canonical_schema.py` 的往返梯整条 skip，而变异脚本把 skip 记「未跑」＝非零退出"
+        )
+        create = [s for s in steps if "n2_roundtrip" in str(s.get("run") or "")]
+        assert create, (
+            f"{workflow.name} 的作业 {job_id} 给了 N2 连接串却没建 `n2_roundtrip` 这座库 ⇒ "
+            "梯子在「连不上库」上红，看起来像迁移面坏了而不是作业缺前置"
+        )

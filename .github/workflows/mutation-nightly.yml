@@ -47,6 +47,9 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/closenai_mut
       CLOSEN_REQUIRE_PG: "1"
       CLOSEN_AMQP_URL: amqp://guest:guest@127.0.0.1:5672/
+      # 往返梯（`test_canonical_schema.py` 的 PG 专属用例）要的是一个**没迁移过**的空库；
+      # 缺这个 env 时整条梯 skip，而全量面把对应的变异脚本记「未跑」＝非零退出＝作业红。
+      N2_MIGRATE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/n2_roundtrip
     outputs:
       failed: ${{ steps.run.outputs.failed }}
     steps:
@@ -95,13 +98,14 @@ jobs:
         run: |
           python - <<'EOF'
           import psycopg
-          conn = psycopg.connect(
-              "postgresql://postgres:postgres@127.0.0.1:5432/postgres", autocommit=True
-          )
-          if not conn.execute(
-              "select 1 from pg_database where datname = 'closenai_mut'"
-          ).fetchone():
-              conn.execute('CREATE DATABASE "closenai_mut"')
+          for dbname in ("closenai_mut", "n2_roundtrip"):
+              conn = psycopg.connect(
+                  "postgresql://postgres:postgres@127.0.0.1:5432/postgres", autocommit=True
+              )
+              if not conn.execute(
+                  "select 1 from pg_database where datname = %s", (dbname,)
+              ).fetchone():
+                  conn.execute(f'CREATE DATABASE "{dbname}"')
           EOF
           alembic -c backend/alembic.ini upgrade head
           # 正向证人（与 ci.yml 同名步骤一致）：`current` 必须报出 (head)。
@@ -110,6 +114,44 @@ jobs:
           # 故这里要 2>&1，否则 tee 抓到的是空流、grep 恒红。
           alembic -c backend/alembic.ini current 2>&1 | tee /tmp/alembic_current.txt
           grep -q "(head)" /tmp/alembic_current.txt
+      - name: 造 .venv 入口（变异脚本硬编码 REPO/.venv/bin/python）
+        # 与 ci.yml `mutation-sample` 作业同名步骤**同一件事、同一份理由**（2026-11-04，
+        # run 41789159667：抽到钉 `.venv/bin/python` 的脚本就整条红在 FileNotFoundError）。
+        # 全量面比抽样面更躲不开：`--all` 一定会碰到它们。
+        # 这里不新建虚拟环境（空环境看不见刚装好的依赖），而是把跑机那个解释器暴露成脚本
+        # 认识的入口；下面三条 exec 是这一步的正向证人，少一条它就能绿着什么都不证。
+        run: |
+          python - <<'EOF'
+          import os, pathlib, shutil, sys
+          bin_dir = pathlib.Path(".venv/bin")
+          bin_dir.mkdir(parents=True, exist_ok=True)
+          exe = pathlib.Path(sys.executable).resolve()
+          for name in ("python", "python3"):
+              link = bin_dir / name
+              if not link.is_symlink() and not link.exists():
+                  os.symlink(exe, link)
+          for script in ("pytest", "alembic"):
+              found = shutil.which(script)
+              if found:
+                  link = bin_dir / script
+                  if not link.is_symlink() and not link.exists():
+                      os.symlink(pathlib.Path(found).resolve(), link)
+          print(f".venv/bin/python -> {exe}")
+          EOF
+          .venv/bin/python -m pytest --version
+          .venv/bin/python -c "from backend.core.alembic_chain import head_revision; print('venv 证人：链头', head_revision())"
+          .venv/bin/pytest --version
+      - name: 生成本次运行的一次性 JWT 口令
+        # 同 ci.yml 同名步骤：缺口令时依赖 JWT 的闸先红在 `InvalidKeyError`，
+        # `mutation_sample.py` 判「正向证人先红了」，那一格的变异自证就没有证据力。
+        # 口令 env-only、每次运行现生成、不落盘不入库。
+        run: |
+          python - <<'EOF'
+          import os, secrets
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"JWT_SECRET={secrets.token_urlsafe(48)}\n")
+          print("已生成本次运行的一次性 JWT 口令（不落盘、不入库、不跨运行）")
+          EOF
       - name: mutation_sample --all（串行，禁并发）
         id: run
         # 输出写进 $GITHUB_OUTPUT 供下一步开 issue；这里刻意不让它直接 fail 掉整个作业，
