@@ -576,8 +576,8 @@ def test_live_db_has_no_enum_or_jsonb_or_new_fk():
 # ── 3. 迁移往返（一次性空库，可选）──
 
 
-def _chain_from_scripts() -> list[str]:
-    """离线读出迁移链，**链头在前**；回退梯每一级的期望值从这里取，不再钉字面 revision。
+def _chain_head_first() -> list[str]:
+    """现读迁移链并倒序（**链头在前**）；回退梯每一级的期望值从这里取，不钉字面 revision。
 
     为什么要改成现读：2026-11-04 的 CI 红。407668d 把 T7-02 那件压成新链头，更新了链形状闸
     （`test_migration_graph_is_single_head_with_n7_on_top`），却没同步这条往返梯里钉着的字面
@@ -585,16 +585,16 @@ def _chain_from_scripts() -> list[str]:
     看得见，实测红在 `upgrade 后 head = b7c9d1e3f5a2，应为 f6b8d0e2a4c6`。
     现读之后「回退第 i 级」的定义跟着链走：再有新 head 进来，head 断言照样对，红的是那一级
     的**表/列证人**——那才是它该红的位置（加了一件迁移就得给它写回退证人）。
-    链的形状（谁挂谁）仍由上面那条字面闸钉住；这里期望值取 alembic 的 ScriptDirectory，
-    实际值取库里的 `alembic_version` 行，两侧不同源。
-    """
-    from alembic.config import Config
-    from alembic.script import ScriptDirectory
 
-    script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
-    heads = script.get_heads()
-    assert len(heads) == 1, f"链头有 {heads}，「回退第 i 级」没有唯一定义"
-    return [rev.revision for rev in script.walk_revisions()]
+    推导不在这里另搓一份：`backend/core/alembic_chain.py` 是 T6-03 立的唯一推导处，
+    它登记的缺陷①就是「四份实库伴生测各钉一句 head 字面量，漏改一处就把两件事混成一条红」，
+    本函数只是把它那份按回退方向倒过来用。链的形状（谁挂谁、单头）仍由上面那条字面闸钉住——
+    那张闸要的是人显式确认一次，改成自推导就成自己跟自己比。
+    两侧不同源：期望值来自离线读 `versions/` 目录，实测值来自库里的 `alembic_version` 行。
+    """
+    from backend.core.alembic_chain import revision_ids
+
+    return list(reversed(revision_ids()))
 
 
 def test_alembic_roundtrip_on_empty_database():
@@ -610,7 +610,7 @@ def test_alembic_roundtrip_on_empty_database():
     from sqlalchemy import create_engine, text
 
     sync_url = pg_test_url("N2_MIGRATE_DATABASE_URL", purpose="迁移往返，需一次性空库")
-    chain = _chain_from_scripts()
+    chain = _chain_head_first()
     engine = create_engine(sync_url)
     with engine.connect() as conn:
         existing = conn.execute(text(
