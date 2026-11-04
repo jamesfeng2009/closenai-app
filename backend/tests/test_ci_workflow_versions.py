@@ -16,6 +16,10 @@
 第二条判据补的是同一件事的另一半：版本够不够和**装出来的东西能不能用**判的不是
 同一件事——`npm ci` 对 engines 不符只 warn，它绿着装出一个跑不了的二进制。
 所以装了 npm 依赖的作业必须自己 require 一次那个原生包，把段错误提前成安装期红。
+
+后面两条判据是从 2026-11-04 那次 CI 红里长出来的，管的不是版本而是**这一步能不能失败**：
+建库步骤没挂 PG 连接串时迁移打到 sqlite 文件，以及按改动抽样的作业浅克隆后拿不到基线、
+`git rev-parse` 的 128 又被 `echo` 吞掉。两条都配了正向证人，理由写在各自的 docstring 里。
 """
 from __future__ import annotations
 
@@ -32,6 +36,9 @@ WORKFLOWS = (
 
 NODE_FLOOR = re.compile(r">=\s*(\d+)")
 PINNED = re.compile(r'node-version:\s*"?(\d+)"?')
+# actions/checkout 里「取全部历史」的两种同义写法；不带引号 YAML 解析成 int、
+# 带引号解析成 str，判据读的是深度这个语义而不是排版。
+DEEP_FETCH = {0, -1, "0", "-1"}
 
 
 def engine_floors() -> dict[int, list[str]]:
@@ -119,4 +126,62 @@ def test_mutation_migration_step_proves_it_reached_head_in_postgres() -> None:
         assert 'grep -q "(head)"' in block, (
             f"{workflow.name} 的迁移步骤没有「库里 stamped 到 head」这个证人 ⇒ "
             "`alembic current` 打印空也照样退 0，空库放过去没人知道"
+        )
+
+
+def test_mutation_sampling_job_fetches_history_and_proves_its_diff_base() -> None:
+    """按改动抽样的作业必须① 拿得到历史、② base 解析不出来时**这一步**就红。
+
+    立的动机是现读 run 41772007098 的日志（2026-11-04）：mutation-sample 作业红在
+    `git diff --name-only HEAD~1 失败：fatal: ambiguous argument 'HEAD~1'`，
+    而红的那一步之前，「Resolve diff base」是**绿**的——它把字面量 `HEAD~1` 当成了 sha 写进输出。
+    两个叠在一起的原因：
+    - `actions/checkout@v4` 默认 `fetch-depth: 1`，仓库里只有 HEAD 一个提交，`HEAD~1` 无从解析
+      （push 事件按改动抽样从来没真跑过，一直是这一步在兜底）；
+    - `echo "sha=$(git rev-parse HEAD~1)"` 里 git 退 128 也被盖掉：rev-parse 对解析不出来的参数
+      **原样打到 stdout**，而命令替换写在 echo 参数位置时 errexit 看的是 echo 的退出码。
+      本机在 depth-1 克隆里复现过：该步 rc=0、输出 `sha=HEAD~1`；
+      换成 `sha="$(git rev-parse --verify 'HEAD~1^{commit}')"` 则 rc=128。
+    证人（`git cat-file -e`）补的是第三层：base 为空或不在库里时，抽样会走
+    mutation_sample.py 的「没有可比对的变更：抽样集为空」分支**退 0**——那是空集上的假绿。
+    按 YAML 结构读而不是按文本找：判据要落在**那个真跑 `--changed-from` 的作业**自己的
+    checkout 与 `id: base` 步骤上，别的作业钉多浅都不该红它。
+    """
+    import yaml
+
+    sampling: list[tuple[Path, dict]] = []
+    for workflow in WORKFLOWS:
+        doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        for job_id, job in (doc.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            if any("--changed-from" in str(s.get("run") or "") for s in steps):
+                sampling.append((workflow, {"job": job_id, "steps": steps}))
+    assert sampling, (
+        "两份 workflow 里再没有按改动抽样的作业 ⇒ 本闸恒真（空集上的绿），"
+        "作业被删了也照样绿，先确认抽样面去哪了再删本闸"
+    )
+
+    for workflow, entry in sampling:
+        job_id, steps = entry["job"], entry["steps"]
+        checkouts = [s for s in steps if "actions/checkout" in str(s.get("uses") or "")]
+        assert checkouts, f"{workflow.name} 的作业 {job_id} 按改动抽样却没有 checkout 步骤"
+        for checkout in checkouts:
+            depth = (checkout.get("with") or {}).get("fetch-depth")
+            assert depth in DEEP_FETCH, (
+                f"{workflow.name} 的作业 {job_id} 把仓库浅克隆了（fetch-depth={depth!r}）"
+                f" ⇒ `HEAD~1` 与 PR 的 base sha 都不在克隆里，按改动抽样只能拿到空变更集"
+            )
+        base_steps = [s for s in steps if s.get("id") == "base"]
+        assert len(base_steps) == 1, (
+            f"{workflow.name} 的作业 {job_id} 里 `id: base` 的步骤有 {len(base_steps)} 条"
+            " ⇒ 抽样脚本的 `--changed-from` 到底吃哪一个基线不确定"
+        )
+        run_text = str(base_steps[0].get("run") or "")
+        assert "--verify" in run_text, (
+            f"{workflow.name} 的 Resolve diff base 用裸 `git rev-parse` 解析基准 ⇒ "
+            "解析失败时它把参数原样吐进 stdout 并把退出码交给 echo，红会跑到下一步去"
+        )
+        assert "git cat-file -e" in run_text, (
+            f"{workflow.name} 的 Resolve diff base 没有「base 真是一个提交」这个证人 ⇒ "
+            "base 为空时抽样走空集分支退 0，作业绿着什么都没抽"
         )

@@ -243,6 +243,12 @@ jobs:
       CLOSEN_AMQP_URL: amqp://guest:guest@127.0.0.1:5672/
     steps:
       - uses: actions/checkout@v4
+        # 深克隆不是优化项，是这个作业能不能抽样的前提（2026-11-04 实测，run 41772007098）：
+        # 默认 fetch-depth=1 时仓库里只有 HEAD 一个提交，下面的 `HEAD~1` 无从解析，
+        # 于是这一步红在 `git diff --name-only HEAD~1 失败：fatal: ambiguous argument 'HEAD~1'`。
+        # 其余作业只跑当前 checkout 出来的代码，不比对历史，所以深度只补在这里。
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -301,11 +307,24 @@ jobs:
           grep -q "(head)" /tmp/alembic_current.txt
       - name: Resolve diff base
         id: base
+        # 深克隆补上之后，这一步还得**红得起来**。2026-11-04 实测（run 41772007098）：
+        # `echo "sha=$(git rev-parse HEAD~1)"` 在浅克隆里把字面量 "HEAD~1" 写进了输出而且这一步退 0
+        # ——git rev-parse 解析不出来的参数会原样打到 stdout 再退 128，而命令替换写在 echo 的参数位置
+        # 时它的退出码被 echo 盖掉（GH 默认 shell 是 `bash -e`，本机复现过：步骤 rc=0）。
+        # 于是红落在了下一步 `git diff --name-only HEAD~1` 上，看起来像抽样脚本坏了。
+        # 改成 `sha="$(git rev-parse --verify …)"`：--verify 解析不出来就不输出，
+        # 而赋值形式的退出码就是这一步的（本机复现：步骤 rc=128）。
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            sha="${{ github.event.pull_request.base.sha }}"
           else
-            echo "sha=$(git rev-parse HEAD~1)" >> "$GITHUB_OUTPUT"
+            sha="$(git rev-parse --verify 'HEAD~1^{commit}')"
           fi
+          # 正向证人：这一步绿的前提是「base 在本仓库里真是一个提交，且它后面有东西可比」。
+          # 缺这一层会退回空集假绿：base 写错或写空 → --changed-from 拿到垃圾 →
+          # mutation_sample.py 走「没有可比对的变更：抽样集为空」那条分支退 0，整个作业绿着什么也没抽。
+          git cat-file -e "${sha}^{commit}"
+          echo "diff base = ${sha}，其后 $(git rev-list --count "${sha}..HEAD") 个提交可比对"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
       - name: mutation_sample（按改动抽样，串行）
         run: python scripts/mutation_sample.py --changed-from "${{ steps.base.outputs.sha }}" --limit 3

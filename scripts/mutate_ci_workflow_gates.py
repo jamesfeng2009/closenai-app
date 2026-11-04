@@ -4,13 +4,17 @@
 判据不是「测试跑过」，而是「每条纪律都能被打红一次，且红在它该红的闸上」。
 红靶覆盖（不写条数——条数句和清单漂过一次，见 docs/growth/kg22-kg29-template-closure-2026-11-03.md §3）：
 三份 node 钉版各退回 engines 下限之下（ci.yml 两个作业 ＋ nightly 一处）、
-装了 npm 依赖却把原生自检删掉、建库步骤的 PG env 摘掉、证人退回「只看退出码」。
+装了 npm 依赖却把原生自检删掉、建库步骤的 PG env 摘掉、证人退回「只看退出码」、
+按改动抽样的作业退回浅克隆（摘掉 fetch-depth 与把深度写成 1 各一条，证明判据比的是语义）、
+Resolve diff base 退回被 echo 盖掉退出码的写法、再把它的正向证人单独删掉。
 绿靶证明这不是「见字就红」：把 node 抬到 24（高于下限）必须仍绿——判据跟的是锁算出的下限，
 不是一句写死的 22；node-version 去掉引号必须仍绿——它不红在 YAML 排版上；
-证人那两句里的临时文件改名必须仍绿——它认的是「grep 到 (head)」这个动作，不是文件名。
+证人那两句里的临时文件改名必须仍绿——它认的是「grep 到 (head)」这个动作，不是文件名；
+fetch-depth 换成同义的 -1 必须仍绿；给步骤换显示名（id 不动）必须仍绿——判据按 YAML 结构认步骤。
 
-M5 那条红顺带自证了判据的**块作用域**：ci.yml 的 backend 作业本来就挂着一条
-postgresql+psycopg 串，若判据按整个文件找子串，摘掉建库步骤的 env 它照样会绿。
+M5 与 G5 那两条红/绿顺带自证了判据的作用域：M5 证明判据读的是**这一步的块**而不是整个文件
+（ci.yml 的 backend 作业本来就挂着一条 postgresql+psycopg 串，按全文件找它照样绿），
+G5 证明判据读的是 `id: base` 这一步而不是文件里出现的那句名字。
 
 口径照抄既有纪律（[[feedback-mutation-gates-no-concurrency]]、
 [[feedback-mutation-restore-no-git-checkout]]、[[feedback-definition-of-done-tests]]）：
@@ -57,6 +61,29 @@ SELFCHECK = (
     "if(db.prepare('select x from t').get().x!==7)throw new Error('roundtrip 不符');"
     "console.log('better-sqlite3 '+pkg.version+' 可用，node '+process.version)\""
 )
+DEPTH_LINE = "          fetch-depth: 0"
+DIFF_BASE_RUN = (
+    '        run: |\n'
+    '          if [ "${{ github.event_name }}" = "pull_request" ]; then\n'
+    '            sha="${{ github.event.pull_request.base.sha }}"\n'
+    "          else\n"
+    '            sha="$(git rev-parse --verify \'HEAD~1^{commit}\')"\n'
+    "          fi\n"
+)
+# 2026-11-04 那次红真实的写法：echo 把 rev-parse 的 128 盖掉，字面量 HEAD~1 进了输出。
+DIFF_BASE_RUN_OLD = (
+    '        run: |\n'
+    '          if [ "${{ github.event_name }}" = "pull_request" ]; then\n'
+    '            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"\n'
+    "          else\n"
+    '            echo "sha=$(git rev-parse HEAD~1)" >> "$GITHUB_OUTPUT"\n'
+    "          fi\n"
+)
+BASE_WITNESS = (
+    '          git cat-file -e "${sha}^{commit}"\n'
+    '          echo "diff base = ${sha}，其后 $(git rev-list --count "${sha}..HEAD") 个提交可比对"\n'
+)
+BASE_WITNESS_GONE = '          echo "diff base = ${sha}"\n'
 
 # 每条：(id, 说明, (文件, 原文, 坏文), target, 名片段)
 MUTATIONS = [
@@ -125,6 +152,37 @@ MUTATIONS = [
         (NIGHTLY, WITNESS, "          alembic -c backend/alembic.ini current"),
         TARGET, "这个证人",
     ),
+    (
+        "M7",
+        "把 mutation-sample 作业的 fetch-depth 那一格摘掉（回到 actions/checkout 默认的浅克隆）："
+        "2026-11-04 run 41772007098 就是这么红的——深度 1 时仓库里只有 HEAD，`HEAD~1` 与 PR 的 "
+        "base sha 都不在克隆里，按改动抽样永远拿到空变更集",
+        (CI, "        with:\n" + DEPTH_LINE + "\n", "        with:\n"),
+        TARGET, "把仓库浅克隆了",
+    ),
+    (
+        "M8",
+        "把 fetch-depth 从 0 改成 1：证明判据比的是**深度**，不是「有没有 with 这一格」——"
+        "写成 fetch-depth: 1 的「看起来配置过了」必须照样红",
+        (CI, DEPTH_LINE, "          fetch-depth: 1"),
+        TARGET, "把仓库浅克隆了",
+    ),
+    (
+        "M9",
+        "把 Resolve diff base 退回 2026-11-04 那个写法（`echo \"sha=$(git rev-parse HEAD~1)\"`）："
+        "本机在 depth-1 克隆里复现过，这一步 rc=0 并把字面量 HEAD~1 写进输出，红跑到下一步的 "
+        "`git diff --name-only HEAD~1` 上，看起来像抽样脚本坏了。--verify＋赋值形式才是这一步的红",
+        (CI, DIFF_BASE_RUN, DIFF_BASE_RUN_OLD),
+        TARGET, "解析基准",
+    ),
+    (
+        "M10",
+        "保留 --verify 但删掉 `git cat-file -e` 证人：base 为空或不在库里时，"
+        "mutation_sample.py 走「没有可比对的变更：抽样集为空」那条分支**退 0**——"
+        "整个作业绿着什么也没抽，这是空集上的假绿，证人补的正是这一层",
+        (CI, BASE_WITNESS, BASE_WITNESS_GONE),
+        TARGET, "base 真是一个提交",
+    ),
 ]
 
 GREEN = [
@@ -152,6 +210,23 @@ GREEN = [
         "判据认的是「grep 到 (head)」这个动作，不是某个具体文件名——"
         "否则日后给两个作业各用一个临时文件就会红在无关的重命名上",
         (CI, WITNESS, WITNESS_RENAMED),
+        TARGET,
+    ),
+    (
+        "G4",
+        "fetch-depth 从 0 换成 -1（actions/checkout 认的另一种「取全部历史」写法）：判据读的是"
+        "深度这个语义，不该因为排版换了同义词就红——否则它会在无关的等价改动上拦人",
+        (CI, DEPTH_LINE, "          fetch-depth: -1"),
+        TARGET,
+    ),
+    (
+        "G5",
+        "把 Resolve diff base 这一步的**显示名**改掉（`id: base` 与 run 内容一字不动）："
+        "判据按 YAML 结构认步骤，绑的是 id 而不是 name ⇒ 改名不改判据。"
+        "这条绿同时自证判据不是「在文件里找一个字符串」",
+        (CI,
+         "      - name: Resolve diff base\n        id: base",
+         "      - name: 解析 diff 基准（改名不改判据）\n        id: base"),
         TARGET,
     ),
 ]
