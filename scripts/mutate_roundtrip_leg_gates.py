@@ -366,8 +366,8 @@ def main() -> int:
             print("  " + "\n  ".join(out.splitlines()[-12:]))
             return 1
 
-        print(f"\n计数：红闸 {red_ok} 打红 / {red_fail} 未打红；"
-              f"绿闸 {green_ok} 保持绿 / {green_fail} 被误伤；未跑 {unrun}")
+        print(f"\n汇总：打红 {red_ok}/{red_ok + red_fail}，绿闸 {green_ok}/{green_ok + green_fail}"
+              f"｜未打红 {red_fail}｜被误伤 {green_fail}｜未跑 {unrun}")
         if failures:
             print("未通过：" + ",".join(failures))
         return 1 if (red_fail or green_fail or unrun) else 0

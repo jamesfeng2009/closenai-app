@@ -8,7 +8,9 @@
 拿仓库里真的 `mutate_*.py` 当输入，不造玩具样本。
 
 变异自证：`scripts/mutate_t006_sample_driver_gates.py`（把驱动器四条判据逐条掏空，
-要求本文件的对应用例打红）。
+要求本文件的对应用例打红）；存量登记那两条另由
+`scripts/mutate_summary_registry_gates.py` 打靶（把一条合规脚本的汇总行改成没有分数的文案、
+把一条真欠账从登记里删掉、往登记里塞一条不违规的名字，各要求本文件红在对应那一格）。
 """
 import re
 import subprocess
@@ -157,3 +159,129 @@ def test_driver_has_no_business_dependencies():
     flat = {x for pair in re.findall(r"^import (\w+)|^from (\w+)", src, re.M) for x in pair if x}
     allowed = {"argparse", "re", "subprocess", "sys", "pathlib", "__future__"}
     assert flat <= allowed, f"驱动器引入了业务依赖：{flat - allowed}"
+
+
+# ── 存量登记：汇总行「抽样器解析不出分数」的脚本 ────────────────────────────
+
+#: `run_sample()` 用 `parse_summary()` 判「打红到位」，解析不出分数就直接判不过（这是对的），
+#: 但**后果是这条脚本在 CI 上恒红**——而 `--all` 会把每一条都跑一遍。
+#: 2026-11-04 现读盘面：`scripts/mutate_*.py` 共 76 条，其中下面这些的汇总行还是
+#: 「计数：红闸 5 打红 / 0 未打红」这类没有分数的文案，抽样器读不出 `a/b`。
+#: 它们不是被测代码的锅，是这批变异脚本自己的文案与判据不同源；改文案要逐条动 22 个文件，
+#: 本轮（批次 8）只登记不顺手修（见 [[feedback-defects-found-keep-to-named-scope]]），
+#: 但**必须让它可见且只许缩不许涨**：新写的脚本用「打红 a/b，绿闸 c/d」这一族文案就不会进这张表，
+#: 而往表里加一条不在盘上违规的名字，本闸直接红——表不是免罪符，是欠账清单。
+UNPARSEABLE_SUMMARY: frozenset[str] = frozenset({
+    "mutate_batch3_gates.py",
+    "mutate_batch4_gates.py",
+    "mutate_kg28_gates.py",
+    "mutate_n2_gates.py",
+    "mutate_n3_gates.py",
+    "mutate_n4_gates.py",
+    "mutate_n5_gates.py",
+    "mutate_n6_gates.py",
+    "mutate_n7_gates.py",
+    "mutate_n8_gates.py",
+    "mutate_n9_gates.py",
+    "mutate_pg_scheme_gates.py",
+    "mutate_r2_gates.py",
+    "mutate_r3_gates.py",
+    "mutate_r4_gates.py",
+    "mutate_r5_gates.py",
+    "mutate_share_lang_key_gate.py",
+    "mutate_t206_gates.py",
+    "mutate_t703_gates.py",
+    "mutate_t706_gates.py",
+    "mutate_t712_gates.py",
+    "mutate_t713_gates.py",
+})
+
+#: 汇总行的文案各异，但都得有这一族的字样；认出「哪一行是汇总」靠它，不靠行号。
+SUMMARY_HINT = re.compile(r"打红|保持绿|绿闸|红闸|汇总|计数")
+
+
+def _print_literals(script: Path) -> list[str]:
+    """把脚本里每条 `print(...)` 的静态可判部分拼成一行：花括号里的表达式一律替成一个数字。
+
+    为什么是「一个数字」而不是跳过：`f"打红 {ok}/{ok + fail}"` 与 `"红闸 5 打红"` 在判据眼里
+    得是同一种东西——都是「一串带分数的文案」。把 `{…}` 折成同一个数字后，能过 `parse_summary`
+    的字面量就是真能打印出齐平分数的字面量；折不动的（变量拼出来的整行）不认，那是登记之外的债。
+    """
+    import ast
+
+    def flat(node) -> str:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr):
+            return "".join(
+                v.value if isinstance(v, ast.Constant) and isinstance(v.value, str) else "7"
+                for v in node.values
+            )
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return flat(node.left) + flat(node.right)
+        return ""
+
+    tree = ast.parse(script.read_text(encoding="utf-8"))
+    return [
+        "".join(flat(a) for a in node.args)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print"
+    ]
+
+
+def test_mutation_scripts_print_a_summary_the_driver_can_parse():
+    """每条变异脚本都要打印抽样器解析得出的汇总分数；解析不出的那些**逐名登记**，只许缩不许涨。
+
+    两侧都不许空转：① 认不出任何汇总行的脚本直接红（否则「一条汇总都没有」也能被当成登记外的绿），
+    ② 登记表里的名字若此刻在盘上已经合规，红在「该删这条登记」上——这条闸的方向是**收敛**。
+    """
+    assert SCRIPTS, "scripts/ 下一条变异脚本都没有 ⇒ 本闸扫的是空集"
+    offenders: list[str] = []
+    for script in SCRIPTS:
+        candidates = [line for line in _print_literals(script) if SUMMARY_HINT.search(line)]
+        assert candidates, (
+            f"{script.name} 没有一行打印里带 {SUMMARY_HINT.pattern} ⇒ 判据在它身上扫的是空集，"
+            "汇总行文案换了字的话这条闸就追不上了，先改判据的候选识别再谈登记"
+        )
+        if not any(ms.parse_summary(line)[0] for line in candidates):
+            offenders.append(script.name)
+
+    names = {p.name for p in SCRIPTS}
+    unregistered = sorted(set(offenders) - UNPARSEABLE_SUMMARY)
+    stale = sorted(UNPARSEABLE_SUMMARY - set(offenders))
+    ghost = sorted(UNPARSEABLE_SUMMARY - names)
+    assert not unregistered, (
+        f"这些变异脚本的汇总行解析不出分数、又不在存量登记里：{unregistered} ⇒ "
+        "`run_sample()` 会判「脚本没打印可解析的红/绿闸分数」，抽样／全量面上恒红。"
+        "改法是把汇总行写成 `打红 a/b，绿闸 c/d`（a==b 才算过），别往登记表里塞新名字："
+        "这张表是欠账清单，不是免罪符"
+    )
+    assert not stale, (
+        f"存量登记里这些名字此刻已经能解析了：{stale} ⇒ 登记里**该删这条登记**，"
+        "欠账清单只许缩不许涨"
+    )
+    assert not ghost, (
+        f"存量登记里这些名字在盘上已经没有对应的变异脚本：{ghost} ⇒ "
+        "脚本被删了登记要跟着删，留着就是拿一条不存在的欠账占格子"
+    )
+
+
+def test_registry_of_unparseable_summaries_is_actively_measured() -> None:
+    """正向证人：登记的条数必须等于「现读盘面上解析不出的条数」，且这个数不是 0。
+
+    上一条闸两侧都可能悄悄空转：盘面全合规 ⇒ 登记表清空 ⇒ 新写的脚本恒绿（因为没人看它），
+    或者候选识别退化成一堆无关文案 ⇒ 全被判可解析。这里把数量钉住，红在「空集」上。
+    """
+    offenders = [
+        p.name for p in SCRIPTS
+        if not any(ms.parse_summary(line)[0]
+                   for line in _print_literals(p) if SUMMARY_HINT.search(line))
+    ]
+    assert offenders, (
+        "盘面上再没有一条汇总行解析不出的变异脚本 ⇒ 这条闸的两侧都空了，"
+        "UNPARSEABLE_SUMMARY 该整张删掉、本用例一起删，别留着空转"
+    )
+    assert len(offenders) == len(UNPARSEABLE_SUMMARY), (
+        f"现读解析不出 {len(offenders)} 条，登记了 {len(UNPARSEABLE_SUMMARY)} 条 ⇒ 名单与盘面不同源"
+    )
+
