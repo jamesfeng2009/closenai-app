@@ -576,8 +576,29 @@ def test_live_db_has_no_enum_or_jsonb_or_new_fk():
 # ── 3. 迁移往返（一次性空库，可选）──
 
 
+def _chain_from_scripts() -> list[str]:
+    """离线读出迁移链，**链头在前**；回退梯每一级的期望值从这里取，不再钉字面 revision。
+
+    为什么要改成现读：2026-11-04 的 CI 红。407668d 把 T7-02 那件压成新链头，更新了链形状闸
+    （`test_migration_graph_is_single_head_with_n7_on_top`），却没同步这条往返梯里钉着的字面
+    revision。这条梯是 PG 专属的（缺 `N2_MIGRATE_DATABASE_URL` 本机常驻 skip），所以只有 CI
+    看得见，实测红在 `upgrade 后 head = b7c9d1e3f5a2，应为 f6b8d0e2a4c6`。
+    现读之后「回退第 i 级」的定义跟着链走：再有新 head 进来，head 断言照样对，红的是那一级
+    的**表/列证人**——那才是它该红的位置（加了一件迁移就得给它写回退证人）。
+    链的形状（谁挂谁）仍由上面那条字面闸钉住；这里期望值取 alembic 的 ScriptDirectory，
+    实际值取库里的 `alembic_version` 行，两侧不同源。
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
+    heads = script.get_heads()
+    assert len(heads) == 1, f"链头有 {heads}，「回退第 i 级」没有唯一定义"
+    return [rev.revision for rev in script.walk_revisions()]
+
+
 def test_alembic_roundtrip_on_empty_database():
-    """N2/N7/trace/W5/T1-01/T1-02/T4-01 验收的「alembic upgrade/downgrade 隔离库实测」（九件逐级回退）。
+    """N2/N7/trace/W5/T1-01/T1-02/T4-01/T7-02 验收的「alembic upgrade/downgrade 隔离库实测」（逐级回退）。
 
     指向一个**空的**库（库里连 alembic_version 都没有），用独立 env 变量避免误打
     共享库；跑完库里有 alembic_version，所以下一次取证前要重建：
@@ -589,6 +610,7 @@ def test_alembic_roundtrip_on_empty_database():
     from sqlalchemy import create_engine, text
 
     sync_url = pg_test_url("N2_MIGRATE_DATABASE_URL", purpose="迁移往返，需一次性空库")
+    chain = _chain_from_scripts()
     engine = create_engine(sync_url)
     with engine.connect() as conn:
         existing = conn.execute(text(
@@ -649,9 +671,18 @@ def test_alembic_roundtrip_on_empty_database():
         finally:
             engine.dispose()
 
+    def pk_columns(table: str) -> set[str]:
+        from sqlalchemy import inspect as sa_inspect
+
+        engine = create_engine(sync_url)
+        try:
+            return set(sa_inspect(engine).get_pk_constraint(table)["constrained_columns"])
+        finally:
+            engine.dispose()
+
     alembic("upgrade", "head")
     after_up, head = tables_and_head()
-    assert head == T401_COMMITMENT_REVISION, f"upgrade 后 head = {head}，应为 {T401_COMMITMENT_REVISION}"
+    assert head == chain[0], f"upgrade 后 head = {head}，应为链头 {chain[0]}"
     assert set(CANONICAL_TABLES) <= after_up, (
         f"缺表 {set(CANONICAL_TABLES) - after_up}")
     assert has_trace_col(), "upgrade 后 outbox_messages 应带 trace_id（批 T-B 的正向证人）"
@@ -675,13 +706,26 @@ def test_alembic_roundtrip_on_empty_database():
     assert has_columns("personal_commitments", {"goal_id", "skipped_at"}), (
         "T4-01 件没给 personal_commitments 加 goal_id/skipped_at ⇒ 行动仍挂不到目标下")
     assert "ix_personal_commitments_goal" in index_names(), "T4-01 件的索引没建起来"
+    # T7-02 的正向证人：接收台账表＋它的复合主键（幂等键 (user_id, event_id)）。
+    # 这条不是补装饰：链头换了而证人没跟上，等于「新 head 到底打没打到库」无人验。
+    assert "analytics_event_receipts" in after_up, (
+        "T7-02 件没建 analytics_event_receipts ⇒ /analytics/batch 的重复事件仍无处拦")
+    assert pk_columns("analytics_event_receipts") == {"user_id", "event_id"}, (
+        "T7-02 的接收台账主键不是 (user_id, event_id) ⇒ 同一条 event_id 能被落两行，幂等失效")
 
-    # 逐级回退：先退 T4-01 的两列（只该走列与一条索引，表要留着），再退 T1-02 重试台账（表整个走），
-    # 然后退 T1-01 导出件（表整个走），接着退 W5 三件（T5-03 → T5-02 → T5-01），
+    # 逐级回退：先退 T7-02 的接收台账（表整个走），再退 T4-01 的两列（只该走列与一条索引，表要留着），
+    # 然后退 T1-02 重试台账（表整个走），接着退 T1-01 导出件（表整个走），退 W5 三件（T5-03 → T5-02 → T5-01），
     # 接着退 trace 件（只该走一列），最后退 N7 件（表整个走）与 N2 件（21 张全走）。
     alembic("downgrade", "-1")
+    after_down_t702, head = tables_and_head()
+    assert head == chain[1], f"退 T7-02 后 head = {head}，应回到链上上一件 {chain[1]}"
+    assert "analytics_event_receipts" not in after_down_t702, "T7-02 的表没退干净"
+    assert {"personal_commitments", "posthog_erasure_retries", "data_export_jobs"} <= after_down_t702, (
+        "退 T7-02 带走了别人的表——迁移边界没切开")
+
+    alembic("downgrade", "-1")
     after_down_t401, head = tables_and_head()
-    assert head == T102_ERASURE_REVISION, f"退 T4-01 后 head = {head}，应回到 {T102_ERASURE_REVISION}"
+    assert head == chain[2], f"退 T4-01 后 head = {head}，应回到链上上一件 {chain[2]}"
     assert not has_columns("personal_commitments", {"goal_id", "skipped_at"}), (
         "T4-01 的列没退干净：留下一列会让快照与库长期漂移，而下一件迁移以为自己在空列上加东西")
     assert "ix_personal_commitments_goal" not in index_names(), "退 T4-01 仍残留它的索引"
@@ -690,45 +734,45 @@ def test_alembic_roundtrip_on_empty_database():
 
     alembic("downgrade", "-1")
     after_down_t102, head = tables_and_head()
-    assert head == T101_EXPORT_REVISION, f"退 T1-02 后 head = {head}，应回到 {T101_EXPORT_REVISION}"
+    assert head == chain[3], f"退 T1-02 后 head = {head}，应回到链上上一件 {chain[3]}"
     assert "posthog_erasure_retries" not in after_down_t102, "T1-02 的表没退干净"
     assert "data_export_jobs" in after_down_t102, "退 T1-02 带走了 T1-01 的表——迁移边界没切开"
 
     alembic("downgrade", "-1")
     after_down_t101, head = tables_and_head()
-    assert head == W5_HEAD_REVISION, f"退 T1-01 后 head = {head}，应回到 {W5_HEAD_REVISION}"
+    assert head == chain[4], f"退 T1-01 后 head = {head}，应回到链上上一件 {chain[4]}"
     assert "data_export_jobs" not in after_down_t101, "T1-01 的表没退干净"
     assert "user_consents" in after_down_t101 and set(CANONICAL_TABLES) <= after_down_t101, (
         "退 T1-01 带走了别人的表——迁移边界没切开")
 
     alembic("downgrade", "-1")
     _, head = tables_and_head()
-    assert head == W5_QUIET_REVISION, f"退 T5-03 后 head = {head}"
+    assert head == chain[5], f"退 T5-03 后 head = {head}，应回到链上上一件 {chain[5]}"
     left_t503 = {"uq_chat_messages_proactive_key", "uq_journey_events_user_kind_day"} & index_names()
     assert not left_t503, f"退掉 T5-03 仍残留幂等索引 {left_t503}"
     assert not has_columns("chat_messages", {"idempotency_key"}), "T5-03 的列没退掉"
 
     alembic("downgrade", "-1")
     _, head = tables_and_head()
-    assert head == W5_CONSENT_REVISION, f"退 T5-02 后 head = {head}"
+    assert head == chain[6], f"退 T5-02 后 head = {head}，应回到链上上一件 {chain[6]}"
     assert not has_columns("users", {"quiet_start", "quiet_end"}), "T5-02 的两列没退掉"
 
     alembic("downgrade", "-1")
     after_down_w5, head = tables_and_head()
-    assert head == TRACE_REVISION, f"退 T5-01 后 head = {head}，应回到 {TRACE_REVISION}"
+    assert head == chain[7], f"退 T5-01 后 head = {head}，应回到链上上一件 {chain[7]}"
     assert "user_consents" not in after_down_w5, "T5-01 的表没退干净"
     assert set(CANONICAL_TABLES) <= after_down_w5, (
         "退 W5 三件把不该动的表也带走了——迁移边界没切开")
 
     alembic("downgrade", "-1")
     after_down_t, head = tables_and_head()
-    assert head == N7_REVISION, f"退 trace 件后 head = {head}，应回到 {N7_REVISION}"
+    assert head == chain[8], f"退 trace 件后 head = {head}，应回到链上上一件 {chain[8]}"
     assert "outbox_messages" in after_down_t, "退一列不该带走整张投递表"
     assert not has_trace_col(), "downgrade 后 trace_id 列仍在，回退件不完整"
 
     alembic("downgrade", "-1")
     after_down1, head = tables_and_head()
-    assert head == N2_REVISION, f"退一件后 head = {head}，应回到 {N2_REVISION}"
+    assert head == chain[9], f"退 N7 件后 head = {head}，应回到链上上一件 {chain[9]}"
     left1 = set(N7_TABLES) & after_down1
     assert not left1, f"退掉 N7 件后仍残留 {left1}（回退件不完整，§11.4 的「仅正向 + 本地可回退」失效）"
     assert set(N2_TABLES) <= after_down1, (
@@ -736,7 +780,7 @@ def test_alembic_roundtrip_on_empty_database():
 
     alembic("downgrade", "-1")
     after_down2, head = tables_and_head()
-    assert head == N2_PARENT, f"退两件后 head = {head}，应回到 {N2_PARENT}"
+    assert head == chain[10], f"退 N2 件后 head = {head}，应回到链上上一件 {chain[10]}"
     left2 = set(CANONICAL_TABLES) & after_down2
     assert not left2, f"回退到 N2 之前仍残留 {left2}"
 
