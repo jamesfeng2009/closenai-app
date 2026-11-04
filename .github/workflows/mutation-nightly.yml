@@ -63,7 +63,10 @@ jobs:
           go-version: "1.27.1"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 20 → 22：与 ci.yml 同一件事（better-sqlite3@13 声明 engines.node=">=22"，
+          # 低一档就装出 ABI 不匹配的二进制，jest 侧以 SIGSEGV 收场）。
+          # 下限由 backend/tests/test_ci_workflow_versions.py 现读锁算，不写死。
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install deps
@@ -76,6 +79,8 @@ jobs:
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
           cd frontend && npm ci
+          # 装了原生依赖就 require 一次：npm ci 绿不等于原生模块可用（见 ci.yml 同位置那句）。
+          node -e "const pkg=require('better-sqlite3/package.json');const D=require('better-sqlite3');const db=new D(':memory:');db.exec('create table t(x)');db.prepare('insert into t values (?)').run(7);if(db.prepare('select x from t').get().x!==7)throw new Error('roundtrip 不符');console.log('better-sqlite3 '+pkg.version+' 可用，node '+process.version)"
       - name: Create and migrate mutation database
         # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 把它变成 fail，
         # 所以这里必须把库建好并升到 head，而不是让全量在空集上假绿。

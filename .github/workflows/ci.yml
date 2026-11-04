@@ -142,11 +142,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 2026-11-04：20 → 22。`better-sqlite3@13.0.3` 在 npm 锁里自带 engines.node=">=22"，
+          # 而 npm 对 engines 不符只 warn 不拦——v20 的跑机会装到一个 ABI 对不上的原生二进制，
+          # 表现为 jest worker `signal=SIGSEGV`、13 个 suite 一个都没跑起来（失败数却是 0）。
+          # 下限不猜：由 backend/tests/test_ci_workflow_versions.py 现读锁里逐包 engines 算出来。
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: npm ci
         run: cd frontend && npm ci
+      - name: 原生模块自检（better-sqlite3 必须真能 require）
+        # npm ci 绿 ≠ 原生模块可用；这一步把它变成**安装期就红**，而不是让根因
+        # 藏在 13 个 suite 的段错误里。建库、写一行、读回来，三个动作都要成。
+        run: |
+          cd frontend
+          node -e "const pkg=require('better-sqlite3/package.json');const D=require('better-sqlite3');const db=new D(':memory:');db.exec('create table t(x)');db.prepare('insert into t values (?)').run(7);if(db.prepare('select x from t').get().x!==7)throw new Error('roundtrip 不符');console.log('better-sqlite3 '+pkg.version+' 可用，node '+process.version)"
       - name: jest
         run: cd frontend && npx jest --silent
       - name: tsc
@@ -245,7 +255,9 @@ jobs:
           go-version: "1.27.1"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 同 frontend 作业那句：20 会装出 ABI 不匹配的 better-sqlite3，
+          # 而变异脚本里那些要跑 jest 的闸正好会 require 它（红在段错误上，看不出根因）。
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install deps
@@ -258,6 +270,7 @@ jobs:
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
           cd frontend && npm ci
+          node -e "const pkg=require('better-sqlite3/package.json');const D=require('better-sqlite3');const db=new D(':memory:');db.exec('create table t(x)');db.prepare('insert into t values (?)').run(7);if(db.prepare('select x from t').get().x!==7)throw new Error('roundtrip 不符');console.log('better-sqlite3 '+pkg.version+' 可用，node '+process.version)"
       - name: Create and migrate mutation database
         # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 让它变成 fail，
         # 所以这里必须把库建好并升到 head，而不是让抽样在空集上假绿。
