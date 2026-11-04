@@ -283,7 +283,7 @@ def test_mutation_jobs_provision_the_venv_their_scripts_require() -> None:
     立的动机是现读 run 41789159667（2026-11-04）：mutation-sample 作业抽到
     `scripts/mutate_ci_workflow_gates.py` 时整条红在
     `FileNotFoundError: /home/runner/work/…/.venv/bin/python`。根因不在那条脚本：
-    磁盘上 75 条 `scripts/mutate_*.py` 里 71 条把解释器钉成 `REPO/.venv/bin/python`
+    盘上绝大多数 `scripts/mutate_*.py`（条数由判据现读 `grep -l` 算出，不在文案里钉）把解释器钉成 `REPO/.venv/bin/python`
     （现读 `grep -l '.venv' scripts/mutate_*.py | wc -l`），而跑机的依赖装在 setup-python 的解释器里，
     跑机上没有 `.venv` 这个目录——**抽样面躲不开任何钉着 .venv 的脚本**。
     本机看不见这批红：本机真的有 `.venv`。

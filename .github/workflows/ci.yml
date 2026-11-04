@@ -350,7 +350,7 @@ jobs:
         # 为什么这一步存在（2026-11-04 实测，run 41789159667）：本作业抽到
         # `scripts/mutate_ci_workflow_gates.py` 时整条红在
         # `FileNotFoundError: /home/runner/work/closenai-app/closenai-app/.venv/bin/python`。
-        # 根因不在那条脚本：磁盘上 75 条 `scripts/mutate_*.py` 里 71 条把解释器钉成
+        # 根因不在那条脚本：盘上绝大多数 `scripts/mutate_*.py`（条数由判据现读 `grep -l` 算出，不在文案里钉）把解释器钉成
         # `REPO/.venv/bin/python`，而跑机的依赖是 `scripts/install_backend_deps.sh --dev` 装进
         # setup-python 那个解释器的——跑机上根本没有 `.venv` 这个目录。
         # 也就是「抽样作业永远抽不到任何钉着 .venv 的脚本」，而不是那些脚本坏了。

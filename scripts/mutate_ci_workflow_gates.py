@@ -24,7 +24,7 @@ M11 把提供摘掉（＝2026-11-04 那个状态，7 条用例红在 `InvalidKey
 
 最后一批管的是**变异作业自己的取证前置**（V 族）。run 41789159667 实测：作业抽到
 `mutate_ci_workflow_gates.py` 自己时红在 `FileNotFoundError: …/.venv/bin/python`——
-磁盘上 75 条 `scripts/mutate_*.py` 里 71 条把解释器钉成 `REPO/.venv/bin/python`，
+盘上绝大多数 `scripts/mutate_*.py`（条数由判据现读 `grep -l` 算出，不在文案里钉）把解释器钉成 `REPO/.venv/bin/python`，
 而跑机的依赖装在 setup-python 那个解释器里，跑机上没有 `.venv` 这个目录。
 V1 把造入口那一行删掉（＝这次修复前的状态），V2 给这一步挂 `if:`（步骤还在但被条件跳过——
 判据读的是执行序列，不是「文件里有没有这段字」），V3 单独删掉 `.venv/bin/pytest` 那条证人
@@ -269,7 +269,7 @@ MUTATIONS = [
     (
         "V1",
         "把 mutation-sample 作业造 `.venv` 那一步的入口行删掉（2026-11-04 那个状态就是「没这一步」）："
-        "磁盘上 71 条脚本硬编码 `REPO/.venv/bin/python`，抽到任何一条都红在 FileNotFoundError，"
+        "盘上成批脚本硬编码 `REPO/.venv/bin/python`，抽到任何一条都红在 FileNotFoundError，"
         "而那不是被测代码的锅——本闸把「作业没给解释器」按在作业上",
         (CI, VENV_DIR_LINE, ""),
         TARGET, "却没给 `.venv/bin/python` 这个入口",
