@@ -388,9 +388,37 @@ def test_source_record_upsert_conflicts_on_the_declared_unique_key():
 #: `user_feedback`（负样本）与 `evidence ⋈ source_records`（24h 成本闸）。
 #: Python 侧当时没有第二条路（R3b 的 gRPC 读面仍未交付，见工作单 §R3b）。
 #: 所以这条例外只扩**读**，并由下面的断言钉住「一个写形态都不许出现」。
+#: 第三条例外：**只读**，2026-11-04 由负责人拍板「闸不许长期挂着一条红」时登记。
+#: `metrics_export.py` 是 KG-19 七格漏斗的装载器（`docs/metrics-dictionary.md` 的后四格
+#: 指回 `insights`／`insight_evidence`／`personal_commitments`／`outcomes`，全在 canonical 侧），
+#: 而 Python 侧到这一批仍然只有第二条路可走：R3b 的 gRPC 读面没交付。它与第二条例外同形——
+#: **只扩读**，写形态仍由下面那段断言逐格拦。回滚条件：R3b 交付读面后把这条删掉。
+#: 登记时核过 `metrics_export.py` 里这四个类名只出现在 `select(...)`／`.join(...)`／`.where(...)`
+#: 与字符串字面量里，无 `Insight(`／`.add(Outcome`／`insert(…`／`X.field =` 四种写形态。
 CANONICAL_READ_ONLY: dict[Path, tuple[str, ...]] = {
     ROOT / "backend" / "services" / "ai_observation.py": ("Evidence", "SourceRecord", "UserFeedback"),
+    ROOT / "backend" / "services" / "metrics_export.py": (
+        "Insight", "InsightEvidence", "Outcome", "PersonalCommitment",
+    ),
 }
+
+
+def _canonical_imported_names(source: str) -> set[str]:
+    """文件里从 `backend.models.canonical` 真 import 进来的类名（兼容单行与括号多行两种写法）。
+
+    为什么需要它：只读例外登记的是**手写的类名清单**，写形态断言只扫清单里的名字。
+    清单少登记一个名字，那个类的写形态就静默扫不到——所以名字集合必须与文件真 import 的对拉。
+    """
+    names: set[str] = set()
+    for block in re.findall(
+        r"from backend\.models\.canonical import \(([^)]*)\)", source, re.DOTALL
+    ):
+        names |= {tok.strip() for tok in block.split(",") if tok.strip()}
+    for line in re.findall(
+        r"from backend\.models\.canonical import ([^\n(]+)", source
+    ):
+        names |= {tok.strip() for tok in line.split(",") if tok.strip()}
+    return names
 
 
 def _canonical_write_forms(source: str, names: tuple[str, ...]) -> list[str]:
@@ -408,11 +436,14 @@ def _canonical_write_forms(source: str, names: tuple[str, ...]) -> list[str]:
 
 
 def test_python_reaches_canonical_models_only_through_deletion():
-    """V3 06 §5 禁 Python 直连 canonical；例外只有两格，各自带日期与归属：
+    """V3 06 §5 禁 Python 直连 canonical；例外只有三格，各自带日期与归属：
     ① **写**＝`user_service.py` 的 purge 删除路径（D-5）；
-    ② **读**＝`services/ai_observation.py`（T2-02，只读，写形态一条都不许有）。
-    第三个引用点仍算扩大例外 ⇒ 红。名字里的 "deletion" 指的是①，②是 2026-10-18 加的，
-    保留原 nodeid 是因为 `scripts/mutate_n2_gates.py` 按这个名字打红过它（改名将让那条变异空转）。
+    ② **读**＝`services/ai_observation.py`（T2-02，只读，写形态一条都不许有）；
+    ③ **读**＝`services/metrics_export.py`（KG-19 漏斗装载，2026-11-04 登记，理由与回滚条件
+    写在 `CANONICAL_READ_ONLY` 上面那段注释里）。
+    第四个引用点仍算扩大例外 ⇒ 红。名字里的 "deletion" 指的是①，②是 2026-10-18 加的、
+    ③是 2026-11-04 加的，保留原 nodeid 是因为 `scripts/mutate_n2_gates.py`
+    按这个名字打红过它（改名将让那条变异空转）。
     """
     allowed = {
         ROOT / "backend" / "models" / "canonical.py",
@@ -427,11 +458,18 @@ def test_python_reaches_canonical_models_only_through_deletion():
         if pattern.search(path.read_text(encoding="utf-8")):
             offenders.append(str(path.relative_to(ROOT)))
     assert not offenders, (
-        f"以下模块引用了 canonical 模型，越过那两条登记过的例外（V3 06 §5 / D-5 写 + T2-02 只读）："
+        f"以下模块引用了 canonical 模型，越过那三条登记过的例外（V3 06 §5 / D-5 写 "
+        f"+ T2-02 只读 + KG-19 漏斗只读）："
         f"{offenders}")
     for path, names in CANONICAL_READ_ONLY.items():
         assert path.exists(), f"只读例外的文件不在了：{path} ⇒ 这条例外该跟着删，不许留着空转"
-        writes = _canonical_write_forms(path.read_text(encoding="utf-8"), names)
+        source = path.read_text(encoding="utf-8")
+        declared, actual = set(names), _canonical_imported_names(source)
+        assert declared == actual, (
+            f"{path.relative_to(ROOT)} 登记的类名与文件里真 import 的不一致："
+            f"登记 {sorted(declared)}／实际 {sorted(actual)}"
+            "⇒ 漏登记的那个类不会被下面的写形态断言扫到，判据覆盖面在这一格是空转的")
+        writes = _canonical_write_forms(source, names)
         assert not writes, (
             f"{path.relative_to(ROOT)} 是**只读**例外，却出现了写形态 {writes}"
             "（不变量 7：canonical 态只能由 Go 的 domain 改）")
