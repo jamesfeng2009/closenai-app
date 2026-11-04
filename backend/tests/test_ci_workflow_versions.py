@@ -91,3 +91,32 @@ def test_native_selfcheck_step_exists_where_jest_runs() -> None:
             f"{workflow.name} 装了 npm 依赖却没有原生模块自检 ⇒ "
             "ABI 不匹配只会在 jest worker 里以 SIGSEGV 的形式出现，红得看不出根因"
         )
+
+
+def test_mutation_migration_step_proves_it_reached_head_in_postgres() -> None:
+    """建库那步必须**同时**挂 PG 的 DATABASE_URL 和一个读库的证人，且只看这一步自己的块。
+
+    取证到日志级（2026-11-04 现读 run 41245498089／41357054861／41741006531 的 step 8）：
+    三次 nightly 都红在「Create and migrate mutation database」，报的是
+    `sqlalchemy/dialects/sqlite/aiosqlite.py:328 import_dbapi` 处的 ModuleNotFoundError——
+    那一步没挂 `DATABASE_URL`，alembic 于是按 `backend/config.py:37` 的默认串走 sqlite。
+    「装上 aiosqlite 后它会绿着把迁移打到 sqlite 文件、PG 留空」是我先前的推断，
+    本机实测**不成立**（这条链在 sqlite 上红在 `CREATE EXTENSION IF NOT EXISTS vector`），
+    所以 env 治的是「迁移根本没落到 PG」，而不是假绿。
+    证人补另一半：本机实测对着一个从未 stamp 过的库，`alembic current` 不打印任何版本行
+    **但仍退 0**，退出码因此不构成「schema 真在这个库里」的证据。
+    读的是 marker 之后、下一个 `- name:` 之前那一段，不是整个文件——
+    ci.yml 的 backend 作业本来也有一条 PG 串，按全文件找会让「迁移步骤没挂 env」溜过去。
+    """
+    for workflow in WORKFLOWS:
+        text = workflow.read_text(encoding="utf-8")
+        marker = "Create and migrate mutation database"
+        assert marker in text, f"{workflow.name} 不再建变异库，本闸需重写"
+        block = text.split(marker, 1)[1].split("\n      - name:", 1)[0]
+        assert "DATABASE_URL: postgresql+psycopg://" in block, (
+            f"{workflow.name} 的迁移步骤没挂 PG 连接串 ⇒ alembic 会按默认串打到 sqlite 文件"
+        )
+        assert 'grep -q "(head)"' in block, (
+            f"{workflow.name} 的迁移步骤没有「库里 stamped 到 head」这个证人 ⇒ "
+            "`alembic current` 打印空也照样退 0，空库放过去没人知道"
+        )

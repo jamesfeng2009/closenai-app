@@ -274,6 +274,13 @@ jobs:
       - name: Create and migrate mutation database
         # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 让它变成 fail，
         # 所以这里必须把库建好并升到 head，而不是让抽样在空集上假绿。
+        # 2026-11-04：这一步原来没挂 DATABASE_URL，alembic 于是按 backend/config.py:37 的默认串
+        # （sqlite+aiosqlite:///./closenai.db）跑——2026-11-03 它红在 `No module named 'aiosqlite'`。
+        # 「装上 aiosqlite 之后它会绿着把迁移打到 sqlite 文件」是我先前的推断，本机实测**不成立**：
+        # 这条链在 sqlite 上红在 `CREATE EXTENSION IF NOT EXISTS vector`（pgvector 那条迁移）。
+        # 所以这里的 env 不是防假绿，而是让迁移真的落到 closenai_mut 这个 PG；证人再补一层落到了的证据。
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/closenai_mut
         run: |
           python - <<'EOF'
           import psycopg
@@ -286,6 +293,12 @@ jobs:
               conn.execute('CREATE DATABASE "closenai_mut"')
           EOF
           alembic -c backend/alembic.ini upgrade head
+          # 正向证人：只验 upgrade 的退出码不够——本机实测对着一个从未 stamp 过的库，
+          # `alembic current` 不打印任何版本行**但仍退 0**（2026-11-04 拿临时 sqlite 库跑的），
+          # 退出码因此不构成「库里真有 schema」的证据。又因为 backend/alembic.ini 的
+          # handler_console 走 sys.stderr，这里要 2>&1，否则抓的是个空流、grep 恒红。
+          alembic -c backend/alembic.ini current 2>&1 | tee /tmp/alembic_current.txt
+          grep -q "(head)" /tmp/alembic_current.txt
       - name: Resolve diff base
         id: base
         run: |

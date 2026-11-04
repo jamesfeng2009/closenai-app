@@ -2,10 +2,15 @@
 """CI 工具链版本闸（backend/tests/test_ci_workflow_versions.py）的变异自证（2026-11-04）。
 
 判据不是「测试跑过」，而是「每条纪律都能被打红一次，且红在它该红的闸上」。
-红靶覆盖：三份 node 钉版各退回 engines 下限之下（ci.yml 两处作业 ＋ nightly 一处）、
-装了 npm 依赖却把原生自检删掉。
-绿靶证明这不是「见字就红」：把 node 抬到 24（高于下限）必须仍绿——闸读的是锁算出的下限，
-不是一句写死的 22；node-version 去掉引号也必须仍绿——判据认的是版本号，不是 YAML 写法。
+红靶覆盖（不写条数——条数句和清单漂过一次，见 docs/growth/kg22-kg29-template-closure-2026-11-03.md §3）：
+三份 node 钉版各退回 engines 下限之下（ci.yml 两个作业 ＋ nightly 一处）、
+装了 npm 依赖却把原生自检删掉、建库步骤的 PG env 摘掉、证人退回「只看退出码」。
+绿靶证明这不是「见字就红」：把 node 抬到 24（高于下限）必须仍绿——判据跟的是锁算出的下限，
+不是一句写死的 22；node-version 去掉引号必须仍绿——它不红在 YAML 排版上；
+证人那两句里的临时文件改名必须仍绿——它认的是「grep 到 (head)」这个动作，不是文件名。
+
+M5 那条红顺带自证了判据的**块作用域**：ci.yml 的 backend 作业本来就挂着一条
+postgresql+psycopg 串，若判据按整个文件找子串，摘掉建库步骤的 env 它照样会绿。
 
 口径照抄既有纪律（[[feedback-mutation-gates-no-concurrency]]、
 [[feedback-mutation-restore-no-git-checkout]]、[[feedback-definition-of-done-tests]]）：
@@ -37,6 +42,14 @@ VENV_PY = REPO / ".venv" / "bin" / "python"
 ANCHOR_COUNT = {"M4": 2}
 
 NODE_LINE = 'node-version: "22"'
+WITNESS = (
+    "          alembic -c backend/alembic.ini current 2>&1 | tee /tmp/alembic_current.txt\n"
+    '          grep -q "(head)" /tmp/alembic_current.txt'
+)
+WITNESS_RENAMED = (
+    "          alembic -c backend/alembic.ini current 2>&1 | tee /tmp/mut_head.txt\n"
+    '          grep -q "(head)" /tmp/mut_head.txt'
+)
 SELFCHECK = (
     '          node -e "const pkg=require(\'better-sqlite3/package.json\');'
     "const D=require('better-sqlite3');const db=new D(':memory:');"
@@ -88,6 +101,30 @@ MUTATIONS = [
         (CI, SELFCHECK, '          echo "（原生自检这一格被删掉了）"'),
         TARGET, "装了 npm 依赖却没有原生模块自检",
     ),
+    (
+        "M5",
+        "把 ci.yml 建库步骤的 PG env 摘掉：alembic 于是按 backend/config.py:37 的默认串走 sqlite，"
+        "而这条迁移链在 sqlite 上红在 `CREATE EXTENSION IF NOT EXISTS vector`（本机实测）——"
+        "红是红了，根因却长得像「迁移本身有问题」，而 CI 要的是它真的打到 closenai_mut。"
+        "这一条红同时证明判据读的是**这一步的块**而不是整个文件："
+        "ci.yml 的 backend 作业本来就有一条 postgresql+psycopg 串，按全文件找它照样绿",
+        (CI,
+         '        # 所以这里的 env 不是防假绿，而是让迁移真的落到 closenai_mut 这个 PG；证人再补一层落到了的证据。\n'
+         '        env:\n'
+         '          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/closenai_mut\n'
+         '        run: |',
+         '        # 所以这里的 env 不是防假绿，而是让迁移真的落到 closenai_mut 这个 PG；证人再补一层落到了的证据。\n'
+         '        run: |'),
+        TARGET, "的迁移步骤没挂 PG 连接串",
+    ),
+    (
+        "M6",
+        "把 nightly 证人那两句退回「只跑一次 alembic current」：本机实测对着一个从未 stamp 过的库，"
+        "`alembic current` 不打印任何版本行但仍退 0——只看退出码就把「这一步有没有真把 schema 落进库」"
+        "这件事放过去了，这正是补了 env 之后仍然缺的那一层证据",
+        (NIGHTLY, WITNESS, "          alembic -c backend/alembic.ini current"),
+        TARGET, "这个证人",
+    ),
 ]
 
 GREEN = [
@@ -107,6 +144,14 @@ GREEN = [
         "nightly 的 node-version 去掉引号（写成 22 而不是带引号的版本串）：判据读的是版本号，"
         "不该因为 YAML 写法换了就红——否则这条闸会红在无关的排版改动上",
         (NIGHTLY, f"          {NODE_LINE}", "          node-version: 22"),
+        TARGET,
+    ),
+    (
+        "G3",
+        "把证人落盘的临时文件改名（alembic_current.txt → mut_head.txt，tee 与 grep 同步改）："
+        "判据认的是「grep 到 (head)」这个动作，不是某个具体文件名——"
+        "否则日后给两个作业各用一个临时文件就会红在无关的重命名上",
+        (CI, WITNESS, WITNESS_RENAMED),
         TARGET,
     ),
 ]

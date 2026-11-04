@@ -84,6 +84,14 @@ jobs:
       - name: Create and migrate mutation database
         # 缺库时实库闸会 skip，而 skip 不算绿；CLOSEN_REQUIRE_PG=1 把它变成 fail，
         # 所以这里必须把库建好并升到 head，而不是让全量在空集上假绿。
+        # 2026-11-04：与 ci.yml 同名步骤同一处漏——原来没挂 DATABASE_URL，alembic 于是按
+        # backend/config.py:37 的默认串走 sqlite。取证到日志级：run 41245498089（10-31）、
+        # 41357054861（11-01）、41741006531（11-03）三次 nightly 都红在 step 8「Create and
+        # migrate mutation database」，报的是 `sqlalchemy/dialects/sqlite/aiosqlite.py:328
+        # import_dbapi` 处的 ModuleNotFoundError: No module named 'aiosqlite'。
+        # 挂上 PG 串才是把它指到 closenai_mut；下一步的证人负责留下「真落到了」的证据。
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/closenai_mut
         run: |
           python - <<'EOF'
           import psycopg
@@ -96,6 +104,12 @@ jobs:
               conn.execute('CREATE DATABASE "closenai_mut"')
           EOF
           alembic -c backend/alembic.ini upgrade head
+          # 正向证人（与 ci.yml 同名步骤一致）：`current` 必须报出 (head)。
+          # 本机实测对着一个从未 stamp 过的库，alembic current 不打印任何版本行**但仍退 0**，
+          # 所以退出码不构成「schema 真落在这个库里」的证据；handler_console 走 stderr，
+          # 故这里要 2>&1，否则 tee 抓到的是空流、grep 恒红。
+          alembic -c backend/alembic.ini current 2>&1 | tee /tmp/alembic_current.txt
+          grep -q "(head)" /tmp/alembic_current.txt
       - name: mutation_sample --all（串行，禁并发）
         id: run
         # 输出写进 $GITHUB_OUTPUT 供下一步开 issue；这里刻意不让它直接 fail 掉整个作业，
