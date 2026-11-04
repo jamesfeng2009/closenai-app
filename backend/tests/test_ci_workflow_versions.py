@@ -17,9 +17,11 @@
 同一件事——`npm ci` 对 engines 不符只 warn，它绿着装出一个跑不了的二进制。
 所以装了 npm 依赖的作业必须自己 require 一次那个原生包，把段错误提前成安装期红。
 
-后面两条判据是从 2026-11-04 那次 CI 红里长出来的，管的不是版本而是**这一步能不能失败**：
-建库步骤没挂 PG 连接串时迁移打到 sqlite 文件，以及按改动抽样的作业浅克隆后拿不到基线、
-`git rev-parse` 的 128 又被 `echo` 吞掉。两条都配了正向证人，理由写在各自的 docstring 里。
+后面几条判据是从 2026-11-04 那次 CI 红里长出来的，管的不是版本而是**这一步能不能失败**、
+**这个作业有没有把被测代码需要的外部配置给齐**：建库步骤没挂 PG 连接串时迁移打到 sqlite 文件，
+按改动抽样的作业浅克隆后拿不到基线、`git rev-parse` 的 128 又被 `echo` 吞掉，
+以及跑 backend/tests 的作业不给 JWT_SECRET 时那批「HMAC key must not be empty」。
+每条都配了正向证人，理由写在各自的 docstring 里。
 """
 from __future__ import annotations
 
@@ -126,6 +128,72 @@ def test_mutation_migration_step_proves_it_reached_head_in_postgres() -> None:
         assert 'grep -q "(head)"' in block, (
             f"{workflow.name} 的迁移步骤没有「库里 stamped 到 head」这个证人 ⇒ "
             "`alembic current` 打印空也照样退 0，空库放过去没人知道"
+        )
+
+
+# 「口令从随机源来」的几类写法：python 的 secrets.token_*，或 openssl rand，或 /dev/urandom。
+# 判据认的是「每次跑现生成」这个语义，不是具体哪一个函数——所以 token_urlsafe 换成 token_hex
+# 也照样绿（见 mutate_ci_workflow_gates.py 的绿闸）；否则这条闸会红在无关的写法整理上。
+RANDOM_SECRET_SOURCE = re.compile(r"secrets\.token|openssl rand|/dev/urandom")
+# 写死的凭据长相：`JWT_SECRET:` 或 `JWT_SECRET=` 后面跟一段 16 格以上的字面量。
+# `${{ secrets.X }}` 与 `f"JWT_SECRET={secrets.token_urlsafe(48)}"` 后面第一个字符都不是
+# 字面量字符，不会被这一格误伤——它抓的是「把口令抄进版本库」这一种。
+HARDCODED_SECRET = re.compile(r"""JWT_SECRET[:=]\s*["']?[A-Za-z0-9_\-]{16,}""")
+
+
+def test_pytest_backend_job_gives_the_app_a_jwt_secret() -> None:
+    """跑 `pytest backend/tests` 的作业必须给 JWT_SECRET，且那个值不许是抄进 workflow 的字面量。
+
+    立的动机是现读 2026-11-04 那次 CI 红：backend 作业的 10 条红里有 7 条是同一句
+    `jwt.exceptions.InvalidKeyError: HMAC key must not be empty.`（test_referral 三条、
+    test_db_commit_boundary 两条、test_consent_purposes／test_jwt_algorithm_baseline 各一条）。
+    根因不在被测代码：`backend/config.py:48` 的 `jwt_secret` 默认是空串，本作业没给这个 env，
+    于是凡走「注册→签发 JWT」这条路的用例必红；而本机永远看不见这批红——env 文件里总有一个口令。
+    这就是「CI 与本机不同环境」那一格：**被测代码需要的外部配置，作业要自己给齐**，
+    缺它不是被测面坏，而是取证面缺。
+
+    三格判据各有自己的破坏（见 mutate_ci_workflow_gates.py）：① 有没有提供、
+    ② 提供的是不是现生成的、③ 有没有别处抄进版本库。② 与 ③ 是反向归零闸，
+    它们的正向证人就是 ① 这一格本身（同一个作业里那条提供步骤），所以不会退化成扫空集恒绿。
+    """
+    import yaml
+
+    runners: list[tuple[Path, str, list, dict]] = []
+    for workflow in WORKFLOWS:
+        doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        for job_id, job in (doc.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            if any("pytest backend/tests" in str(s.get("run") or "") for s in steps):
+                runners.append((workflow, job_id, steps, job.get("env") or {}))
+    assert runners, (
+        "两份 workflow 里再没有跑 `pytest backend/tests` 的作业 ⇒ 本闸恒真（空集上的绿）："
+        "backend 面去哪了先确认，再谈删本闸"
+    )
+
+    for workflow, job_id, steps, job_env in runners:
+        generated = [s for s in steps
+                     if "JWT_SECRET=" in str(s.get("run") or "")
+                     and "GITHUB_ENV" in str(s.get("run") or "")]
+        declared = ("JWT_SECRET" in job_env
+                    or any("JWT_SECRET" in (s.get("env") or {}) for s in steps))
+        assert generated or declared, (
+            f"{workflow.name} 的作业 {job_id} 跑 backend/tests 却没给 JWT_SECRET ⇒ "
+            "`settings.jwt_secret` 取默认空串，凡走「注册→签发 JWT」的用例全红在 "
+            "`InvalidKeyError: HMAC key must not be empty.`（2026-11-04 实测 7 条）"
+        )
+        if generated:
+            run_text = "\n".join(str(s.get("run") or "") for s in generated)
+            assert RANDOM_SECRET_SOURCE.search(run_text), (
+                f"{workflow.name} 的作业 {job_id} 那条 JWT_SECRET 步骤不是现生成的 ⇒ "
+                "写进 workflow 的串就是入库的凭据；正当路径是每次运行现生成，"
+                "或走 `${{ secrets.* }}` 由平台注入"
+            )
+
+    for workflow in WORKFLOWS:
+        hit = HARDCODED_SECRET.search(workflow.read_text(encoding="utf-8"))
+        assert not hit, (
+            f"{workflow.name} 里出现了写死的 JWT 口令（{hit.group(0)[:24]}…）⇒ 凭据不入库："
+            "测试要的是「有一个能签的密钥」，不是「跨运行同一个串」，现生成即可"
         )
 
 

@@ -16,6 +16,12 @@ M5 与 G5 那两条红/绿顺带自证了判据的作用域：M5 证明判据读
 （ci.yml 的 backend 作业本来就挂着一条 postgresql+psycopg 串，按全文件找它照样绿），
 G5 证明判据读的是 `id: base` 这一步而不是文件里出现的那句名字。
 
+再往下一批管的是「作业有没有把被测代码需要的外部配置给齐」：backend 作业那条一次性 JWT 口令。
+M11 把提供摘掉（＝2026-11-04 那个状态，7 条用例红在 `InvalidKeyError`），M12 把它改成写死的串
+（红在「不是现生成的」），M13 在提供照旧的前提下往作业 env 里另抄一句字面量（红在全文那一格——
+「别处有没有抄进口令」不能被「这一步给了没有」吸收掉）。G6/G7 是它的绿闸：换成同义的随机源、
+只改这一步的显示名，都不该红。
+
 口径照抄既有纪律（[[feedback-mutation-gates-no-concurrency]]、
 [[feedback-mutation-restore-no-git-checkout]]、[[feedback-definition-of-done-tests]]）：
 **串行跑**、copy2 备份写回 ＋ `filecmp` 逐字节复核、**不用 `git checkout`**。
@@ -84,6 +90,17 @@ BASE_WITNESS = (
     '          echo "diff base = ${sha}，其后 $(git rev-list --count "${sha}..HEAD") 个提交可比对"\n'
 )
 BASE_WITNESS_GONE = '          echo "diff base = ${sha}"\n'
+# backend 作业那条一次性口令：写 $GITHUB_ENV 的那一行、它的同义写法、以及两种「不该过」的写法。
+JWT_WRITE_LINE = '              fh.write(f"JWT_SECRET={secrets.token_urlsafe(48)}\\n")\n'
+JWT_WRITE_HEX = '              fh.write(f"JWT_SECRET={secrets.token_hex(32)}\\n")\n'
+JWT_WRITE_DEAD = '              fh.write("JWT_SECRET=ci_hardcoded_secret_value_0123456789ab\\n")\n'
+JWT_STEP_NAME = "      - name: 生成本次运行的一次性 JWT 口令\n"
+BACKEND_JOB_ENV = ("    env:\n"
+                   "      TEST_DATABASE_URL: "
+                   "postgresql://postgres:postgres@127.0.0.1:5432/closenai_ci\n")
+BACKEND_JOB_ENV_LITERAL = BACKEND_JOB_ENV.replace(
+    "    env:\n",
+    "    env:\n      JWT_SECRET: ci_hardcoded_secret_value_0123456789ab\n")
 
 # 每条：(id, 说明, (文件, 原文, 坏文), target, 名片段)
 MUTATIONS = [
@@ -183,6 +200,29 @@ MUTATIONS = [
         (CI, BASE_WITNESS, BASE_WITNESS_GONE),
         TARGET, "base 真是一个提交",
     ),
+    (
+        "M11",
+        "把 backend 作业那条写 `$GITHUB_ENV` 的行摘掉（＝提供没了）：这就是 2026-11-04 那个状态——"
+        "作业不给 JWT_SECRET，`backend/config.py:48` 的默认空串让 7 条「注册→签发 JWT」的用例"
+        "全红在 `InvalidKeyError: HMAC key must not be empty.`，而本机因为 backend/.env 里有口令永远看不见",
+        (CI, JWT_WRITE_LINE, ""),
+        TARGET, "却没给 JWT_SECRET",
+    ),
+    (
+        "M12",
+        "把生成改成写死的串（`echo` 一个固定口令进 env）：提供这一格照样过，红必须落在"
+        "「不是现生成的」上——补 env 的正当路径是每次跑现生成或走 `${{ secrets.* }}`，"
+        "把口令抄进 workflow 就是凭据入库",
+        (CI, JWT_WRITE_LINE, JWT_WRITE_DEAD),
+        TARGET, "不是现生成的",
+    ),
+    (
+        "M13",
+        "生成步骤原样保留，只在作业 env 里另抄一句字面量 JWT_SECRET：这一格打的是全文那半——"
+        "「别处有没有写死的口令」不跟着「这一步提供了没有」走，否则同一条红会被提供那一格吸收掉",
+        (CI, BACKEND_JOB_ENV, BACKEND_JOB_ENV_LITERAL),
+        TARGET, "写死的 JWT 口令",
+    ),
 ]
 
 GREEN = [
@@ -227,6 +267,20 @@ GREEN = [
         (CI,
          "      - name: Resolve diff base\n        id: base",
          "      - name: 解析 diff 基准（改名不改判据）\n        id: base"),
+        TARGET,
+    ),
+    (
+        "G6",
+        "把一次性口令的随机源从 `secrets.token_urlsafe` 换成同义的 `secrets.token_hex`：判据认的是"
+        "「每次跑现生成」这个语义，不是某一个函数名——否则整理写法就会红在无关改动上",
+        (CI, JWT_WRITE_LINE, JWT_WRITE_HEX),
+        TARGET,
+    ),
+    (
+        "G7",
+        "给那条口令生成步骤**只换显示名**（run 内容一字不动）：判据按步骤的 run 找提供与随机源，"
+        "不认 name——这条绿同时自证 M11 的红不是「在文件里找一个名字」造成的",
+        (CI, JWT_STEP_NAME, "      - name: 给本次运行生成一次性口令（改名不改判据）\n"),
         TARGET,
     ),
 ]

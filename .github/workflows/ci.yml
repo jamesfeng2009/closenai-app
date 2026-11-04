@@ -99,6 +99,22 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/closenai_ci
         run: python -m alembic -c backend/alembic.ini upgrade head
+      - name: 生成本次运行的一次性 JWT 口令
+        # 为什么这一步存在（2026-11-04 实测红 7 条）：本作业此前不给 JWT_SECRET，
+        # `backend/config.py:48` 的默认值是空串，于是凡走「注册→签发 JWT」这条路的用例
+        # 在 runner 上全红在 `jwt.exceptions.InvalidKeyError: HMAC key must not be empty.`
+        # （test_referral 三条、test_db_commit_boundary 两条、test_consent_purposes／
+        # test_jwt_algorithm_baseline 各一条）。本机看不见这批红，因为 env 文件里总有一个口令。
+        # 修法不是往 ci.yml 里写一个串——口令一律 env-only（凭据不入库），而且部署面的口径是
+        # 「由环境提供」（deploy/compose 里就是 `${JWT_SECRET:?…}`）。测试要的是「有一个能签的密钥」，
+        # 不是「跨运行可复现的 token」：任何断言都不许依赖这个值本身，依赖了下一跑就红。
+        run: |
+          python - <<'EOF'
+          import os, secrets
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"JWT_SECRET={secrets.token_urlsafe(48)}\n")
+          print("已生成本次运行的一次性 JWT 口令（不落盘、不入库、不跨运行）")
+          EOF
       - name: pytest (backend)
         # 本机同环境实测：1166 passed／3 skipped。三条 skip 是有意的，不是漏配 env：        #   · test_go_py_service_interop 两条要宿主 docker＋go/py 两个本地镜像＋具名 PG 容器
         #     （T0-01a 本机已 2 passed 取证，runner 上自建镜像要花 6–8 分钟且不是本闸的判据）；
