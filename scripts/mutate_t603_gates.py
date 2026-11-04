@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """T6-03（canonical DDL 的单一事实源：迁移单一化 + 派生快照 + 指纹）的变异自证（2026-10-20）。
 
-靶文件七个（alembic 件 1 + 快照 3 + 指纹清单 1 + 导出器 1 + 消费者测 1），红闸 21 条、绿闸 6 条。
+靶文件七个（alembic 件 1 + 快照 3 + 指纹清单 1 + 导出器 1 + 消费者测 1）；红闸与绿闸的条数以
+`--check` 的输出为准，不写在这里（条数句和清单漂过一次，见 docs/growth/kg22-kg29-template-closure-2026-11-03.md §3）。
 
 **归一化那条腿有一条本机取不了证**：`--check` 比较主体时摘掉 `-- Dumped ... version` 两行，
 为的是 CI runner 用发行版自带的 pg_dump、本机用容器里那一份，minor 版本号天生不同，计入比较就会
@@ -30,6 +31,13 @@ C1/C2 篡改指纹清单（④：哈希不符 / 清单覆盖不到实际文件�
 
 N2/N3 与 U1/U2、S2/S3/S4/S5 是**同一格判据在两侧各钉一次**：Go 侧那份能在没有 PG 的 CI go 作业里
 判红（手改仓库文本时库里当然没有对应变化），Python 侧那份管列集与逐字节可复现。
+
+2026-11-04 的 CI 红给 ③ 补了一条**不吃服务器**的前置闸（`GADMIN` 那一条 Py 测）：
+`admin_url_of()` 当时返回 SQLAlchemy 的方言串，psycopg 的 conninfo
+解析器当场拒掉，于是「drop/create 一次性库」这第一步就没走通，而③报出来的是一句
+「快照不可复现（exit=1）」——根因隔着子进程那一层。A1/A2/A3 分别把归一摘掉、把维护库指错、
+把用户丢了，三条都红在这一条前置闸上；GR7/GR8 是它的绿闸（加注释、写成等价的双层归一）。
+③ 本体仍然只在有 pg_dump 的宿主上跑（缺前置按「未跑」记），但这一条从此常驻 CI。
 
 **一轮就抓到的等价变异（留档以免下轮重猜）**：把 ① 的靶写成「改表头日期」不会红——
 指纹与主体比较都只覆盖 `BODY_MARKER` 往后的字节，表头有 `captured:` 逐日变，这是**设计**
@@ -96,6 +104,8 @@ G2 = f"{PY_GATE}::test_snapshot_table_sets_are_disjoint_and_cover_exactly_the_de
 G3 = f"{PY_GATE}::test_snapshot_is_reproducible_from_the_alembic_chain"
 G4 = f"{PY_GATE}::test_checksum_manifest_covers_every_snapshot_and_both_sides_cut_the_same_bytes"
 G5 = f"{PY_GATE}::test_alive_tests_do_not_pin_the_alembic_head_literal"
+# ③ 的前置闸（2026-11-04 加）：导出器递给 psycopg 的维护库串吃不吃得下，不吃服务器也能判红。
+GADMIN = f"{PY_GATE}::test_admin_conninfo_is_parseable_by_psycopg_without_a_server"
 
 PKG_SCHEMA = "./db/schema/"
 GO_PROV = "^TestEverySnapshotDeclaresItsProvenance$"
@@ -127,6 +137,12 @@ MANIFEST_OUTBOX_LINE = ("0c88734d1d03b6667510d592c2685658896ca90280279d9e6463744
 ENV_VERSION_LINE = "-- Dumped by pg_dump version 16.15 (Debian 16.15-1.pgdg12+2)\n"
 HEAD_CALL = "HEAD = head_revision()\n"
 PY_BODY_MARKER = 'BODY_MARKER = "--\\n-- PostgreSQL database dump"\n'
+# ③ 前置闸的靶：导出器里那句「维护库串」的归一（2026-11-04 的 CI 红就在这儿）。
+ADMIN_RETURN = '    return with_dbname(libpq(url), "postgres")\n'
+ADMIN_RETURN_DIALECT = '    return with_dbname(psycopg_url_of(url), "postgres")\n'
+ADMIN_WRONG_DB = '    return with_dbname(libpq(url), "closenai_ci")\n'
+ADMIN_NO_CREDS = '    return "postgresql://127.0.0.1:1/postgres"\n'
+ADMIN_DOUBLE = '    return with_dbname(libpq(libpq(url)), "postgres")\n'
 USERS_RERUN = ("CREATE TABLE public.users (\n"
                "    id character varying(36) NOT NULL\n"
                ");\n\n")
@@ -271,6 +287,27 @@ MUTATIONS: list[tuple] = [
           'BODY_MARKER = "--\\n-- PostgreSQL database dump\\n"\n')],
         "pytest", G4, G4,
     ),
+    # ── 5. ③ 的前置闸：导出器递给 psycopg 的维护库串（靶 导出器 admin_url_of）──
+    (
+        "A1", "把 `admin_url_of()` 的归一摘回 SQLAlchemy 方言串（2026-11-04 CI 红的原样）⇒ ③ 前置闸红："
+              "`psycopg.connect()` 的 conninfo 解析器不认 `postgresql+psycopg://`，"
+              "于是**一次性库根本没建起来**，而③自己只会报「快照不可复现（exit=1）」——"
+              "隔了一层子进程，根因看不出来。这一条不吃 PG、不吃 pg_dump，常驻 CI",
+        [(EXPORTER, ADMIN_RETURN, ADMIN_RETURN_DIALECT)],
+        "pytest", GADMIN, GADMIN,
+    ),
+    (
+        "A2", "同一句改成把维护库指错（`postgres` → 目标库自己）⇒ 前置闸红：建/删一次性库的命令"
+              "下在别人的库上就是拿共享库当草稿纸，比「连不上」更危险，所以 dbname 单独一格断言",
+        [(EXPORTER, ADMIN_RETURN, ADMIN_WRONG_DB)],
+        "pytest", GADMIN, GADMIN,
+    ),
+    (
+        "A3", "同一句改成硬编一条不带用户的串（「本地跑一下而已」那种捷径）⇒ 前置闸红在"
+              "「把用户或主机弄丢了」：凭据是换库名时最容易顺手丢掉的东西，丢了就连不上",
+        [(EXPORTER, ADMIN_RETURN, ADMIN_NO_CREDS)],
+        "pytest", GADMIN, GADMIN,
+    ),
 ]
 
 # ── 绿闸：这些坏法**不该**红，红了就说明判据退化成了文本 diff ────────────────
@@ -325,6 +362,20 @@ GREEN: list[tuple] = [
                "`_ddl_columns` 跳掉 `--` 开头的行；G6/N1 的对照——同一段文本里注释与列定义不是一回事",
         [(N2_MIGRATION, ALEMBIC_PROBE_COMMENT, ALEMBIC_PROBE_COMMENT + ALEMBIC_COMMENTS)],
         "pytest", G1, G1,
+    ),
+    (
+        "GR7", "在 `admin_url_of` 上方插 15 行注释 ⇒ ③ 前置闸照旧绿：它判的是解析出来的字段，"
+               "不是导出器里那一句的排版",
+        [(EXPORTER, "def admin_url_of(url: str) -> str:\n",
+          PY_COMMENTS + "def admin_url_of(url: str) -> str:\n")],
+        "pytest", GADMIN, GADMIN,
+    ),
+    (
+        "GR8", "把归一写成等价的双层调用 `libpq(libpq(url))`（libpq 是幂等的）⇒ 前置闸照旧绿："
+               "闸认的是「psycopg 解析得出来、字段没丢」这个语义，不是 `libpq(url)` 这个字面串——"
+               "否则下次有人整理写法就红在无关改动上",
+        [(EXPORTER, ADMIN_RETURN, ADMIN_DOUBLE)],
+        "pytest", GADMIN, GADMIN,
     ),
 ]
 

@@ -140,8 +140,17 @@ def with_dbname(url: str, dbname: str) -> str:
 
 
 def admin_url_of(url: str) -> str:
-    """换成同主机同口令的维护库（postgres）——建/删一次性库要在这里下命令。"""
-    return with_dbname(psycopg_url_of(url), "postgres")
+    """换成同主机同口令的维护库（postgres）——建/删一次性库要在这里下命令。
+
+    必须是 **libpq 认得的串**（`postgresql://`），不是 SQLAlchemy 的方言串：本函数的返回值
+    直接喂给 `_admin_exec` 里的 `psycopg.connect()`，而 psycopg 的 conninfo 解析器不认
+    `postgresql+psycopg://` 这个 `+` 前缀，实测
+    `ProgrammingError: missing "=" after "postgresql+psycopg://…" in connection info string`。
+    2026-11-04 的 CI 红就在这儿（`test_pg_schema_snapshot.py` 的③）：`--check` 连一次性库都
+    没建起来，压根走不到 alembic，报出来的却是「快照不可复现」——根因被上一层措辞盖住了。
+    这里过一道 `libpq()`，两种输入（方言串/干净串）都归一成同一种能连的写法。
+    """
+    return with_dbname(libpq(url), "postgres")
 
 
 def base_url(args: argparse.Namespace) -> str:

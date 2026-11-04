@@ -22,7 +22,10 @@ schema 输入，Go 的类型、NULL 语义、列宽全从它推出来。四方�
   再次建表声明就是这一格的靶。
 - ③ **可复现**（需 PG）：把 `scripts/export_pg_schema.py --check` 当子进程跑一次，
   它内部 drop/create 一次性库 → `alembic upgrade head` → `pg_dump` → 与仓库文件比 DDL
-  主体字节。这一条覆盖 ① 看不见的部分：列宽、可空性、默认值、索引、FK。
+  主体字节。这一条覆盖 ① 看不见的部分：列宽、可空性、默认值、索引、FK。它前面还挂一条
+  **不吃服务器**的前置闸（`test_admin_conninfo_is_parseable_by_psycopg_without_a_server`）：
+  本子进程第一步「建一次性库」用 psycopg 直连，串写错时 ③ 只会报「快照不可复现」，
+  那句红离根因隔了一层——2026-11-04 就是这么绕的。
 - ④ **指纹清单**：`body.sha256` 覆盖三份快照且与实际文件一致；并核对 Go 侧那条
   「从 dump 标记切到 EOF」的切法常量与本文件同一个串（两侧各实现一次，必须先对得上）。
 - ⑤ **head 不许再抄**：`backend/tests/` 里 `HEAD = "<12 hex>"` 这种字面量归零
@@ -220,6 +223,69 @@ def test_snapshot_table_sets_are_disjoint_and_cover_exactly_the_derived_list():
 
 
 # ── ③ 逐字节可复现（需 PG）──────────────────────────────────────────────────
+
+
+def _exporter_module():
+    """按路径加载导出器：`scripts/` 不是可导入的包，闸 ③ 平时只把它当子进程跑，
+    本条要拍它内部的函数，所以自己加载一次（不复制一份实现，复制就是第二个真源）。"""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("export_pg_schema_under_test", EXPORTER)
+    module = importlib.util.module_from_spec(spec)
+    # 先登记再执行：导出器里有 @dataclass，字段解析要能从 sys.modules 找回本模块，
+    # 否则报 'NoneType' object has no attribute '__dict__'（本机实测）。
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_admin_conninfo_is_parseable_by_psycopg_without_a_server():
+    """③ 的前置闸：导出器递给 `psycopg.connect()` 的维护库串必须是 libpq 认的写法。
+
+    为什么单独立一条：2026-11-04 的 CI 红报的是「快照不可复现（exit=1）」，根因却是
+    `admin_url_of()` 返回 SQLAlchemy 的方言串 `postgresql+psycopg://`——psycopg 的 conninfo
+    解析器当场 `ProgrammingError: missing "=" after "postgresql+psycopg://…"`,
+    于是**一次性库没建成**，alembic 和 pg_dump 都还没开始跑。③ 自己需要 PG
+    （缺 env 时按宿主能力 skip），这一条不吃服务器、常驻 CI：`conninfo_to_dict()` 只做解析，
+    连不连得上无所谓。
+
+    两侧不许同源（[[feedback-orm-identity-map-gate]]）：期望值是手写的 scheme/user/password/host/port
+    字面量，实测值走 psycopg **自己的**解析器。再加一句负向证人（[[feedback-gate-needs-positive-witness]]）：
+    同一个解析器必须拒掉方言串——否则「不 raise」这句判据恒真，删掉 `libpq()` 那一道也不见得会红。
+    """
+    from urllib.parse import urlsplit
+
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict
+
+    exporter = _exporter_module()
+    # 故意指向一个连不上的端口：本条验「解析得出来、字段没在改写里丢」，不碰任何库。
+    # `source` 是手写的假串（断言的另一侧不许也来自 psycopg），口令同样是假的；
+    # 报错信息只回显 dbname/user/host/port，不回显口令——闸自己不能成为凭据外泄面。
+    source = "postgresql://ci_user:ci_pw@127.0.0.1:1/closenai_ci"
+
+    def fields(url: str) -> dict:
+        parsed = conninfo_to_dict(url)
+        return {k: parsed.get(k) for k in ("dbname", "user", "host", "port")}
+
+    admin = exporter.admin_url_of(source)
+    assert urlsplit(admin).scheme == "postgresql", (
+        f"维护库串的 scheme 是 {urlsplit(admin).scheme}://：psycopg.connect() 不认这个写法，"
+        "③ 会红成「快照不可复现」而不是「连不上」——根因被上一层措辞盖住")
+    assert fields(admin)["dbname"] == "postgres", (
+        f"维护库串指向 {fields(admin)}：建/删一次性库的命令要下在 postgres 这座维护库上，"
+        "下错库就是拿别人的库当草稿纸")
+    assert (fields(admin)["user"], fields(admin)["host"], fields(admin)["port"]) == (
+        "ci_user", "127.0.0.1", "1"), (
+        f"维护库串把用户或主机弄丢了：{fields(admin)}——连不上时③报的还是「快照不可复现」")
+
+    # 输入是方言串时也要归一（env 给的可能是 postgresql+psycopg://，见 backend/core/pg_scheme）
+    assert fields(exporter.admin_url_of(exporter.psycopg_url_of(source))) == fields(admin), (
+        "同一座库的两种写法归一结果不一致：说明归一在拼串而不是剥驱动段")
+
+    # 负向证人：psycopg 拒的就是这一串，本闸拍的不是「psycopg 谁都拒」
+    with pytest.raises(psycopg.ProgrammingError):
+        conninfo_to_dict(exporter.psycopg_url_of(source))
 
 
 def test_snapshot_is_reproducible_from_the_alembic_chain():
