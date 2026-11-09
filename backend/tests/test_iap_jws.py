@@ -31,7 +31,10 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def _make_cert(*, subject_cn: str, key, issuer_cn: str, issuer_key, is_ca: bool):
+def _make_cert(
+    *, subject_cn: str, key, issuer_cn: str, issuer_key, is_ca: bool,
+    not_before: datetime | None = None, not_after: datetime | None = None,
+):
     """生成自签/他签测试证书。"""
     now = datetime.now(timezone.utc)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject_cn)])
@@ -42,8 +45,8 @@ def _make_cert(*, subject_cn: str, key, issuer_cn: str, issuer_key, is_ca: bool)
         .issuer_name(issuer)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=365))
+        .not_valid_before(not_before or (now - timedelta(days=1)))
+        .not_valid_after(not_after or (now + timedelta(days=365)))
         .add_extension(
             x509.BasicConstraints(ca=is_ca, path_length=None), critical=True
         )
@@ -112,6 +115,74 @@ def test_valid_chain_with_trusted_root_passes(monkeypatch):
         leaf_key=leaf_key, chain_ders=[_der(leaf), _der(root)], payload=payload
     )
     assert decode_apple_jws(token) == payload
+
+
+def test_non_ca_intermediate_rejected(monkeypatch):
+    """核心回归：非 CA 证书当签发者必须被拒（否则用 Apple 终端证书私钥即可伪造叶子）。
+
+    x5c 由请求方提供：攻击者持有 Apple 签发的普通开发者证书（CA:FALSE）私钥，
+    用它签一张伪造叶子，再把公开的 WWDR／Apple Root G3 接在链尾。旧实现只验
+    「签名自洽 + 根钉扎」，这条链能通过；补上用途校验后必须被拒。
+    """
+    root_key = ec.generate_private_key(ec.SECP256R1())
+    dev_key = ec.generate_private_key(ec.SECP256R1())
+    leaf_key = ec.generate_private_key(ec.SECP256R1())
+    root = _make_cert(
+        subject_cn="Test Root", key=root_key,
+        issuer_cn="Test Root", issuer_key=root_key, is_ca=True,
+    )
+    # 普通终端证书：由 Root 签发，但 CA:FALSE —— 不能拿它再签叶子
+    dev_cert = _make_cert(
+        subject_cn="dev-cert", key=dev_key,
+        issuer_cn="Test Root", issuer_key=root_key, is_ca=False,
+    )
+    forged_leaf = _make_cert(
+        subject_cn="forged-leaf", key=leaf_key,
+        issuer_cn="dev-cert", issuer_key=dev_key, is_ca=False,
+    )
+    monkeypatch.setattr(
+        "backend.services.iap_service._TRUSTED_APPLE_ROOTS_DER", {_der(root)}
+    )
+    token = _forge_jws(
+        leaf_key=leaf_key,
+        chain_ders=[_der(forged_leaf), _der(dev_cert), _der(root)],
+        payload={"notificationType": "DID_RENEW"},
+    )
+    with pytest.raises(AppException) as exc_info:
+        decode_apple_jws(token)
+    assert exc_info.value.code == ErrorCode.IAP_VERIFY_FAILED
+
+
+def test_expired_intermediate_rejected(monkeypatch):
+    """中间证书过期即使签名自洽也必须被拒（旧实现只查叶子有效期）。"""
+    root_key = ec.generate_private_key(ec.SECP256R1())
+    mid_key = ec.generate_private_key(ec.SECP256R1())
+    leaf_key = ec.generate_private_key(ec.SECP256R1())
+    now = datetime.now(timezone.utc)
+    root = _make_cert(
+        subject_cn="Test Root", key=root_key,
+        issuer_cn="Test Root", issuer_key=root_key, is_ca=True,
+    )
+    expired_mid = _make_cert(
+        subject_cn="expired-mid", key=mid_key,
+        issuer_cn="Test Root", issuer_key=root_key, is_ca=True,
+        not_before=now - timedelta(days=30), not_after=now - timedelta(days=1),
+    )
+    leaf = _make_cert(
+        subject_cn="test-leaf", key=leaf_key,
+        issuer_cn="expired-mid", issuer_key=mid_key, is_ca=False,
+    )
+    monkeypatch.setattr(
+        "backend.services.iap_service._TRUSTED_APPLE_ROOTS_DER", {_der(root)}
+    )
+    token = _forge_jws(
+        leaf_key=leaf_key,
+        chain_ders=[_der(leaf), _der(expired_mid), _der(root)],
+        payload={"notificationType": "DID_RENEW"},
+    )
+    with pytest.raises(AppException) as exc_info:
+        decode_apple_jws(token)
+    assert exc_info.value.code == ErrorCode.IAP_VERIFY_FAILED
 
 
 def test_tampered_payload_rejected(monkeypatch):

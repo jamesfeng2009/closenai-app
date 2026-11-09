@@ -3,9 +3,10 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from backend.core.errors import AppException, ErrorCode
+from backend.config import settings
 from backend.models.subscription import Subscription
 from backend.repositories import subscription_repository
-from backend.services.iap_service import _map_tier
+from backend.services.iap_service import _map_tier, iap_service
 
 
 @pytest.mark.parametrize(
@@ -98,3 +99,71 @@ async def test_b3_cross_account_check_rejects_bound_receipt(db, make_user):
                 "该收据已绑定其他账号",
             )
         assert exc_info.value.code == ErrorCode.SUBSCRIPTION_ALREADY_EXISTS
+
+
+class _FakeVerifyResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _FakeVerifyClient:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json=None):
+        return _FakeVerifyResponse(self._payload)
+
+
+def _patch_apple(monkeypatch, payload: dict) -> None:
+    monkeypatch.setattr(settings, "app_store_shared_secret", "test-shared-secret")
+    monkeypatch.setattr(
+        "backend.services.iap_service.httpx.AsyncClient",
+        lambda *args, **kwargs: _FakeVerifyClient(payload),
+    )
+
+
+async def test_sandbox_receipt_rejected_in_production(db, make_user, monkeypatch):
+    """核心回归：生产环境收到沙盒收据必须拒绝。
+
+    漏洞形状：客户端传 is_sandbox=true 并提交沙盒收据，Apple 端点返回 status=0，
+    旧实现直接发权益 —— 免费拿到 pro。收据的 environment 由 Apple 签发，
+    服务端必须与 app_store_env 比对。
+    """
+    await make_user("u-iap-env")
+    monkeypatch.setattr(settings, "app_store_env", "production")
+    _patch_apple(
+        monkeypatch,
+        {"status": 0, "environment": "Sandbox", "receipt": {"in_app": []}},
+    )
+
+    result = await iap_service._validate(
+        db, "u-iap-env", "sandbox-receipt", "com.closenai.pro_monthly", True
+    )
+
+    assert result["valid"] is False
+    assert result["reason"] == "environment_mismatch"
+
+
+async def test_production_receipt_passes_environment_gate(db, make_user, monkeypatch):
+    """正向证人：生产收据不会被环境校验误杀（继续走到交易解析）。"""
+    await make_user("u-iap-prod")
+    monkeypatch.setattr(settings, "app_store_env", "production")
+    _patch_apple(
+        monkeypatch,
+        {"status": 0, "environment": "Production", "receipt": {"in_app": []}},
+    )
+
+    result = await iap_service._validate(
+        db, "u-iap-prod", "prod-receipt", "com.closenai.pro_monthly", False
+    )
+
+    assert result["reason"] == "no_transactions"

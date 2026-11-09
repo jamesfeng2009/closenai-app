@@ -188,6 +188,13 @@ def decode_apple_jws(token: str) -> Dict[str, Any]:
         else:
             raise InvalidSignature("不支持的证书公钥类型")
 
+    def _is_ca(cert) -> bool:
+        try:
+            constraints = cert.extensions.get_extension_for_class(x509.BasicConstraints)
+        except x509.ExtensionNotFound:
+            return False
+        return bool(constraints.value.ca)
+
     try:
         # 链内签发关系：leaf ← intermediate ← root
         for i in range(len(certs) - 1):
@@ -197,11 +204,20 @@ def decode_apple_jws(token: str) -> Dict[str, Any]:
         # 必须字节级比对 Apple 官方发布的根证书（证书钉扎）。
         if chain_der[-1] not in _TRUSTED_APPLE_ROOTS_DER:
             raise InvalidSignature("根证书非 Apple 官方根（锚定失败）")
-        # 叶子证书有效期
+        # 只验「谁签了谁」不够：x5c 完全来自请求方，持有任何 Apple 终端证书私钥者
+        # 都能签一张伪造叶子，再把公开的 WWDR／Root G3 接在后面通过钉扎。必须同时
+        # 校验证书用途——叶子不是 CA，链上每个签发者都必须是 CA。
         leaf = certs[0]
+        if _is_ca(leaf):
+            raise InvalidSignature("叶子证书不得为 CA")
+        for issuer in certs[1:]:
+            if not _is_ca(issuer):
+                raise InvalidSignature("证书链签发者缺失 CA 约束")
+        # 全链有效期：过期/未生效的中间证书同样不能构成一条合法信任路径
         now = datetime.now(timezone.utc)
-        if not (leaf.not_valid_before_utc <= now <= leaf.not_valid_after_utc):
-            raise InvalidSignature("叶子证书已过期或未生效")
+        for cert in certs:
+            if not (cert.not_valid_before_utc <= now <= cert.not_valid_after_utc):
+                raise InvalidSignature("证书链含过期或未生效证书")
         # JWS 签名
         leaf.public_key().verify(
             _b64url_decode(parts[2]),
@@ -404,6 +420,19 @@ class IAPService:
                 # 换成 message 里的自由文本就变成把外部原文往分析平台推。
                 "reason": f"apple_status_{status}",
                 "message": f"App Store 校验失败 ({status})",
+            }
+
+        # 环境绑定：收据里的 environment 由 Apple 签发，不能由客户端声明。
+        # 不校验的后果是「客户端传 is_sandbox=true＋沙盒收据」即可在生产端点拿到
+        # status=0 并把 tier 提到 pro。通知面（handle_notification）早已有同一道校验，
+        # 收据面不能比它松。缺字段按 Apple 响应形状信任（响应本身不可篡改）。
+        expected_env = "Production" if settings.app_store_env == "production" else "Sandbox"
+        receipt_env = data.get("environment")
+        if receipt_env and receipt_env != expected_env:
+            return {
+                "valid": False,
+                "reason": "environment_mismatch",
+                "message": "收据环境与服务端不一致，拒绝处理",
             }
 
         # 解析收据内全部交易（买断 + 订阅共存）
