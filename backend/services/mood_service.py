@@ -29,7 +29,11 @@ from backend.models.schemas import (
 )
 from backend.models.user import User
 from backend.repositories import memory_repository, mood_repository, user_repository
-from backend.services.quota_service import quota_service
+from backend.services.quota_service import (
+    MOOD_DEEP_INTERPRETATION_PURPOSE,
+    MOOD_INTERPRETATION_PURPOSE,
+    quota_service,
+)
 from backend.ai.safety import safety_service
 from backend.services.user_service import user_service
 
@@ -103,26 +107,32 @@ class MoodService:
         if emoji not in MOOD_MAP:
             raise AppException(ErrorCode.INVALID_EMOJI, "无效的情绪表情")
 
-        # 0. 确保用户存在（后续时区/配额判断依赖 user 记录）；
-        #    行锁串行化：同一用户的并发签到在本地日判重前排队，防双击双记
-        user = await user_repository.require_user(db, user_id, for_update=True)
+        # 0. 先读用户快照（不加锁）：时区/配额/同意判定都只依赖这份快照。
+        #    行锁留到写阶段（步骤 4）再拿——LLM 调用绝不能发生在持锁期间，否则端点
+        #    卡顿会把同一用户的其它签到、streak 更新一起堵住（预算见 llm._build_client）。
+        user = await user_repository.require_user(db, user_id)
         day_start = local_day_start_utc(user.timezone)
 
         # 1. 配额（B2）：签到解读走统一池口径（仅主动消息 + 签到解读），不叠加对话轮数
         if await quota_service.is_proactive_quota_exceeded(db, user):
             raise AppException(ErrorCode.QUOTA_EXCEEDED, "今天的次数已经用完，请明天再来")
 
-        # 2. 更新 Streak（同日重复签到幂等，不重复累加）
-        streak = await user_service.update_streak(db, user_id)
-
         label = mood_label_for(emoji, language)
 
-        # 3. 生成 AI 解读（规则引擎即时 + 可选 LLM，失败回退）
+        # 2. AI 解读（规则引擎即时 + 可选 LLM，失败回退）——不持锁
         interpretation = await self._interpret(
             db, user_id, emoji, note, language, label, ai_consent=user.ai_consent
         )
 
-        # 4. 写库：签到每日可多次，但同一本地日仅一条记录——已存在则更新
+        # 3. 深度解读（连续 3 天同情绪 / 连续 2 天负面触发；失败降级 None）——不持锁。
+        #    今天的情绪由本次签到提供，触发判定不依赖"先落库再读回来"。
+        deep = await self._deep_interpretation(db, user, language, emoji)
+
+        # 4. 写阶段：拿用户行锁串行化 streak 与当日签到写入
+        user = await user_repository.require_user(db, user_id, for_update=True)
+        streak = await user_service.update_streak(db, user_id)
+
+        # 签到每日可多次，但同一本地日仅一条记录——已存在则更新
         existing = await mood_repository.get_today(db, user_id, day_start)
         if existing:
             record = await mood_repository.update(db, existing, emoji, label, interpretation)
@@ -138,9 +148,6 @@ class MoodService:
         # 5. 若带备注，沉淀为一条记忆（记忆注入）
         if note and note.strip():
             await self._record_memory(db, user_id, note, emoji, label)
-
-        # 6. 深度解读（连续 3 天同情绪 / 连续 2 天负面触发；失败降级 None）
-        deep = await self._deep_interpretation(db, user, language)
 
         return MoodCheckinResponse(
             id=record.id,
@@ -186,6 +193,7 @@ class MoodService:
                 lite=True,
                 max_tokens=80,
                 temperature=0.7,
+                purpose=MOOD_INTERPRETATION_PURPOSE,
             )
             # L3 输出过滤：命中回退规则引擎模板
             return await safety_service.check_or(text.strip() or base, language, base)
@@ -194,16 +202,17 @@ class MoodService:
             return base
 
     async def _deep_interpretation(
-        self, db: AsyncSession, user: User, language: str
+        self, db: AsyncSession, user: User, language: str, today_emoji: str
     ) -> Optional[str]:
         """深度解读（PRD §2）：连续 3 天同一情绪 OR 连续 2 天负面（情绪值 ≤2）时触发。
 
         用 lite LLM 结合近期记忆 + 情绪趋势生成 2-3 句深度解读；
         未触发 / 未同意 AI 数据共享 / LLM 失败均返回 None，不影响签到主流程。
+        本次签到的 emoji 由调用方传入：本方法在落库前、行锁外执行。
         """
         if not user.ai_consent:
             return None
-        trigger = await self._deep_trigger_days(db, user, language)
+        trigger = await self._deep_trigger_days(db, user, language, today_emoji)
         if trigger is None:
             return None
         days_desc, zh = trigger
@@ -227,6 +236,7 @@ class MoodService:
                 lite=True,
                 max_tokens=150,
                 temperature=0.7,
+                purpose=MOOD_DEEP_INTERPRETATION_PURPOSE,
             )
             # L3 输出过滤：命中降级为 None（不影响签到主流程）
             # scope=assertion：深度解读断言跨天模式，属断言型出口
@@ -238,18 +248,18 @@ class MoodService:
             return None
 
     async def _deep_trigger_days(
-        self, db: AsyncSession, user: User, language: str
+        self, db: AsyncSession, user: User, language: str, today_emoji: str
     ) -> Optional[tuple[str, bool]]:
         """检测深度解读触发条件，返回 (签到模式描述, 是否中文)；未触发返回 None。
 
         连续按用户本地日历日判定（同日多条取最新一条，正常一日一条）。
+        今天的情绪由本次签到提供（尚未落库），历史行里同一天的一律跳过。
         """
-        recent = await mood_repository.get_recent(db, user.id, limit=4)
-        if len(recent) < 2:
-            return None
+        recent = await mood_repository.get_recent(db, user.id, limit=5)
         zone = safe_zoneinfo(user.timezone)
-        day_moods: List[tuple] = []
-        seen = set()
+        today = local_today(user.timezone)
+        day_moods: List[tuple] = [(today, today_emoji)]
+        seen = {today}
         for r in recent:
             aware = r.created_at if r.created_at.tzinfo else r.created_at.replace(tzinfo=timezone.utc)
             d = aware.astimezone(zone).date()
@@ -257,7 +267,7 @@ class MoodService:
                 continue
             seen.add(d)
             day_moods.append((d, r.mood_emoji))
-        if not day_moods or day_moods[0][0] != local_today(user.timezone):
+        if len(day_moods) < 2:
             return None
 
         zh = (language or "").startswith("zh")

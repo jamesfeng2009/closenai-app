@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     # 高质量档（可选）：低频、非流式、预算充足的调用才用（如 token.agi.bar 的 k3.1-pro）。
     # 留空 = 未配置，主路径不受任何影响；调用方显式传 model=get_pro_model() 才会走到。
     openai_pro_model: str = ""
+    # LLM 调用硬预算。OpenAI SDK 默认 timeout=600s + max_retries=2：一次端点卡住
+    # 能让请求（以及事务里的行锁）挂到半小时，重试还会把成本翻三倍。lite 子调用
+    # 实测秒级返回，30s 足够；重试交给业务层显式决定，不留给 SDK 静默重放。
+    llm_timeout_seconds: float = 30.0
+    llm_max_retries: int = 0
     # Embedding 独立 provider（空 = 跟随 llm_provider，保持 B12 语义不变）
     # 用途：chat 换到第三方 OpenAI 兼容端点、向量仍留 DashScope。
     # 背景：代理类端点常只放行 chat 模型（如 token.agi.bar 的 key 白名单只含 3 个 chat 模型，

@@ -27,7 +27,7 @@ from backend.repositories import (
     mood_repository,
     user_repository,
 )
-from backend.services.quota_service import quota_service
+from backend.services.quota_service import REFLECTION_DRAFT_PURPOSE, quota_service
 from backend.services import prompt_library
 from backend.ai.safety import safety_service
 
@@ -88,7 +88,13 @@ class ReflectionService:
             f"{mood_desc}\n最近记忆：\n{memory_desc}{ctx_desc}"
         )
         try:
-            draft = await llm.complete(prompt, language=language, lite=True, max_tokens=300)
+            draft = await llm.complete(
+                prompt,
+                language=language,
+                lite=True,
+                max_tokens=300,
+                purpose=REFLECTION_DRAFT_PURPOSE,
+            )
             # L3 输出过滤：命中回退模板（【AI 观察】段是模式断言，走断言型 scope）
             draft = await safety_service.check_or(draft, language, "", scope="assertion")
         except Exception as exc:  # noqa: BLE001

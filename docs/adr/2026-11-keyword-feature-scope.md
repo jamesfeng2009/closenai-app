@@ -44,7 +44,7 @@
   三层次若产出「你会怎样」就是那一类。所以本 ADR 的口径是**深度可变、证据不可省**：
   每条洞察要能回到用户原文，这条由决策 D4 与 `insight_evidence` 表承载，闸在
   `backend/tests/test_evidence_policy.py`。
-- 开关与回滚：`backend/config.py:211` 的 `mood_analysis_depths_enabled: bool = False`，
+- 开关与回滚：`backend/config.py:216` 的 `mood_analysis_depths_enabled: bool = False`，
   关时 `backend/routers/mood.py:83` 在任何业务判定之前返回 40402（不暴露功能存在）。
   重开＝在配置里打开这一行；回滚＝删掉配置里这一行，不删数据。
 - 停的条件：4 周内深潜档的**证据点击率／回访率**不达 `docs/growth/monthly-review-2026-12.md` 写的阈值 ⇒ 停实验，

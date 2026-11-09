@@ -164,7 +164,14 @@ def _build_client(provider: str) -> AsyncOpenAI:
 
     if not api_key:
         raise RuntimeError(f"LLM provider '{provider}' 未配置 API Key")
-    return AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+    # 显式给请求预算：SDK 默认 600s + 2 次重试，端点卡住时会把调用方（以及事务里的
+    # 行锁）一起拖住。超时/重试口径集中在 settings，见 config 的注释。
+    return AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url or None,
+        timeout=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
+    )
 
 
 def _get_client() -> AsyncOpenAI:

@@ -1,7 +1,55 @@
 """quota_service：双口径配额（对话轮数 vs 统一池）与 tier 分层。"""
-from backend.core.time_utils import local_day_start_utc
+from datetime import datetime, time as dt_time, timedelta, timezone
+from uuid import uuid4
+
+import pytest
+
+from backend.core.errors import AppException, ErrorCode
+from backend.core.time_utils import local_day_start_utc, local_today
+from backend.models.generation_run import AiGenerationRun
+from backend.models.mood import MoodCheckin
 from backend.repositories import chat_repository, mood_repository
-from backend.services.quota_service import quota_service
+from backend.services.mood_service import mood_service
+from backend.services.quota_service import (
+    MOOD_DEEP_INTERPRETATION_PURPOSE,
+    MOOD_INTERPRETATION_PURPOSES,
+    MOOD_INTERPRETATION_PURPOSE,
+    REFLECTION_DRAFT_PURPOSE,
+    REFLECTION_DRAFT_PURPOSES,
+    quota_service,
+)
+from backend.services.reflection_service import reflection_service
+
+
+def _seed_run(db, user_id: str, purpose: str, status: str = "ok") -> None:
+    """直接落一条生成留痕（mock_llm 不写真实留痕，配额测试需自己补）。"""
+    db.add(
+        AiGenerationRun(
+            id=str(uuid4()),
+            user_id=user_id,
+            op="complete",
+            purpose=purpose,
+            status=status,
+            output_chars=10,
+        )
+    )
+
+
+async def _insert_checkin_days_ago(db, user_id: str, emoji: str, days_ago: int) -> None:
+    """在 N 天前（UTC 正午，避免跨日边界）落一条签到，用于深度解读触发条件。"""
+    day = local_today("UTC") - timedelta(days=days_ago)
+    db.add(
+        MoodCheckin(
+            id=str(uuid4()),
+            user_id=user_id,
+            mood_emoji=emoji,
+            mood_label="label",
+            ai_interpretation="interp",
+            checkin_date=day,
+            created_at=datetime.combine(day, dt_time(12, 0), tzinfo=timezone.utc),
+        )
+    )
+    await db.flush()
 
 
 async def test_free_tier_unified_pool_exceeded(db, make_user):
@@ -81,3 +129,74 @@ async def test_unified_pool_counts_mood_checkins_and_proactive(db, make_user):
     await chat_repository.create(db, "u4", "user", "对话不计入统一池")
     assert await mood_repository.count_since(db, "u4", day_start) == 3
     assert await quota_service.daily_usage(db, user) == 4
+
+
+async def test_same_day_repeat_checkin_charges_each_llm_call(db, make_user):
+    """同日重签只留一行签到，但每次带备注的签到都真实调了 LLM：按留痕取大值。"""
+    user = await make_user("u-repeat", ai_consent=True, timezone="UTC")
+    # 生产里每次 _interpret / _deep_interpretation 成功都会落一行留痕
+    _seed_run(db, "u-repeat", MOOD_INTERPRETATION_PURPOSE)
+    _seed_run(db, "u-repeat", MOOD_INTERPRETATION_PURPOSE)
+    await db.flush()
+    await mood_repository.create(db, "u-repeat", "😊", "Happy", "解读")
+    # 行数 1、留痕 2 → 取大值 2，而不是把两次真实消耗压成一次
+    assert await quota_service.daily_usage(db, user) == 2
+
+
+async def test_repeat_checkin_blocked_once_interpretation_runs_fill_pool(db, make_user):
+    """留痕打满统一池后同日再签到被拒：旧口径只看签到行（0/1）会永远放行。"""
+    await make_user("u-repeat-blocked", ai_consent=True, timezone="UTC")
+    for _ in range(5):  # free_daily_messages = 5
+        _seed_run(db, "u-repeat-blocked", MOOD_INTERPRETATION_PURPOSE)
+    await db.flush()
+    with pytest.raises(AppException) as exc:
+        await mood_service.checkin(db, "u-repeat-blocked", "😊", "再来一次", "en")
+    assert exc.value.code == ErrorCode.QUOTA_EXCEEDED
+
+
+async def test_reflection_draft_counts_against_unified_pool(db, make_user):
+    """反思草稿此前没有可数行＝免费不限次；现按 purpose 计入统一池。"""
+    user = await make_user("u-reflect", timezone="UTC")
+    for _ in range(5):  # free_daily_messages = 5
+        _seed_run(db, "u-reflect", REFLECTION_DRAFT_PURPOSE)
+    await db.flush()
+    assert await quota_service.daily_usage(db, user) == 5
+    assert await quota_service.is_proactive_quota_exceeded(db, user) is True
+    with pytest.raises(AppException) as exc:
+        await reflection_service.generate_draft(db, "u-reflect", "en")
+    assert exc.value.code == ErrorCode.QUOTA_EXCEEDED
+
+
+async def test_mood_purposes_match_quota_registry(
+    db, make_user, mock_llm, stub_semantic_search
+):
+    """服务传给 llm.complete 的 purpose 必须逐字在册（写岔＝配额数不到）。"""
+    await make_user("u-mood-purpose", ai_consent=True, timezone="UTC")
+    await _insert_checkin_days_ago(db, "u-mood-purpose", "😊", 2)
+    await _insert_checkin_days_ago(db, "u-mood-purpose", "😊", 1)
+
+    await mood_service.checkin(db, "u-mood-purpose", "😊", "今天有点累", "en")
+
+    # 安全分类器也走 llm.complete（purpose=safety_service.check_text），只筛业务调用
+    purposes = [
+        c["purpose"]
+        for c in mock_llm.calls["complete"]
+        if c["purpose"] in MOOD_INTERPRETATION_PURPOSES
+    ]
+    assert purposes == [MOOD_INTERPRETATION_PURPOSE, MOOD_DEEP_INTERPRETATION_PURPOSE]
+    assert set(purposes) == set(MOOD_INTERPRETATION_PURPOSES)
+
+
+async def test_reflection_draft_purpose_matches_quota_registry(db, make_user, mock_llm):
+    """反思草稿的 purpose 同样必须逐字在册。"""
+    await make_user("u-reflect-purpose", timezone="UTC")
+    await mood_repository.create(db, "u-reflect-purpose", "😊", "Happy", "解读")
+
+    await reflection_service.generate_draft(db, "u-reflect-purpose", "en")
+
+    purposes = [
+        c["purpose"]
+        for c in mock_llm.calls["complete"]
+        if c["purpose"] in REFLECTION_DRAFT_PURPOSES
+    ]
+    assert purposes == [REFLECTION_DRAFT_PURPOSE]

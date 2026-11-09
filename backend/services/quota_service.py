@@ -3,7 +3,8 @@
 
 双口径（PRD P1-F02 §2 Free 层）：
 1. 对话轮数：chat/stream 的 user 消息数，免费 10 轮/天（free_daily_chat_rounds）
-2. LLM 消耗统一池：主动消息 + 情绪签到解读，免费 5 条/天（free_daily_messages）
+2. LLM 消耗统一池：主动消息 + 情绪签到解读（含同日重签的重复解读）
+   + 反思草稿，免费 5 条/天（free_daily_messages）
 
 tier 语义：free 受上述每日上限约束；pro / pro_plus 走高限（≈不限，
 保留上限仅作异常调用的成本熔断，见 config 注释）。
@@ -63,6 +64,22 @@ MOOD_ANALYSIS_PURPOSES = (
 # 仍然是一次真实消耗，扣。
 _MOOD_ANALYSIS_COUNTED_STATUSES = ("ok", "fallback")
 
+# 统一池只数「签到行」会漏掉两类真实消耗：
+# 1. 同一本地日重复签到走更新（一日一行），但每次带备注的签到都会再调一次
+#    `_interpret`，行数不涨、LLM 照烧；
+# 2. 反思草稿（reflection_service）根本不落签到表，此前完全免费。
+# 因此统一池除消息/签到行外，还要按 purpose 数 ai_generation_runs：签到看
+# max(行数, 解读调用数) 避免同一件事被算两次；反思草稿直接累加。
+# purpose 必须与各服务传给 llm.complete 的逐字相同（写岔＝免费档不限次）。
+MOOD_INTERPRETATION_PURPOSE = "services.mood.interpretation"
+MOOD_DEEP_INTERPRETATION_PURPOSE = "services.mood.deep_interpretation"
+MOOD_INTERPRETATION_PURPOSES = (
+    MOOD_INTERPRETATION_PURPOSE,
+    MOOD_DEEP_INTERPRETATION_PURPOSE,
+)
+REFLECTION_DRAFT_PURPOSE = "services.reflection.draft"
+REFLECTION_DRAFT_PURPOSES = (REFLECTION_DRAFT_PURPOSE,)
+
 
 class QuotaService:
     """每日配额判定（额度与计数口径均以本模块为准）。"""
@@ -78,13 +95,24 @@ class QuotaService:
         return getattr(settings, key) if key else settings.free_daily_chat_rounds
 
     async def daily_usage(self, db: AsyncSession, user: User) -> int:
-        """统一池已用量：用户本地今日主动消息数 + 签到解读数（不含对话轮数）。"""
+        """统一池已用量：主动消息 + 签到解读 + 反思草稿（不含对话轮数）。
+
+        签到取 max(签到行数, 解读留痕数)：同日重签只有一行，但每次带备注的签到
+        都会真实调用一次 LLM；两口径取大值既不漏计，也不把一次签到算两次。
+        反思草稿没有签到行可数，按 purpose 直接累加。
+        """
         day_start = local_day_start_utc(user.timezone)
         proactive_used = await chat_repository.count_today(
             db, user.id, role="assistant", message_type="proactive", start=day_start
         )
-        mood_used = await mood_repository.count_since(db, user.id, day_start)
-        return proactive_used + mood_used
+        mood_rows = await mood_repository.count_since(db, user.id, day_start)
+        mood_runs = await generation_run_repository.count_since(
+            db, user.id, day_start, MOOD_INTERPRETATION_PURPOSES
+        )
+        reflection_runs = await generation_run_repository.count_since(
+            db, user.id, day_start, REFLECTION_DRAFT_PURPOSES
+        )
+        return proactive_used + max(mood_rows, mood_runs) + reflection_runs
 
     async def chat_rounds_today(self, db: AsyncSession, user: User) -> int:
         """对话轮数口径：用户本地今日 chat/stream 的 user 消息数。"""

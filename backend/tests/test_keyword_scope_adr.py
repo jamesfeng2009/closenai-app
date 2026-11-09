@@ -93,7 +93,7 @@ LOAD_BEARING = [
     (BASELINE, 91, "不是以角色库、浪漫幻想或虚拟关系等级为主引擎的陪伴平台"),
     (BASELINE, 164, "没有稳定证据支持的预测性洞察"),
     (BASELINE, 168, "仅为了增加功能数量而建设复杂的社区、社交关系或公开分享体系"),
-    ("backend/config.py", 211, "mood_analysis_depths_enabled: bool = False"),
+    ("backend/config.py", 216, "mood_analysis_depths_enabled: bool = False"),
     ("backend/routers/mood.py", 83, "settings.mood_analysis_depths_enabled"),
     ("backend/routers/share.py", 115, "/share/quote-card"),
     ("backend/tests/test_absolute_memory_claims.py", 59, "AI companion"),

@@ -4,8 +4,12 @@ from uuid import uuid4
 
 from backend.core.time_utils import local_today
 from backend.models.mood import MoodCheckin
-from backend.repositories import mood_repository
+from backend.repositories import mood_repository, user_repository
 from backend.services.mood_service import mood_service
+from backend.services.quota_service import (
+    MOOD_DEEP_INTERPRETATION_PURPOSE,
+    MOOD_INTERPRETATION_PURPOSE,
+)
 
 TZ = "UTC"
 
@@ -74,3 +78,56 @@ async def test_deep_interpretation_not_triggered(db, make_user, mock_llm):
     await _insert_checkin_days_ago(db, "u-noconsent", "😢", 1)
     resp2 = await mood_service.checkin(db, "u-noconsent", "😢", None, "en")
     assert resp2.deep_interpretation is None
+
+
+async def test_deep_trigger_uses_incoming_emoji_not_stale_today_row(db, make_user, mock_llm):
+    """同日重签：触发判定用本次 emoji（尚未落库），不能读到今天上午的旧行。"""
+    await make_user("u-repeat-deep", ai_consent=True, timezone=TZ)
+    await _insert_checkin_days_ago(db, "u-repeat-deep", "😢", 2)
+    await _insert_checkin_days_ago(db, "u-repeat-deep", "😢", 1)
+    # 今天早些时候签到开心；本次改成难过 → 连续 3 天难过应触发
+    await _insert_checkin_days_ago(db, "u-repeat-deep", "😊", 0)
+
+    resp = await mood_service.checkin(db, "u-repeat-deep", "😢", None, "en")
+    assert resp.deep_interpretation == "MOCK_LLM_REPLY"
+
+
+async def test_llm_calls_happen_before_user_row_lock(
+    db, make_user, mock_llm, stub_semantic_search, monkeypatch
+):
+    """签到：两次 LLM 都必须在取用户行锁之前完成，锁内只剩写库。
+
+    观测法：给 require_user 装探针记录 for_update，再在 mock LLM 被调用时抓一份
+    「此刻是否已经取过锁」。旧实现先拿锁再调 LLM → 探针会看到 True。
+    """
+    await make_user("u-lock", ai_consent=True, timezone=TZ)
+    await _insert_checkin_days_ago(db, "u-lock", "😊", 2)
+    await _insert_checkin_days_ago(db, "u-lock", "😊", 1)
+
+    lock_flags: list[bool] = []
+    original = user_repository.require_user
+
+    async def spy(db_, user_id, *, for_update=False):
+        lock_flags.append(for_update)
+        return await original(db_, user_id, for_update=for_update)
+
+    monkeypatch.setattr(user_repository, "require_user", spy)
+
+    seen_at_llm: list[tuple[str, bool]] = []
+
+    def complete_fn(prompt, **kwargs):
+        purpose = kwargs.get("purpose")
+        if purpose in {MOOD_INTERPRETATION_PURPOSE, MOOD_DEEP_INTERPRETATION_PURPOSE}:
+            seen_at_llm.append((purpose, any(lock_flags)))
+        return "好"
+
+    mock_llm.state["complete_fn"] = complete_fn
+    await mood_service.checkin(db, "u-lock", "😊", "今天有点累", "en")
+
+    assert [p for p, _ in seen_at_llm] == [
+        MOOD_INTERPRETATION_PURPOSE,
+        MOOD_DEEP_INTERPRETATION_PURPOSE,
+    ]
+    assert all(locked is False for _, locked in seen_at_llm)
+    # 写阶段仍然取锁（streak 与当日写入需要串行化）
+    assert lock_flags[-1] is True
