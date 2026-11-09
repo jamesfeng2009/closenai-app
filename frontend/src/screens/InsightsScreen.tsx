@@ -358,7 +358,8 @@ export default function InsightsScreen({ navigation }: { navigation: any }) {
     setActionDue('');
     setCreatedGoalId(null);
     if (!actionGoals) void reloadActionGoals();
-    else setActionGoalId(actionGoals[0].id);
+    // 空数组也是真值：没有活跃目标时退回「新建一颗」，不能去读首元素的 id。
+    else setActionGoalId(actionGoals[0]?.id ?? NEW_GOAL);
   };
 
   const closeActionModal = () => setActionFor(null);

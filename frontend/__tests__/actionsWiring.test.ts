@@ -463,6 +463,14 @@ describe('⑦ 洞察 → 行动入口：预填、两步写与不重复建目标'
     expect(body).toContain('setActionGoalId(NEW_GOAL)');
     expect(src).toContain('onPress={() => void reloadActionGoals()}');
   });
+
+  it('目标候选为空数组时也退成「新建一颗」：空数组是真值，裸读首元素会把弹层打崩', () => {
+    // 正向证人：reload 与打开弹层两条路都用同一条空数组安全表达式（少一处就是那条路没修）。
+    expect(countIn(src, /\[0\]\?\.id \?\? NEW_GOAL/g)).toBe(2);
+    // 反向证人：没有任何一处裸读 `[0].id`——那正是 `items=[]` 时的 TypeError。
+    expect(src).not.toMatch(/\[0\]\.id/);
+    expect(screenFn(src, 'openActionModal')).toContain('actionGoals[0]?.id ?? NEW_GOAL');
+  });
 });
 
 // ── ⑧ 15 语言键集 ──────────────────────────────────────────────────────────
