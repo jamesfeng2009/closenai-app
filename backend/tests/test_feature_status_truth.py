@@ -19,6 +19,7 @@
 """
 
 import copy
+import re
 from datetime import date
 
 import pytest
@@ -372,3 +373,58 @@ def test_registered_capability_impl_points_at_real_files(ledger):
 def test_registered_capability_tests_are_declared_files(ledger):
     hollow = [rel for rel in cap_entry(ledger)["tests"] if not has_tests(ROOT / rel)]
     assert not hollow, f"tests 里这些文件没有测试声明，不能当证据：{hollow}"
+
+
+# ── ⑤ 到期删除的处置面：动作清单要覆盖**今天真实存在的每一处** ─────────────────
+#
+# 为什么单列：上面那批只判「review_action 里有『删除』两个字」。实测（2026-11-09）旧文案
+# 只点了 aiclient 与 k8s 清单两处，而真正会起/引用这条链的还有 tools/aiclientprobe、
+# backend/ai/rpc/server.py、三份 compose 的 ai-rpc 服务——照旧文案删完，Go 侧编译断在工具上、
+# compose 里还留着一个没有客户端的 gRPC 进程，而台账已经写着「处置完毕」。
+# 所以这里做成**双向**：清单里点的每一处今天必须存在；今天存在的编排面必须都被点到。
+
+
+def _ai_rpc_orchestration_files() -> list[str]:
+    hits: list[str] = []
+    for path in sorted((ROOT / "deploy").rglob("*")):
+        if not path.is_file() or path.suffix not in {".yml", ".yaml"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "backend.ai.rpc.server" in text or re.search(r"(?m)^\s+ai-rpc:\s*$", text):
+            hits.append(str(path.relative_to(ROOT)))
+    return hits
+
+
+def test_registered_capability_deletion_action_covers_every_surface(ledger):
+    action = cap_entry(ledger)["review_action"]
+
+    required = [
+        "go-core/internal/aiclient/",
+        "go-core/tools/aiclientprobe/",
+        "backend/ai/rpc/server.py",
+        "backend/tests/test_r3_rpc_server.py",
+        "backend/tests/test_r3_runtime_surface.py",
+        "deploy/k8s/50-ai-rpc.yaml",
+    ]
+    missing = [rel for rel in required if rel not in action]
+    assert not missing, f"到期删除动作漏了这些面：{missing} ⇒ 照它删完会留下半个功能"
+
+    # 编排面反向：今天真的会起 ai-rpc 的每一份文件都要被点到（新增第四份编排也会在这里红）。
+    starters = _ai_rpc_orchestration_files()
+    assert starters, "扫不到任何 ai-rpc 编排面 ⇒ 这条反向判据在扫空集（文件都改名了？）"
+    unnamed = [rel for rel in starters if rel not in action]
+    assert not unnamed, f"这些编排文件会起 ai-rpc，但到期动作没点名：{unnamed}"
+
+    # 反过来：动作里点名的路径今天必须存在，否则到期照着清单会删不到/删错。
+    named = {
+        raw.rstrip("/")
+        for raw in re.findall(r"(?:go-core|backend|deploy)/[A-Za-z0-9_./-]+", action)
+    }
+    gone = sorted(rel for rel in named if not (ROOT / rel).exists())
+    assert not gone, f"到期动作点名了不存在的路径：{gone}（改名了就同步改清单）"
+
+    # 过度删除的边界也要写死在清单里：go-core/gen 仍被 inbound 的 candidate_decode.go
+    # 与 tools/protocross 使用，删 aiclient 不能顺手带走它。
+    assert "不要删 go-core/gen" in action, (
+        "清单没写 go-core/gen 的保留边界：照「整面删除」执行会删掉 inbound 仍在用的生成物"
+    )

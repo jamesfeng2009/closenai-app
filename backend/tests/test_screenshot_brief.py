@@ -44,15 +44,15 @@ for line in TEXT.splitlines():
 
 #: 六帧的界面源 needle：这一行必须真的画着那块界面，否则「指到真界面」是空的。
 SCREEN_ANCHORS: dict[str, str] = {
-    "frontend/src/screens/MemoriesScreen.tsx:127": "quote_text",
+    "frontend/src/screens/MemoriesScreen.tsx:163": "quote_text",
     "frontend/src/screens/HomeScreen.tsx:85": "buildHeatCells",
     "frontend/src/screens/HomeScreen.tsx:32": "moodCheckinRepo",
     "frontend/src/screens/InsightsScreen.tsx:210": "first_evidence_insight",
-    "frontend/src/screens/GrowthRecordsScreen.tsx:217": "first_outcome",
-    "frontend/src/screens/GrowthRecordsScreen.tsx:66": "结果如何",
+    "frontend/src/screens/GrowthRecordsScreen.tsx:267": "first_outcome",
+    "frontend/src/screens/GrowthRecordsScreen.tsx:69": "结果如何",
     "frontend/src/screens/RelationshipTimelineScreen.tsx:79": "timelineRes",
     "frontend/src/screens/PrivacySecurityScreen.tsx:81": "latestExport",
-    "frontend/src/screens/PrivacySecurityScreen.tsx:249": "deletionRow",
+    "frontend/src/screens/PrivacySecurityScreen.tsx:261": "deletionRow",
     "backend/tests/test_absolute_memory_claims.py:139": "step1Tagline",
 }
 

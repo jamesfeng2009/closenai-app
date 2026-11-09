@@ -52,7 +52,7 @@
   - 代码面：go-core/internal/aiclient/aiclient.go、go-core/internal/aiclient/grpc.go、go-core/internal/aiclient/sse.go、go-core/internal/aiclient/breaker.go、go-core/internal/aiclient/degrade.go、backend/ai/rpc/server.py、deploy/k8s/50-ai-rpc.yaml
   - 测试面：go-core/internal/aiclient/grpc_test.go、go-core/internal/aiclient/aiclient_test.go、go-core/internal/aiclient/stream_test.go、go-core/internal/aiclient/trace_test.go
   - 非生产调用方：go-core/tools/aiclientprobe/main.go
-  - 到期动作：到期（2027-01-17）仍无生产调用方 ⇒ 删除 go-core/internal/aiclient 与 deploy/k8s/50-ai-rpc.yaml（T6-01 选项 A 的 90 天条款）；若选 B 接线则改为「insight 发布前 ClassifySafety 二次校验，超时 300ms、失败降级沿用候选安全态并记指标」，并配降级测试＋失败指标才许升态。
+  - 到期动作：到期（2027-01-17）仍无生产调用方 ⇒ 按 T6-01 选项 A 整面删除：① go-core/internal/aiclient/（含测试与 templates）；② 唯一非测试引用者 go-core/tools/aiclientprobe/；③ Python 服务端 backend/ai/rpc/server.py 与它的两张闸 backend/tests/test_r3_rpc_server.py、backend/tests/test_r3_runtime_surface.py，以及只被该服务端使用的生成物 backend/gen/（删前 grep 复核）；④ 编排 deploy/k8s/50-ai-rpc.yaml 与 deploy/compose/docker-compose.prod.yml、deploy/compose/docker-compose.dev.yml、deploy/compose/docker-compose.staging.yml 里的 ai-rpc 服务；⑤ 复核 backend/requirements.txt 的 grpcio/protobuf 是否还有消费者，并删掉本条登记。不要删 go-core/gen/：inbound 的 candidate_decode.go 与 tools/protocross 仍在用。若选 B 接线则改为「insight 发布前 ClassifySafety 二次校验，超时 300ms、失败降级沿用候选安全态并记指标」，并配降级测试＋失败指标才许升态。
   - 缺口：异步面（RabbitMQ）已经承载 observation／candidate 投递，同步 gRPC 面仍是零流量；本条登记由 go-core/internal/aiclient/production_caller_ledger_test.go 与 test_feature_status_truth.py 双侧看住——零调用方这件事一侧消失即红。
 
 ## 为什么这些态不能更高（口径备忘）

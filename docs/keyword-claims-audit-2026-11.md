@@ -24,25 +24,25 @@
 
 | 位置 | 原文 | 风险类型 | 判定 | 改法 | 负责人 |
 |---|---|---|---|---|---|
-| `frontend/src/i18n/locales/en.ts:456` | It remembers what you choose to share | 绝对化记忆 | 保留 | KG-23 已改判的口径本体（限定在「你选择分享的」），`test_absolute_memory_claims.py:139` 逐字钉住，不许回退 | FE |
-| `frontend/src/i18n/locales/en.ts:458` | Each check-in and reflection you save adds to its picture of you | 绝对化记忆 | 保留 | 主语是「你保存下来的」，且同句给了删除出口，与真实能力一致 | FE |
-| `frontend/src/i18n/locales/en.ts:460` | AI finds patterns in your records — and flags them before you spiral | 无证据预测 | 改写 | 删掉 `before you spiral`（＝在你崩溃之前预警，是预测承诺，且我们没有任何前瞻性证据）。改成：AI 把你写过的东西里反复出现的模式回给你看 | FE+ARCH |
+| `frontend/src/i18n/locales/en.ts:471` | It remembers what you choose to share | 绝对化记忆 | 保留 | KG-23 已改判的口径本体（限定在「你选择分享的」），`test_absolute_memory_claims.py:139` 逐字钉住，不许回退 | FE |
+| `frontend/src/i18n/locales/en.ts:473` | Each check-in and reflection you save adds to its picture of you | 绝对化记忆 | 保留 | 主语是「你保存下来的」，且同句给了删除出口，与真实能力一致 | FE |
+| `frontend/src/i18n/locales/en.ts:475` | AI finds patterns in your records — and flags them before you spiral | 无证据预测 | 改写 | 删掉 `before you spiral`（＝在你崩溃之前预警，是预测承诺，且我们没有任何前瞻性证据）。改成：AI 把你写过的东西里反复出现的模式回给你看 | FE+ARCH |
 | `frontend/src/i18n/locales/en.ts:43` | What do you want ClosenAI to remember? | 绝对化记忆 | 保留 | 输入框占位符，问的是用户要记什么，不是能力承诺 | FE |
-| `frontend/src/i18n/locales/en.ts:106` | The AI is just getting to know you | 陪伴平台语言 | 改写 | L 等级描述写成了关系递进叙事（Baseline `:91`）。改成能力口径：目前只有几条你的记录可回看 | FE+ARCH |
-| `frontend/src/i18n/locales/en.ts:107` | The AI starts proactively following up with you | 陪伴平台语言 | 改写 | `proactively following up` 是拟人关系语。改成：到点会给你发一条与你记录相关的提醒（每日 1 条，见 §1.3 权益表） | FE+PLAT |
-| `frontend/src/i18n/locales/en.ts:108` | The AI references memories and discovers your patterns | 绝对化记忆 | 保留 | 说的是「引用你已有的记忆」，与 `insight_evidence` 回链实现一致 | BE |
-| `frontend/src/i18n/locales/en.ts:109` | The AI understands you deeply and grows with you | 陪伴平台语言 | 改写 | `understands you deeply` 是不可验证的心灵描写。改成：可回看的记录越多，能对照的时间跨度越长 | FE+ARCH |
-| `frontend/src/i18n/locales/en.ts:247` | Keep chatting with me — the more we talk, the better I understand you. | 陪伴平台语言 | 改写 | 第一人称关系号召＋理解度承诺。改成：你写得越多，回看时能对照的记录越完整 | FE |
-| `frontend/src/i18n/locales/en.ts:150` | discovered in 7 days | 无证据预测 | 改写 | 「7 天就能发现」是对时间的承诺，我们没有 7 天有效性的读数。改成：随着你的记录逐步成形 | FE+GROWTH |
-| `frontend/src/i18n/locales/en.ts:121` | Deleting your account permanently removes all data. | 绝对化记忆 | 改写 | 同文件 `:426` 写的是 24 小时内永久删除，两处口径不一致。统一成：注销后所有记录在 24 小时内永久删除且不可恢复 | PLAT+LEGAL |
-| `frontend/src/i18n/locales/en.ts:307` | Export everything you've recorded in ClosenAI | 绝对化记忆 | 保留 | `everything` 挂的是「你记录下来的」，属导出范围描述，不是记忆完备性承诺（KG-23 已定 this 口径） | FE |
-| `frontend/src/i18n/locales/en.ts:474` | 30 seconds. It only repeats back what you picked — it predicts nothing. | 无证据预测 | 保留 | 否定式承诺（明写不预测），是本次审计要的**正向证人**：全库保留这类句子 | FE |
-| `frontend/src/i18n/locales/en.ts:527` | not a prediction, just your own words | 无证据预测 | 保留 | 同上，洞察卡页脚的免责句，与 Baseline `:164` 一致 | FE |
-| `frontend/src/i18n/locales/en.ts:589` | Observation only · no predictions, no promises | 无证据预测 | 保留 | 反思流程末步的注脚，明写「只观察、不预测、不许诺」，与 Baseline `:164` 一致，属要长期保留的否定式承诺 | FE |
-| `frontend/src/i18n/locales/en.ts:354` | 16 Types | 陪伴平台语言 | 保留 | ASO/文案保守版已用 `16 Types` 替代 `MBTI`（注册商标风险归 KG-02），全站沿用这个写法 | CONTENT+LEGAL |
-| `frontend/src/i18n/locales/en.ts:402` | not for medical, legal, or financial decisions | 医疗边界 | 保留 | 非医疗免责声明本体，措辞不可弱化 | LEGAL |
-| `frontend/src/i18n/locales/en.ts:407` | AI content is for self-exploration and entertainment only | 医疗边界 | 改写 | 免责的后半句把产品降格成「娱乐」，与 §1.3 与商店口径冲突，也可能被读成「所以不用当真」。改成：AI 内容用于自我观察，不构成诊断或治疗 | LEGAL+ARCH |
-| `backend/data/copy/en.json:421` | it remembers what you told it | 绝对化记忆 | 改写 | 分享卡**水印**，也是商店截图取景位置。缺「你选择」限定，与 App 内 `:456` 不同口径。改成：it remembers what you chose to share | BE+CONTENT |
+| `frontend/src/i18n/locales/en.ts:111` | The AI is just getting to know you | 陪伴平台语言 | 改写 | L 等级描述写成了关系递进叙事（Baseline `:91`）。改成能力口径：目前只有几条你的记录可回看 | FE+ARCH |
+| `frontend/src/i18n/locales/en.ts:112` | The AI starts proactively following up with you | 陪伴平台语言 | 改写 | `proactively following up` 是拟人关系语。改成：到点会给你发一条与你记录相关的提醒（每日 1 条，见 §1.3 权益表） | FE+PLAT |
+| `frontend/src/i18n/locales/en.ts:113` | The AI references memories and discovers your patterns | 绝对化记忆 | 保留 | 说的是「引用你已有的记忆」，与 `insight_evidence` 回链实现一致 | BE |
+| `frontend/src/i18n/locales/en.ts:114` | The AI understands you deeply and grows with you | 陪伴平台语言 | 改写 | `understands you deeply` 是不可验证的心灵描写。改成：可回看的记录越多，能对照的时间跨度越长 | FE+ARCH |
+| `frontend/src/i18n/locales/en.ts:262` | Keep chatting with me — the more we talk, the better I understand you. | 陪伴平台语言 | 改写 | 第一人称关系号召＋理解度承诺。改成：你写得越多，回看时能对照的记录越完整 | FE |
+| `frontend/src/i18n/locales/en.ts:155` | discovered in 7 days | 无证据预测 | 改写 | 「7 天就能发现」是对时间的承诺，我们没有 7 天有效性的读数。改成：随着你的记录逐步成形 | FE+GROWTH |
+| `frontend/src/i18n/locales/en.ts:126` | Deleting your account permanently removes all data. | 绝对化记忆 | 改写 | 同文件 `:441` 写的是 24 小时内永久删除，两处口径不一致。统一成：注销后所有记录在 24 小时内永久删除且不可恢复 | PLAT+LEGAL |
+| `frontend/src/i18n/locales/en.ts:322` | Export everything you've recorded in ClosenAI | 绝对化记忆 | 保留 | `everything` 挂的是「你记录下来的」，属导出范围描述，不是记忆完备性承诺（KG-23 已定 this 口径） | FE |
+| `frontend/src/i18n/locales/en.ts:489` | 30 seconds. It only repeats back what you picked — it predicts nothing. | 无证据预测 | 保留 | 否定式承诺（明写不预测），是本次审计要的**正向证人**：全库保留这类句子 | FE |
+| `frontend/src/i18n/locales/en.ts:542` | not a prediction, just your own words | 无证据预测 | 保留 | 同上，洞察卡页脚的免责句，与 Baseline `:164` 一致 | FE |
+| `frontend/src/i18n/locales/en.ts:604` | Observation only · no predictions, no promises | 无证据预测 | 保留 | 反思流程末步的注脚，明写「只观察、不预测、不许诺」，与 Baseline `:164` 一致，属要长期保留的否定式承诺 | FE |
+| `frontend/src/i18n/locales/en.ts:369` | 16 Types | 陪伴平台语言 | 保留 | ASO/文案保守版已用 `16 Types` 替代 `MBTI`（注册商标风险归 KG-02），全站沿用这个写法 | CONTENT+LEGAL |
+| `frontend/src/i18n/locales/en.ts:417` | not for medical, legal, or financial decisions | 医疗边界 | 保留 | 非医疗免责声明本体，措辞不可弱化 | LEGAL |
+| `frontend/src/i18n/locales/en.ts:422` | AI content is for self-exploration and entertainment only | 医疗边界 | 改写 | 免责的后半句把产品降格成「娱乐」，与 §1.3 与商店口径冲突，也可能被读成「所以不用当真」。改成：AI 内容用于自我观察，不构成诊断或治疗 | LEGAL+ARCH |
+| `backend/data/copy/en.json:421` | it remembers what you told it | 绝对化记忆 | 改写 | 分享卡**水印**，也是商店截图取景位置。缺「你选择」限定，与 App 内 `:471` 不同口径。改成：it remembers what you chose to share | BE+CONTENT |
 | `backend/data/copy/en.json:57` | Predictive insights | 无证据预测 | 改写 | L4 权益名直接叫「预测性洞察」，撞 Baseline `:164`（无稳定证据的预测性洞察不做）。改成：Evidence-backed insights | BE+CONTENT |
 | `backend/data/copy/en.json:97` | Next week forecast | 无证据预测 | 改写 | `forecast` 是预报语。改成：Next week, from your own commitments | BE |
 | `backend/data/copy/en.json:287` | your AI companion. I hear you're an | 陪伴平台语言 | 改写 | 对话开场白自称 AI 伴侣（KG-23 已把落地站改成 growth journal，这两处当时登记为「发现未修」，本行归位）。改成：your AI growth journal | BE+ARCH |
@@ -58,7 +58,7 @@
 | `backend/data/copy/en.json:292` | I've kept it in mind. | 绝对化记忆 | 改写 | 「我放在心上」是心灵描写。改成：这条你上次写过，要不要继续 | BE |
 | `backend/data/copy/en.json:15` | Feeling a bit anxious is completely normal. | 医疗边界 | 待法务 | 情绪共情语，不诊断不治疗；但 `completely normal` 会被读成对状态的临床判断，归 KG-02 复核措辞 | LEGAL |
 | `backend/data/copy/en.json:253` | Insightful Healer | 医疗边界 | 改写 | 九型人格副类型名含 `Healer`（治疗者），与同文件「不是治疗」声明自相冲突。改成：Insightful Counselor 之外的非医疗词（如 Insightful Advocate） | CONTENT+LEGAL |
-| `backend/data/copy/en.json:436` | Idealistic Healer | 医疗边界 | 改写 | INFP 副类型名，与 `en.ts:402` 的「不用于医疗决定」自相冲突。改成：Idealistic Advocate（15 语的对应副类型名一起换，`Healer` 一族在 `:253` 与本行各一处） | CONTENT+LEGAL |
+| `backend/data/copy/en.json:436` | Idealistic Healer | 医疗边界 | 改写 | INFP 副类型名，与 `en.ts:417` 的「不用于医疗决定」自相冲突。改成：Idealistic Advocate（15 语的对应副类型名一起换，`Healer` 一族在 `:253` 与本行各一处） | CONTENT+LEGAL |
 | `backend/data/copy/en.json:415` | I'll stay right here with you through this moment. | 医疗边界 | 待法务 | 危机场景里陪伴式承诺；危机文案改动必须与热线流程一起过法务，不在本批拍板 | LEGAL+BE |
 | `web/index.html:527` | 成长陪伴 | 陪伴平台语言 | 改写 | **现网**功能卡标题，台账点名锚。定位已改判为成长日记，「陪伴」与 Baseline `:91` 冲突。改成：成长回音（或 成长记录） | GROWTH+CONTENT |
 | `web/index.html:523` | AI 基于你的长期数据生成性格画像 | 绝对化记忆 | 改写 | 「长期数据」暗示全量采集。改成：AI 依据你写下的反思与情绪记录生成性格画像 | GROWTH+CONTENT |
@@ -87,7 +87,7 @@
 | `site/src/i18n.ts:83` | Told you it would pay off. | 无证据预测 | 改写 | mock 对话里 AI 说「我说过会有回报的」＝事后追认预测。改成：You finished it — that's what your entries show | CONTENT |
 | `site/src/i18n.ts:90` | ClosenAI — The journal that remembers you | 绝对化记忆 | 改写 | 台账点名锚（`<title>`），同 `site/src/i18n.ts:13` 的问题；这条还会进搜索摘要，须与 KG-04 字段同口径。改成：ClosenAI — The journal that remembers what you write | CONTENT+GROWTH |
 | `site/src/i18n.ts:91` | It remembers what you choose to share, how you felt, and who you are becoming. | 绝对化记忆 | 改写 | 前半合规，后半 `who you are becoming` 是无证据的完整画像断言。改成：…how you felt, and how your own words have changed | CONTENT |
-| `site/src/i18n.ts:79` | It remembers what you choose to share | 绝对化记忆 | 保留 | 台账点名锚（页脚 tagline），与 App 内 `en.ts:456` 同口径，可保留 | CONTENT |
+| `site/src/i18n.ts:79` | It remembers what you choose to share | 绝对化记忆 | 保留 | 台账点名锚（页脚 tagline），与 App 内 `en.ts:471` 同口径，可保留 | CONTENT |
 | `site/src/legal.ts:187` | not end-to-end encrypted | 绝对化记忆 | 保留 | 明确的**反向**声明（我们没做端到端加密就别写）——这是本表要的诚实证人 | LEGAL+PLAT |
 | `site/src/legal.ts:234` | It is not therapy, counselling, or medical | 医疗边界 | 保留 | 非医疗声明本体 | LEGAL |
 | `site/src/legal.ts:235` | it can misremember emphasis, and it can be confidently off | 绝对化记忆 | 保留 | 主动承认模型会记错，与绝对化承诺相反 | LEGAL+ARCH |
@@ -121,7 +121,7 @@
    `site/public/r/index.html:124/:131` 仍是「记得你说的每一句」。按 D0 `site/` 不部署，所以现网没有这些话；
    但只要按 KG-09～KG-17 生成新页面并复制这些模板，就会把已判删的句子上线。**因此本轮站点任务（KG-10～KG-17）的草稿面
    一律以本表为准，不以 `site/src/i18n.ts` 为准。**
-4. **审计表里没有一条是「靠删键过关」**：`:456`、`:474`、`:527`、`:589`、`copy/en.json:66`、`legal.ts:187/:235`
+4. **审计表里没有一条是「靠删键过关」**：`:471`、`:489`、`:542`、`:604`、`copy/en.json:66`、`legal.ts:187/:235`
    这些 `保留` 行本身就是证人——如果哪天有人为了过禁语闸把免责句整体删掉，`test_keyword_claims_audit.py` 会红。
 
 ---
@@ -130,14 +130,14 @@
 
 这几条不属于固定四类，但同样是对外承诺，KG-02 隐私对照必须逐条核：
 
-- `frontend/src/i18n/locales/en.ts:120` —「Conversations are encrypted and stored in the ClosenAI database」；
+- `frontend/src/i18n/locales/en.ts:125` —「Conversations are encrypted and stored in the ClosenAI database」；
   与 `site/src/legal.ts:187`「stored as readable rows … not end-to-end encrypted」**口径相反**。
   两处一个是 App 内 FAQ、一个是站点法务源，用户可能同时看到。**这是本次审计发现的真实冲突，归 KG-02 隐私对照**，
   按「发现的缺陷不顺手修」不在本批改文案。
-- `frontend/src/i18n/locales/en.ts:306` —「Keep your archive forever」（永久保留承诺）。
-- `frontend/src/i18n/locales/en.ts:415` —「never what you write, your conversations, or your memories」（`never` 型绝对化，需与埋点白名单实态对照）。
-- `frontend/src/i18n/locales/en.ts:426` —「permanently deleted within 24 hours」（与 `:121` 的「permanently removes all data」需统一，见本表第 11 行）。
-- `frontend/src/i18n/locales/en.ts:815` —「Sign-in tokens and payment receipts are never included」（导出面绝对化，需 `export_service` 实证）。
+- `frontend/src/i18n/locales/en.ts:321` —「Keep your archive forever」（永久保留承诺）。
+- `frontend/src/i18n/locales/en.ts:430` —「never what you write, your conversations, or your memories」（`never` 型绝对化，需与埋点白名单实态对照）。
+- `frontend/src/i18n/locales/en.ts:441` —「permanently deleted within 24 hours」（与 `:126` 的「permanently removes all data」需统一，见本表第 11 行）。
+- `frontend/src/i18n/locales/en.ts:852` —「Sign-in tokens and payment receipts are never included」（导出面绝对化，需 `export_service` 实证）。
 - `web/privacy.html:59`、`:157`、`:195`、`:221`／`web/terms.html:59`、`:93`、`:155`、`:159` — 法务文本，判定全部为「待法务复核」，本批不动。
 
 ---
@@ -146,7 +146,7 @@
 
 1. **2026-11-02｜台账锚点行号已漂**：`docs/keyword-growth-implementation-plan-2026-11-01.md` §4.1 写的是
    `en.ts:432` 的 `step1Tagline` 与 `en.ts:436` 的 `step1Feature2Desc`，实测现在在
-   `en.ts:456` 与 `en.ts:460`（KG-25 首日路径改 onboarding 时整体上移了 24 行）。
+   `en.ts:471` 与 `en.ts:475`（KG-25 首日路径改 onboarding 时后移 24 行，2026-11-09 复测：KG-29～KG-31 的 i18n 增量再后移 15 行，合计 39 行）。
    本表按**当前真实行号**写，并由闸逐行自证；方案文档那两处陈旧行号属文档维护面，另批改。
 2. **2026-11-02｜KG-23 的禁语闸扫不到 `site/public/**`**：`backend/tests/test_absolute_memory_claims.py` 的
    `_surfaces()` 收的是 `frontend/src/i18n/locales`、`backend/data/copy`、`site/src/i18n.ts`、`web/*.html` 四个面，

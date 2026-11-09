@@ -152,8 +152,77 @@ token 上限**，轻松・探索・深潜三档共用一条端点 `POST /api/v1/
 2. **真机 UI 没验**：`MoodAnalysisSheet` 只在源码层与纯逻辑层判过；RN 的 Modal＋ScrollView 滚动
    （`flexShrink` 那格）与 15 语言的长文案换行需要一次真机走查。
 3. **开关从未在生产打开过**：`MOOD_ANALYSIS_DEPTHS_ENABLED=1` 只在测试 fixture 里翻过。
+   放量步骤、证人与回滚见 §9（2026-11-09 补齐）——那一节是**未执行**的清单，不是读数。
 4. **幂等在多副本下不成立**：进程内缓存。今天 py-api 是 1 副本所以够用，扩副本那天这条判据要重读
    （`test_same_request_id_does_not_run_the_model_twice` 只证单进程形状）。
 5. **分地区热线只有三类**：`Asia/Shanghai`→12356、`America/*`→988、`Canada/*`→988.ca，
    其余落 fallback（见 §7 第 9 条②）。美国市场的关键词流量正是本功能的目标面，
    这一格建议在放量前补齐逐国号码。
+
+## 9. 放量清单（2026-11-09 补；**仍未放量**）
+
+当前状态：开关不在任何清单里——`deploy/k8s/10-config.yaml` 与三份 compose 都没有这一行，
+所以 `POST /api/v1/mood/analysis` 在生产恒为 40402、`features.mood_analysis_depths` 恒为 false、
+前端入口不渲染。这不是「漏接」而是**产品决定的默认关**（ADR `2026-11-keyword-feature-scope.md`
+§1：三层次分析做 4 周小实验，读数不达标即停）。本节把「如果真要开，怎么开、看什么、怎么退」写死，
+免得下一个人凭直觉改一行数字。
+
+### 9.1 四个前置（任一不满足就别开）
+
+1. **流量与分桶**：4 周读数需要生产样本。分桶键是 `features.mood_analysis_depths`，
+   实验臂＝`deep` 档完成且逐字证据 ≥2 条，读数是「深潜组 7 日回访率 vs 对照」。
+   当前 KG-31 仍是 `BLOCKED`（屏已到位、流量为零）⇒ 读数跑不出来，这条是硬前置。
+2. **真机走查**：`MoodAnalysisSheet` 只做过源码层与纯逻辑层判据；RN Modal＋ScrollView 的滚动
+   与 15 语言长文案换行要一次真机（§8 第 2 条）。
+3. **热线覆盖**：现在只有 `Asia/Shanghai`→12356、`America/*`→988、`Canada/*`→988.ca，
+   其余语言落中文 fallback（§7 第 9 条②）——目标市场若不在三类里，先补号码再放量。
+4. **多副本**：幂等是进程内缓存（§8 第 4 条）。py-api 扩到 `replicas > 1` 之前，
+   这条判据先挪到外部存储，否则同一 `request_id` 会在两个 Pod 上各扣一次额度。
+
+### 9.2 开关与两个名字坑
+
+| 面 | 键名（逐字） | 默认 | 放量值 |
+| --- | --- | --- | --- |
+| 入口／端点开关 | `MOOD_ANALYSIS_DEPTHS_ENABLED` | 不设＝关 | `"1"` |
+| 免费档每日次数 | `FREE_DAILY_MOOD_ANALYSES` | `1` | 一般不动 |
+| Pro 每日次数 | `PRO_DAILY_MOOD_ANALYSES` | `20` | 一般不动 |
+| Pro+ 每日次数 | `PRO_PLUS_DAILY_MOOD_ANALYSES` | `50` | 一般不动 |
+
+- 四个名字**都不带 `CLOSEN_` 前缀**：`backend/config.py` 的 `model_config` 没有 `env_prefix`，
+  pydantic-settings 按字段名大写取值。方案文档里写过的带前缀形态是错的（§7 第 4 条），
+  照那个名字设环境变量只会得到一个静默无效的假开关。
+- 只认真值 `1/true/yes/on`（pydantic v2 的 bool 解析）；写 `"0"/"false"` 与不设等价。
+- `Settings` 在进程启动时读一次：改 ConfigMap 后**必须** `kubectl -n closenai rollout restart deploy/py-api`，
+  热更不会生效。
+
+### 9.3 步骤（staging 先、生产后）
+
+1. **staging**：`deploy/compose/docker-compose.staging.yml` 的 `py-api.environment` 加
+   `MOOD_ANALYSIS_DEPTHS_ENABLED: "1"`，`docker compose -p closenai-staging ... up -d py-api`。
+2. **staging 四个证人**（缺一条就停，不要进生产）：
+   ① `GET /api/v1/growth/dashboard` 的 `data.features.mood_analysis_depths` 为 `true`；
+   ② 先做一次今日签到，再 `POST /api/v1/mood/analysis` 返回 200 且响应里有 `depth`／`pattern`／`quotes`；
+   ③ 开关关回去重启后同一条请求回 40402 且 `message` 是「资源不存在」（不是「今天还没有签到」——
+   两者同码不同文案，**按文案分**，别只看 code）；
+   ④ 连发两次同 `request_id`：第二次不产生新的 `ai_generation_runs` 行。
+3. **生产**：在 `closenai-config` ConfigMap 里加 `MOOD_ANALYSIS_DEPTHS_ENABLED: "1"`。
+   它**允许**进这张表——`test_k8s_manifests.py::test_env_var_names_do_not_drift_across_languages`
+   认的正是 `backend/config.py` 的字段名，这与 worker 开关那种 env-only 键不同。
+   然后 `kubectl -n closenai rollout restart deploy/py-api`，重跑 §9.3 第 2 步的四个证人。
+4. **读数**：按 §9.1 第 1 条的分桶取 4 周；不达标 ⇒ 直接走 §9.4，不带病继续。
+
+### 9.4 回滚
+
+- 把 ConfigMap 那一行改回 `"0"`（或删掉），`rollout restart deploy/py-api`。端点立刻回到 40402、
+  仪表盘特征位 false、前端入口不再出现——**不需要发版、不回滚数据**。
+- 已产生的 `ai_generation_runs` 与 `safety_events` 行保留；配额池只在端点被调用时计数，
+  关掉后它们不影响任何其他池（独立第三池，§1 配额那一行）。
+- 注意顺序：先关开关再考虑动别的。反过来的话，灰度和代码变更会在同一时间窗里叠加，
+  读数就分不清是哪一个引起的。
+
+### 9.5 这一节的判据
+
+`backend/tests/test_mood_analysis_rollout.py` 把「默认关」与本节的事实钉在一起：开关默认
+`False`、任何清单都没有把它置真、三个读取点（路由／服务／仪表盘）都读同一个 Settings 字段、
+本节写的键名与代码字段逐字对得上、配额默认值与 `backend/config.py` 同值。
+真要放量时，那条测试就是**登记点**——把它改成预期 `"1"` 并写上日期，和改 ConfigMap 同批提交。

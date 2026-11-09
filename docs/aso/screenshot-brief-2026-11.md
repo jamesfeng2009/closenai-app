@@ -18,12 +18,12 @@
 
 | 帧 | 主张（图上那句话） | 对应真实界面 | 界面源（仓内路径:行） | 取图条件（拍之前必须成立） | 证据与合规标注 |
 |---|---|---|---|---|---|
-| 1 | `It remembers what you choose to share` | 记忆列表与单条原话引用 | `frontend/src/screens/MemoriesScreen.tsx:127` | 账号内至少 3 条**用户保存过的**记忆，且每条能看到原文引用 | KG-23 的限定式口径本体（不是 remembers everything）；`backend/tests/test_absolute_memory_claims.py:139` 逐字钉过这句的 App 内版本 |
+| 1 | `It remembers what you choose to share` | 记忆列表与单条原话引用 | `frontend/src/screens/MemoriesScreen.tsx:163` | 账号内至少 3 条**用户保存过的**记忆，且每条能看到原文引用 | KG-23 的限定式口径本体（不是 remembers everything）；`backend/tests/test_absolute_memory_claims.py:139` 逐字钉过这句的 App 内版本 |
 | 2 | `One tap a day, and the trend shows up` | 今日签到＋首页热力格 | `frontend/src/screens/HomeScreen.tsx:85` | 连续 7 天有签到数据，热力格不得整片空（空热力图等于演示「没在用」） | 热力格数据源是本地 `mood_checkins` 同步（`frontend/src/screens/HomeScreen.tsx:32`），不谎称云端统计 |
 | 3 | `See the entries an insight came from` | 洞察卡展开的依据条目 | `frontend/src/screens/InsightsScreen.tsx:210` | 拍**有依据**的洞察（`evidence_count > 0`），空依据洞察不能当封面 | 这句说的是「界面给了回链入口」，不是「所有洞察都有依据」；依据回链的真实口径见 I4（灰度中），文案不许升格成保证 |
-| 4 | `You said you'd do it. How did it go?` | 行动—结果回访（四选一） | `frontend/src/screens/GrowthRecordsScreen.tsx:217` | 有一条已记录行动＋其结果反馈的条目 | 结果四选一取自服务端枚举（`frontend/src/screens/GrowthRecordsScreen.tsx:66`），前端不自造档位；这帧是**竞品未占的差异化**，台账 §KG-08 点名至少一帧讲结果回访 |
+| 4 | `You said you'd do it. How did it go?` | 行动—结果回访（四选一） | `frontend/src/screens/GrowthRecordsScreen.tsx:267` | 有一条已记录行动＋其结果反馈的条目 | 结果四选一取自服务端枚举（`frontend/src/screens/GrowthRecordsScreen.tsx:69`），前端不自造档位；这帧是**竞品未占的差异化**，台账 §KG-08 点名至少一帧讲结果回访 |
 | 5 | `Look back through what you wrote` | 时间线回顾 | `frontend/src/screens/RelationshipTimelineScreen.tsx:79` | 时间线上 ≥14 天有内容，且画面里只有测试账号文字 | 说的是「能回看自己写过的」，不承诺「AI 看懂你的变化」；无证据预测属 KG-01 四类风险之一 |
-| 6 | `Export it, delete it — it's yours` | 导出任务＋删除账户入口 | `frontend/src/screens/PrivacySecurityScreen.tsx:81` | 导出任务能真跑出文件（`backend/services/export_service.py`），删除入口真在页上 | 这帧两句都必须是**已实现能力**：导出＝后台任务，删除＝`frontend/src/screens/PrivacySecurityScreen.tsx:249` 的入口；未经真机验证前不上线 |
+| 6 | `Export it, delete it — it's yours` | 导出任务＋删除账户入口 | `frontend/src/screens/PrivacySecurityScreen.tsx:81` | 导出任务能真跑出文件（`backend/services/export_service.py`），删除入口真在页上 | 这帧两句都必须是**已实现能力**：导出＝后台任务，删除＝`frontend/src/screens/PrivacySecurityScreen.tsx:261` 的入口；未经真机验证前不上线 |
 
 ## 2. 三条硬规矩（来自审计与 ADR，不是审美偏好）
 
