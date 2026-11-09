@@ -55,18 +55,26 @@ export class AiMessagesRepository extends BaseRepository<AiMessageRow> {
     });
   }
 
-  /** /chat/history 同步落库（message_type=proactive 的消息，id 与服务端一致）。 */
+  /**
+   * /chat/history 同步落库（message_type=proactive 的消息，id 与服务端一致）。
+   *
+   * 冲突时**不覆盖** is_read/read_at：历史同步是回灌，不携带任何已读信息，
+   * 而 `ON CONFLICT ... is_read = excluded.is_read` 会把用户已读的每一条重新标成未读，
+   * 红点于是永远清不掉。正文与日期仍以服务端为准。
+   */
   async upsertFromRemote(id: string, content: string, createdAt: string): Promise<void> {
-    this.upsert({
-      id,
-      scheduled_date: toLocalDate(createdAt),
-      content_preview: content,
-      full_content_url: null,
-      priority: 'normal',
-      is_read: 0,
-      read_at: null,
-      created_at: createdAt,
-    });
+    this.db.runSync(
+      `INSERT INTO ${this.table}
+         (id, scheduled_date, content_preview, full_content_url, priority, is_read, read_at, created_at)
+       VALUES (?, ?, ?, NULL, 'normal', 0, NULL, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         scheduled_date   = excluded.scheduled_date,
+         content_preview  = excluded.content_preview,
+         full_content_url = excluded.full_content_url,
+         priority         = excluded.priority,
+         created_at       = excluded.created_at`,
+      [id, toLocalDate(createdAt), content, createdAt]
+    );
   }
 }
 
