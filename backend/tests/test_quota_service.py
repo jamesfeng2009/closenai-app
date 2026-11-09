@@ -1,4 +1,5 @@
 """quota_service：双口径配额（对话轮数 vs 统一池）与 tier 分层。"""
+import asyncio
 from datetime import datetime, time as dt_time, timedelta, timezone
 from uuid import uuid4
 
@@ -200,3 +201,45 @@ async def test_reflection_draft_purpose_matches_quota_registry(db, make_user, mo
         if c["purpose"] in REFLECTION_DRAFT_PURPOSES
     ]
     assert purposes == [REFLECTION_DRAFT_PURPOSE]
+
+
+# ═══ KG-28 第三池：原子预占（P2 #17）═══
+
+async def test_reserve_mood_analysis_never_overbooks_concurrent_requests(
+    db, make_user, monkeypatch
+):
+    """免费档 1 次/天：三个并发请求同时进入，只能有一个拿到额度。
+
+    旧口径是「读 DB 已用 → 比上限」，三个请求都读到 0 就都能通过；
+    现在先原子自增在途数，再按 used+inflight 判定，超额立即归还。
+    """
+    user = await make_user("u-race", timezone="UTC")
+
+    async def _slow_used(_db, _user):
+        await asyncio.sleep(0)  # 制造 DB 读取的交错点
+        return 0
+
+    monkeypatch.setattr(quota_service, "mood_analysis_used_today", _slow_used)
+    results = await asyncio.gather(
+        *(quota_service.reserve_mood_analysis(db, user) for _ in range(3))
+    )
+    assert results == [True, False, False]
+
+    # 获胜那次归还后，额度回到可用；失败请求没有留下在途计数
+    await quota_service.release_mood_analysis(user)
+    assert await quota_service.reserve_mood_analysis(db, user) is True
+    await quota_service.release_mood_analysis(user)
+
+
+async def test_release_never_drives_inflight_below_zero(db, make_user, monkeypatch):
+    """重复归还不能把在途数减成负数（负数会让配额重新变成可超用）。"""
+    user = await make_user("u-floor", timezone="UTC")
+
+    async def _zero_used(_db, _user):
+        return 0
+
+    monkeypatch.setattr(quota_service, "mood_analysis_used_today", _zero_used)
+    for _ in range(3):  # 没有占用也归还：必须停在 0
+        await quota_service.release_mood_analysis(user)
+    assert await quota_service.reserve_mood_analysis(db, user) is True
+    await quota_service.release_mood_analysis(user)

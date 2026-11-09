@@ -23,7 +23,11 @@ logger = logging.getLogger("closenai.chat")
 
 class ChatService:
     async def prepare_chat_turn(
-        self, user_id: str, content: str, message_type: str
+        self,
+        user_id: str,
+        content: str,
+        message_type: str,
+        client_message_id: str | None = None,
     ) -> None:
         """阶段一（独立短事务，持有用户行锁）：配额检查 + 扣减 + 写入用户消息 → commit 释放锁。
 
@@ -48,11 +52,24 @@ class ChatService:
                         ErrorCode.QUOTA_EXCEEDED,
                         "今天的次数已经用完，请明天再来 / Daily chat limit reached, please come back tomorrow",
                     )
-                # 保存用户消息（并累计聊天次数，首页"聊天次数"展示）
-                await chat_repository.create(
-                    session, user_id, "user", content, message_type=message_type
-                )
-                await user_repository.increment_chat_count(session, user_id)
+                # 保存用户消息（并累计聊天次数，首页"聊天次数"展示）。
+                # client_message_id 与离线补投共用：同一句话两条路只落一行。
+                # 带 id 时走幂等写入——客户端重试 SSE 不会因为撞唯一索引变成 500。
+                if client_message_id:
+                    _, created = await chat_repository.create_from_client(
+                        session,
+                        user_id,
+                        client_message_id,
+                        content,
+                        message_type=message_type,
+                    )
+                else:
+                    await chat_repository.create(
+                        session, user_id, "user", content, message_type=message_type
+                    )
+                    created = True
+                if created:
+                    await user_repository.increment_chat_count(session, user_id)
                 await session.commit()
             except Exception:
                 await session.rollback()

@@ -1,10 +1,12 @@
 """iap_service：_map_tier 键长降序匹配（pro_plus 不得误判为 pro）。"""
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from backend.core.errors import AppException, ErrorCode
 from backend.config import settings
 from backend.models.subscription import Subscription
+from backend.models.user import User
 from backend.repositories import subscription_repository
 from backend.services.iap_service import _map_tier, iap_service
 
@@ -167,3 +169,40 @@ async def test_production_receipt_passes_environment_gate(db, make_user, monkeyp
     )
 
     assert result["reason"] == "no_transactions"
+
+
+# ── P2 #19：debug 模拟购买不得在受保护环境生效 ──
+
+
+async def test_debug_simulation_rejected_in_protected_env(db, make_user, monkeypatch):
+    """staging/production 即便 DEBUG=true 且没配密钥，也不许白送 pro。"""
+    await make_user("u-iap-staging")
+    monkeypatch.setattr(settings, "app_store_shared_secret", "")
+    monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "environment", "staging")
+
+    result = await iap_service._validate(
+        db, "u-iap-staging", "fake-receipt", "com.closenai.pro_monthly", False
+    )
+
+    assert result["valid"] is False
+    assert result["reason"] == "not_configured"
+    tier = (await db.execute(select(User.tier).where(User.id == "u-iap-staging"))).scalar_one()
+    assert tier == "free"  # 权益未被模拟发放
+
+
+async def test_debug_simulation_still_works_in_development(db, make_user, monkeypatch):
+    """正向证人：开发档的模拟购买不受新闸影响。"""
+    await make_user("u-iap-dev")
+    monkeypatch.setattr(settings, "app_store_shared_secret", "")
+    monkeypatch.setattr(settings, "debug", True)
+    monkeypatch.setattr(settings, "environment", "development")
+
+    result = await iap_service._validate(
+        db, "u-iap-dev", "fake-receipt", "com.closenai.pro_monthly", False
+    )
+
+    assert result["valid"] is True
+    assert result["tier"] == "pro"
+    tier = (await db.execute(select(User.tier).where(User.id == "u-iap-dev"))).scalar_one()
+    assert tier == "pro"

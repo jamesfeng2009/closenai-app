@@ -21,6 +21,22 @@ class ChatStreamRequest(BaseModel):
     """SSE 流式对话请求。"""
     content: str = Field(..., max_length=4000, description="用户输入内容")
     message_type: Literal["reply", "mood_checkin"] = Field("reply", description="消息类型")
+    # 客户端本地消息 id（P2 #28）：离线补投与在线发送共用；缺省时服务端自己生成 uuid
+    client_message_id: Optional[str] = Field(None, max_length=64, description="客户端本地消息 id")
+
+
+class ChatMessageBatchItem(BaseModel):
+    """一条待补投的用户消息（离线期间写在本地 SQLite 的那条）。"""
+    client_message_id: str = Field(..., min_length=1, max_length=64)
+    content: str = Field(..., min_length=1, max_length=4000)
+    message_type: Literal["reply", "mood_checkin"] = "reply"
+    # 用户写下这句话的时刻（离线时发生）；缺省按服务端当前时间
+    created_at: Optional[datetime] = None
+
+
+class ChatMessageBatchRequest(BaseModel):
+    """离线消息补投（P2 #28）：按客户端 id 幂等，重复提交不会叠出第二条。"""
+    messages: list[ChatMessageBatchItem] = Field(..., min_length=1, max_length=50)
 
 
 class ChatHistoryResponse(BaseModel):
@@ -467,6 +483,9 @@ class UserProfileResponse(BaseModel):
     # 与上面 push_frequency / push_enabled 两处同一个病，这里一次补齐。
     quiet_start: Optional[str] = None
     quiet_end: Optional[str] = None
+    # 主用性格框架（mbti | enneagram）：前端「选择框架」原先只改本地 state，刷新即回默认；
+    # 列落库后这里回显，重进页面才不会把用户的选择丢掉。追加在末尾，不打动上面字段顺序。
+    primary_framework: Optional[Literal["mbti", "enneagram"]] = None
 
 
 class AIConsentUpdate(BaseModel):
@@ -514,6 +533,8 @@ class UserSettingsUpdate(BaseModel):
     quiet_start: Optional[str] = None
     quiet_end: Optional[str] = None
     quiet_hours_enabled: Optional[bool] = None
+    # 主用性格框架（mbti | enneagram）；非法值由 Literal 直接挡在 422，不进库
+    primary_framework: Optional[Literal["mbti", "enneagram"]] = None
 
     @field_validator("enneagram_type")
     @classmethod

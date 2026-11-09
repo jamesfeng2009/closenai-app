@@ -53,6 +53,7 @@ from backend.repositories import auth_repository
 from backend.services.cron_service import CronService, cron_service
 from backend.services import delivery_service
 from backend.services.export_service import ExportService, export_service
+from backend.services.source_events import retry_pending_source_events
 from backend.services.user_service import UserService, user_service
 
 router = APIRouter(route_class=CommitBeforeResponseRoute)
@@ -338,11 +339,20 @@ async def purge_deleted_users(
     是同一个「注销还没走完」状态，而 `posthog_erasure_retries` 的行恰恰在 users 行删除之后
     才出现——拆成两条排程就会出现「purge 已跑、重试要等下一班车」的空档，而那正是残留
     被永久留下的形状。少一条排程也少一条要在 deploy/schedule/crontab 对账的登记项。
+
+    再顺带补投 `source.deleted` 的失败台账（P2 #20）：投递失败的行在下一个整点重试，
+    同样不新开排程——它和注销共用「提交之后还有活没干完」这一条理由。
     """
     verify_cron_secret(request)
     results = await service.purge_deleted_users(db, stale_hours=1)
     erasure = await service.retry_pending_erasures(db)
-    return success({"purged": len(results), "erasure_retry": erasure, "users": results})
+    source_events = await retry_pending_source_events(db)
+    return success({
+        "purged": len(results),
+        "erasure_retry": erasure,
+        "source_event_retry": source_events,
+        "users": results,
+    })
 
 
 @router.get("/cron/cleanup-tokens")

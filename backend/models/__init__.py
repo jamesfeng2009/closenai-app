@@ -53,6 +53,10 @@ from backend.models.mood import MoodCheckin
 from backend.models.personality import PersonalityAssessment, PersonalityProfile
 from backend.models.push import PushToken
 from backend.models.share import ShareExport
+from backend.models.source_event import (
+    SOURCE_EVENT_STATUSES,
+    SourceEventOutbox,
+)
 from backend.models.subscription import Receipt, Subscription
 from backend.models.user import User
 
@@ -81,4 +85,6 @@ __all__ = [
     "PostHogErasureRetry",
     "DataExportJob",
     "EXPORT_STATUSES",
+    "SourceEventOutbox",
+    "SOURCE_EVENT_STATUSES",
 ]

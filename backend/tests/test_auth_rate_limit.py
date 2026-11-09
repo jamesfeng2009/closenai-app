@@ -12,10 +12,12 @@
 
 注：redis 未配置时走 backend.core.redis._mem_store 内存回退，每用例清空防串扰。
 """
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from backend.config import settings
 from backend.core import redis as redis_client
@@ -93,6 +95,72 @@ async def test_verify_code_success_clears_attempts():
     await auth_service._verify_code("a@x.com", "123456", "login")  # 成功
     assert await redis_client.get(auth_service._attempts_key("a@x.com", "login")) is None
     assert await redis_client.get(auth_service._code_key("a@x.com", "login")) is None
+
+
+async def test_verify_code_consumed_once_under_concurrent_requests(monkeypatch):
+    """P2 #16：同一验证码并发提交只许成功一次。
+
+    把 redis.get 换成一个「总会读到旧值」的慢函数，模拟旧实现 GET→比对→DEL
+    之间被另一请求插入的形态：旧实现两次都会通过，原子消费只有一个赢家。
+    """
+    await _store_code("c@x.com", "123456", "login")
+
+    async def stale_get(*_args, **_kwargs):
+        await asyncio.sleep(0)  # 让出事件循环，给并发请求插入的机会
+        return auth_service._hash_code("123456")
+
+    monkeypatch.setattr(redis_client, "get", stale_get)
+
+    results = await asyncio.gather(
+        auth_service._verify_code("c@x.com", "123456", "login"),
+        auth_service._verify_code("c@x.com", "123456", "login"),
+        return_exceptions=True,
+    )
+
+    assert results.count(None) == 1, f"只许一次通过，实际 {results}"
+    failures = [r for r in results if isinstance(r, AppException)]
+    assert len(failures) == 1
+    assert failures[0].code == ErrorCode.VERIFICATION_CODE_EXPIRED
+    # 走内存回退的存储本体（上面的 get 已被替换成永远读到旧值的假实现）
+    assert auth_service._code_key("c@x.com", "login") not in redis_client._mem_store
+
+
+async def test_login_with_email_code_recovers_from_concurrent_duplicate_email(db, monkeypatch):
+    """P2 #16：并发首次登录撞唯一索引 → 改查已创建的账号，不把 500 抛给用户。"""
+    await user_repository.create_user(
+        db, user_id="u-winner", email="race@x.com", email_verified=True
+    )
+    await db.flush()
+
+    # 第一次查邮箱模拟「对手还没提交」→ 返回 None，走上新建分支
+    calls = {"n": 0}
+    real_get_by_email = user_repository.get_by_email
+
+    async def first_miss_then_real(d, email):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return await real_get_by_email(d, email)
+
+    monkeypatch.setattr(user_repository, "get_by_email", first_miss_then_real)
+
+    # 新建后的 flush 抛唯一索引冲突（sqlite 测试库没有 PG 的 partial unique index，
+    # 所以在这里显式制造冲突，判的是恢复分支本身）
+    real_flush = db.flush
+    state = {"raised": False}
+
+    async def fail_first_flush(*args, **kwargs):
+        if not state["raised"]:
+            state["raised"] = True
+            raise IntegrityError("unique email", None, Exception("duplicate"))
+        return await real_flush(*args, **kwargs)
+
+    monkeypatch.setattr(db, "flush", fail_first_flush)
+
+    await _store_code("race@x.com", "123456", "login")
+    response = await auth_service.login_with_email_code(db, "race@x.com", "123456")
+
+    assert response.user.id == "u-winner"
 
 
 # ── S5：密码登录限流 ──

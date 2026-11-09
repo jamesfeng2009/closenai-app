@@ -198,9 +198,85 @@
         "title": "ChangePasswordRequest",
         "type": "object"
       },
+      "ChatMessageBatchItem": {
+        "description": "一条待补投的用户消息（离线期间写在本地 SQLite 的那条）。",
+        "properties": {
+          "client_message_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Client Message Id",
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "message_type": {
+            "default": "reply",
+            "enum": [
+              "reply",
+              "mood_checkin"
+            ],
+            "title": "Message Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_message_id",
+          "content"
+        ],
+        "title": "ChatMessageBatchItem",
+        "type": "object"
+      },
+      "ChatMessageBatchRequest": {
+        "description": "离线消息补投（P2 #28）：按客户端 id 幂等，重复提交不会叠出第二条。",
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageBatchItem"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "title": "ChatMessageBatchRequest",
+        "type": "object"
+      },
       "ChatStreamRequest": {
         "description": "SSE 流式对话请求。",
         "properties": {
+          "client_message_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "客户端本地消息 id",
+            "title": "Client Message Id"
+          },
           "content": {
             "description": "用户输入内容",
             "maxLength": 4000,
@@ -1091,6 +1167,21 @@
             ],
             "title": "Name"
           },
+          "primary_framework": {
+            "anyOf": [
+              {
+                "enum": [
+                  "mbti",
+                  "enneagram"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Framework"
+          },
           "push_enabled": {
             "anyOf": [
               {
@@ -1944,6 +2035,25 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "增量拉取：只返回该时刻之后的新消息",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "增量拉取：只返回该时刻之后的新消息",
+              "title": "Since"
+            }
           }
         ],
         "responses": {
@@ -1967,6 +2077,46 @@
           }
         },
         "summary": "Chat History",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/v1/chat/messages/batch": {
+      "post": {
+        "description": "离线消息补投（P2 #28）：客户端把本地 outbox 里没送出去的用户消息一次交上来。\n\n判据与在线流对齐：\n- 先过 AI 数据共享同意（同 `/chat/stream`），未同意 403，正文不上送；\n- 按 (user_id, client_message_id) 幂等：在线已由 SSE 落过库的那条会落进\n  `existing`，不会因为补投再出现一次；\n- 不消耗对话配额：这里只补存历史，没有 LLM 调用；配额是对话轮次的成本。",
+        "operationId": "sync_chat_messages_api_v1_chat_messages_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatMessageBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Chat Messages",
         "tags": [
           "chat"
         ]
@@ -2269,7 +2419,7 @@
     },
     "/api/v1/cron/purge-deleted-users": {
       "get": {
-        "description": "兜底清理：物理删除软删除超 1 小时的用户（QStash 投递失败/未配置时）。\n\n宿主 crontab 每小时触发；逐用户独立 SAVEPOINT，单用户失败不影响批次。\nstale_hours=1 给 QStash 正常重试留窗口，避免与异步任务重复删除。\n\n同一条端点顺带重试 PostHog 侧擦除（T1-02）。为什么不新开一条 cron：这两件事的消费者\n是同一个「注销还没走完」状态，而 `posthog_erasure_retries` 的行恰恰在 users 行删除之后\n才出现——拆成两条排程就会出现「purge 已跑、重试要等下一班车」的空档，而那正是残留\n被永久留下的形状。少一条排程也少一条要在 deploy/schedule/crontab 对账的登记项。",
+        "description": "兜底清理：物理删除软删除超 1 小时的用户（QStash 投递失败/未配置时）。\n\n宿主 crontab 每小时触发；逐用户独立 SAVEPOINT，单用户失败不影响批次。\nstale_hours=1 给 QStash 正常重试留窗口，避免与异步任务重复删除。\n\n同一条端点顺带重试 PostHog 侧擦除（T1-02）。为什么不新开一条 cron：这两件事的消费者\n是同一个「注销还没走完」状态，而 `posthog_erasure_retries` 的行恰恰在 users 行删除之后\n才出现——拆成两条排程就会出现「purge 已跑、重试要等下一班车」的空档，而那正是残留\n被永久留下的形状。少一条排程也少一条要在 deploy/schedule/crontab 对账的登记项。\n\n再顺带补投 `source.deleted` 的失败台账（P2 #20）：投递失败的行在下一个整点重试，\n同样不新开排程——它和注销共用「提交之后还有活没干完」这一条理由。",
         "operationId": "purge_deleted_users_api_v1_cron_purge_deleted_users_get",
         "responses": {
           "200": {

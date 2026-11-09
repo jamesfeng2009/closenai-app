@@ -165,14 +165,18 @@ class MoodAnalysisService:
         if cached is not None:
             return cached
 
-        # 5. 配额（第三池）
-        if await quota_service.is_mood_analysis_quota_exceeded(db, user):
+        # 5. 配额（第三池）：必须原子预占，不能先查后写——留痕落库前有一个空窗，
+        #    并发请求会读到同一个 used 而全部通过（P2 #17）。
+        if not await quota_service.reserve_mood_analysis(db, user):
             raise AppException(ErrorCode.QUOTA_EXCEEDED, "今天的分析次数已经用完，请明天再来")
 
-        payload = await self._generate(checkin, materials, request, depth, language)
-        response = await self._build_response(
-            db, user, checkin, materials, depth, language, payload
-        )
+        try:
+            payload = await self._generate(checkin, materials, request, depth, language)
+            response = await self._build_response(
+                db, user, checkin, materials, depth, language, payload
+            )
+        finally:
+            await quota_service.release_mood_analysis(user)
         self._remember(user_id, request.request_id, response)
         return response
 

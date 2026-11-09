@@ -72,8 +72,14 @@ T101_EXPORT_REVISION = "d4f6a8b0c2e4"  # T1-01 data_export_jobs
 T102_ERASURE_REVISION = "e5a7b9d1f3a5"  # T1-02 posthog_erasure_retries
 # W4 行动闭环（2026-10-19）：T4-01 给 personal_commitments 加 goal_id/skipped_at
 T401_COMMITMENT_REVISION = "f6b8d0e2a4c6"
-# W7 可信生产（2026-10-25）：T7-02 分析事件逐事件接收台账（当前 head）
+# W7 可信生产（2026-10-25）：T7-02 分析事件逐事件接收台账
 T702_ANALYTICS_RECEIPTS_REVISION = "b7c9d1e3f5a2"
+# P2 #20（2026-11-09）：source.deleted 本地补投台账
+SOURCE_EVENT_OUTBOX_REVISION = "f2a4c6e8a0b2"
+# P2 #24（2026-11-09）：users.primary_framework
+PRIMARY_FRAMEWORK_REVISION = "a3c5e7f9b1d2"
+# P2 #28（2026-11-09）：chat_messages.client_message_id（当前 head）
+CHAT_CLIENT_ID_REVISION = "b4d6f8a0c2e4"
 
 # N2 的 21 张新表（ai_generation_runs 属 O4 已交付，N2 沿用同一份 DDL，不在此列）
 N2_TABLES = (
@@ -214,9 +220,18 @@ def test_migration_graph_is_single_head_with_n7_on_top():
 
     script = ScriptDirectory.from_config(Config(str(ROOT / "backend" / "alembic.ini")))
     heads = script.get_heads()
-    assert heads == [T702_ANALYTICS_RECEIPTS_REVISION], (
-        f"alembic head = {heads}，T7-02 之后须是单头 {T702_ANALYTICS_RECEIPTS_REVISION}"
+    assert heads == [CHAT_CLIENT_ID_REVISION], (
+        f"alembic head = {heads}，P2 #28 之后须是单头 {CHAT_CLIENT_ID_REVISION}"
     )
+    assert script.get_revision(CHAT_CLIENT_ID_REVISION).down_revision == (
+        PRIMARY_FRAMEWORK_REVISION), (
+        "P2 #28 的离线补投键件没挂在 P2 #24 的主用框架件之上，链形状变了")
+    assert script.get_revision(PRIMARY_FRAMEWORK_REVISION).down_revision == (
+        SOURCE_EVENT_OUTBOX_REVISION), (
+        "P2 #24 的主用框架件没挂在 P2 #20 的补投台账件之上，链形状变了")
+    assert script.get_revision(SOURCE_EVENT_OUTBOX_REVISION).down_revision == (
+        T702_ANALYTICS_RECEIPTS_REVISION), (
+        "P2 #20 的补投台账件没挂在 T7-02 的接收台账件之上，链形状变了")
     assert script.get_revision(T702_ANALYTICS_RECEIPTS_REVISION).down_revision == (
         T401_COMMITMENT_REVISION), (
         "T7-02 的接收台账件没挂在 T4-01 的承诺件之上，链形状变了")

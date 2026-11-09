@@ -255,3 +255,16 @@ async def test_delete_account_cascades_share_exports(db, make_user):
 
     remaining = await db.execute(select(ShareExport).where(ShareExport.user_id == "u1"))
     assert remaining.scalars().all() == []
+
+
+async def test_get_profile_quota_total_follows_tier(db, make_user):
+    """P2 #15：个人页配额分母必须跟 tier 走，不能写死免费额度。"""
+    from backend.config import settings
+
+    await make_user("u-quota-free")
+    await make_user("u-quota-pro", tier="pro")
+    free_profile = await user_service.get_profile(db, "u-quota-free")
+    pro_profile = await user_service.get_profile(db, "u-quota-pro")
+    assert free_profile.daily_quota_total == settings.free_daily_messages
+    assert pro_profile.daily_quota_total == settings.pro_daily_messages
+    assert free_profile.daily_quota_total != pro_profile.daily_quota_total

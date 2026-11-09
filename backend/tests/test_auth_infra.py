@@ -21,6 +21,7 @@ from backend.core import redis as redis_client
 from backend.core.errors import AppException, ErrorCode
 from backend.main import _validate_startup_config
 from backend.models.auth import RefreshToken
+from backend.models.user import User
 from backend.repositories import auth_repository
 from backend.services.auth_service import auth_service
 
@@ -54,22 +55,34 @@ async def test_send_email_code_calls_mailer_in_thread(db, monkeypatch):
 # ── S8：JWKS kid 刷新 ──
 
 
-def _make_apple_token_and_jwk(kid: str) -> tuple[str, dict]:
+_OMIT = object()
+
+
+def _make_apple_token_and_jwk(
+    kid: str,
+    *,
+    email: str | None = "a@privaterelay.appleid.com",
+    email_verified: object = True,
+) -> tuple[str, dict]:
     """生成真实 RSA 密钥对 + RS256 签名 token + 对应公网 JWK。"""
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     algo = pyjwt.algorithms.RSAAlgorithm(pyjwt.algorithms.RSAAlgorithm.SHA256)
     jwk = json.loads(algo.to_jwk(private_key.public_key()))
     jwk["kid"] = kid
     now = datetime.now(timezone.utc)
+    payload = {
+        "sub": "apple-sub-1",
+        "iss": core_auth.APPLE_ISSUER,
+        "aud": "com.closenai.app",
+        "iat": now,
+        "exp": now + timedelta(minutes=10),
+    }
+    if email is not None:
+        payload["email"] = email
+    if email_verified is not _OMIT:
+        payload["email_verified"] = email_verified
     token = pyjwt.encode(
-        {
-            "sub": "apple-sub-1",
-            "email": "a@privaterelay.appleid.com",
-            "iss": core_auth.APPLE_ISSUER,
-            "aud": "com.closenai.app",
-            "iat": now,
-            "exp": now + timedelta(minutes=10),
-        },
+        payload,
         private_key,
         algorithm="RS256",
         headers={"kid": kid},
@@ -88,9 +101,10 @@ async def test_apple_verify_refreshes_jwks_on_kid_miss(monkeypatch):
 
     monkeypatch.setattr(core_auth, "_fetch_apple_jwks", fake_fetch)
     monkeypatch.setattr(settings, "apple_client_id", "com.closenai.app")
-    sub, email, _is_private = await core_auth.verify_apple_identity_token(token)
+    sub, email, _is_private, email_verified = await core_auth.verify_apple_identity_token(token)
     assert sub == "apple-sub-1"
     assert email == "a@privaterelay.appleid.com"
+    assert email_verified is True
     assert fetch_calls == [False, True]
 
 
@@ -109,6 +123,72 @@ async def test_apple_verify_fails_when_kid_absent_after_refresh(monkeypatch):
         await core_auth.verify_apple_identity_token(token)
     assert exc_info.value.code == ErrorCode.APPLE_AUTH_FAILED
     assert fetch_calls == [False, True]  # 只重试一次
+
+
+# ── P2 #18：Apple email_verified 解析与账号合并 ──
+
+
+@pytest.mark.parametrize(
+    ("claim", "expected"),
+    [
+        (True, True),
+        ("true", True),
+        ("True", True),
+        (False, False),
+        ("false", False),
+        (_OMIT, False),  # 老 token / Apple 未给该 claim
+    ],
+)
+async def test_apple_verify_parses_email_verified_variants(monkeypatch, claim, expected):
+    """email_verified 可能是 bool 或字符串，缺失时按未验证处理。"""
+    token, jwk = _make_apple_token_and_jwk("kid-ev", email_verified=claim)
+
+    async def fake_fetch(force: bool = False):
+        return [jwk]
+
+    monkeypatch.setattr(core_auth, "_fetch_apple_jwks", fake_fetch)
+    monkeypatch.setattr(settings, "apple_client_id", "com.closenai.app")
+    _sub, _email, _is_private, email_verified = await core_auth.verify_apple_identity_token(token)
+    assert email_verified is expected
+
+
+async def test_apple_login_merges_existing_account_when_email_verified(db, make_user, monkeypatch):
+    """Apple 确认邮箱归属 → 把 apple_id 绑到同邮箱的既有账号上。"""
+    await make_user("u-existing", email="merge@example.com")
+
+    async def fake_verify(token: str):
+        return ("apple-sub-verified", "merge@example.com", False, True)
+
+    monkeypatch.setattr(
+        "backend.services.auth_service.verify_apple_identity_token", fake_verify
+    )
+    await auth_service.login_with_apple(db, "identity-token")
+
+    rows = (await db.execute(select(User.id, User.apple_id))).all()
+    assert len(rows) == 1  # 未新建账号
+    assert rows[0].id == "u-existing"
+    assert rows[0].apple_id == "apple-sub-verified"
+
+
+async def test_apple_login_does_not_merge_unverified_email(db, make_user, monkeypatch):
+    """未验证邮箱不得接管既有账号，也不作为新账号邮箱落库。"""
+    await make_user("u-existing", email="victim@example.com")
+
+    async def fake_verify(token: str):
+        return ("apple-sub-unverified", "victim@example.com", False, False)
+
+    monkeypatch.setattr(
+        "backend.services.auth_service.verify_apple_identity_token", fake_verify
+    )
+    await auth_service.login_with_apple(db, "identity-token")
+
+    rows = (await db.execute(select(User.id, User.apple_id, User.email))).all()
+    assert len(rows) == 2  # 既有账号保留，另建 Apple 账号
+    existing = next(r for r in rows if r.id == "u-existing")
+    assert existing.apple_id is None  # 未被绑定
+    created = next(r for r in rows if r.id != "u-existing")
+    assert created.apple_id == "apple-sub-unverified"
+    assert created.email is None  # 未验证邮箱不落库
 
 
 # ── S9：cleanup-tokens（delete_expired）──

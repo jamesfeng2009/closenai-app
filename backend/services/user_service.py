@@ -56,6 +56,7 @@ from backend.models.personality import PersonalityAssessment, PersonalityProfile
 from backend.models.schemas import MilestoneItem, UserProfileResponse, UserSettingsUpdate
 from backend.models.push import PushToken
 from backend.models.share import ShareExport
+from backend.models.source_event import SourceEventOutbox
 from backend.models.subscription import Receipt, Subscription
 from backend.core import copy
 from backend.core.errors import AppException, ErrorCode
@@ -132,6 +133,9 @@ PURGE_TARGETS = (
     # N7 投递面：outbox 带 user_id 是因为它的 payload 存的是事件正文（个人数据面），
     # 不登记就等于注销后残留用户可读内容（裁决七-6 N7-1 偏离①、N7-13）。
     # inbox_messages 反过来**刻意不登记**：它只有投递元数据、无 user_id（N2 已登记该口径）。
+    # T2-06 事件补投台账：只存指针与 user_id，但「哪一行被谁删过」属于个人数据面，
+    # 注销时一并删（否则补投会为一个已经不存在的账号再发一次删除事件）。
+    (SourceEventOutbox, "source_event_outbox"),
     (OutboxMessage, "outbox_messages"),
     (PersonalModel, "personal_models"),
     (RefreshToken, "refresh_tokens"),
@@ -218,7 +222,8 @@ class UserService:
             chat_count=user.chat_count,
             tier=user.tier,
             daily_quota_used=quota_used,
-            daily_quota_total=settings.free_daily_messages,
+            # 分母必须跟着 tier 走：写死 free_daily_messages 会让 Pro 显示 8/5。
+            daily_quota_total=quota_service.unified_limit(user.tier),
             ai_consent=user.ai_consent,
             analytics_consent=user.analytics_consent,
             push_time=user.push_time,
@@ -231,6 +236,13 @@ class UserService:
             # 免打扰时段（T5-02）：DB 存 TIME，API 一律回 HH:MM 串；两列任一为空即关闭
             quiet_start=user.quiet_start.strftime("%H:%M") if user.quiet_start else None,
             quiet_end=user.quiet_end.strftime("%H:%M") if user.quiet_end else None,
+            # 库里的历史值可能来自更早版本或手工写入 ⇒ 不合法就回 None，
+            # 不能让 Literal 校验把整个个人页打成 500。
+            primary_framework=(
+                user.primary_framework
+                if user.primary_framework in ("mbti", "enneagram")
+                else None
+            ),
         )
 
     async def set_ai_consent(self, db: AsyncSession, user_id: str, consent: bool) -> bool:
@@ -285,6 +297,7 @@ class UserService:
             push_enabled=settings_update.push_enabled,
             mbti_type=settings_update.mbti_type,
             enneagram_type=settings_update.enneagram_type,
+            primary_framework=settings_update.primary_framework,
         )
         if not user:
             user = await self._require_user(db, user_id)

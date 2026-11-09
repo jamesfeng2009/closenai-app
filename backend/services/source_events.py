@@ -14,19 +14,24 @@
    `BackgroundTasks` 见那个文件的模块头）。
 2. **默认关 ⇒ 零副作用**。`CLOSEN_SOURCE_EVENTS` 没开时不拨号、不声明、不投递，
    删一条记忆的 HTTP 行为与今天逐字相同——这是灰度 0 唯一可测的写法。
-3. **失败不改响应，只留一条能 grep 的日志**。数据已提交，500 只会让用户重试删除
-   拿到 404。⚠️ 这一格**没有本地补投表**，是登记在册的残余缺口（归 T2-05 的重放面）。
+3. **失败不改响应，改留一条 pending 行**。数据已提交，500 只会让用户重试删除
+   拿到 404。投递意图与删除写在**同一笔事务**里（`source_event_outbox`），提交之后
+   的那次投递失败只把行留在 pending，由 `/cron/purge-deleted-users` 按退避补投
+   （P2 #20；此前这里只有日志，事件可能永久丢失）。
 4. **id 由指针确定性派生**（`contract.source_deleted_message_id`）：同一次删除投两次
    会被 Go 的 inbox `(message_id, consumer)` 判成同一件事；带时间或随机就会让
-   「重复传播」看起来像两次不同的删除。
+   「重复传播」看起来像两次不同的删除。这个 id 同时是本地投递台账的主键，重试收敛成一行。
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Request
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.ai.mq.config import ProducerSwitch, SwitchError, load_producer_switch
 from backend.ai.mq.contract import (
@@ -38,11 +43,13 @@ from backend.ai.mq.contract import (
     SOURCE_DELETED_TABLE,
     ContractError,
     encode_source_deleted,
+    source_deleted_message_id,
 )
 from backend.ai.mq.publisher import TopologyMissing, open_event_publisher
 from backend.ai.mq.topology import EXCHANGE_EVENTS
 from backend.core.db_route import add_post_commit_hook
 from backend.core.logging import get_trace_id
+from backend.models.source_event import SourceEventOutbox
 
 log = logging.getLogger("backend.services.source_events")
 
@@ -56,6 +63,24 @@ REASON_PUBLISH_FAILED = "publish_failed"
 #: 正向那一条也是同一个取值面的一员：判据「published 的报告只有一个 reason」
 #: 比「失败 reason 有四个」更容易写歪。
 REASON_PUBLISHED = "published"
+#: 补投时台账行已被删掉（账号注销并发删行）：这一支只该出现在日志里。
+REASON_OUTBOX_MISSING = "outbox_missing"
+
+STATUS_PENDING = "pending"
+STATUS_PUBLISHED = "published"
+STATUS_FAILED = "failed"
+
+#: 补投退避阶梯（秒）：第 1 次失败 30s 后重试，之后逐级拉长，末级重复。
+SOURCE_EVENT_RETRY_BACKOFF_SECONDS = (30, 120, 600, 3600)
+#: 到顶标 failed 而不是无限重试：毒消息（契约错/拓扑长期缺失）要有终点，
+#: 否则每小时一条永远失败的日志，运维就再也看不见新问题。
+SOURCE_EVENT_MAX_ATTEMPTS = 5
+
+
+def _retry_delay(attempt_count: int) -> timedelta:
+    """第 `attempt_count` 次失败后的等待时长（超额取阶梯末级）。"""
+    index = min(max(attempt_count, 1), len(SOURCE_EVENT_RETRY_BACKOFF_SECONDS)) - 1
+    return timedelta(seconds=SOURCE_EVENT_RETRY_BACKOFF_SECONDS[index])
 
 
 class SourceEventProducer:
@@ -185,9 +210,101 @@ async def publish_source_deleted(*, user_id: str, source_id: str,
     return {"published": True, "reason": REASON_PUBLISHED, "message_id": message.message_id}
 
 
-def schedule_source_deleted(request: Request, *, user_id: str, source_id: str,
-                            source_table: str = SOURCE_DELETED_TABLE) -> dict[str, Any]:
-    """把一次删除登记成「本请求提交之后再投」；开关关时**什么都不发生**。
+async def deliver_source_event(
+    db: AsyncSession,
+    message_id: str,
+    *,
+    now: datetime | None = None,
+    row: SourceEventOutbox | None = None,
+) -> dict[str, Any]:
+    """按台账行投一次，并把结局写回台账（成功 published / 失败 pending＋退避）。
+
+    幂等：已 published 的行直接返回成功，不重复出网。失败只改行不动响应——
+    调用方要么在 post-commit 钩子里（异常会被 `db_route` 吞掉），要么是 cron 补投。
+
+    `row` 可由调用方传入（post-commit 钩子手里已经有那一行）：这样出网之前不碰库，
+    「提交之后才投」那条判据（`db.in_transaction() is False`）才不会被台账读取污染。
+    """
+    now = now or datetime.now(timezone.utc)
+    if row is None:
+        row = await db.get(SourceEventOutbox, message_id)
+    if row is None:
+        log.warning("event=source_deleted_outbox_missing message_id=%s", message_id)
+        return {"published": False, "reason": REASON_OUTBOX_MISSING, "message_id": message_id}
+    if row.status == STATUS_PUBLISHED:
+        return {"published": True, "reason": REASON_PUBLISHED, "message_id": message_id}
+
+    report = await publish_source_deleted(
+        user_id=row.user_id,
+        source_id=row.source_id,
+        source_table=row.source_table,
+        trace_id=row.trace_id,
+    )
+    if report["published"]:
+        row.status = STATUS_PUBLISHED
+        row.published_at = now
+        row.last_error = None
+    else:
+        reason = str(report.get("reason") or REASON_PUBLISH_FAILED)
+        row.last_error = reason[:512]
+        if reason in (REASON_SWITCH_OFF, REASON_SWITCH_INVALID):
+            # 开关被事后关掉不是这一条事件的失败：不记次数，等开关打开再补投。
+            row.available_at = now + _retry_delay(1)
+        else:
+            row.attempt_count = (row.attempt_count or 0) + 1
+            if row.attempt_count >= SOURCE_EVENT_MAX_ATTEMPTS:
+                row.status = STATUS_FAILED
+                log.error(
+                    "event=source_deleted_dead message_id=%s user_id=%s source_id=%s "
+                    "attempts=%s last_error=%s",
+                    message_id, row.user_id, row.source_id,
+                    row.attempt_count, row.last_error,
+                )
+            else:
+                row.available_at = now + _retry_delay(row.attempt_count)
+    row.updated_at = now
+    await db.commit()
+    return report
+
+
+async def retry_pending_source_events(
+    db: AsyncSession, *, limit: int = 20, now: datetime | None = None
+) -> dict[str, int]:
+    """把到点的 pending 行补投一遍（`/cron/purge-deleted-users` 每小时调用）。
+
+    重复投递由消费侧 `(message_id, consumer)` 兜住（18 §12：at-least-once）；
+    两个 cron 同时扫到同一行也只多一条幂等消息，不会多销一次账。
+    """
+    now = now or datetime.now(timezone.utc)
+    result = await db.execute(
+        select(SourceEventOutbox.message_id)
+        .where(
+            SourceEventOutbox.status == STATUS_PENDING,
+            SourceEventOutbox.available_at <= now,
+        )
+        .order_by(SourceEventOutbox.available_at.asc())
+        .limit(limit)
+    )
+    message_ids = list(result.scalars().all())
+    published = failed = 0
+    for message_id in message_ids:
+        report = await deliver_source_event(db, message_id, now=now)
+        if report["published"]:
+            published += 1
+        else:
+            failed += 1
+    return {"due": len(message_ids), "published": published, "failed": failed}
+
+
+async def schedule_source_deleted(
+    request: Request,
+    db: AsyncSession,
+    *,
+    user_id: str,
+    source_id: str,
+    source_table: str = SOURCE_DELETED_TABLE,
+) -> dict[str, Any]:
+    """把一次删除登记成「同一笔事务写台账 + 提交之后再投」；开关关时**什么都不发生**。
 
     trace_id 在**登记时**取而不是在钩子里取：contextvar 是任务局部的，钩子虽然同任务，
     但把「这一条事件属于哪次请求」钉成注册那一刻的值，才不会被后续复用同一 request
@@ -204,11 +321,24 @@ def schedule_source_deleted(request: Request, *, user_id: str, source_id: str,
     if not switch.enabled:
         return {"scheduled": False, "reason": REASON_SWITCH_OFF}
     trace_id = get_trace_id()
+    message_id = source_deleted_message_id(user_id, source_table, source_id)
+
+    # 台账行必须和删行走同一笔事务：提交失败时行随事务消失（没有删除就没有事件），
+    # 提交成功而投递失败时行留下，补投才有东西可读。
+    row = await db.get(SourceEventOutbox, message_id)
+    if row is None:
+        row = SourceEventOutbox(
+            message_id=message_id,
+            user_id=user_id,
+            source_table=source_table,
+            source_id=source_id,
+            trace_id=trace_id or "",
+        )
+        db.add(row)
+        await db.flush()
 
     async def hook() -> None:
-        await publish_source_deleted(
-            user_id=user_id, source_id=source_id, source_table=source_table, trace_id=trace_id
-        )
+        await deliver_source_event(db, message_id, row=row)
 
     add_post_commit_hook(request, hook)
-    return {"scheduled": True, "reason": REASON_PUBLISHED}
+    return {"scheduled": True, "reason": REASON_PUBLISHED, "message_id": message_id}

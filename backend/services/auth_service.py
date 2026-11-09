@@ -256,24 +256,26 @@ class AuthService:
 
     async def _verify_code(self, email: str, code: str, purpose: str) -> None:
         key = self._code_key(email, purpose)
-        stored = await redis_client.get(key)
-        if stored is None:
+        # 消费必须是原子的「比对+删除」：GET→比对→DEL 之间并发请求会读到同一个码，
+        # 两次登录都能过（P2 #16）。返回值区分 0=不存在 / -1=不符，供下面给不同错误码。
+        outcome = await redis_client.compare_and_delete(key, self._hash_code(code))
+        if outcome == 1:
+            await redis_client.delete(self._attempts_key(email, purpose))
+            return
+        if outcome == 0:
             raise AppException(ErrorCode.VERIFICATION_CODE_EXPIRED, "验证码已过期，请重新获取 / Code expired")
-        if stored != self._hash_code(code):
-            # 试错计数：超限即作废验证码（6 位码 1e6 空间，防爆破），需重新获取
-            attempts = await redis_client.incr_with_ttl(
-                self._attempts_key(email, purpose), CODE_TTL
+        # 试错计数：超限即作废验证码（6 位码 1e6 空间，防爆破），需重新获取
+        attempts = await redis_client.incr_with_ttl(
+            self._attempts_key(email, purpose), CODE_TTL
+        )
+        if attempts >= CODE_MAX_ATTEMPTS:
+            await redis_client.delete(key)
+            await redis_client.delete(self._attempts_key(email, purpose))
+            raise AppException(
+                ErrorCode.VERIFICATION_CODE_EXPIRED,
+                "尝试次数过多，验证码已失效，请重新获取 / Too many attempts, code invalidated",
             )
-            if attempts >= CODE_MAX_ATTEMPTS:
-                await redis_client.delete(key)
-                await redis_client.delete(self._attempts_key(email, purpose))
-                raise AppException(
-                    ErrorCode.VERIFICATION_CODE_EXPIRED,
-                    "尝试次数过多，验证码已失效，请重新获取 / Too many attempts, code invalidated",
-                )
-            raise AppException(ErrorCode.VERIFICATION_CODE_INVALID, "验证码不正确 / Invalid code")
-        await redis_client.delete(key)
-        await redis_client.delete(self._attempts_key(email, purpose))
+        raise AppException(ErrorCode.VERIFICATION_CODE_INVALID, "验证码不正确 / Invalid code")
 
     async def login_with_email_code(
         self,
@@ -287,16 +289,29 @@ class AuthService:
         await self._verify_code(email, code, "login")
         user = await user_repository.get_by_email(db, email)
         if not user:
-            # 验证码登录：未注册自动建账号（邮箱已验证）
-            user = await user_repository.create_user(
-                db,
-                user_id=str(uuid4()),
-                email=email,
-                language=language,
-                email_verified=True,
-                referred_by_code=normalize_referral_code(ref),
-            )
-            await consent_service.grant_registration_consents(db, user.id)
+            # 验证码登录：未注册自动建账号（邮箱已验证）。
+            # create_user 内部就会 flush，所以并发冲突必须在 SAVEPOINT 之内接住；
+            # 把 flush 放在外面接等于没接（P2 #16）。
+            created = False
+            try:
+                async with db.begin_nested():
+                    user = await user_repository.create_user(
+                        db,
+                        user_id=str(uuid4()),
+                        email=email,
+                        language=language,
+                        email_verified=True,
+                        referred_by_code=normalize_referral_code(ref),
+                    )
+                created = True
+            except IntegrityError:
+                # 并发首次登录（同一验证码被两路解析、或两端同时点登录）撞邮箱
+                # 唯一索引：后到者改查已创建的账号，不能把 500 抛给用户。
+                user = await user_repository.get_by_email(db, email)
+                if not user:
+                    raise
+            if created:
+                await consent_service.grant_registration_consents(db, user.id)
         elif user.email_verified_at is None:
             await user_repository.mark_email_verified(db, user.id)
             user.email_verified_at = utc_now()
@@ -311,33 +326,38 @@ class AuthService:
         language: str = "en",
         ref: Optional[str] = None,
     ) -> AuthResponse:
-        apple_id, _email, _is_private = await verify_apple_identity_token(identity_token)
+        apple_id, _email, _is_private, _email_verified = await verify_apple_identity_token(
+            identity_token
+        )
         user = await user_repository.get_by_apple_id(db, apple_id)
         if user:
             return await self._issue_tokens(db, user)
-        # 邮箱已注册（密码/验证码账号）：Apple 已验证邮箱所有权 → 绑定 apple_id 免密合并账号
-        if _email:
+        # 邮箱已注册（密码/验证码账号）：只有 Apple 明确给出 email_verified=true 时
+        # 才能按邮箱合并——否则一个未验证的邮箱串就能绑定到别人的账号上（P2 #18）。
+        if _email and _email_verified:
             existing = await user_repository.get_by_email(db, _email)
             if existing:
                 await user_repository.set_apple_id(db, existing.id, apple_id)
                 return await self._issue_tokens(db, existing)
-        # 首次 Apple 登录：建账号（email 来自 Apple payload，可能为 None）
-        user = await user_repository.create_user(
-            db,
-            user_id=str(uuid4()),
-            apple_id=apple_id,
-            email=_email,
-            email_verified=bool(_email),
-            language=language,
-            referred_by_code=normalize_referral_code(ref),
-        )
+        # 首次 Apple 登录：建账号。未验证的邮箱不作为账号邮箱落库，避免日后被
+        # 其它登录路径按「同邮箱」找到这个账号。
+        email_for_create = _email if (_email and _email_verified) else None
+        # create_user 内部会 flush，冲突必须在 SAVEPOINT 之内接住（与验证码登录同形）。
         try:
             async with db.begin_nested():
-                await db.flush()
+                user = await user_repository.create_user(
+                    db,
+                    user_id=str(uuid4()),
+                    apple_id=apple_id,
+                    email=email_for_create,
+                    email_verified=bool(email_for_create),
+                    language=language,
+                    referred_by_code=normalize_referral_code(ref),
+                )
         except IntegrityError:
             # 并发首次登录撞唯一索引：重查已创建的账号
             user = await user_repository.get_by_apple_id(db, apple_id)
-            if not user and _email:
+            if not user and _email and _email_verified:
                 user = await user_repository.get_by_email(db, _email)
             if not user:
                 raise

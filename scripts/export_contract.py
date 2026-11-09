@@ -38,19 +38,15 @@ INCLUDE_RE = re.compile(
 SERVER_ONLY_REASONS = {
     ("POST", "/api/v1/share/life-archive"):
         "服务端内部能力：档案浏览屏未立项，T1-03·2026-10-18 删除前端死封装 exportLifeArchive",
-    # T5-01·2026-10-18：合规台账 API。客户端「授权管理」界面不在 W5 这三张单的范围里
-    # （T5-01 验收只到 API＋双写），接了等于把两个布尔位的数据源换成第三个还没人核对的显示层。
-    ("GET", "/api/v1/user/consents"):
-        "合规台账只读（Baseline §14.2）：客户端授权管理屏未立项，T5-01·2026-10-18 交付到 API 为止",
-    ("POST", "/api/v1/user/consents"):
-        "合规台账写入：旧 App 继续走 /user/ai-consent 与 /user/analytics-consent（两端已双写本表），T5-01·2026-10-18",
+    # T5-01·2026-10-18：合规台账 API 当时客户端未接，登记为服务端能力；
+    # P2 #29（2026-11-09）已接线：PrivacySecurity → ConsentLedger 屏读写这两条，
+    # 登记随之撤销（脚本会拒绝「已接线却仍登记为零消费者」的腐烂条目）。
     # T1-01·2026-10-18 台账重导时暴露：旧的逐路径对账把 `/memories/${id}` 归一成
     # `/memories/{param}` 后按模式匹配，先命中字母序在前的 `/memories/search`（`s` < `{`），
     # 于是 search 记成「有调用点」、真正的 GET/DELETE/{memory_id} 记成 `—`。
-    # method 对上之后真相浮现：检索面确实零调用点——那不是漏扫，是 D-G4-1 的口径，
-    # 所以按本表规矩必须带理由登记（闸见 frontend/__tests__/memoriesWiring.test.ts「检索面不复活」）。
-    ("POST", "/api/v1/memories/search"):
-        "语义检索面不复活：D-G4-1 只接创建/详情/版本三条（列表＋删除原有），前端无 /memories/search 封装；登记本体 T1-01·2026-10-18，method 对上后此行才从假绿的「有调用点」显出零消费真相",
+    # method 对上之后真相浮现：检索面当时确实零调用点（D-G4-1 口径）。
+    # P2 #30（2026-11-09）已接线：MemoriesScreen 顶部检索栏走 POST /memories/search，
+    # 登记撤销（闸见 frontend/__tests__/memoriesWiring.test.ts「检索入口」）。
 }
 
 DOC_HEADER = """# ClosenAI HTTP 契约基线（N0 契约冻结）

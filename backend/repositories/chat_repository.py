@@ -29,6 +29,8 @@ class ChatRepository:
         ai_generated: bool = False,
         memory_ids: Optional[List[str]] = None,
         idempotency_key: Optional[str] = None,
+        client_message_id: Optional[str] = None,
+        created_at: Optional[datetime] = None,
     ) -> ChatMessage:
         """写入一条消息（低层写入，撞唯一约束会抛）。
 
@@ -44,6 +46,8 @@ class ChatRepository:
             ai_generated=ai_generated,
             memory_ids=",".join(memory_ids) if memory_ids else None,
             idempotency_key=idempotency_key,
+            client_message_id=client_message_id,
+            **({"created_at": created_at} if created_at is not None else {}),
         )
         db.add(message)
         await db.flush()
@@ -93,16 +97,70 @@ class ChatRepository:
         )
         return result.scalars().first()
 
-    async def get_history(
-        self, db: AsyncSession, user_id: str, limit: int = 20
-    ) -> List[ChatMessage]:
-        """查询最近对话历史（按时间倒序）。"""
+    async def get_by_client_message_id(
+        self, db: AsyncSession, user_id: str, client_message_id: str
+    ) -> Optional[ChatMessage]:
         result = await db.execute(
-            select(ChatMessage)
-            .where(ChatMessage.user_id == user_id)
-            .order_by(ChatMessage.created_at.desc())
-            .limit(limit)
+            select(ChatMessage).where(
+                ChatMessage.user_id == user_id,
+                ChatMessage.client_message_id == client_message_id,
+            )
         )
+        return result.scalars().first()
+
+    async def create_from_client(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        client_message_id: str,
+        content: str,
+        message_type: str = "reply",
+        created_at: Optional[datetime] = None,
+    ) -> tuple[ChatMessage, bool]:
+        """按客户端 id 幂等写入用户消息；返回 (行, 是否本次新建)。
+
+        撞 uq_chat_messages_client_id 即视为「已经在线落过库 / 已补投过」，
+        回滚到 savepoint 并返回既有行——补投是幂等成功，不是故障。
+        """
+        try:
+            async with db.begin_nested():
+                message = await self.create(
+                    db,
+                    user_id,
+                    "user",
+                    content,
+                    message_type=message_type,
+                    client_message_id=client_message_id,
+                    created_at=created_at,
+                )
+            return message, True
+        except IntegrityError:
+            existing = await self.get_by_client_message_id(db, user_id, client_message_id)
+            if existing is None:
+                raise
+            return existing, False
+
+    async def get_history(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        limit: int = 20,
+        since: Optional[datetime] = None,
+    ) -> List[ChatMessage]:
+        """查询对话历史；`since` 给定时只取该时刻之后的新消息。
+
+        排序随用途分两种：
+        - 首屏（无 since）按时间倒序，只要最近 N 条；
+        - 增量同步（有 since）按**正序**：客户端把水位推到本批最大 created_at 再拉下一批，
+          若这里仍倒序，新消息多于 limit 时更旧的那批会被水位永久跳过。
+        """
+        stmt = select(ChatMessage).where(ChatMessage.user_id == user_id)
+        if since is not None:
+            stmt = stmt.where(ChatMessage.created_at > since)
+            stmt = stmt.order_by(ChatMessage.created_at.asc()).limit(limit)
+        else:
+            stmt = stmt.order_by(ChatMessage.created_at.desc()).limit(limit)
+        result = await db.execute(stmt)
         return list(result.scalars().all())
 
     async def count_today(

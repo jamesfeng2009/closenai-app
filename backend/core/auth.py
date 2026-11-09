@@ -131,13 +131,17 @@ async def _fetch_apple_jwks(force: bool = False) -> list[dict]:
     return keys
 
 
-async def verify_apple_identity_token(identity_token: str) -> tuple[str, str | None, bool]:
+async def verify_apple_identity_token(
+    identity_token: str,
+) -> tuple[str, str | None, bool, bool]:
     """验签 Apple identityToken。
 
-    Returns: (apple_sub, email, is_private_email)
+    Returns: (apple_sub, email, is_private_email, email_verified)
     - apple_sub: Apple 账号唯一标识，作为本系统 apple_id
     - email: Apple payload 中的邮箱（可能为 None，仅首次授权含）
     - is_private_email: 是否 Apple 中继邮箱
+    - email_verified: Apple 是否确认该邮箱归本人所有。**合并既有账号前必须为真**，
+      否则未验证的邮箱串就能把别人的账号接管过去（P2 #18）。
     """
     if not settings.apple_client_id:
         raise AppException(
@@ -176,7 +180,10 @@ async def verify_apple_identity_token(identity_token: str) -> tuple[str, str | N
         raise AppException(ErrorCode.APPLE_AUTH_FAILED, "Apple token 缺少 sub / Missing Apple sub")
     email = payload.get("email")
     is_private = bool(payload.get("is_private_email", False))
-    return str(sub), email, is_private
+    raw_verified = payload.get("email_verified", False)
+    # Apple 在 identityToken 里可能给 bool，也可能给字符串 "true"/"false"
+    email_verified = raw_verified is True or str(raw_verified).lower() == "true"
+    return str(sub), email, is_private, email_verified
 
 
 # ── 请求级鉴权依赖 ──

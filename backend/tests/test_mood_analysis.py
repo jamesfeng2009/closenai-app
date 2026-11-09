@@ -40,7 +40,7 @@ from backend.services.mood_analysis_service import (
     MIN_QUOTE_CHARS,
     mood_analysis_service,
 )
-from backend.services.quota_service import MOOD_ANALYSIS_PURPOSES
+from backend.services.quota_service import MOOD_ANALYSIS_PURPOSES, quota_service
 from backend.services.reflection_service import reflection_service
 
 # 两句「用户自己的话」：都长过 MIN_QUOTE_CHARS，且互不含对方
@@ -148,6 +148,51 @@ async def test_analysis_pool_is_independent_and_only_counts_analysis_purposes(
             db, "u1", MoodAnalysisRequest(depth="explore"), "en"
         )
     assert exc.value.code == ErrorCode.QUOTA_EXCEEDED
+
+
+async def test_quota_refusal_stops_before_generation(
+    db, make_user, mock_llm, flag_on, monkeypatch
+):
+    """预占失败 ⇒ 40301，且一次分析调用都不发（用户拿不到结果就不能烧 token）。"""
+    await _seed(db, make_user)
+
+    async def _deny(_db, _user):
+        return False
+
+    monkeypatch.setattr(quota_service, "reserve_mood_analysis", _deny)
+    with pytest.raises(AppException) as exc:
+        await mood_analysis_service.analyze(
+            db, "u1", MoodAnalysisRequest(depth="explore"), "en"
+        )
+    assert exc.value.code == ErrorCode.QUOTA_EXCEEDED
+    assert _analysis_calls(mock_llm) == []
+
+
+async def test_analysis_releases_reservation_even_when_generation_fails(
+    db, make_user, mock_llm, flag_on, monkeypatch
+):
+    """在途预占必须在 finally 里归还：生成抛错时归还，额度不许泄漏到 TTL。"""
+    await _seed(db, make_user)
+    calls = []
+
+    async def _reserve(_db, _user):
+        calls.append("reserve")
+        return True
+
+    async def _release(_user):
+        calls.append("release")
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("llm exploded")
+
+    monkeypatch.setattr(quota_service, "reserve_mood_analysis", _reserve)
+    monkeypatch.setattr(quota_service, "release_mood_analysis", _release)
+    monkeypatch.setattr(mood_analysis_service, "_generate", _boom)
+    with pytest.raises(RuntimeError):
+        await mood_analysis_service.analyze(
+            db, "u1", MoodAnalysisRequest(depth="light"), "en"
+        )
+    assert calls == ["reserve", "release"]
 
 
 async def test_every_depth_reports_a_purpose_the_quota_can_count(

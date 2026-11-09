@@ -37,7 +37,7 @@
 `PURGE_EXEMPT_TABLES`、`❌` 两者都不进。导出 `✅` 在 `export_targets()` 里、`❌` 在
 `EXPORT_EXCLUDE_REASONS` 里。
 
-## 二、逐表登记（全量：44 张，按上面三条闸逐格对账）
+## 二、逐表登记（全量：45 张，按上面三条闸逐格对账）
 
 | 表 | 来源 | 注销删除 | 导出 | 理由 |
 |---|---|---|---|---|
@@ -85,6 +85,7 @@
 | `data_export_jobs` | py-api | ✅ | ✅ | 申请时刻、范围、产物路径都是用户自己的数据；注销时先按 `file_path` 删盘上产物再删行（T1-01） |
 | `posthog_erasure_retries` | py-api | 豁免 | ❌ | T1-02 的外部平台重试台账：它唯一的存在意义就是「`users` 行已删、PostHog 还没擦干净」。进 `PURGE_TARGETS` 会让 `purge_user` 刚写的行被自己的删除循环抹掉，重试线索当场断。自我销毁：擦成功即删行，超 `posthog_erasure_retry_max_days` 打 ERROR 告警后也删行，终态只留日志——所以它不是 J4 否掉的墓碑表 |
 | `analytics_event_receipts` | py-api | ✅ | ❌ | T7-02 匿名分析事件的幂等台账：只有 `event_id`、状态机码与时间戳，无用户可读内容，导出无意义；Python 认领/落账、Go 中继侧同表读写（非 canonical），注销随 `PURGE_TARGETS` 删净 |
+| `source_event_outbox` | py-api | ✅ | ✅ | P2 #20 `source.deleted` 投递台账：只存指针（来源表、行 id、状态、trace），不存消息体；带 `user_id` ⇒ 注销删净，导出列出的是该用户自己的删除投递历史 |
 
 ## 三、兼容期布尔位的出处
 

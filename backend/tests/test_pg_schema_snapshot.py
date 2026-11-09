@@ -368,7 +368,7 @@ def test_alive_tests_do_not_pin_the_alembic_head_literal():
     from backend.core.alembic_chain import head_revision, versions_on_disk
 
     canonical_path = ROOT / "backend" / "tests" / "test_canonical_schema.py"
-    anchor = re.search(r'T702_ANALYTICS_RECEIPTS_REVISION = "([0-9a-f]{12})"',
+    anchor = re.search(r'CHAT_CLIENT_ID_REVISION = "([0-9a-f]{12})"',
                        canonical_path.read_text(encoding="utf-8"))
     assert anchor, "链形状闸里那个 head 锚点不见了：它现在是全套闸里唯一保留字面量的那一张"
     assert anchor.group(1) == head_revision(), (

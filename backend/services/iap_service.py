@@ -11,8 +11,8 @@ IAP 订阅服务 (P1-F02)。
   （架构方案 §二 M6 / §九-4）；买断收据不改 tier
 
 未配置 `APP_STORE_SHARED_SECRET` 时（开发态）：
-- debug=True 时返回模拟成功，便于本地联调
-- 生产环境缺失密钥则拒收并抛出清晰错误
+- debug=True 且环境非受保护档（is_protected 为假）时返回模拟成功，便于本地联调
+- 受保护环境（staging/production）或 debug=False 一律拒收
 """
 import asyncio
 import base64
@@ -25,6 +25,7 @@ import httpx
 from sqlalchemy.exc import IntegrityError
 
 from backend.config import settings
+from backend.core import env_isolation
 from backend.core.errors import AppException, ErrorCode
 from backend.repositories import (
     entitlement_repository,
@@ -311,9 +312,11 @@ class IAPService:
         product_id: str,
         is_sandbox: bool,
     ) -> Dict[str, Any]:
-        # 开发态且未配置密钥：模拟成功（同样落库，保证 dev 联调时状态一致）
+        # 开发态且未配置密钥：模拟成功（同样落库，保证 dev 联调时状态一致）。
+        # 受保护环境（staging/production）即便 debug=True 也不许模拟——否则一个
+        # DEBUG=true 的部署就能让任意用户白拿 pro（P2 #19）。
         if not settings.app_store_shared_secret:
-            if settings.debug:
+            if settings.debug and not env_isolation.is_protected(settings.environment):
                 await user_repository.require_user(db, user_id)
                 # 买断在开发态同样走 user_entitlements，保持与生产一致的判定链路
                 scope = _non_consumable_scope(product_id)

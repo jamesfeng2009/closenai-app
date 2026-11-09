@@ -28,6 +28,7 @@ tier 语义：free 受上述每日上限约束；pro / pro_plus 走高限（≈�
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
+from backend.core import redis as redis_client
 from backend.core.time_utils import local_day_start_utc
 from backend.models.user import User
 from backend.repositories import (
@@ -51,6 +52,12 @@ _MOOD_ANALYSIS_LIMITS = {
     "pro": "pro_daily_mood_analyses",
     "pro_plus": "pro_plus_daily_mood_analyses",
 }
+
+# 在途预占的存活时间（秒）。DB 里「已用」只在生成留痕落库后才涨，一次分析从
+# 通过配额到留痕落库之间有一个空窗；同一空窗里的并发请求会读到同一个 used，
+# 于是都能通过（P2 #17，免费档 1 次/天会被放成 N 次）。
+# 键只活在请求进行中，正常路径 release 立即清零，TTL 只是进程崩溃时的兜底。
+MOOD_ANALYSIS_INFLIGHT_TTL = 180
 
 # KG-28 三档分析在 ai_generation_runs 里的 purpose（必须与
 # backend/services/mood_analysis_service.py 传给 llm.complete 的 purpose 逐字相同；
@@ -84,8 +91,8 @@ REFLECTION_DRAFT_PURPOSES = (REFLECTION_DRAFT_PURPOSE,)
 class QuotaService:
     """每日配额判定（额度与计数口径均以本模块为准）。"""
 
-    def _unified_limit(self, tier: str) -> int:
-        """统一池（主动消息 + 签到解读）每日上限。"""
+    def unified_limit(self, tier: str) -> int:
+        """统一池（主动消息 + 签到解读 + 反思草稿）每日上限。"""
         key = _UNIFIED_LIMITS.get(tier)
         return getattr(settings, key) if key else settings.free_daily_messages
 
@@ -134,7 +141,7 @@ class QuotaService:
 
         签到/反思入口配额判定；cron 主动消息也走此口径。
         """
-        return await self.daily_usage(db, user) >= self._unified_limit(user.tier)
+        return await self.daily_usage(db, user) >= self.unified_limit(user.tier)
 
     async def is_daily_quota_exceeded(self, db: AsyncSession, user: User) -> bool:
         """[已弃用，新代码按入口选择 is_chat_quota_exceeded /
@@ -171,6 +178,41 @@ class QuotaService:
         """KG-28 分析入口配额判定（独立池，与统一池/对话轮数互不影响）。"""
         return await self.mood_analysis_used_today(db, user) >= self._mood_analysis_limit(
             user.tier
+        )
+
+    def _mood_analysis_inflight_key(self, user_id: str) -> str:
+        return f"quota:mood_analysis:inflight:{user_id}"
+
+    async def reserve_mood_analysis(self, db: AsyncSession, user: User) -> bool:
+        """分析前的原子预占：成功返回 True，调用方必须在 finally 里 release。
+
+        判定用 `used + inflight`：used 是 DB 里已落痕的条数，inflight 是「已通过、
+        还没落痕」的并发请求数。先自增再判定，超额立刻归还——顺序反过来就还是
+        先查后写的空窗。Redis 故障时放行（fail-open），退回仅按 DB 计数：
+        配额是成本熔断，不是安全边界，Redis 挂掉不该让整个分析入口不可用。
+        """
+        used = await self.mood_analysis_used_today(db, user)
+        limit = self._mood_analysis_limit(user.tier)
+        if used >= limit:
+            return False
+        inflight = await redis_client.incr_with_ttl(
+            self._mood_analysis_inflight_key(user.id),
+            MOOD_ANALYSIS_INFLIGHT_TTL,
+            fail_open=True,
+        )
+        if inflight == 0:
+            return True
+        if used + inflight > limit:
+            await redis_client.decr_floor_zero(
+                self._mood_analysis_inflight_key(user.id), fail_open=True
+            )
+            return False
+        return True
+
+    async def release_mood_analysis(self, user: User) -> None:
+        """归还预占。正常路径与异常路径都要调（finally），否则额度泄漏到 TTL。"""
+        await redis_client.decr_floor_zero(
+            self._mood_analysis_inflight_key(user.id), fail_open=True
         )
 
     async def mood_analysis_quota(self, db: AsyncSession, user: User) -> dict:

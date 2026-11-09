@@ -2,14 +2,16 @@
 对话路由 (P0-F01)。
 
 端点：
-    POST /api/v1/chat/stream     — SSE 流式对话
-    GET  /api/v1/chat/history    — 对话历史
+    POST /api/v1/chat/stream         — SSE 流式对话
+    GET  /api/v1/chat/history        — 对话历史（可带 since 增量拉取）
+    POST /api/v1/chat/messages/batch — 离线消息补投（按客户端 id 幂等）
 
 注：主动消息生成仅供 cron 内部链路调用（services/message_generator），
 不暴露 HTTP 端点——避免绕过 ai_consent / 配额校验被脚本化刷 LLM 成本。
 """
 import json
 import logging
+from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +22,8 @@ from backend.core.errors import AppException, ErrorCode
 from backend.core.language import get_request_language
 from backend.core.response import success
 from backend.database import get_db
-from backend.models.schemas import ChatStreamRequest
-from backend.repositories import chat_repository, memory_repository
+from backend.models.schemas import ChatMessageBatchRequest, ChatStreamRequest
+from backend.repositories import chat_repository, memory_repository, user_repository
 from backend.services.chat_service import chat_service
 from backend.services.commitment_service import commitment_service
 from backend.services.memory_service import memory_service
@@ -76,7 +78,10 @@ async def stream_chat(
     # 配额校验 + 扣减 + 用户消息落库在独立短事务内原子完成（B6：避免行锁横跨 LLM 流）。
     try:
         await chat_service.prepare_chat_turn(
-            user_id, request.content, request.message_type
+            user_id,
+            request.content,
+            request.message_type,
+            client_message_id=request.client_message_id,
         )
     except AppException as e:
         if e.code == int(ErrorCode.QUOTA_EXCEEDED):
@@ -149,6 +154,7 @@ async def stream_chat(
 @router.get("/chat/history")
 async def chat_history(
     limit: int = Query(20, ge=1, le=100),
+    since: datetime | None = Query(None, description="增量拉取：只返回该时刻之后的新消息"),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user),
 ):
@@ -158,7 +164,7 @@ async def chat_history(
     前端据此渲染「记忆依据 ▾」（PRD §5.19.3 引用依据全局规范：每句可回溯到原话+日期）。
     归属校验在 memory_repository.list_by_ids 内强制，解析不到的 ID 直接丢弃。
     """
-    messages = await chat_repository.get_history(db, user_id, limit=limit)
+    messages = await chat_repository.get_history(db, user_id, limit=limit, since=since)
 
     wanted = {
         mid for m in messages for mid in (m.memory_ids or "").split(",") if mid
@@ -170,7 +176,10 @@ async def chat_history(
         }
 
     history = []
-    for m in reversed(messages):
+    # 首屏取最近 N 条（仓储倒序）→ 反转为时间正序；增量批次仓储已按正序发，
+    # 不能再反转，否则水位翻页的先后顺序又反了。
+    ordered = messages if since is not None else list(reversed(messages))
+    for m in ordered:
         refs = [
             {
                 "memory_id": mem.id,
@@ -188,8 +197,45 @@ async def chat_history(
                 "is_ai_generated": bool(getattr(m, "ai_generated", m.role == "assistant")),
                 # message_type=proactive 标记主动消息，前端据此同步进本地 ai_messages 表（消息中心）
                 "message_type": getattr(m, "message_type", None),
+                # 客户端本地 id（P2 #28）：前端据此把本地缓存行与远端行认成同一条
+                "client_message_id": getattr(m, "client_message_id", None),
                 "created_at": m.created_at,
                 "memory_refs": refs,
             }
         )
     return success(history)
+
+
+@router.post("/chat/messages/batch")
+async def sync_chat_messages(
+    payload: ChatMessageBatchRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user),
+):
+    """离线消息补投（P2 #28）：客户端把本地 outbox 里没送出去的用户消息一次交上来。
+
+    判据与在线流对齐：
+    - 先过 AI 数据共享同意（同 `/chat/stream`），未同意 403，正文不上送；
+    - 按 (user_id, client_message_id) 幂等：在线已由 SSE 落过库的那条会落进
+      `existing`，不会因为补投再出现一次；
+    - 不消耗对话配额：这里只补存历史，没有 LLM 调用；配额是对话轮次的成本。
+    """
+    await user_service.require_ai_consent(db, user_id)
+
+    created: list[str] = []
+    existing: list[str] = []
+    for item in payload.messages:
+        _, is_new = await chat_repository.create_from_client(
+            db,
+            user_id,
+            item.client_message_id,
+            item.content,
+            message_type=item.message_type,
+            created_at=item.created_at,
+        )
+        (created if is_new else existing).append(item.client_message_id)
+
+    if created:
+        await user_repository.increment_chat_count(db, user_id, by=len(created))
+
+    return success({"created": created, "existing": existing})

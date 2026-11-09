@@ -47,6 +47,9 @@ class User(Base):
     )
     # 引导流程中用户已知的 MBTI（P1-F05），用于性格画像种子
     mbti_type: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    # 主用性格框架（mbti | enneagram）：前端「选择框架」原先只改本地 state，
+    # 刷新即回默认值。列落库后 PATCH 写得进、GET 也读得出。
+    primary_framework: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # AI 数据共享同意（合规 5.1.2(i)）：未同意时 AI 对话接口返回 403 AI_CONSENT_REQUIRED
     ai_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     # 分析数据共享同意（独立弹窗，GDPR/5.1.2(i)）：未同意时 /analytics/batch 丢弃事件

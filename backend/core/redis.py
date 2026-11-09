@@ -108,6 +108,52 @@ async def delete(key: str, *, fail_open: bool = False) -> None:
         _on_http_error("delete", key, exc, fail_open, None)
 
 
+# 比较并删除必须是一个 Redis 原子动作：先 GET 再 DEL 会让并发的两次登录
+# 都通过校验（同一验证码被消费两次）。返回：1=命中并删除，0=key 不存在，-1=值不符。
+_COMPARE_AND_DELETE_LUA = """
+local v = redis.call('GET', KEYS[1])
+if not v then return 0 end
+if v == ARGV[1] then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+return -1
+"""
+
+
+async def compare_and_delete(key: str, expected: str, *, fail_open: bool = False) -> int:
+    """原子地「值等于 expected 才删除」，返回 1/0/-1（命中/不存在/不符）。
+
+    验证码消费必须走这里：GET→比对→DEL 三步之间并发请求会读到同一个码，
+    两个请求都能通过（P2 #16）。
+    """
+    if not _enabled():
+        # 内存回退运行在单事件循环里，本函数无 await 挂起点，天然原子。
+        entry = _mem_store.get(key)
+        if not entry:
+            return 0
+        value, expire_at = entry
+        if expire_at and time.time() > expire_at:
+            _mem_store.pop(key, None)
+            return 0
+        if value != expected:
+            return -1
+        _mem_store.pop(key, None)
+        return 1
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(
+                settings.redis_url,
+                headers=_headers(),
+                json=[["EVAL", _COMPARE_AND_DELETE_LUA, "1", key, expected]],
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return int(data[0]["result"])
+    except httpx.HTTPError as exc:
+        return _on_http_error("compare_and_delete", key, exc, fail_open, 0)
+
+
 async def incr_with_ttl(key: str, ttl_seconds: int, *, fail_open: bool = False) -> int:
     """原子自增并设置 TTL（pipeline：INCR + EXPIRE）。返回自增后的值。
 
@@ -167,3 +213,45 @@ async def incr_fixed_window(key: str, ttl_seconds: int, *, fail_open: bool = Fal
             return int(data[1]["result"])
     except httpx.HTTPError as exc:
         return _on_http_error("incr_fixed_window", key, exc, fail_open, 0)
+
+
+# 减到 0 为止：先 GET 再 DECR 会让两个并发归还在计数为 1 时都成功，
+# 把计数减成 -1，后续「在途数」就永远偏小（配额重新可超用）。
+_DECR_FLOOR_ZERO_LUA = """
+local v = tonumber(redis.call('GET', KEYS[1]) or '0')
+if v > 0 then
+  return redis.call('DECR', KEYS[1])
+end
+return 0
+"""
+
+
+async def decr_floor_zero(key: str, *, fail_open: bool = False) -> int:
+    """原子地「大于 0 才减一」，返回减后的值（已为 0 或 key 不存在则返回 0）。"""
+    if not _enabled():
+        # 内存回退运行在单事件循环里，本函数无 await 挂起点，天然原子。
+        entry = _mem_store.get(key)
+        if not entry:
+            return 0
+        value, expire_at = entry
+        if expire_at and time.time() > expire_at:
+            _mem_store.pop(key, None)
+            return 0
+        cur = int(value or 0)
+        if cur <= 0:
+            return 0
+        cur -= 1
+        _mem_store[key] = (str(cur), expire_at)
+        return cur
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(
+                settings.redis_url,
+                headers=_headers(),
+                json=[["EVAL", _DECR_FLOOR_ZERO_LUA, "1", key]],
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return int(data[0]["result"])
+    except httpx.HTTPError as exc:
+        return _on_http_error("decr_floor_zero", key, exc, fail_open, 0)

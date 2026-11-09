@@ -20,11 +20,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 import backend.services.source_events as source_events
 from backend.ai.mq.config import ENV_SOURCE_EVENTS, ENV_URL, SwitchError, load_producer_switch
@@ -53,6 +55,7 @@ from backend.core.errors import ErrorCode
 from backend.core.middleware import register_exception_handlers
 from backend.database import get_db
 from backend.models.memory import Memory
+from backend.models.source_event import SourceEventOutbox
 from backend.repositories import memory_repository
 from backend.routers.memories import router
 
@@ -232,13 +235,14 @@ def _bare_request() -> Request:
     return Request(scope)
 
 
-def test_disabled_registers_nothing_and_opens_nothing(monkeypatch):
-    """开关关时 `schedule_source_deleted` 不许碰连接，也不许挂钩子。
+async def test_disabled_registers_nothing_and_opens_nothing(db, monkeypatch):
+    """开关关时 `schedule_source_deleted` 不许碰连接、不挂钩子、**也不写台账**。
 
     判据不是「返回了 False」，而是**没有副作用**：`aio_pika.connect_robust` 换成一个
-    会炸的假件——真连了就一定红。
+    会炸的假件——真连了就一定红；台账表也必须是空的，否则关着的开关会凭空发生一笔删除事件。
     """
     import aio_pika
+    from sqlalchemy import select
 
     def boom(_url: str):
         raise AssertionError("开关关时不许拨号")
@@ -246,9 +250,11 @@ def test_disabled_registers_nothing_and_opens_nothing(monkeypatch):
     monkeypatch.setattr(aio_pika, "connect_robust", boom)
     monkeypatch.delenv(ENV_SOURCE_EVENTS, raising=False)
     request = _bare_request()
-    assert source_events.schedule_source_deleted(request, user_id="u", source_id="m") == \
-        {"scheduled": False, "reason": source_events.REASON_SWITCH_OFF}
+    assert await source_events.schedule_source_deleted(
+        request, db, user_id="u", source_id="m"
+    ) == {"scheduled": False, "reason": source_events.REASON_SWITCH_OFF}
     assert getattr(request.state, STATE_ATTR, None) in (None, [])
+    assert (await db.execute(select(SourceEventOutbox))).scalars().all() == []
 
 
 async def test_publish_reports_switch_off_without_touching_the_wire(monkeypatch):
@@ -257,15 +263,16 @@ async def test_publish_reports_switch_off_without_touching_the_wire(monkeypatch)
     assert report == {"published": False, "reason": "switch_off", "message_id": ""}
 
 
-async def test_invalid_switch_is_its_own_branch(monkeypatch):
+async def test_invalid_switch_is_its_own_branch(db, monkeypatch):
     """开着开关没给地址＝配置错，报告面要能把它与「broker 坏了」分开。"""
     monkeypatch.setenv(ENV_SOURCE_EVENTS, "1")
     monkeypatch.delenv(ENV_URL, raising=False)
     report = await source_events.publish_source_deleted(user_id="u", source_id="m")
     assert report == {"published": False, "reason": source_events.REASON_SWITCH_INVALID,
                       "message_id": ""}
-    assert source_events.schedule_source_deleted(_bare_request(), user_id="u", source_id="m") \
-        == {"scheduled": False, "reason": source_events.REASON_SWITCH_INVALID}
+    assert await source_events.schedule_source_deleted(
+        _bare_request(), db, user_id="u", source_id="m"
+    ) == {"scheduled": False, "reason": source_events.REASON_SWITCH_INVALID}
 
 
 # ── ④ 报告面：每一支都答「投没投、为什么、哪条 id」 ──────
@@ -349,15 +356,16 @@ async def test_unexpected_error_does_not_escape(enabled):
 def test_report_reasons_are_a_closed_set():
     """`reason` 取值面封闭：多一个桶＝那条 Loki 查询里出现没人认领的结果。
 
-    正向证人：六支里只有一支是成功，其余五支都是失败——「published 的报告只有一个
+    正向证人：七支里只有一支是成功，其余六支都是失败——「published 的报告只有一个
     reason」这句口径要正着说一次，否则这条闸只是数了个集合大小。
     """
     allowed = {
         source_events.REASON_SWITCH_OFF, source_events.REASON_SWITCH_INVALID,
         source_events.REASON_CONTRACT, source_events.REASON_TOPOLOGY_MISSING,
         source_events.REASON_PUBLISH_FAILED, source_events.REASON_PUBLISHED,
+        source_events.REASON_OUTBOX_MISSING,
     }
-    assert len(allowed) == 6
+    assert len(allowed) == 7
     assert {source_events.REASON_PUBLISHED} < allowed
 
 
@@ -471,8 +479,8 @@ async def test_missing_memory_schedules_nothing(app, db, enabled):
 async def test_publish_failure_keeps_response_200(app, db, enabled):
     """提交之后的失败不许改成 500（用户重试删除只会拿到 404，比丢一条事件更难解释）。
 
-    ⚠️ 这一格留下的残余缺口如实登记：没有本地补投表，只有日志与报告面。
-    归 T2-05 的重放/积压面。
+    失败方向是「留一条 pending 台账行」，不是「当没发生过」：这条用例同时钉住
+    响应仍是 200，以及那一行确实留在库里可补投（P2 #20）。
     """
     from backend.ai.mq.publisher import TopologyMissing
 
@@ -485,6 +493,13 @@ async def test_publish_failure_keeps_response_200(app, db, enabled):
     response = await _delete(app, memory_id)
     assert response.status_code == 200, response.text
     assert response.json()["data"]["deleted"] is True
+
+    message_id = source_deleted_message_id(USER_ID, "memories", memory_id)
+    row = await db.get(SourceEventOutbox, message_id)
+    assert row is not None, "投递失败必须留下可补投的行"
+    assert row.status == source_events.STATUS_PENDING
+    assert row.attempt_count == 1
+    assert row.last_error == source_events.REASON_TOPOLOGY_MISSING
 
 
 async def test_hooks_run_once_per_request():
@@ -521,3 +536,104 @@ async def test_a_failing_hook_does_not_swallow_the_next_one():
     source_events.add_post_commit_hook(request, good)
     await run_post_commit_hooks(request)
     assert ran == ["good"]
+
+
+# ── ⑥ 补投台账：失败不丢、到点重投（P2 #20）───────────────
+
+
+def _message_id(user_id: str = USER_ID, source_id: str = MEMORY_ID) -> str:
+    return source_deleted_message_id(user_id, "memories", source_id)
+
+
+async def _seed_pending(db, *, available_at: datetime, status: str = "pending"):
+    row = SourceEventOutbox(
+        message_id=_message_id(),
+        user_id=USER_ID,
+        source_table="memories",
+        source_id=MEMORY_ID,
+        trace_id="",
+        status=status,
+        attempt_count=0,
+        available_at=available_at,
+    )
+    db.add(row)
+    await db.commit()
+    return row
+
+
+async def test_delete_records_a_published_outbox_row(app, db, enabled):
+    """投递成功也要落账：否则下一班 cron 没法区分「已投」与「从没投过」。"""
+    memory_id = await _plant(db)
+    assert (await _delete(app, memory_id)).status_code == 200
+    row = await db.get(SourceEventOutbox, _message_id(source_id=memory_id))
+    assert row is not None
+    assert row.status == source_events.STATUS_PUBLISHED
+    assert row.attempt_count == 0
+    assert row.published_at is not None
+
+
+async def test_failed_publish_is_replayed_by_the_next_cron_pass(app, db, enabled):
+    """broker 恢复后，下一个整点的补投必须把那条删除重新发出去。"""
+    memory_id = await _plant(db)
+    enabled.error = RuntimeError("broker 断了")
+    assert (await _delete(app, memory_id)).status_code == 200
+
+    # 退避未到点：同一时刻不应重试（否则一小时内的失败会被反复打）
+    assert (await source_events.retry_pending_source_events(db))["due"] == 0
+
+    enabled.error = None
+    later = datetime.now(timezone.utc) + timedelta(hours=1)
+    report = await source_events.retry_pending_source_events(db, now=later)
+    assert report == {"due": 1, "published": 1, "failed": 0}
+    assert [c["source_id"] for c in enabled.calls] == [memory_id, memory_id]
+    row = await db.get(SourceEventOutbox, _message_id(source_id=memory_id))
+    assert row.status == source_events.STATUS_PUBLISHED
+    assert row.last_error is None
+
+
+async def test_replay_ignores_rows_that_are_not_due_or_already_published(db):
+    await _seed_pending(
+        db, available_at=datetime.now(timezone.utc) + timedelta(days=1)
+    )
+    assert (await source_events.retry_pending_source_events(db))["due"] == 0
+
+    row = await db.get(SourceEventOutbox, _message_id())
+    row.status = source_events.STATUS_PUBLISHED
+    row.available_at = datetime.now(timezone.utc) - timedelta(days=1)
+    await db.commit()
+    assert (await source_events.retry_pending_source_events(db))["due"] == 0
+
+
+async def test_replay_stops_at_the_attempt_cap_and_marks_it_failed(db, enabled):
+    """毒消息要有终点：到顶标 failed 并停止扫描，而不是每小时重试到永远。"""
+    row = await _seed_pending(db, available_at=datetime.now(timezone.utc))
+    enabled.error = RuntimeError("broker 断了")
+    now = datetime.now(timezone.utc)
+    for _ in range(source_events.SOURCE_EVENT_MAX_ATTEMPTS):
+        now += timedelta(days=1)
+        await source_events.retry_pending_source_events(db, now=now)
+
+    assert row.status == source_events.STATUS_FAILED
+    assert row.attempt_count == source_events.SOURCE_EVENT_MAX_ATTEMPTS
+    assert (
+        await source_events.retry_pending_source_events(db, now=now + timedelta(days=1))
+    )["due"] == 0
+
+
+async def test_switch_off_after_failure_does_not_burn_attempts(
+    db, enabled, monkeypatch
+):
+    """开关被事后关掉不是投递失败：次数不涨，等开关重新打开继续补投。"""
+    row = await _seed_pending(db, available_at=datetime.now(timezone.utc))
+    enabled.error = RuntimeError("broker 断了")
+    await source_events.retry_pending_source_events(
+        db, now=datetime.now(timezone.utc) + timedelta(hours=1)
+    )
+    assert row.attempt_count == 1
+
+    monkeypatch.delenv(ENV_SOURCE_EVENTS, raising=False)
+    await source_events.retry_pending_source_events(
+        db, now=datetime.now(timezone.utc) + timedelta(hours=2)
+    )
+    assert row.attempt_count == 1, "开关关掉也烧一次重试额度＝打开前额度已经用完"
+    assert row.status == source_events.STATUS_PENDING

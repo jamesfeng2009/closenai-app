@@ -154,6 +154,7 @@ class UserRepository:
         push_enabled: Optional[bool] = None,
         mbti_type: Optional[str] = None,
         enneagram_type: Optional[str] = None,
+        primary_framework: Optional[str] = None,
     ) -> Optional[User]:
         """更新用户设置（仅更新传入的非空字段）。"""
         values: dict = {}
@@ -177,6 +178,8 @@ class UserRepository:
             values["mbti_type"] = mbti_type
         if enneagram_type is not None:
             values["enneagram_type"] = enneagram_type
+        if primary_framework is not None:
+            values["primary_framework"] = primary_framework
         if not values:
             return await self.get_user(db, user_id)
         await db.execute(
@@ -237,10 +240,12 @@ class UserRepository:
         )
         await db.flush()
 
-    async def increment_chat_count(self, db: AsyncSession, user_id: str) -> None:
-        """对话轮次 +1（累计聊天次数）。"""
+    async def increment_chat_count(
+        self, db: AsyncSession, user_id: str, by: int = 1
+    ) -> None:
+        """对话轮次 +by（累计聊天次数）；离线补投一次可能补回多条。"""
         await db.execute(
-            update(User).where(User.id == user_id).values(chat_count=User.chat_count + 1)
+            update(User).where(User.id == user_id).values(chat_count=User.chat_count + by)
         )
         await db.flush()
 

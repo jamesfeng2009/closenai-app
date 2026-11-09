@@ -110,12 +110,14 @@ def test_register_count_equals_decorator_count():
     mood 域切给 Go 的是两条 **Exact** path（/mood/history、/mood/trend），新路径
     不在 Exact 名单里 ⇒ 自动落回 `Prefix /api/v1 → py-api`，所以这条既不进切流名单
     也不登记 Go 声明表；Ingress 侧由 `test_mood_analysis_stays_on_py_api` 钉住。
+    118 → 119：P2 #28（2026-11-09）新增 POST /chat/messages/batch 一条离线补投端点
+    （带 client_message_id 的幂等写入；前端 outbox 联网后靠它上传，故必须登记）。
     """
     router_ops, app_ops = count_decorators()
-    assert router_ops == 118, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
+    assert router_ops == 119, f"router 端点计数变化：{router_ops}（登记表须同步 N/O 工时口径）"
     assert app_ops == 1, f"app 级路由应为 1（GET /health），实得 {app_ops}"
     rows = table_rows("## 五、端点登记表")
-    assert len(rows) == router_ops + app_ops == 119
+    assert len(rows) == router_ops + app_ops == 120
 
 
 def test_no_unregistered_or_stale_endpoint():

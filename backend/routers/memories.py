@@ -136,5 +136,5 @@ async def delete_memory(
     deleted = await memory_repository.delete(db, memory_id, user_id)
     if not deleted:
         raise AppException(ErrorCode.MEMORY_NOT_FOUND, "记忆不存在 / Memory not found")
-    schedule_source_deleted(request, user_id=user_id, source_id=memory_id)
+    await schedule_source_deleted(request, db, user_id=user_id, source_id=memory_id)
     return success({"deleted": True})
