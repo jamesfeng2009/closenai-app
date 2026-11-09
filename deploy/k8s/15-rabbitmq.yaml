@@ -1,0 +1,109 @@
+# T2-06/R5 的生产前置：broker 本体（2026-11-09，#32）。
+#
+# 在此之前 `deploy/k8s` 里**没有任何 broker**，而 compose 那一套（dev/prod）早就有：
+# 于是 k8s 上「出箱 worker 打开」只会得到一条拨号失败的死循环。这一份把 compose
+# `rabbitmq` 服务搬成同构的一份清单，参数逐个对齐（镜像、ping 探针、nofile 之外的全部）。
+#
+# 为什么单实例而不是集群：这台 4c8G VPS 就是唯一生产节点，机内再叠一层镜像队列
+# 也躲不过「节点关机」这一档；真正的多副本要等第二台机器，属 R7 的容量决策。
+# 代价写清楚：Pod 重启期间队列不可用，Go 出箱 worker 会退避重拨（dispatch 的 redials），
+# outbox 行仍在库里等下一轮，**不会丢已落库的事件**；已经发布但未被消费的命令则由
+# Python 侧的重投/死信承接（契约见 `backend/ai/mq/topology.py`）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: closenai
+  labels:
+    app: rabbitmq
+spec:
+  replicas: 1
+  # Recreate：先把旧实例停干净再起新的。RollingUpdate 会短暂出现两个同名节点
+  # （hostname 固定成 rabbitmq），第二个起来时看到的 mnesia 目录正被第一个占着，
+  # 启动即报 inconsistent cluster——单实例队列没有「滚动」可谈。
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      # 固定 hostname：RabbitMQ 的节点名默认取 hostname（rabbit@<host>），mnesia 目录
+      # 也按节点名落盘。Deployment 的 Pod 名每次都变，不固定的话每次重建都换节点名，
+      # hostPath 里的旧数据就成了「另一个节点的数据」，启动即冲突。
+      hostname: rabbitmq
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3-management
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: amqp
+              containerPort: 5672
+          # 账号口令只从 Secret 来（`RABBITMQ_DEFAULT_USER`／`RABBITMQ_DEFAULT_PASS`）。
+          # 清单里不出现 Secret 资源本体：跨环境各自创建，键面与命令见 deploy/README.md
+          # 「k8s 侧 Secret closenai-rabbitmq 的键面」。
+          envFrom:
+            - secretRef:
+                name: closenai-rabbitmq
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+          # 探针与 compose 的 healthcheck 逐字同一条命令：管理面之外的唯一判据。
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            # 首启要建 mnesia、起插件，这台机上 30s 起完是常态；给到 60s 再判死，
+            # 免得「慢启动」被读成「挂了」而进重启循环（越重启越慢）。
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          # ⚠️ 估算值（本仓口径：估算必须标出来）：512Mi 对齐 compose prod 的 mem_limit，
+          # 真值回填 `kubectl -n closenai top pod -l app=rabbitmq`。单实例 4c8G 上
+          # 与 py-api(1.5Gi)/ai-rpc(1Gi) 同机，下面这一档留出余量。
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # 这里**刻意不加** runAsNonRoot／drop capabilities：官方镜像的 entrypoint
+          # 以 root 起、chown 数据目录后用 gosu 降到 rabbitmq(999) 跑。写成非 root 会
+          # 让 chown 失败（hostPath 首次创建时属主是 root）。这条与 go-api 的收紧口径
+          # 不同，原因是镜像的启动模型不同，不是漏写。
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: data
+          hostPath:
+            # 与 py-api 的 /data/exports 同一条理由：这台集群没有可依赖的默认 StorageClass，
+            # PVC Pending 会让 broker 根本起不来。DirectoryOrCreate 由 kubelet 建目录、
+            # 容器 entrypoint 再把属主改成 999；不用 Directory 是因为「宿主上没人记得
+            # 先建目录」会让 Pod 永远卡在 FailedMount，而这里没有必须先做的事。
+            path: /var/lib/closenai/rabbitmq
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: closenai
+  labels:
+    app: rabbitmq
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+# 管理界面（15672）刻意不发布、也不进 Service：集群内没有它的消费者，
+# 排障用 `kubectl -n closenai port-forward deploy/rabbitmq 15672` 按需开一条。

@@ -29,6 +29,18 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          # R4-④/R5-② 的两个 worker **嵌在本进程里**（仓库没有单独的 cmd 二进制，
+          # 见 go-core/cmd/go-api/main.go 的 dispatch.New/inbound.New 两段接线），
+          # 所以「生产有人消费」＝在这里把两个 kill switch 打开。地址走同一张
+          # Secret closenai-runtime 的 CLOSEN_AMQP_URL，不在这里写第二份。
+          # 开了却没给地址 ⇒ go-api 拒绝启动（log.Fatalf），与 compose prod 同口径。
+          # 这两个键**不进** ConfigMap：10-config.yaml 的键面只收两侧 runtime 真正读的
+          # 配置字段，而 worker 开关是 env-only（backend/ai/mq/config.py 文件头有同样的声明）。
+          env:
+            - name: CLOSEN_OUTBOX_WORKER
+              value: "1"
+            - name: CLOSEN_CANDIDATE_WORKER
+              value: "1"
           envFrom:
             - configMapRef:
                 name: closenai-config

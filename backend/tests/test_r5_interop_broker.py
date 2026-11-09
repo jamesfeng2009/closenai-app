@@ -15,10 +15,13 @@ header 名、`message_type` 的命名法（点↔下划线）、`schema_version`
   · Python 侧 = `scripts/r5_interop_worker.py`：真 `backend.ai.mq.worker.serve` 起停，
     注册一个把命令体回声成 pattern 提案的 handler。
 
-编排形态（生产取证定案）：`deploy/k8s` 里 `CLOSEN_MQ_WORKER`／`CLOSEN_OUTBOX_WORKER`／
-`CLOSEN_CANDIDATE_WORKER` 实测 0 命中 ⇒ 生产没有「谁 spawn 谁」，三个 worker 各是独立进程。
-所以这里**串行四步**（Go 发命令 → Python 消费并回投候选 → Go 入站收并 Admit → 重放同
-message_id 证明幂等），不做并发 spawn 编排——并发编排要造的正是生产里不存在的那个东西。
+编排形态（生产取证；2026-11-09 #32 补齐清单后重述）：`deploy/k8s` 里**没有**「谁 spawn 谁」——
+Go 的出箱与入站 worker 嵌在 go-api 进程内（`30-go-api.yaml` 把 `CLOSEN_OUTBOX_WORKER`／
+`CLOSEN_CANDIDATE_WORKER` 置 `"1"`），Python 命令面是独立的 `45-py-ai-worker.yaml`
+（`CLOSEN_MQ_WORKER="1"`，入口 `python -m backend.ai.mq.worker`）。四个 worker 面分居
+两个进程，各自被 k8s 拉起、没有父进程。所以这里**串行四步**（Go 发命令 → Python 消费并回投候选 →
+Go 入站收并 Admit → 重放同 message_id 证明幂等），不做并发 spawn 编排——并发编排要造的
+正是生产里不存在的那个东西。
 
 跑法（本机 go 是混合安装，须点名；缺任一前置就 skip，并把少跑的条数写进 skip 理由）：
 

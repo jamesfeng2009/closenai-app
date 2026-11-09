@@ -6,7 +6,9 @@
 ——那会把 HTTP 面与这条吞吐面绑成同一次部署。
 
 开关关 ⇒ **零副作用**（DoD 第 7 条）：不拨号、不声明、不认领、不产候选，直接退出码 0。
-所以清单（归 R7）要么带 ``CLOSEN_MQ_WORKER=1``，要么根本不建这个 Deployment。
+所以清单必须二选一：带 ``CLOSEN_MQ_WORKER=1``（``deploy/k8s/45-py-ai-worker.yaml``，
+2026-11-09 #32 起），**或根本不建这个 Deployment**——开关为 0 的 Deployment 在
+``restartPolicy: Always`` 下会被反复重启（退出 0 也会重启），看起来像在抖。
 
 停机次序（``17:59``「The worker must tolerate restarts」的可执行形式）：
 先取消四个 consumer ⇒ 不再有新投递进回调；已进回调的在途任务给 ``drain_timeout`` 预算跑完

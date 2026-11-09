@@ -103,7 +103,7 @@ Go 与 Python 各写一份实现、各自跑同一批格（`backend/tests/test_e
 
 ### k8s 侧 Secret `closenai-runtime` 的键面（T3-03，2026-10-19）
 
-`deploy/k8s/{30-go-api,40-py-api,50-ai-rpc}.yaml` 都是 `envFrom: secretRef`，所以
+`deploy/k8s/{30-go-api,40-py-api,45-py-ai-worker,50-ai-rpc}.yaml` 都是 `envFrom: secretRef`，所以
 **加一个键就两侧同时可见**，不需要改任何 Deployment。代价是这张键面没有清单侧的
 登记表——`10-config.yaml` 头部那句「创建命令见本目录 README」指的 `deploy/k8s/README.md`
 **并不存在**（登记于裁决七-10-14 之外的同一处文档悬空引用），所以键面在此逐条列出：
@@ -114,7 +114,8 @@ kubectl -n closenai create secret generic closenai-runtime \
   --from-literal=DATABASE_URL=...      --from-literal=JWT_SECRET=... \
   --from-literal=CRON_SECRET=...       --from-literal=RESEND_API_KEY=... \
   --from-literal=APP_STORE_SHARED_SECRET=... \
-  --from-literal=GO_SERVICE_TOKEN="$(openssl rand -hex 32)"   # T3-03 新增
+  --from-literal=GO_SERVICE_TOKEN="$(openssl rand -hex 32)" \
+  --from-literal=CLOSEN_AMQP_URL="amqp://<broker 用户>:<同上口令>@rabbitmq.closenai.svc.cluster.local:5672/"  # #32 新增
 ```
 
 - `GO_SERVICE_TOKEN` 是**跨语言共享**键：go-api 用它决定 `/internal/v3/*` 注册与否
@@ -122,6 +123,45 @@ kubectl -n closenai create secret generic closenai-runtime \
   **拨号之前**回 503）。两侧不同值＝每一次拨号 403，而它长得像 Go 挂了——
   所以轮换时两条 Deployment 要同批滚动，`kubectl -n closenai rollout restart deploy/go-api deploy/py-api`。
 - 其余非共享项（`POSTHOG_API_KEY`／provider keys／`APNS_*`）按各自工单口径进同一张 Secret。
+
+### k8s 侧 broker 与 worker（#32，2026-11-09）
+
+在此之前 `deploy/k8s` 里既没有 broker、也没有任何 worker 的开关——`CLOSEN_MQ_WORKER`／
+`CLOSEN_OUTBOX_WORKER`／`CLOSEN_CANDIDATE_WORKER` 三个键在清单面实测 0 命中，
+于是「部署在跑」与「队列有人消费」是两件事，生产上的 outbox 行只进不出。本票补齐的样子：
+
+| 清单 | 内容 | 开关 |
+| --- | --- | --- |
+| `15-rabbitmq.yaml` | `rabbitmq:3-management` 单实例；`hostname: rabbitmq` 固定节点名；`strategy: Recreate`；数据挂 hostPath `/var/lib/closenai/rabbitmq`（`DirectoryOrCreate`，entrypoint 以 root chown 后降到 uid 999 跑）；探针 `rabbitmq-diagnostics -q ping` | 无（broker 不需要开关） |
+| `45-py-ai-worker.yaml` | 和 py-api **同一个镜像**，`command: ["python","-m","backend.ai.mq.worker"]`；无端口无探针；`terminationGracePeriodSeconds: 45`（排水 30s＋余量） | `CLOSEN_MQ_WORKER="1"` |
+| `30-go-api.yaml`（改） | go-api 容器 env 打开两个嵌入式 worker（仓库里没有单独的 Go worker 二进制） | `CLOSEN_OUTBOX_WORKER="1"`、`CLOSEN_CANDIDATE_WORKER="1"` |
+
+broker 的账号口令是一张**独立的** Secret，清单里不出现 Secret 资源本体（`test_manifests_contain_no_plaintext_secrets` 钉着这一条）：
+
+```bash
+# 值现场给；CLOSEN_AMQP_URL 里的用户/口令必须与这一张逐字相同。
+kubectl -n closenai create secret generic closenai-rabbitmq \
+  --from-literal=RABBITMQ_DEFAULT_USER=closenai \
+  --from-literal=RABBITMQ_DEFAULT_PASS="$(openssl rand -hex 24)"
+```
+
+- **口令轮换有坑**：`RABBITMQ_DEFAULT_*` 只在 mnesia 目录**首次初始化**时生效。改了 Secret
+  再滚动 Pod，旧用户的口令不会变，`CLOSEN_AMQP_URL` 却已经换成新口令 ⇒ 所有 worker 拨号 403。
+  正确做法是用管理面改口令（`rabbitmqctl change_password`），或清空 hostPath 下面的
+  mnesia 目录重来（会丢未消费的消息，outbox 行不受影响）。这条登记为已知运维面债（R7）。
+- **三个开关都是 env-only、默认关**，清单里写 `"1"` 是本票的交付内容（生产要有消费者）。
+  共同的拒绝口径：**开了却没给 `CLOSEN_AMQP_URL` ⇒ 进程拒绝启动**（Python 侧 `SwitchError`
+  退出码 2，Go 侧 `log.Fatalf`）——空转的 worker 比没有 worker 更坏，运维会把它读成「在跑」。
+- **停 worker 用 scale，不要用开关置 0**：Python worker 在开关为 0 时打印一行「未开启」
+  后**退出 0**，`restartPolicy: Always` 会反复重启它（退避拉长，日志里像在抖）。
+  正确姿势：`kubectl -n closenai scale deploy/py-ai-worker --replicas=0`；
+  Go 侧两个开关改回 `"0"` 后 `kubectl -n closenai rollout restart deploy/go-api`。
+- **上刀之后先看三处证人**（不下结论，只取原始行）：
+  `kubectl -n closenai get pods`（rabbitmq／py-ai-worker 都 Ready）、
+  `kubectl -n closenai logs deploy/py-ai-worker`（没有 `连不上 broker` 的 exit 4）、
+  go-api 日志里每 60s 一条 `msg="queue_metrics"`（两个 Go 开关任一打开时该循环才起，
+  见「异步指标与告警口径」一节）。
+- 管理界面不发布端口：`kubectl -n closenai port-forward deploy/rabbitmq 15672` 按需开。
 
 ## 日志与排障
 

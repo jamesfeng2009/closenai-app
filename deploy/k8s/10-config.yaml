@@ -6,7 +6,8 @@
 # 原来那句「见本目录 README」是一条悬空引用）。
 #
 # ── 日志口径（批 T-F，2026-10-17）──────────────────────────────
-# 本 namespace 三个 Deployment（go-api／py-api／ai-rpc）的 stdout 是**唯一日志载体**：
+# 本 namespace 的 HTTP／AI／worker 进程（go-api／py-api／ai-rpc／py-ai-worker）的 stdout
+# 是**唯一日志载体**：
 # Go 侧 slog JSON 行（internal/obs 注入 trace_id/user_id，缺值渲染 "-"），Python 侧
 # core/logging ContextFilter 文本行（trace_id=<值>，形状同一字面量）。
 # deploy/k8s/60-observability/ 的 Loki＋promtail 清单只认这两种形状做索引——

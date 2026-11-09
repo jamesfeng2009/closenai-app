@@ -1,0 +1,74 @@
+# R5 · Python AI worker（2026-11-09，#32）。
+#
+# 这与 50-ai-rpc.yaml 同一条构造：**镜像与 py-api 完全同一个**，改的只是入口。
+# 于是「worker 进程装了哪些包」没有第二份真相源，不会出现「HTTP 面能跑、worker 少一个
+# 依赖」这种只在生产才暴露的差异。
+#
+# 为什么必须是独立 Deployment 而不是挂在 py-api 里：worker 是长驻消费者，
+# 它的重启会掐断正在跑的那条任务（超过 CLOSEN_MQ_TASK_TIMEOUT_SECONDS 即取消并重回队列），
+# 而 py-api 每次发版都重启——两者绑在一起等于「每次发版都打断在途任务」。拆开之后
+# worker 可以自己滚动，HTTP 面的发版与它无关（D-R5-9 的灰度拆分也依赖这一点）。
+#
+# 开关面（三个键**不进** ConfigMap，理由见 backend/ai/mq/config.py 文件头）：
+#   · CLOSEN_MQ_WORKER=1        本进程的消费开关。置 0 时进程打印一行「未开启」后**退出 0**，
+#     k8s 的 restartPolicy=Always 会把它当异常退出一样重启（退避拉长）——
+#     所以回滚 worker 请用 `kubectl scale deploy/py-ai-worker --replicas=0`，不要只把开关改 0。
+#   · CLOSEN_OUTBOX_WORKER=1    在 30-go-api.yaml 的 go-api 容器 env 里（Go worker 嵌在 go-api 进程内）。
+#   · CLOSEN_CANDIDATE_WORKER=1 同上。
+#   · CLOSEN_AMQP_URL           broker 地址（含口令）只从 Secret closenai-runtime 来。
+# 三个开关都遵循同一条拒绝口径：**开了却没给地址 ⇒ 进程拒绝启动**，不空转
+# （Python 侧 backend/ai/mq/config.py:load_switch；Go 侧 dispatch.New/inbound.New）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: py-ai-worker
+  namespace: closenai
+  labels:
+    app: py-ai-worker
+spec:
+  # 单副本：同一条命令队列不需要第二个消费者来提速，prefetch=1 的背压真值要等 R7 标定。
+  # 多于一个副本也不会重复执行——命令队列按 consumer 计 inbox 唯一键，同一条消息只会被
+  # 一个消费者 ack；但扩容前先看指标（queue_depth／oldest_message_age_seconds）。
+  replicas: 1
+  selector:
+    matchLabels:
+      app: py-ai-worker
+  template:
+    metadata:
+      labels:
+        app: py-ai-worker
+    spec:
+      # 45s = 包内排水预算 30s（DEFAULT_DRAIN_SECONDS）＋ 15s 余量：SIGTERM 之后
+      # worker 先停止拉新消息，把在途任务跑完或取消，再关连接；比 30 短会让最后一批
+      # 被硬杀在 unacked 状态（broker 会在连接断开后重回队列，不算丢，但会重复
+      # 跑一次模型调用——45s 就是为了少花这笔冤枉钱）。
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: py-ai-worker
+          image: ghcr.io/jamesfeng2009/closenai-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          # 同一个镜像、不同的入口：backend/ai/mq/worker.py 的 main()。
+          # 与 docker-compose.prod.yml 的 py-ai-worker command 逐字同形（清单闸读两处比对）。
+          command: ["python", "-m", "backend.ai.mq.worker"]
+          env:
+            - name: CLOSEN_MQ_WORKER
+              value: "1"
+          envFrom:
+            # 两个都要：一个 worker 也要读库（按 sourceRef 回读那行原文，走 backend/services），
+            # 而 DB 口令在 closenai-runtime；broker 地址 CLOSEN_AMQP_URL 也在它里面。
+            - configMapRef:
+                name: closenai-config
+            - secretRef:
+                name: closenai-runtime
+          # 没有 ports、没有 http 探针：本进程不服务任何入站流量。诚实登记这里的盲区——
+          # k8s 只能判「进程还活着」，判不了「消费循环卡死」；补这份探针要进程内起一个
+          # 健康端点，属 R7 的可观测面，本批不发明半套协议。
+          # ⚠️ 估算值：192Mi 取「同一个镜像、不装 FastAPI 路由与中间件」的量级；
+          # 真值回填 `kubectl -n closenai top pod -l app=py-ai-worker`。
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

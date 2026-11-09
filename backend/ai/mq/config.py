@@ -4,7 +4,9 @@
 到处 import；把 broker 的键塞进去，等于诱导 AI 进程去读数据库配置（`test_ai_boundary.py`
 禁的就是这一类连带）。代价在这里明说：`test_k8s_manifests.py:320` 那条跨语言 env 名闸只认
 `config.go` 的 `envString/envInt` 与 `backend/config.py` 的字段，读在**本文件**里的键它看不见
-⇒ 六个键今天不进 `deploy/k8s/10-config.yaml`（进了会让那条闸当场红），清单面整条归 R7。
+⇒ 六个键**都不进** `deploy/k8s/10-config.yaml`（进了会让那条闸当场红）。其中
+`CLOSEN_MQ_WORKER` 与 `CLOSEN_AMQP_URL` 已落在 `45-py-ai-worker.yaml` 的容器 env／Secret
+（#32，2026-11-09），其余四格（预取／任务超时／排水／字节上限）仍走包内默认值，调优归 R7。
 
 默认档的取向与 Go 侧 `internal/messaging/dispatch` 同形：开关关 ⇒ 进程**零副作用**
 （不拨号、不声明、不消费、不投递），这是「灰度 0 时现网行为一字不变」唯一可测的写法。
