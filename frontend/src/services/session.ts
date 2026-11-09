@@ -40,6 +40,8 @@ const USER_TABLES = [
   'weekly_insights',
   'memory_snapshots',
   'chat_history',
+  // 离线补投队列里的正文属于同一账号：不随之清空，换账号后会被补投到新账号名下
+  'chat_outbox',
   'personality_assessment',
   'personality_profile',
   'combo_report',

@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "Apa yang anda ingin ClosenAI ingat?",
     "addSubmit": "Simpan ingatan",
     "checking": "Menyemak pendua…",
+    "searchPlaceholder": "Cari kenangan anda",
+    "searchSubmit": "Cari",
+    "searchEmpty": "Tiada kenangan yang sepadan",
+    "searchResultsFor": "Hasil untuk \"{{query}}\"",
+    "searchClear": "Tutup carian",
     "status": {
       "current": "Semasa",
       "superseded": "Digantikan",
@@ -189,6 +194,16 @@ const resource = {
     "title": "Rekod pertumbuhan saya",
     "empty": "Tiada apa-apa di sini lagi. Rekod muncul apabila anda berborak dan merenung.",
     "filterAll": "Semua",
+    "memoryCard": {
+      "title": "Kad kenangan",
+      "hint": "Lihat semula satu hari daripada sejarah anda sendiri. Teks kad ditulis oleh AI.",
+      "days": "{{days}} hari lalu",
+      "load": "Lihat semula",
+      "loading": "Melihat semula…",
+      "empty": "Tiada apa-apa direkodkan {{days}} hari lalu.",
+      "consent": "Hidupkan perkongsian data AI dahulu — teks kad ditulis oleh AI.",
+      "failed": "Gagal memuatkan kad. Cuba lagi nanti."
+    },
     "topicsTitle": "Topik yang wajar diteliti semula",
     "guestEmpty": "Log masuk untuk melihat rekod pertumbuhan anda.",
     "tag": {
@@ -800,6 +815,28 @@ const resource = {
     "consentReadonlyHint": "Untuk menukar pilihan anda, pergi ke Profil → Tetapan Perkongsian Data.",
     "deletionTitle": "Pemadaman Data",
     "deletionDesc": "Anda boleh memadam akaun dan semua data anda (perbualan, memori, daftar perasaan, rekod pertumbuhan) secara kekal pada bila-bila masa di Profil → Padam Akaun. Tindakan ini tidak boleh dipulihkan."
+  },
+  "consentLedger": {
+    "title": "Rekod persetujuan",
+    "intro": "Apa yang anda setujui dan bila. Anda boleh menariknya pada bila-bila masa.",
+    "version": "Versi teks {{version}}",
+    "granted": "Diberikan",
+    "notGiven": "Belum diberikan",
+    "withdrawn": "Ditarik",
+    "grant": "Berikan",
+    "withdraw": "Tarik",
+    "grantedAt": "Diberikan pada {{date}}",
+    "withdrawnAt": "Ditarik pada {{date}}",
+    "coreHint": "Perkhidmatan teras terikat pada akaun anda; menariknya bermaksud memadam akaun.",
+    "updateFailed": "Status persetujuan gagal dikemas kini.",
+    "purposes": {
+      "core_service": "Perkhidmatan teras",
+      "ai_processing": "Pemprosesan data AI",
+      "proactive_push": "Mesej proaktif",
+      "analytics": "Analitik tanpa nama",
+      "data_export": "Eksport data",
+      "model_training": "Latihan model"
+    }
   },
   "export": {
     "title": "Eksport Data",

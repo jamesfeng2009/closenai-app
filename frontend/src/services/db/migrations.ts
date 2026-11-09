@@ -1,7 +1,7 @@
 import type { SqliteDb } from './types';
 
 /** 当前数据库版本（PRAGMA user_version）。 */
-export const CURRENT_DB_VERSION = 3;
+export const CURRENT_DB_VERSION = 4;
 
 /** V1: 初始建表 */
 export function migrateV1(db: SqliteDb): void {
@@ -257,6 +257,32 @@ export function migrateV3(db: SqliteDb): void {
 }
 
 /**
+ * V4: 对话离线补投队列（P2 #28）。
+ *
+ * 离线时发出去的用户消息只落 `chat_history` 的话，联网后没有任何东西记得
+ * 「这条还没上送」；`chat_outbox` 就是那份账：primary key 直接是客户端消息 id
+ * （与服务端 `client_message_id` 同一个值），补投成功标 `sent`、服务端永久拒绝
+ * （未同意共享）标 `discarded`，两者都不再进 listPending 但行仍留库可查。
+ */
+export function migrateV4(db: SqliteDb): void {
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS chat_outbox (
+      client_message_id TEXT PRIMARY KEY NOT NULL,
+      content           TEXT NOT NULL,
+      message_type      TEXT NOT NULL DEFAULT 'reply',
+      created_at        TEXT NOT NULL,
+      status            TEXT NOT NULL DEFAULT 'pending',
+      attempts          INTEGER NOT NULL DEFAULT 0,
+      last_error        TEXT,
+      updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_outbox_pending
+      ON chat_outbox(status, created_at);
+  `);
+}
+
+/**
  * 按版本号顺序执行迁移，并更新 PRAGMA user_version。
  * 迁移必须幂等，失败时由调用方负责事务回滚。
  */
@@ -275,6 +301,10 @@ export function runMigrations(db: SqliteDb): void {
   if (version < 3) {
     migrateV3(db);
     version = 3;
+  }
+  if (version < 4) {
+    migrateV4(db);
+    version = 4;
   }
 
   db.execSync(`PRAGMA user_version = ${version}`);

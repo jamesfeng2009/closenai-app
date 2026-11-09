@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "Bạn muốn ClosenAI ghi nhớ điều gì?",
     "addSubmit": "Thêm ký ức này",
     "checking": "Đang kiểm tra trùng lặp…",
+    "searchPlaceholder": "Tìm trong ký ức của bạn",
+    "searchSubmit": "Tìm",
+    "searchEmpty": "Không tìm thấy ký ức phù hợp",
+    "searchResultsFor": "Kết quả cho \"{{query}}\"",
+    "searchClear": "Đóng tìm kiếm",
     "status": {
       "current": "Hiện tại",
       "superseded": "Đã thay thế",
@@ -189,6 +194,16 @@ const resource = {
     "title": "Nhật ký trưởng thành",
     "empty": "Chưa có gì ở đây. Ghi chép sẽ dần xuất hiện khi bạn trò chuyện và suy ngẫm.",
     "filterAll": "Tất cả",
+    "memoryCard": {
+      "title": "Thẻ ký ức",
+      "hint": "Nhìn lại một ngày trong quá khứ của chính bạn. Nội dung thẻ do AI viết.",
+      "days": "{{days}} ngày trước",
+      "load": "Nhìn lại",
+      "loading": "Đang nhìn lại…",
+      "empty": "Không có gì được ghi lại vào {{days}} ngày trước.",
+      "consent": "Hãy bật chia sẻ dữ liệu AI trước — thẻ do AI viết.",
+      "failed": "Không tải được thẻ. Vui lòng thử lại sau."
+    },
     "topicsTitle": "Chủ đề đáng nhìn kỹ hơn",
     "guestEmpty": "Đăng nhập để xem nhật ký trưởng thành của bạn.",
     "tag": {
@@ -800,6 +815,28 @@ const resource = {
     "consentReadonlyHint": "Để thay đổi lựa chọn, hãy vào Hồ sơ → Cài đặt chia sẻ dữ liệu.",
     "deletionTitle": "Xóa dữ liệu",
     "deletionDesc": "Bạn có thể xóa vĩnh viễn tài khoản và toàn bộ dữ liệu (hội thoại, ký ức, lượt check-in, bản ghi phát triển) bất cứ lúc nào trong Hồ sơ → Xóa tài khoản. Hành động này không thể hoàn tác."
+  },
+  "consentLedger": {
+    "title": "Hồ sơ đồng ý",
+    "intro": "Bạn đã đồng ý điều gì và khi nào. Bạn có thể rút lại bất cứ lúc nào.",
+    "version": "Phiên bản văn bản {{version}}",
+    "granted": "Đã đồng ý",
+    "notGiven": "Chưa đồng ý",
+    "withdrawn": "Đã rút lại",
+    "grant": "Đồng ý",
+    "withdraw": "Rút lại",
+    "grantedAt": "Đồng ý vào {{date}}",
+    "withdrawnAt": "Rút lại vào {{date}}",
+    "coreHint": "Dịch vụ cốt lõi gắn với tài khoản; rút lại đồng nghĩa với xóa tài khoản.",
+    "updateFailed": "Không cập nhật được trạng thái đồng ý.",
+    "purposes": {
+      "core_service": "Dịch vụ cốt lõi",
+      "ai_processing": "Xử lý dữ liệu bằng AI",
+      "proactive_push": "Tin nhắn chủ động",
+      "analytics": "Phân tích ẩn danh",
+      "data_export": "Xuất dữ liệu",
+      "model_training": "Huấn luyện mô hình"
+    }
   },
   "export": {
     "title": "Xuất dữ liệu",

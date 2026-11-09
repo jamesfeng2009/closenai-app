@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "Que voulez-vous que ClosenAI retienne ?",
     "addSubmit": "Ajouter le souvenir",
     "checking": "Vérification des doublons…",
+    "searchPlaceholder": "Rechercher dans vos souvenirs",
+    "searchSubmit": "Rechercher",
+    "searchEmpty": "Aucun souvenir correspondant",
+    "searchResultsFor": "Résultats pour « {{query}} »",
+    "searchClear": "Fermer la recherche",
     "status": {
       "current": "Actuel",
       "superseded": "Remplacé",
@@ -193,6 +198,16 @@ const resource = {
     "title": "Mes notes d'évolution",
     "empty": "Rien ici pour l'instant. Les notes s'ajoutent au fil de vos échanges et de vos réflexions.",
     "filterAll": "Toutes",
+    "memoryCard": {
+      "title": "Carte souvenir",
+      "hint": "Revenez sur un jour de votre propre histoire. Le texte de la carte est rédigé par l'IA.",
+      "days": "il y a {{days}} jours",
+      "load": "Regarder en arrière",
+      "loading": "Retour en arrière…",
+      "empty": "Rien n'a été enregistré il y a {{days}} jours.",
+      "consent": "Activez d'abord le partage de données avec l'IA — la carte est rédigée par l'IA.",
+      "failed": "Impossible de charger la carte. Réessayez plus tard."
+    },
     "topicsTitle": "Des sujets à regarder de plus près",
     "guestEmpty": "Connectez-vous pour voir vos notes d'évolution.",
     "tag": {
@@ -809,6 +824,28 @@ const resource = {
     "consentReadonlyHint": "Pour modifier votre choix, allez dans Profil → Paramètres de partage des données.",
     "deletionTitle": "Suppression des données",
     "deletionDesc": "Vous pouvez supprimer définitivement votre compte et toutes vos données (conversations, souvenirs, pointages, historiques de croissance) à tout moment dans Profil → Supprimer le compte. Cette action est irréversible."
+  },
+  "consentLedger": {
+    "title": "Consentements",
+    "intro": "Ce que tu as accepté et quand. Tu peux retirer ton consentement à tout moment.",
+    "version": "Version du texte {{version}}",
+    "granted": "Accordé",
+    "notGiven": "Non accordé",
+    "withdrawn": "Retiré",
+    "grant": "Accorder",
+    "withdraw": "Retirer",
+    "grantedAt": "Accordé le {{date}}",
+    "withdrawnAt": "Retiré le {{date}}",
+    "coreHint": "Le service principal est lié à ton compte ; le retirer équivaut à supprimer le compte.",
+    "updateFailed": "Impossible de mettre à jour le consentement.",
+    "purposes": {
+      "core_service": "Service principal",
+      "ai_processing": "Traitement des données par l'IA",
+      "proactive_push": "Messages proactifs",
+      "analytics": "Analyse anonyme",
+      "data_export": "Export des données",
+      "model_training": "Entraînement de modèle"
+    }
   },
   "export": {
     "title": "Export des données",

@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "想让 ClosenAI 记住什么？",
     "addSubmit": "记下这条",
     "checking": "正在检查是否重复…",
+    "searchPlaceholder": "搜索你的记忆",
+    "searchSubmit": "搜索",
+    "searchEmpty": "没有找到相关记忆",
+    "searchResultsFor": "「{{query}}」的搜索结果",
+    "searchClear": "关闭搜索",
     "status": {
       "current": "当前",
       "superseded": "已被取代",
@@ -189,6 +194,16 @@ const resource = {
     "title": "成长记录",
     "empty": "这里还是空的。开始对话和复盘后，记录会慢慢积累。",
     "filterAll": "全部",
+    "memoryCard": {
+      "title": "回忆卡",
+      "hint": "翻回自己的某一天。卡片文案由 AI 生成。",
+      "days": "{{days}} 天前",
+      "load": "翻回去看看",
+      "loading": "正在翻回…",
+      "empty": "{{days}} 天前没有留下任何记录。",
+      "consent": "先开启 AI 数据共享——卡片文案由 AI 生成。",
+      "failed": "回忆卡加载失败，请稍后再试。"
+    },
     "topicsTitle": "值得再聊聊的话题",
     "guestEmpty": "登录后查看你的成长记录。",
     "tag": {
@@ -800,6 +815,28 @@ const resource = {
     "consentReadonlyHint": "如需变更选择，请前往「我的 → 数据共享设置」。",
     "deletionTitle": "数据删除",
     "deletionDesc": "你可以随时在「我的 → 注销账号」永久删除账号及全部数据（对话、记忆、签到、成长记录），删除后不可恢复。"
+  },
+  "consentLedger": {
+    "title": "同意记录",
+    "intro": "这里记录你在各用途上的表态与时间，可随时撤回。",
+    "version": "文案版本 {{version}}",
+    "granted": "已授予",
+    "notGiven": "未表态",
+    "withdrawn": "已撤回",
+    "grant": "授予",
+    "withdraw": "撤回",
+    "grantedAt": "授予于 {{date}}",
+    "withdrawnAt": "撤回于 {{date}}",
+    "coreHint": "核心服务随账号存续，撤回等同注销账号。",
+    "updateFailed": "更新同意状态失败。",
+    "purposes": {
+      "core_service": "核心服务",
+      "ai_processing": "AI 数据处理",
+      "proactive_push": "主动消息推送",
+      "analytics": "匿名行为分析",
+      "data_export": "数据导出",
+      "model_training": "模型训练"
+    }
   },
   "export": {
     "title": "数据导出",

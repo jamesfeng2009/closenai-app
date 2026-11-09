@@ -202,6 +202,18 @@ export default function PrivacySecurityScreen() {
         {isLoggedIn && (
           <Text style={styles.hint}>{t('privacy.consentReadonlyHint')}</Text>
         )}
+        {/* P2 #29：台账的读写入口。开关位只答「现在开没开」，台账答「哪版、何时」 */}
+        {isLoggedIn && (
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={() => navigation.navigate('ConsentLedger')}
+            testID="consentLedgerEntry"
+          >
+            <Text style={styles.settingIcon}>📝</Text>
+            <Text style={styles.settingLabel}>{t('consentLedger.title')}</Text>
+            <Text style={styles.arrow}>›</Text>
+          </TouchableOpacity>
+        )}
         {isLoggedIn && (
           <View style={styles.exportBlock}>
             <Text style={styles.exportTitle}>{t('export.title')}</Text>

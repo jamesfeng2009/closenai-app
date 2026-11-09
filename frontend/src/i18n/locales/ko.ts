@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "ClosenAI가 무엇을 기억하길 원하나요?",
     "addSubmit": "이 기억 저장",
     "checking": "중복 확인 중…",
+    "searchPlaceholder": "기억 검색",
+    "searchSubmit": "검색",
+    "searchEmpty": "일치하는 기억이 없습니다",
+    "searchResultsFor": "\"{{query}}\" 검색 결과",
+    "searchClear": "검색 닫기",
     "status": {
       "current": "현재",
       "superseded": "대체됨",
@@ -189,6 +194,16 @@ const resource = {
     "title": "성장 기록",
     "empty": "아직 아무것도 없어요. 대화와 회고를 시작하면 여기에 쌓여요.",
     "filterAll": "전체",
+    "memoryCard": {
+      "title": "추억 카드",
+      "hint": "과거의 하루로 돌아가 봅니다. 카드 글은 AI가 씁니다.",
+      "days": "{{days}}일 전",
+      "load": "돌아보기",
+      "loading": "돌아보는 중…",
+      "empty": "{{days}}일 전에는 기록이 없습니다.",
+      "consent": "먼저 AI 데이터 공유를 켜 주세요. 카드는 AI가 씁니다.",
+      "failed": "추억 카드를 불러오지 못했습니다. 잠시 후 다시 시도하세요."
+    },
     "topicsTitle": "다시 살펴볼 주제",
     "guestEmpty": "로그인하면 성장 기록을 볼 수 있어요.",
     "tag": {
@@ -800,6 +815,28 @@ const resource = {
     "consentReadonlyHint": "선택을 변경하려면 프로필 → 데이터 공유 설정으로 이동하세요.",
     "deletionTitle": "데이터 삭제",
     "deletionDesc": "프로필 → 계정 삭제에서 계정과 모든 데이터(대화, 기억, 체크인, 성장 기록)를 언제든지 영구적으로 삭제할 수 있습니다. 이 작업은 되돌릴 수 없습니다."
+  },
+  "consentLedger": {
+    "title": "동의 기록",
+    "intro": "각 용도에 대한 동의 상태와 시각을 기록합니다. 언제든지 철회할 수 있습니다.",
+    "version": "문구 버전 {{version}}",
+    "granted": "동의함",
+    "notGiven": "미응답",
+    "withdrawn": "철회함",
+    "grant": "동의",
+    "withdraw": "철회",
+    "grantedAt": "{{date}} 동의",
+    "withdrawnAt": "{{date}} 철회",
+    "coreHint": "핵심 서비스는 계정과 함께 유지됩니다. 철회는 계정 삭제와 같습니다.",
+    "updateFailed": "동의 상태를 업데이트하지 못했습니다.",
+    "purposes": {
+      "core_service": "핵심 서비스",
+      "ai_processing": "AI 데이터 처리",
+      "proactive_push": "푸시 알림",
+      "analytics": "익명 분석",
+      "data_export": "데이터 내보내기",
+      "model_training": "모델 학습"
+    }
   },
   "export": {
     "title": "데이터 내보내기",

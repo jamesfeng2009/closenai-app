@@ -249,8 +249,10 @@ export async function restorePurchases(): Promise<{
       if (result.valid) {
         restored = true;
         if (result.kind === 'entitlement') entitlementRestored = true;
+        // 只有校验通过才完成交易：无效收据也 finish 的话，StoreKit 不再投递它，
+        // 用户下次恢复购买时连重试的机会都没有（P2 #27）。
+        await RNIap.finishTransaction({ purchase, isConsumable: false });
       }
-      await RNIap.finishTransaction({ purchase, isConsumable: false });
     } catch {
       // 单笔失败不阻塞其他交易恢复
     }

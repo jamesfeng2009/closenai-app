@@ -6,10 +6,11 @@ const ALL_TABLES = [
   'growth_dimensions', 'weekly_insights', 'memory_snapshots', 'chat_history',
   'app_settings', 'sync_metadata', 'personality_assessment', 'personality_profile',
   'combo_report', 'daily_discovery', 'subscription_status', 'analytics_events',
+  'chat_outbox',
 ];
 
-describe('数据库迁移 (V1 + V2 + V3)', () => {
-  it('创建全部 16 张表', () => {
+describe('数据库迁移 (V1 + V2 + V3 + V4)', () => {
+  it('创建全部 17 张表', () => {
     const db = createTestDb();
     const tables = db
       .getAllSync<{ name: string }>(
@@ -42,11 +43,11 @@ describe('数据库迁移 (V1 + V2 + V3)', () => {
     db.closeSync();
   });
 
-  it('user_version 更新为 3，且迁移幂等（重复执行不报错）', () => {
+  it('user_version 更新为 4，且迁移幂等（重复执行不报错）', () => {
     const db = createTestDb();
     expect(runMigrations(db)).not.toThrow;
     const ver = db.getFirstSync<{ user_version: number }>('PRAGMA user_version');
-    expect(ver?.user_version).toBe(3);
+    expect(ver?.user_version).toBe(4);
     db.closeSync();
   });
 });

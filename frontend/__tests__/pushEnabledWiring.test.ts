@@ -79,6 +79,8 @@ describe('① 后端声明了开关，且读写两侧各是自己那一态', () 
       'push_enabled:',
       'quiet_start:',
       'quiet_end:',
+      // P2 #24 追加在主用框架之后，锚点随之下移（口径同 quiet_end：只问「后面还有没有」）
+      'primary_framework:',
     ];
     order.forEach((f) => expect(body).toContain(f));
     const at = order.map((f) => body.indexOf(f));

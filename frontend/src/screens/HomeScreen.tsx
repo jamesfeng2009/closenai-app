@@ -106,6 +106,9 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
   const [checkinNote, setCheckinNote] = useState<{ emoji: string; label: string; text: string } | null>(null);
   // 标记网络请求是否已完成，防止缓存 setDashboard 覆盖网络新数据（F8 竞态修复）
   const networkLoaded = useRef(false);
+  // 连点守卫用 ref 而不是 checkingIn：setState 要等下一次渲染才生效，
+  // 同一帧里的第二次点击读到的仍是旧值，会把同一天签到提交两遍（P2 #25）。
+  const checkingInRef = useRef(false);
   // 本地签到热力图（Tier 1 用户原创，纯本地读秒开；网络同步后台覆盖）
   const [localCheckins, setLocalCheckins] = useState<MoodCheckinRow[]>([]);
   // KG-28 三层次情绪分析面板：入口只在服务端开关为真且今天已签到时出现
@@ -331,7 +334,8 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
 
   const onMoodPress = async (emoji: MoodEmoji) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
-    if (checkingIn || dashboard?.today_mood) return; // 已签到或请求中则忽略
+    if (checkingInRef.current || dashboard?.today_mood) return; // 已签到或请求中则忽略
+    checkingInRef.current = true;
     try {
       setCheckingIn(true);
       const res = await moodCheckin(emoji);
@@ -378,6 +382,7 @@ export default function HomeScreen({ navigation }: { navigation: any }) {
       const msg = e instanceof ApiError ? e.message : t('errors.checkinFailed');
       showError(msg);
     } finally {
+      checkingInRef.current = false;
       setCheckingIn(false);
     }
   };

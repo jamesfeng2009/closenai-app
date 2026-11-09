@@ -9,6 +9,16 @@
 export interface ChatStreamRequest {
   content: string;
   message_type: 'reply' | 'mood_checkin';
+  // 客户端本地消息 id（P2 #28）：服务端按它幂等，离线补投与在线流落到同一行
+  client_message_id?: string;
+}
+
+/** 离线补投的单条消息（与后端 ChatMessageBatchItem 对齐）。 */
+export interface ChatMessageBatchItem {
+  client_message_id: string;
+  content: string;
+  message_type?: 'reply' | 'mood_checkin';
+  created_at?: string;
 }
 
 // 正文复述了用户原话时随消息附带的引用依据（PRD §5.19.3 全局规范）
@@ -27,6 +37,8 @@ export interface ChatHistoryItem {
   message_type?: string | null;
   created_at: string;
   memory_refs?: MemoryRef[];
+  // 客户端本地 id（P2 #28）：本地缓存行与远端行靠它认成同一条
+  client_message_id?: string | null;
 }
 
 export interface SSEEvent {
@@ -35,6 +47,25 @@ export interface SSEEvent {
   memories?: Memory[];
   message?: string;
   code?: number;
+}
+
+/** 同意台账（P2 #29）：六用途 × 文案版本 × 授予/撤回时刻。 */
+export interface ConsentLedgerItem {
+  purpose: string;
+  version: string;
+  granted: boolean;
+  granted_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ConsentLedger {
+  version: string;
+  purposes: string[];
+  items: ConsentLedgerItem[];
+}
+
+export interface ConsentPurposeReceipt extends ConsentLedgerItem {
+  posthog_erased?: boolean;
 }
 
 // ═══ Journey（P1-B02 第一周剧本，PRD §5.19.3）═══
@@ -82,6 +113,10 @@ export interface Memory {
   created_at: string;
   superseded_at?: string;
   transition_reason?: string;
+  /** 语义检索命中时的相似度（列表/详情不回传）；界面据此排序说明，不自造 */
+  similarity?: number | null;
+  /** 本次检索触发回归识别（服务端 [回归信念] 标注） */
+  regressed?: boolean;
 }
 
 // ═══ Mood ═══
@@ -517,6 +552,28 @@ export interface GrowthTopic {
   tag: string;
   count: number;
   topic: string;
+}
+
+/**
+ * GET /growth/memory-card 的响应（P2 #31）。
+ * `card_text` 由服务端 LLM 写、失败回退模板；`has_data=false` 时两者都为 null/空，
+ * 由前端展示空态（不要自己造「那天什么都没有」的文案以外的判断）。
+ */
+export interface GrowthMemoryCardMood {
+  emoji: string;
+  label: string;
+  interpretation?: string | null;
+}
+
+export interface GrowthMemoryCard {
+  /** 服务端按用户时区算出的目标日（YYYY-MM-DD） */
+  date: string;
+  days_ago: number;
+  has_data: boolean;
+  mood: GrowthMemoryCardMood | null;
+  records: { record_type: string; content: string }[];
+  memories: string[];
+  card_text: string | null;
 }
 
 // ═══ Reflection (P0-F04) ═══

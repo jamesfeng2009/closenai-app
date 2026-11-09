@@ -35,6 +35,7 @@ import BedtimeReviewScreen from './src/screens/BedtimeReviewScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import MessagesScreen from './src/screens/MessagesScreen';
 import PrivacySecurityScreen from './src/screens/PrivacySecurityScreen';
+import ConsentLedgerScreen from './src/screens/ConsentLedgerScreen';
 import HelpFeedbackScreen from './src/screens/HelpFeedbackScreen';
 import { Colors } from './src/theme/colors';
 import { initI18n, default as i18n } from './src/i18n';
@@ -91,6 +92,8 @@ export type RootStackParamList = {
   Insights: { initialSection?: 'mood' } | undefined;
   Messages: undefined;
   PrivacySecurity: undefined;
+  // P2 #29：同意台账（六用途 × 版本 × 授予/撤回时刻），从隐私与安全页进入
+  ConsentLedger: undefined;
   HelpFeedback: undefined;
 };
 
@@ -327,6 +330,11 @@ function AppRoot() {
               <Stack.Screen
                 name="PrivacySecurity"
                 component={PrivacySecurityScreen}
+                options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
+              />
+              <Stack.Screen
+                name="ConsentLedger"
+                component={ConsentLedgerScreen}
                 options={{ headerShown: true, headerStyle: { backgroundColor: Colors.bgPrimary }, headerTintColor: Colors.textPrimary, headerTitle: '' }}
               />
               <Stack.Screen

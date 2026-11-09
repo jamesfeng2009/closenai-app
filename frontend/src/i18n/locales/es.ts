@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "¿Qué quieres que ClosenAI recuerde?",
     "addSubmit": "Añadir memoria",
     "checking": "Comprobando si hay duplicados…",
+    "searchPlaceholder": "Buscar en tus recuerdos",
+    "searchSubmit": "Buscar",
+    "searchEmpty": "No se encontraron recuerdos relacionados",
+    "searchResultsFor": "Resultados para «{{query}}»",
+    "searchClear": "Cerrar búsqueda",
     "status": {
       "current": "Actual",
       "superseded": "Sustituida",
@@ -193,6 +198,16 @@ const resource = {
     "title": "Mis registros de crecimiento",
     "empty": "Aún no hay nada. Los registros aparecen mientras chateas y reflexionas.",
     "filterAll": "Todos",
+    "memoryCard": {
+      "title": "Tarjeta de recuerdos",
+      "hint": "Vuelve a un día de tu propia historia. El texto de la tarjeta lo escribe la IA.",
+      "days": "Hace {{days}} días",
+      "load": "Volver a mirar",
+      "loading": "Mirando atrás…",
+      "empty": "No se registró nada hace {{days}} días.",
+      "consent": "Activa primero el uso compartido de datos con IA: la tarjeta la escribe la IA.",
+      "failed": "No se pudo cargar la tarjeta. Inténtalo más tarde."
+    },
     "topicsTitle": "Temas que merecen una mirada",
     "guestEmpty": "Inicia sesión para ver tus registros de crecimiento.",
     "tag": {
@@ -809,6 +824,28 @@ const resource = {
     "consentReadonlyHint": "Para cambiar tu elección, ve a Perfil → Configuración de uso compartido.",
     "deletionTitle": "Eliminación de datos",
     "deletionDesc": "Puedes eliminar de forma permanente tu cuenta y todos tus datos (conversaciones, recuerdos, registros, historial de crecimiento) cuando quieras desde Perfil → Eliminar cuenta. No se puede deshacer."
+  },
+  "consentLedger": {
+    "title": "Consentimientos",
+    "intro": "Qué aceptaste y cuándo. Puedes retirarlo en cualquier momento.",
+    "version": "Versión del texto {{version}}",
+    "granted": "Otorgado",
+    "notGiven": "No otorgado",
+    "withdrawn": "Retirado",
+    "grant": "Otorgar",
+    "withdraw": "Retirar",
+    "grantedAt": "Otorgado el {{date}}",
+    "withdrawnAt": "Retirado el {{date}}",
+    "coreHint": "El servicio principal está ligado a tu cuenta; retirarlo equivale a eliminar la cuenta.",
+    "updateFailed": "No se pudo actualizar el consentimiento.",
+    "purposes": {
+      "core_service": "Servicio principal",
+      "ai_processing": "Tratamiento de datos por IA",
+      "proactive_push": "Mensajes proactivos",
+      "analytics": "Análisis anónimo",
+      "data_export": "Exportación de datos",
+      "model_training": "Entrenamiento de modelos"
+    }
   },
   "export": {
     "title": "Exportación de datos",

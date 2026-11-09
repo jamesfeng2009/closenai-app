@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "Was soll ClosenAI behalten?",
     "addSubmit": "Erinnerung hinzufügen",
     "checking": "Prüfe auf Duplikate…",
+    "searchPlaceholder": "Erinnerungen durchsuchen",
+    "searchSubmit": "Suchen",
+    "searchEmpty": "Keine passenden Erinnerungen gefunden",
+    "searchResultsFor": "Suchergebnisse für „{{query}}“",
+    "searchClear": "Suche beenden",
     "status": {
       "current": "Aktuell",
       "superseded": "Ersetzt",
@@ -193,6 +198,16 @@ const resource = {
     "title": "Meine Entwicklung",
     "empty": "Noch nichts hier. Einträge entstehen, wenn du chattest und reflektierst.",
     "filterAll": "Alle",
+    "memoryCard": {
+      "title": "Erinnerungskarte",
+      "hint": "Blick zurück auf einen Tag aus deiner eigenen Geschichte. Der Kartentext wird von KI geschrieben.",
+      "days": "vor {{days}} Tagen",
+      "load": "Zurückblicken",
+      "loading": "Blicke zurück…",
+      "empty": "Vor {{days}} Tagen wurde nichts festgehalten.",
+      "consent": "Aktiviere zuerst die KI-Datenfreigabe – der Kartentext wird von KI geschrieben.",
+      "failed": "Erinnerungskarte konnte nicht geladen werden. Bitte später erneut versuchen."
+    },
     "topicsTitle": "Themen, die genaueres Hinschauen lohnen",
     "guestEmpty": "Melde dich an, um deine Entwicklungseinträge zu sehen.",
     "tag": {
@@ -809,6 +824,28 @@ const resource = {
     "consentReadonlyHint": "Ihre Auswahl ändern Sie unter Profil → Datenaustausch-Einstellungen.",
     "deletionTitle": "Datenlöschung",
     "deletionDesc": "Unter Profil → Konto löschen können Sie Ihr Konto und alle Daten (Gespräche, Erinnerungen, Check-ins, Wachstumsaufzeichnungen) jederzeit endgültig löschen. Das kann nicht rückgängig gemacht werden."
+  },
+  "consentLedger": {
+    "title": "Einwilligungen",
+    "intro": "Was du zugestimmt hast und wann. Du kannst jederzeit widerrufen.",
+    "version": "Textversion {{version}}",
+    "granted": "Erteilt",
+    "notGiven": "Nicht erteilt",
+    "withdrawn": "Widerrufen",
+    "grant": "Erteilen",
+    "withdraw": "Widerrufen",
+    "grantedAt": "Erteilt am {{date}}",
+    "withdrawnAt": "Widerrufen am {{date}}",
+    "coreHint": "Der Kerndienst ist an dein Konto gebunden; ein Widerruf bedeutet die Löschung des Kontos.",
+    "updateFailed": "Einwilligung konnte nicht aktualisiert werden.",
+    "purposes": {
+      "core_service": "Kerndienst",
+      "ai_processing": "KI-Datenverarbeitung",
+      "proactive_push": "Proaktive Nachrichten",
+      "analytics": "Anonyme Analyse",
+      "data_export": "Datenexport",
+      "model_training": "Modelltraining"
+    }
   },
   "export": {
     "title": "Datenexport",

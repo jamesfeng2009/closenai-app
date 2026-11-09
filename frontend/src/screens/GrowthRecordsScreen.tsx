@@ -22,13 +22,16 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
-  getGrowthRecords, getRecommendedTopics, listActions, transitionAction, postActionOutcome,
+  getGrowthRecords, getRecommendedTopics, getGrowthMemoryCard, listActions, transitionAction,
+  postActionOutcome, ApiError,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { toLocalDate } from '../utils/datetime';
 import { newTraceId } from '../utils/traceId';
 import { trackFunnelOnce } from '../services/funnel';
-import type { ActionItem, ActionResultChoice, GrowthRecordItem, GrowthTopic } from '../types';
+import type {
+  ActionItem, ActionResultChoice, GrowthRecordItem, GrowthTopic, GrowthMemoryCard,
+} from '../types';
 
 /**
  * 后端中文规范标签 → 展示文案键。
@@ -69,6 +72,12 @@ const ACTION_BUCKETS: { key: string; status: string }[] = [
  */
 const RESULT_CHOICES: ActionResultChoice[] = ['better', 'same', 'worse', 'unknown'];
 
+/**
+ * 回忆卡的天数档（P2 #31）：一个月 / 三个月 / 一年前。后端 days_ago 校验 1..365，
+ * 这里只给三个有语义的档，不做自由输入（1 天前就是「昨天」，不需要一张卡）。
+ */
+const CARD_DAY_CHOICES = [30, 90, 365];
+
 // 结果备注的长度不由前端定：outcomes.description 没有上限判据，前端造一个就是第二套规则。
 
 export default function GrowthRecordsScreen() {
@@ -95,6 +104,14 @@ export default function GrowthRecordsScreen() {
   const [resultChoice, setResultChoice] = useState<ActionResultChoice | null>(null);
   const [resultNote, setResultNote] = useState('');
   const [resultBusy, setResultBusy] = useState(false);
+
+  // 回忆卡（P2 #31）：花钱的端点（服务端会写一次 lite LLM），只能由按钮触发。
+  // 四态各记一份：卡片内容 / 加载中 / 未同意 AI 共享（40303）/ 其他失败。
+  const [cardDays, setCardDays] = useState(30);
+  const [card, setCard] = useState<GrowthMemoryCard | null>(null);
+  const [cardLoading, setCardLoading] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [cardConsent, setCardConsent] = useState(false);
 
   const load = useCallback(async () => {
     if (!isLoggedIn) {
@@ -195,6 +212,39 @@ export default function GrowthRecordsScreen() {
   const closeResult = () => setResultFor(null);
 
   /**
+   * 切换回忆卡天数档：旧卡必须一起清掉。
+   * 不清的话「365 天前」的档位标签下面摆着 30 天前那张卡，用户会以为那是同一天。
+   */
+  const selectCardDays = (days: number) => {
+    if (days === cardDays || cardLoading) return;
+    setCardDays(days);
+    setCard(null);
+    setCardError(null);
+    setCardConsent(false);
+  };
+
+  /**
+   * 回忆卡（P2 #31）。未同意 AI 数据共享时后端回 40303，这不是失败：屏上给的是
+   * 「去开共享」这一句，而不是通用错误——两句话在这里不能混。
+   */
+  const loadMemoryCard = async () => {
+    if (!isLoggedIn || cardLoading) return;
+    try {
+      setCardLoading(true);
+      setCardError(null);
+      setCardConsent(false);
+      setCard(await getGrowthMemoryCard(cardDays));
+    } catch (e) {
+      // 出错不能把上一张卡留在屏上冒充这一次的结果
+      setCard(null);
+      if (e instanceof ApiError && e.code === 40303) setCardConsent(true);
+      else setCardError(t('growthRecords.memoryCard.failed'));
+    } finally {
+      setCardLoading(false);
+    }
+  };
+
+  /**
    * 记一次结果：四选一先选中、备注可留空，最后一枚按钮才发请求。
    *
    * 不做「点档位即提交」：那样用户写完备注的那一句已经晚了，而这一面唯一的幂等判据是
@@ -264,6 +314,71 @@ export default function GrowthRecordsScreen() {
     <>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{t('growthRecords.title')}</Text>
+
+      {/* 回忆卡（P2 #31）：翻回那一天。按钮触发，不随聚焦预取——这条会写一次 LLM。 */}
+      <View style={styles.memoryCardSection}>
+        <Text style={styles.sectionTitle}>{t('growthRecords.memoryCard.title')}</Text>
+        <Text style={styles.memoryCardHint}>{t('growthRecords.memoryCard.hint')}</Text>
+        <View style={styles.cardDayRow}>
+          {CARD_DAY_CHOICES.map((days) => (
+            <TouchableOpacity
+              key={days}
+              testID={`memoryCardDays-${days}`}
+              style={[styles.filterChip, cardDays === days && styles.filterChipActive]}
+              onPress={() => selectCardDays(days)}
+              disabled={cardLoading}
+              accessibilityRole="button"
+              accessibilityState={{ selected: cardDays === days }}
+              accessibilityLabel={t('growthRecords.memoryCard.days', { days })}
+            >
+              <Text style={[styles.filterChipText, cardDays === days && styles.filterChipTextActive]}>
+                {t('growthRecords.memoryCard.days', { days })}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          testID="memoryCardLoad"
+          style={[styles.memoryCardBtn, cardLoading && styles.actionBtnDisabled]}
+          onPress={loadMemoryCard}
+          disabled={cardLoading}
+          accessibilityRole="button"
+          accessibilityLabel={t('growthRecords.memoryCard.load')}
+        >
+          <Text style={styles.memoryCardBtnText}>
+            {cardLoading ? t('growthRecords.memoryCard.loading') : t('growthRecords.memoryCard.load')}
+          </Text>
+        </TouchableOpacity>
+        {cardConsent && (
+          <Text testID="memoryCardConsent" style={styles.memoryCardNote}>
+            {t('growthRecords.memoryCard.consent')}
+          </Text>
+        )}
+        {!!cardError && (
+          <Text testID="memoryCardError" style={styles.memoryCardNote}>{cardError}</Text>
+        )}
+        {!!card && !card.has_data && (
+          <Text testID="memoryCardEmpty" style={styles.memoryCardNote}>
+            {t('growthRecords.memoryCard.empty', { days: card.days_ago })}
+          </Text>
+        )}
+        {!!card && card.has_data && (
+          <View testID="memoryCardResult" style={styles.memoryCardResult}>
+            <Text style={styles.memoryCardDate}>{card.date}</Text>
+            {!!card.mood && (
+              <Text style={styles.memoryCardMood}>{card.mood.emoji} {card.mood.label}</Text>
+            )}
+            {/* 正文由服务端写；前端只念，不在本地补一句「那天你…」 */}
+            {!!card.card_text && <Text style={styles.memoryCardText}>{card.card_text}</Text>}
+            {card.records.map((r, i) => (
+              <Text key={`r-${i}`} style={styles.memoryCardLine}>· {r.content}</Text>
+            ))}
+            {card.memories.map((m, i) => (
+              <Text key={`m-${i}`} style={styles.memoryCardQuote}>「{m}」</Text>
+            ))}
+          </View>
+        )}
+      </View>
 
       {/* T4-04：我的行动。三个分区、行内两个动作、完成后立刻问结果。
           这一段的三态与下面记录那段各记一份，谁也不替谁说话。 */}
@@ -548,9 +663,39 @@ const styles = StyleSheet.create({
   },
   topicText: { flex: 1, fontSize: FontSize.md, color: Colors.textSecondary, lineHeight: LineHeight.caption },
   topicCount: { fontSize: FontSize.sm, color: Colors.gold400, fontWeight: '600' },
+  // ── 回忆卡（P2 #31）──
+  memoryCardSection: { marginBottom: Spacing.lg },
+  memoryCardHint: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, marginBottom: Spacing.sm,
+    lineHeight: LineHeight.caption,
+  },
+  cardDayRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: Spacing.sm },
+  memoryCardBtn: {
+    alignSelf: 'flex-start', paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: BorderRadius.pill, backgroundColor: Colors.gold400,
+  },
+  memoryCardBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.bgPrimary },
+  memoryCardNote: {
+    fontSize: FontSize.sm, color: Colors.textTertiary, marginTop: Spacing.sm,
+    lineHeight: LineHeight.caption,
+  },
+  memoryCardResult: {
+    marginTop: Spacing.sm, backgroundColor: 'rgba(255,215,0,0.06)', borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.2)', borderRadius: BorderRadius.lg, padding: Spacing.md,
+  },
+  memoryCardDate: { fontSize: FontSize.xs, color: Colors.gold400, marginBottom: 4 },
+  memoryCardMood: { fontSize: FontSize.md, color: Colors.textPrimary, marginBottom: 4 },
+  memoryCardText: {
+    fontSize: FontSize.md, color: Colors.textPrimary, lineHeight: LineHeight.body,
+    marginVertical: Spacing.sm,
+  },
+  memoryCardLine: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: LineHeight.caption },
+  memoryCardQuote: {
+    fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: LineHeight.caption,
+    marginTop: 2,
+  },
   // ── T4-04：我的行动 ──
-  actionsSection: { marginBottom: Spacing.lg },
-  actionsSpinner: { marginVertical: Spacing.md },
+  actionsSection: { marginBottom: Spacing.lg },  actionsSpinner: { marginVertical: Spacing.md },
   actionBucket: { marginBottom: Spacing.md },
   actionsTruncatedNote: {
     fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 4,

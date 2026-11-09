@@ -22,7 +22,7 @@ import {
 import { flushAnalytics } from '../services/analytics';
 import { registerForPushNotifications } from '../services/push';
 import { resetSession, resetSessionFull } from '../services/session';
-import { onSessionReset } from '../services/api';
+import { onSessionReset, onSessionRestored } from '../services/api';
 import type { AuthResponse, AuthUser } from '../types';
 
 // 引导期游客选择的 MBTI 暂存 key（与 OnboardingScreen 共用）
@@ -51,6 +51,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return onSessionReset(() => {
       setUser(null);
     });
+  }, []);
+
+  // 冷启动 4s 超时后 SecureStore 才返回：本组件是在超时放行时才挂载的，
+  // render 期的初始值可能早于 loadSession 落定。先补读一次内存态，再订阅恢复事件，
+  // 否则已登录用户会一直停在游客界面，直到下一次进程重启。
+  useEffect(() => {
+    setUser(getAuthUser());
+    return onSessionRestored(() => setUser(getAuthUser()));
   }, []);
 
   // 引导期（游客态）暂存的写入请求：登录后补交给后端。

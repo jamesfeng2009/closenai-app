@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "ClosenAI に覚えておいてほしいことは？",
     "addSubmit": "この記憶を追加",
     "checking": "重複を確認中…",
+    "searchPlaceholder": "記憶を検索",
+    "searchSubmit": "検索",
+    "searchEmpty": "該当する記憶はありません",
+    "searchResultsFor": "「{{query}}」の検索結果",
+    "searchClear": "検索を終了",
     "status": {
       "current": "現在",
       "superseded": "置き換え済み",
@@ -189,6 +194,16 @@ const resource = {
     "title": "成長の記録",
     "empty": "まだ何もありません。会話や振り返りをすると、ここにたまります。",
     "filterAll": "すべて",
+    "memoryCard": {
+      "title": "思い出カード",
+      "hint": "自分の過去のある一日を振り返ります。カードの文章はAIが書きます。",
+      "days": "{{days}}日前",
+      "load": "振り返る",
+      "loading": "振り返っています…",
+      "empty": "{{days}}日前の記録はありません。",
+      "consent": "先にAIデータ共有をオンにしてください。カードはAIが書きます。",
+      "failed": "思い出カードを読み込めませんでした。後でもう一度お試しください。"
+    },
     "topicsTitle": "あらためて考えてみたいテーマ",
     "guestEmpty": "ログインすると、あなたの成長の記録が見られます。",
     "tag": {
@@ -800,6 +815,28 @@ const resource = {
     "consentReadonlyHint": "選択を変更するには「プロフィール → データ共有設定」へ進んでください。",
     "deletionTitle": "データの削除",
     "deletionDesc": "いつでも「プロフィール → アカウントを削除」から、アカウントとすべてのデータ（会話、記憶、チェックイン、成長記録）を完全に削除できます。この操作は元に戻せません。"
+  },
+  "consentLedger": {
+    "title": "同意の記録",
+    "intro": "各用途への同意状況と日時を記録しています。いつでも撤回できます。",
+    "version": "文案バージョン {{version}}",
+    "granted": "同意済み",
+    "notGiven": "未回答",
+    "withdrawn": "撤回済み",
+    "grant": "同意する",
+    "withdraw": "撤回する",
+    "grantedAt": "{{date}} に同意",
+    "withdrawnAt": "{{date}} に撤回",
+    "coreHint": "コアサービスはアカウントと一体です。撤回はアカウント削除と同じ意味になります。",
+    "updateFailed": "同意状態を更新できませんでした。",
+    "purposes": {
+      "core_service": "コアサービス",
+      "ai_processing": "AIデータ処理",
+      "proactive_push": "プッシュ通知",
+      "analytics": "匿名分析",
+      "data_export": "データ書き出し",
+      "model_training": "モデル学習"
+    }
   },
   "export": {
     "title": "データのエクスポート",

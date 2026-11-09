@@ -14,7 +14,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
-  listMemories, createMemory, getMemory, versionMemory, deleteMemory, ApiError,
+  listMemories, createMemory, getMemory, versionMemory, deleteMemory, searchMemories, ApiError,
 } from '../services/api';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import type { Memory } from '../types';
@@ -52,6 +52,13 @@ export default function MemoriesScreen({ navigation }: { navigation: any }) {
   const [detail, setDetail] = useState<Memory | null>(null);
   const [change, setChange] = useState('');
   const [versioning, setVersioning] = useState(false);
+
+  // 语义检索（P2 #30）：null＝未检索（显示全量列表），数组＝检索结果（含空结果）。
+  // 两者必须分开：空结果若塌回全量列表，用户会以为「搜出来的就是这些」。
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Memory[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isLoggedIn) {
@@ -112,6 +119,35 @@ export default function MemoriesScreen({ navigation }: { navigation: any }) {
   };
 
   /**
+   * 语义检索（P2 #30）。
+   *
+   * 空查询先挡住：服务端 embedding 失败时返回 []（memory_service.py:411-413），
+   * 界面会把它念成「没有相关记忆」，而真实原因是没输入。
+   * 结果只进 searchResults，不碰 memories——检索不是列表的新真源，退出检索要原样还回去。
+   */
+  const onSearch = async () => {
+    if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
+    const query = searchQuery.trim();
+    if (!query || searching) return;
+    try {
+      setSearching(true);
+      setSearchError(null);
+      setSearchResults(await searchMemories(query));
+    } catch (e) {
+      setSearchResults([]);
+      setSearchError(e instanceof ApiError ? e.message : t('common.loadFailed'));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults(null);
+    setSearchError(null);
+  };
+
+  /**
    * 金句卡入口（KG-30）：把这一条交给分享屏做**预览**，导出时才发 id。
    *
    * 不按 `detail.source` 预筛：那个字段是 LLM 给这条记忆的语义标注（self/others/hypothetical），
@@ -169,6 +205,9 @@ export default function MemoriesScreen({ navigation }: { navigation: any }) {
     );
   };
 
+  // 检索态下列表只显示检索结果：null 才回落到全量（空数组是「搜了，没结果」）
+  const visible = searchResults ?? memories;
+
   if (loading) {
     return (
       <View style={styles.loading}>
@@ -188,10 +227,50 @@ export default function MemoriesScreen({ navigation }: { navigation: any }) {
         </View>
       ) : (
       <FlatList
-        data={memories}
+        data={visible}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.content}
         ListHeaderComponent={
+          <View>
+            {/* 语义检索（P2 #30）：只改显示集合，不改 memories 这条真源 */}
+            <View style={styles.searchRow}>
+              <TextInput
+                testID="memorySearchInput"
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder={t('memories.searchPlaceholder')}
+                placeholderTextColor={Colors.textTertiary}
+                returnKeyType="search"
+                onSubmitEditing={onSearch}
+                accessibilityLabel={t('memories.searchPlaceholder')}
+              />
+              <TouchableOpacity
+                testID="memorySearchSubmit"
+                accessibilityRole="button"
+                style={[styles.searchBtn, (!searchQuery.trim() || searching) && styles.addBtnDisabled]}
+                onPress={onSearch}
+                disabled={!searchQuery.trim() || searching}
+              >
+                <Text style={styles.searchBtnText}>
+                  {searching ? t('memories.checking') : t('memories.searchSubmit')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {searchResults !== null && (
+              <View style={styles.searchBanner}>
+                <Text style={styles.searchBannerText}>
+                  {t('memories.searchResultsFor', { query: searchQuery.trim() })}
+                </Text>
+                <TouchableOpacity
+                  testID="memorySearchClear"
+                  accessibilityRole="button"
+                  onPress={clearSearch}
+                >
+                  <Text style={styles.searchClearText}>{t('memories.searchClear')}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           <View style={styles.compose}>
             <Text style={styles.composeTitle}>{t('memories.add')}</Text>
             <TextInput
@@ -227,9 +306,14 @@ export default function MemoriesScreen({ navigation }: { navigation: any }) {
               </Text>
             </TouchableOpacity>
           </View>
+          </View>
         }
         ListEmptyComponent={
-          <Text style={styles.empty}>{t('memories.empty')}</Text>
+          <Text style={styles.empty}>
+            {searchResults !== null
+              ? (searchError || t('memories.searchEmpty'))
+              : t('memories.empty')}
+          </Text>
         }
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -241,7 +325,9 @@ export default function MemoriesScreen({ navigation }: { navigation: any }) {
             >
               <Text style={styles.text}>{item.content}</Text>
               <Text style={styles.meta}>
-                {t(`memories.category.${item.category}`)}{item.created_at ? ` · ${new Date(item.created_at).toLocaleDateString()}` : ''}
+                {t(`memories.category.${item.category}`)}
+                {typeof item.similarity === 'number' ? ` · ${Math.round(item.similarity * 100)}%` : ''}
+                {item.created_at ? ` · ${new Date(item.created_at).toLocaleDateString()}` : ''}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.deleteBtn} onPress={() => onDelete(item)}>
@@ -332,6 +418,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,215,0,0.12)', borderWidth: 1, borderColor: Colors.gold400,
   },
   retryText: { fontSize: FontSize.md, color: Colors.gold400, fontWeight: '600' },
+  searchRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
+  searchInput: {
+    flex: 1, height: 44, borderWidth: 1, borderColor: Colors.borderLight, borderRadius: BorderRadius.pill,
+    paddingHorizontal: Spacing.md, color: Colors.textPrimary, fontSize: FontSize.md,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  searchBtn: {
+    paddingHorizontal: Spacing.lg, height: 44, borderRadius: BorderRadius.pill,
+    backgroundColor: Colors.gold400, alignItems: 'center', justifyContent: 'center',
+  },
+  searchBtnText: { fontSize: FontSize.md, color: Colors.bgPrimary, fontWeight: '700' },
+  searchBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: Spacing.md, paddingHorizontal: Spacing.sm,
+  },
+  searchBannerText: { flex: 1, fontSize: FontSize.sm, color: Colors.textSecondary },
+  searchClearText: { fontSize: FontSize.sm, color: Colors.gold400, fontWeight: '600' },
   compose: {
     backgroundColor: 'rgba(99,102,241,0.06)', borderWidth: 1, borderColor: Colors.borderLight,
     borderRadius: BorderRadius.lg, padding: Spacing.md, marginBottom: Spacing.lg, gap: Spacing.sm,

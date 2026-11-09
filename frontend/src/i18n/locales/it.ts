@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "Cosa vuoi che ClosenAI ricordi?",
     "addSubmit": "Aggiungi ricordo",
     "checking": "Controllo dei duplicati…",
+    "searchPlaceholder": "Cerca nei tuoi ricordi",
+    "searchSubmit": "Cerca",
+    "searchEmpty": "Nessun ricordo corrispondente",
+    "searchResultsFor": "Risultati per «{{query}}»",
+    "searchClear": "Chiudi ricerca",
     "status": {
       "current": "Attuale",
       "superseded": "Sostituito",
@@ -193,6 +198,16 @@ const resource = {
     "title": "Il mio percorso",
     "empty": "Ancora niente qui. Le note compaiono mentre chatti e rifletti.",
     "filterAll": "Tutti",
+    "memoryCard": {
+      "title": "Carta dei ricordi",
+      "hint": "Torna a un giorno della tua storia. Il testo della carta è scritto dall'IA.",
+      "days": "{{days}} giorni fa",
+      "load": "Guarda indietro",
+      "loading": "Guardando indietro…",
+      "empty": "Non c'era nulla registrato {{days}} giorni fa.",
+      "consent": "Attiva prima la condivisione dei dati con l'IA: la carta è scritta dall'IA.",
+      "failed": "Impossibile caricare la carta. Riprova più tardi."
+    },
     "topicsTitle": "Temi che meritano uno sguardo",
     "guestEmpty": "Accedi per vedere le note del tuo percorso.",
     "tag": {
@@ -809,6 +824,28 @@ const resource = {
     "consentReadonlyHint": "Per modificare la scelta, vai su Profilo → Impostazioni condivisione dati.",
     "deletionTitle": "Cancellazione dei dati",
     "deletionDesc": "Puoi eliminare definitivamente il tuo account e tutti i dati (conversazioni, ricordi, check-in, registri di crescita) in qualsiasi momento in Profilo → Elimina account. L'operazione non può essere annullata."
+  },
+  "consentLedger": {
+    "title": "Consensi",
+    "intro": "Cosa hai accettato e quando. Puoi revocarlo in qualsiasi momento.",
+    "version": "Versione del testo {{version}}",
+    "granted": "Concesso",
+    "notGiven": "Non concesso",
+    "withdrawn": "Revocato",
+    "grant": "Concedi",
+    "withdraw": "Revoca",
+    "grantedAt": "Concesso il {{date}}",
+    "withdrawnAt": "Revocato il {{date}}",
+    "coreHint": "Il servizio principale è legato al tuo account; revocarlo equivale a eliminare l’account.",
+    "updateFailed": "Impossibile aggiornare il consenso.",
+    "purposes": {
+      "core_service": "Servizio principale",
+      "ai_processing": "Trattamento dati IA",
+      "proactive_push": "Messaggi proattivi",
+      "analytics": "Analisi anonima",
+      "data_export": "Esportazione dati",
+      "model_training": "Addestramento del modello"
+    }
   },
   "export": {
     "title": "Esportazione dei dati",

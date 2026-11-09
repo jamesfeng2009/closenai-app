@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "What do you want ClosenAI to remember?",
     "addSubmit": "Add this memory",
     "checking": "Checking for duplicates…",
+    "searchPlaceholder": "Search your memories",
+    "searchSubmit": "Search",
+    "searchEmpty": "No matching memories",
+    "searchResultsFor": "Results for \"{{query}}\"",
+    "searchClear": "Close search",
     "status": {
       "current": "Current",
       "superseded": "Superseded",
@@ -193,6 +198,16 @@ const resource = {
     "title": "Growth Records",
     "empty": "Nothing here yet. Records show up as you chat and reflect.",
     "filterAll": "All",
+    "memoryCard": {
+      "title": "Memory card",
+      "hint": "Look back on a day from your own history. The card text is written by AI.",
+      "days": "{{days}} days ago",
+      "load": "Look back",
+      "loading": "Looking back…",
+      "empty": "Nothing was recorded {{days}} days ago.",
+      "consent": "Turn on AI data sharing first — the card is written with AI.",
+      "failed": "Couldn't load the card. Please try again later."
+    },
     "topicsTitle": "Topics worth a closer look",
     "guestEmpty": "Sign in to see your growth records.",
     "tag": {
@@ -809,6 +824,28 @@ const resource = {
     "consentReadonlyHint": "To change your choice, go to Profile → Data Sharing Settings.",
     "deletionTitle": "Data Deletion",
     "deletionDesc": "You can permanently delete your account and all data (conversations, memories, check-ins, growth records) anytime in Profile → Delete Account. This cannot be undone."
+  },
+  "consentLedger": {
+    "title": "Consent records",
+    "intro": "What you agreed to, and when. You can withdraw at any time.",
+    "version": "Text version {{version}}",
+    "granted": "Granted",
+    "notGiven": "Not given",
+    "withdrawn": "Withdrawn",
+    "grant": "Grant",
+    "withdraw": "Withdraw",
+    "grantedAt": "Granted on {{date}}",
+    "withdrawnAt": "Withdrawn on {{date}}",
+    "coreHint": "Core service is tied to your account; withdrawing it means deleting the account.",
+    "updateFailed": "Could not update consent.",
+    "purposes": {
+      "core_service": "Core service",
+      "ai_processing": "AI data processing",
+      "proactive_push": "Proactive messages",
+      "analytics": "Anonymous analytics",
+      "data_export": "Data export",
+      "model_training": "Model training"
+    }
   },
   "export": {
     "title": "Data Export",

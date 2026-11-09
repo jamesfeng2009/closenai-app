@@ -17,7 +17,7 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Colors, Spacing, FontSize, LineHeight, BorderRadius } from '../theme/colors';
 import {
-  streamChat, moodCheckin, getChatHistory, getGrowthDashboard,
+  streamChat, moodCheckin, getGrowthDashboard,
   generateReflectionDraft, saveReflection, getUserProfile, setAiConsent, ApiError,
 } from '../services/api';
 import AIConsentModal from '../components/AIConsentModal';
@@ -30,6 +30,8 @@ import {
 } from '../services/reflectionPrompts';
 import { useAuth, useRequireAuth } from '../context/AuthContext';
 import { chatRepo } from '../services/db/chatRepository';
+import { chatOutboxRepo } from '../services/db/chatOutboxRepository';
+import { flushChatOutbox, pullChatHistory } from '../services/chatSync';
 import { resolveMemoryRefs } from '../services/evidence';
 import { aiMessagesRepo } from '../services/db/aiMessagesRepository';
 import { moodCheckinRepo } from '../services/db/moodCheckinRepository';
@@ -110,6 +112,10 @@ export default function ReflectScreen() {
   const [promptSaving, setPromptSaving] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
+  // 签到请求的连点守卫（P2 #25）：状态更新要等下一次渲染，同一帧的第二次
+  // 点击读到的还是旧值，必须用 ref 同步占位。
+  const moodCheckinRef = useRef(false);
+  const [moodCheckingIn, setMoodCheckingIn] = useState(false);
 
   // 防止聚焦重入导致重复并发请求
   const loadingRef = useRef(false);
@@ -117,8 +123,12 @@ export default function ReflectScreen() {
   const loadInitial = React.useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
-    // 首屏秒开：先读本地对话历史（Tier 1 本地拥有，离线可用）
-    const local = await chatRepo.getRecent(20).catch(() => []);
+    // P2 #28：先把离线攒下的用户消息补投出去、再按水位拉新，最后才读本地缓存。
+    // 两步都失败也继续渲染本地历史（离线可用是 Tier 1 的承诺）。
+    await flushChatOutbox().catch(() => {});
+    const pulled = await pullChatHistory().catch(() => []);
+    // 首屏秒开：本地对话历史（Tier 1 本地拥有，离线可用；pull 刚落库的新消息也在里面）
+    const local = await chatRepo.getRecent(50).catch(() => []);
     // 本地 getRecent 为 created_at DESC，统一升序（最旧在顶、最新在底）
     let msgs: Message[] = sortByCreatedAtAsc(local.map((h) => ({
       id: h.id,
@@ -130,9 +140,8 @@ export default function ReflectScreen() {
 
     try {
       // 后台拉取远端最新数据，合并刷新（Tier 1 双向同步）
-      const [dashboard, history, profile] = await Promise.all([
+      const [dashboard, profile] = await Promise.all([
         getGrowthDashboard().catch(() => null),
-        getChatHistory(20).catch(() => null),
         getUserProfile().catch(() => null),
       ]);
       // 合规 5.1.2(i)：未同意 AI 数据共享时先弹说明弹窗
@@ -145,15 +154,17 @@ export default function ReflectScreen() {
         setMoodCheckedIn(!!dashboard.today_mood);
       }
 
-      const remote: Message[] = (history || []).map((h) => ({
-        id: h.id,
+      const remote: Message[] = pulled.map((h) => ({
+        // 用户消息的本地 id 就是 client_message_id：靠它把远端行与本地缓存认成同一条，
+        // 否则刷新后同一句话会显示两遍（服务端 uuid vs 本地 u-...）
+        id: h.client_message_id || h.id,
         role: h.role,
         content: h.content,
         created_at: h.created_at,
         memoryRefs: h.memory_refs ?? [],
       }));
       // 主动消息同步进本地 ai_messages 表（消息中心数据源；同 id upsert 幂等）
-      const proactive = (history || []).filter((h) => h.message_type === 'proactive');
+      const proactive = pulled.filter((h) => h.message_type === 'proactive');
       for (const m of proactive) {
         await aiMessagesRepo.upsertFromRemote(m.id, m.content, m.created_at).catch(() => {});
       }
@@ -283,14 +294,24 @@ export default function ReflectScreen() {
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
-    // 立即写入本地对话历史（Tier 1 本地拥有，离线不丢失，在线后同步远端）
+    const sentAt = new Date().toISOString();
+    // 立即写入本地对话历史（Tier 1 本地拥有，离线不丢失），同时记进 outbox：
+    // 在线流失败 / 纯离线时，页面下次聚焦会按 client_message_id 幂等补投（P2 #28）
     chatRepo
       .add({
         id: userMsg.id,
         role: 'user',
         content_preview: text,
         full_content_url: null,
-        created_at: new Date().toISOString(),
+        created_at: sentAt,
+      })
+      .catch(() => {});
+    chatOutboxRepo
+      .enqueue({
+        client_message_id: userMsg.id,
+        content: text,
+        message_type: 'reply',
+        created_at: sentAt,
       })
       .catch(() => {});
 
@@ -303,14 +324,22 @@ export default function ReflectScreen() {
     if (messages.length === 0) void trackFunnelOnce('first_record_created');
 
     cancelStreamRef.current = streamChat(
-      { content: text, message_type: 'reply' },
+      { content: text, message_type: 'reply', client_message_id: userMsg.id },
       (token) => {
         setMessages((prev) =>
           prev.map((m) => (m.id === aiMsgId ? { ...m, content: m.content + token } : m))
         );
       },
-      () => setIsStreaming(false),
+      () => {
+        setIsStreaming(false);
+        // 在线流已把这条用户消息落库：outbox 标 sent，避免下次聚焦重复补投
+        chatOutboxRepo.markSent([userMsg.id]).catch(() => {});
+      },
       (error, code) => {
+        // 服务端永久拒绝的两类错误：留在 outbox 只会每次聚焦再撞一次同样的墙
+        if (code === CODE_AI_CONSENT_REQUIRED || code === CODE_QUOTA_EXCEEDED) {
+          chatOutboxRepo.markDiscarded([userMsg.id], error).catch(() => {});
+        }
         // 未同意 AI 数据共享：移除占位气泡并弹出 consent 弹窗（合规 5.1.2(i)）
         if (code === CODE_AI_CONSENT_REQUIRED) {
           setMessages((prev) => prev.filter((m) => m.id !== aiMsgId));
@@ -337,6 +366,9 @@ export default function ReflectScreen() {
 
   const quickMoodCheckin = async (emoji: MoodEmoji) => {
     if (!requireAuth()) return; // 游客拦截 → 跳 AuthScreen
+    if (moodCheckinRef.current) return; // 连点：上一次请求未回，忽略本次
+    moodCheckinRef.current = true;
+    setMoodCheckingIn(true);
     // 附一句话（D-G8）：trim 后为空 ⇒ 传 undefined，不给库里写空串（口径同睡前复盘 step1「可空=跳过」）
     const note = moodNote.trim() || undefined;
     try {
@@ -372,6 +404,9 @@ export default function ReflectScreen() {
       }
       const msg = e instanceof ApiError ? e.message : t('errors.checkinFailed');
       Alert.alert(t('common.error'), msg);
+    } finally {
+      moodCheckinRef.current = false;
+      setMoodCheckingIn(false);
     }
   };
 
@@ -570,6 +605,8 @@ export default function ReflectScreen() {
                 key={emoji}
                 style={styles.moodQuickBtn}
                 onPress={() => quickMoodCheckin(emoji)}
+                disabled={moodCheckingIn}
+                accessibilityState={{ disabled: moodCheckingIn, busy: moodCheckingIn }}
               >
                 <Text style={styles.moodQuickEmoji}>{emoji}</Text>
               </TouchableOpacity>

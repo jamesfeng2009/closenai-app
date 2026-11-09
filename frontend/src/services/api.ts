@@ -14,11 +14,11 @@ import { newTraceId } from '../utils/traceId';
 import { noteLastTrace } from './monitoring';
 import { clearPendingReferral, peekPendingReferral } from './referral';
 import type {
-  ChatStreamRequest, ChatHistoryItem, SSEEvent,
+  ChatStreamRequest, ChatHistoryItem, ChatMessageBatchItem, SSEEvent,
   MoodCheckinResponse, MoodTrendData, MoodEmoji,
   MoodAnalysisRequest, MoodAnalysisResponse,
   GrowthDashboard, WeeklyInsight, GrowthTimeline,
-  GrowthRecordItem, GrowthTopic,
+  GrowthRecordItem, GrowthTopic, GrowthMemoryCard,
   InsightListPage, InsightDetail, InsightFeedbackReceipt, InsightFeedbackType,
   GoalListPage, GoalReceipt, ActionListPage, ActionWriteReceipt,
   ActionTransition, ActionResultChoice, ActionOutcomeReceipt,
@@ -28,6 +28,7 @@ import type {
   EnneagramState, EnneagramAnswerResult,
   UserProfile, UserSettings,
   ExportJob, ExportJobList,
+  ConsentLedger, ConsentPurposeReceipt,
   PersonalityCard, ShareCardVariant, SharePeriod, ShareReport, PatternDiscovery,
   ShareLink, YearInReviewCard, QuoteSourceType,
   OnThisDayResponse,
@@ -64,6 +65,25 @@ let accessToken: string | null = null;
 let refreshToken: string | null = null;
 let authUser: AuthUser | null = null;
 
+// ═══ 登录态恢复通知（冷启动超时放行后 SecureStore 才返回时用）═══
+//
+// 冷启动门闸 4s 超时会先放行、AuthProvider 这时才挂载；SecureStore 迟到返回的
+// access token 若只写进本模块的变量，React 侧没人知道 ⇒ 已登录用户一直显示游客。
+// loadSession 每次真的恢复出一个 token 都广播一次，AuthContext 据此重读内存态。
+const sessionRestoredListeners = new Set<() => void>();
+
+/** 订阅「持久化登录态已恢复」；返回取消函数。 */
+export function onSessionRestored(fn: () => void): () => void {
+  sessionRestoredListeners.add(fn);
+  return () => {
+    sessionRestoredListeners.delete(fn);
+  };
+}
+
+function notifySessionRestored(): void {
+  sessionRestoredListeners.forEach((fn) => fn());
+}
+
 /** 启动时加载持久化的登录态（App.tsx 冷启动关键路径调用）。 */
 export async function loadSession(): Promise<void> {
   try {
@@ -71,6 +91,7 @@ export async function loadSession(): Promise<void> {
     refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
     const userJson = await SecureStore.getItemAsync(USER_KEY);
     authUser = userJson ? (JSON.parse(userJson) as AuthUser) : null;
+    if (accessToken) notifySessionRestored();
   } catch {
     // ignore
   }
@@ -440,8 +461,27 @@ export function streamChat(
   };
 }
 
-export async function getChatHistory(limit: number = 20): Promise<ChatHistoryItem[]> {
-  return request<ChatHistoryItem[]>(`/chat/history?limit=${limit}`);
+export async function getChatHistory(
+  limit: number = 20,
+  since?: string
+): Promise<ChatHistoryItem[]> {
+  const sinceParam = since ? `&since=${encodeURIComponent(since)}` : '';
+  return request<ChatHistoryItem[]>(`/chat/history?limit=${limit}${sinceParam}`);
+}
+
+/**
+ * 离线消息补投（P2 #28）：按 `client_message_id` 幂等。
+ *
+ * 返回值分开 `created` / `existing`，前端不需要区分——两种情况都算「已经到服务端」，
+ * 都可以把 outbox 行标 sent；分开是为了排查时看得出这批里有多少是真新写。
+ */
+export async function postChatMessagesBatch(
+  messages: ChatMessageBatchItem[]
+): Promise<{ created: string[]; existing: string[] }> {
+  return request<{ created: string[]; existing: string[] }>('/chat/messages/batch', {
+    method: 'POST',
+    body: JSON.stringify({ messages }),
+  });
 }
 
 // ═══ Mood (P0-F03) ═══
@@ -512,6 +552,17 @@ export async function getGrowthRecords(): Promise<{ records: GrowthRecordItem[];
  */
 export async function getRecommendedTopics(): Promise<{ topics: GrowthTopic[] }> {
   return request<{ topics: GrowthTopic[] }>('/growth/topics');
+}
+
+/**
+ * 回忆卡（P0-F07 §7，P2 #31）：N 天前今日的记录/签到/记忆 → 「那天」的卡片。
+ *
+ * 这条端点花钱：服务端会用 lite LLM 写 `card_text`（失败回退模板），
+ * 所以只能由用户点出来，不能在屏聚焦时预取。未同意 AI 数据共享 → 40303。
+ * days_ago 由后端校验 1..365，前端不另立一套边界。
+ */
+export async function getGrowthMemoryCard(daysAgo: number = 30): Promise<GrowthMemoryCard> {
+  return request<GrowthMemoryCard>(`/growth/memory-card?days_ago=${daysAgo}`);
 }
 
 // ═══ V3 洞察（T3-04：逐条可回溯的依据 + 六态反馈入口）═══
@@ -919,6 +970,27 @@ export async function setAnalyticsConsent(
   );
 }
 
+/**
+ * 同意台账（P2 #29）：六用途在当前文案版本上的表态与时刻，附带历史版本行。
+ *
+ * 用途清单由服务端下发（`purposes`），前端不自建第二份枚举——否则后端新增一项，
+ * 客户端要么少显示一项，要么显示一个没有文案的裸键。
+ */
+export async function getConsentLedger(): Promise<ConsentLedger> {
+  return request<ConsentLedger>('/user/consents');
+}
+
+/** 记一次单项表态（granted=true 授予 / false 撤回），返回该项的最新回执。 */
+export async function setConsentPurpose(
+  purpose: string,
+  granted: boolean
+): Promise<ConsentPurposeReceipt> {
+  return request<ConsentPurposeReceipt>('/user/consents', {
+    method: 'POST',
+    body: JSON.stringify({ purpose, granted }),
+  });
+}
+
 // ═══ Memory (P0-F02) ═══
 
 export async function listMemories(limit: number = 50): Promise<Memory[]> {
@@ -972,6 +1044,24 @@ export async function versionMemory(input: {
 
 export async function deleteMemory(memoryId: string): Promise<void> {
   await request<{ deleted: boolean }>(`/memories/${memoryId}`, { method: 'DELETE' });
+}
+
+/**
+ * 语义检索：按向量相似度返回记忆（P2 #30）。
+ *
+ * 服务端默认只搜 current（`include_superseded=false`），命中行带 `similarity`。
+ * 空 query 不打后端：`embedding` 失败会静默返回 []，界面会把它念成「没有相关记忆」，
+ * 而真实原因是没输入——这一档必须由调用方先挡住。
+ */
+export async function searchMemories(
+  query: string,
+  limit: number = 10,
+  includeSuperseded: boolean = false,
+): Promise<Memory[]> {
+  return request<Memory[]>('/memories/search', {
+    method: 'POST',
+    body: JSON.stringify({ query, limit, include_superseded: includeSuperseded }),
+  });
 }
 
 // ═══ Share (P1-F04) ═══

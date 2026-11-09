@@ -91,8 +91,17 @@ describe('① 三条新封装真的指向后端那三条端点', () => {
     expect(body).toContain('new_content: input.newContent,');
   });
 
-  it('检索面不复活：api.ts 里没有 /memories/search（D-G4-1 登记不接）', () => {
-    expect(read(API)).not.toContain('/memories/search');
+  it('检索入口（P2 #30，反转 D-G4-1 的「不复活」）：searchMemories 打 /memories/search', () => {
+    const src = read(API);
+    const m = /export async function searchMemories\([\s\S]*?\n}/.exec(src);
+    expect(m).not.toBeNull();
+    const body = m![0]
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('*') && !line.trim().startsWith('//'))
+      .join('\n');
+    expect(body).toContain("request<Memory[]>('/memories/search', {");
+    expect(body).toContain("method: 'POST',");
+    expect(body).toContain('body: JSON.stringify({ query, limit, include_superseded: includeSuperseded }),');
   });
 
   it('后端契约里这三条都登记过（防止前端指向一条契约外的线）', () => {
@@ -202,6 +211,46 @@ describe('③ 界面上两条入口都在，且口径不是「点了就算存上
   });
 });
 
+describe('⑤ 语义检索入口（P2 #30）', () => {
+  const src = read(SCREEN);
+
+  it('只有一处调用点，前面先过 requireAuth，空查询不请求', () => {
+    expect(src.match(/await searchMemories\(query\)/g)).toHaveLength(1);
+    const fn = /const onSearch = async \(\) => \{([\s\S]*?)\n  \};/.exec(src);
+    expect(fn).not.toBeNull();
+    expect(fn![1].indexOf('if (!requireAuth()) return;'))
+      .toBeLessThan(fn![1].indexOf('await searchMemories(query)'));
+    // 空 query 必须在调用前挡住：服务端 embedding 失败返回 []，会被界面念成「没有相关记忆」
+    expect(fn![1]).toContain('if (!query || searching) return;');
+    expect(fn![1].indexOf('if (!query || searching) return;'))
+      .toBeLessThan(fn![1].indexOf('await searchMemories(query)'));
+  });
+
+  it('检索结果只进 searchResults，不写 memories 这条真源', () => {
+    expect(src).toContain('setSearchResults(await searchMemories(query));');
+    expect(src).not.toMatch(/setMemories\(await searchMemories/);
+  });
+
+  it('列表数据是 searchResults ?? memories：空结果不塌回全量', () => {
+    expect(src).toContain('const visible = searchResults ?? memories;');
+    expect(src).toContain('data={visible}');
+    // 空态两档分开：检索无结果 ≠ 一条记忆都没有
+    expect(src).toContain("? (searchError || t('memories.searchEmpty'))");
+  });
+
+  it('退出检索把 searchResults 置回 null（null 才表示「没在检索」）', () => {
+    const fn = /const clearSearch = \(\) => \{([\s\S]*?)\n  \};/.exec(src);
+    expect(fn).not.toBeNull();
+    expect(fn![1]).toContain('setSearchResults(null);');
+    expect(src).toContain('setSearchResults(null)');
+  });
+
+  it('命中行按服务端 similarity 显示相似度，不在前端重算', () => {
+    expect(src).toContain("typeof item.similarity === 'number'");
+    expect(src).toContain('Math.round(item.similarity * 100)');
+  });
+});
+
 describe('④ 15 语言新键齐备', () => {
   const locales = Object.keys(resources);
   const keys = [
@@ -217,13 +266,18 @@ describe('④ 15 语言新键齐备', () => {
     'memories.changedPlaceholder',
     'memories.changedSubmit',
     'memories.supersededAt',
+    'memories.searchPlaceholder',
+    'memories.searchSubmit',
+    'memories.searchEmpty',
+    'memories.searchResultsFor',
+    'memories.searchClear',
   ];
 
   it('语言数就是 15，漏一门的话下面那条会假绿', () => {
     expect(locales).toHaveLength(15);
   });
 
-  it.each(locales)('%s：12 个键都有值', (locale) => {
+  it.each(locales)('%s：17 个键都有值', (locale) => {
     const flat = flatten((resources as any)[locale].translation as Tree);
     for (const key of keys) {
       expect(flat[key]).toBeTruthy();

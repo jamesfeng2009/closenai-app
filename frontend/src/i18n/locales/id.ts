@@ -43,6 +43,11 @@ const resource = {
     "addPlaceholder": "Apa yang ingin ClosenAI ingat?",
     "addSubmit": "Simpan ingatan",
     "checking": "Memeriksa duplikat…",
+    "searchPlaceholder": "Cari kenanganmu",
+    "searchSubmit": "Cari",
+    "searchEmpty": "Tidak ada kenangan yang cocok",
+    "searchResultsFor": "Hasil untuk \"{{query}}\"",
+    "searchClear": "Tutup pencarian",
     "status": {
       "current": "Aktif",
       "superseded": "Digantikan",
@@ -189,6 +194,16 @@ const resource = {
     "title": "Catatan pertumbuhanku",
     "empty": "Belum ada apa pun di sini. Catatan muncul saat kamu mengobrol dan refleksi.",
     "filterAll": "Semua",
+    "memoryCard": {
+      "title": "Kartu kenangan",
+      "hint": "Lihat kembali satu hari dari sejarahmu sendiri. Teks kartu ditulis oleh AI.",
+      "days": "{{days}} hari lalu",
+      "load": "Lihat kembali",
+      "loading": "Melihat kembali…",
+      "empty": "Tidak ada yang tercatat {{days}} hari lalu.",
+      "consent": "Aktifkan dulu berbagi data AI — teks kartu ditulis oleh AI.",
+      "failed": "Gagal memuat kartu. Coba lagi nanti."
+    },
     "topicsTitle": "Topik yang layak dilihat lagi",
     "guestEmpty": "Masuk untuk melihat catatan pertumbuhanmu.",
     "tag": {
@@ -800,6 +815,28 @@ const resource = {
     "consentReadonlyHint": "Untuk mengubah pilihan Anda, buka Profil → Pengaturan Berbagi Data.",
     "deletionTitle": "Penghapusan Data",
     "deletionDesc": "Anda dapat menghapus permanen akun dan seluruh data (percakapan, memori, check-in, catatan pertumbuhan) kapan saja di Profil → Hapus Akun. Tindakan ini tidak dapat dibatalkan."
+  },
+  "consentLedger": {
+    "title": "Catatan persetujuan",
+    "intro": "Apa yang kamu setujui dan kapan. Kamu bisa menariknya kapan saja.",
+    "version": "Versi teks {{version}}",
+    "granted": "Diberikan",
+    "notGiven": "Belum diberikan",
+    "withdrawn": "Ditarik",
+    "grant": "Berikan",
+    "withdraw": "Tarik",
+    "grantedAt": "Diberikan pada {{date}}",
+    "withdrawnAt": "Ditarik pada {{date}}",
+    "coreHint": "Layanan inti melekat pada akunmu; menariknya berarti menghapus akun.",
+    "updateFailed": "Status persetujuan gagal diperbarui.",
+    "purposes": {
+      "core_service": "Layanan inti",
+      "ai_processing": "Pemrosesan data AI",
+      "proactive_push": "Pesan proaktif",
+      "analytics": "Analitik anonim",
+      "data_export": "Ekspor data",
+      "model_training": "Pelatihan model"
+    }
   },
   "export": {
     "title": "Ekspor Data",

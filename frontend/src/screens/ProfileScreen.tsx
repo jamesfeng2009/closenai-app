@@ -254,12 +254,11 @@ export default function ProfileScreen({
     }
   };
 
-  // 主要框架：三枚举选择 → PATCH /user/settings → 本地合并所选值刷新展示
-  // （后端 UserSettingsUpdate 暂未持久化 primary_framework，响应不回显，本地先行）
+  // 主要框架：PATCH /user/settings 落库，展示以服务端回显为准（重进页面才不会退回默认）
   const onSelectFramework = async (framework: PrimaryFramework) => {
     try {
       const updated = await updateUserSettings({ primary_framework: framework });
-      setProfile({ ...updated, primary_framework: framework });
+      setProfile(updated);
       setFrameworkVisible(false);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : t('errors.saveFailed');
@@ -526,7 +525,7 @@ export default function ProfileScreen({
           <Text style={styles.settingIcon}>📊</Text>
           <Text style={styles.settingLabel}>{t('profile.usage')}</Text>
           <Text style={styles.settingValue}>
-            {profile?.daily_quota_used || 0}/{profile?.daily_quota_total || 5} {t('profile.today')}
+            {profile?.daily_quota_used || 0}/{profile?.daily_quota_total ?? 0} {t('profile.today')}
           </Text>
         </View>
       </View>
