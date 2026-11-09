@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/apierr"
@@ -31,6 +32,9 @@ const maxAnalyticsEvents = 100
 
 // maxAnalyticsEventIDLength 是 analytics_service.py::MAX_EVENT_ID_LENGTH（=128）。
 const maxAnalyticsEventIDLength = 128
+
+// analyticsReceiptWriteTimeout 是认领/落账这几次短写的时间预算。
+const analyticsReceiptWriteTimeout = 5 * time.Second
 
 type analyticsEvent struct {
 	name       string
@@ -202,6 +206,13 @@ func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userI
 		return
 	}
 
+	// 客户端断连会取消 r.Context()：认领/落账用脱离请求取消的 ctx，否则已经外发
+	// 成功的事件永远停在 pending（后续重试只能回报 in_flight）。预算仍封顶，
+	// 避免一次慢查询把 handler 挂住。
+	dbCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(r.Context()), analyticsReceiptWriteTimeout)
+	defer cancel()
+
 	results := make([]analyticsAckResult, len(events))
 	claimed := make([]int, 0, len(events))
 	claimIDs := make([]string, 0, len(events))
@@ -217,9 +228,9 @@ func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userI
 			continue
 		}
 		seen[eventID] = true
-		got, prior, err := s.batch1.Receipts.Claim(r.Context(), userID, eventID)
+		got, prior, err := s.batch1.Receipts.Claim(dbCtx, userID, eventID)
 		if err != nil {
-			s.releaseReceipts(r.Context(), userID, claimIDs)
+			s.releaseReceipts(dbCtx, userID, claimIDs)
 			writeDBError(w, r)
 			return
 		}
@@ -241,8 +252,8 @@ func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userI
 		ev := events[idx]
 		eventID := claimIDs[j]
 		if delivered[j] {
-			if err := s.batch1.Receipts.MarkAccepted(r.Context(), userID, eventID); err != nil {
-				s.releaseReceipts(r.Context(), userID, claimIDs[j:])
+			if err := s.batch1.Receipts.MarkAccepted(dbCtx, userID, eventID); err != nil {
+				s.releaseReceipts(dbCtx, userID, claimIDs[j:])
 				writeDBError(w, r)
 				return
 			}
@@ -250,8 +261,8 @@ func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userI
 			continue
 		}
 		// 没送到就不许留下 accepted：删掉认领行，下一次能重新进来。
-		if err := s.batch1.Receipts.Release(r.Context(), userID, eventID); err != nil {
-			s.releaseReceipts(r.Context(), userID, claimIDs[j+1:])
+		if err := s.batch1.Receipts.Release(dbCtx, userID, eventID); err != nil {
+			s.releaseReceipts(dbCtx, userID, claimIDs[j+1:])
 			writeDBError(w, r)
 			return
 		}

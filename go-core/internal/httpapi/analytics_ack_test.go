@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -344,5 +345,64 @@ func TestAnalyticsAckWithoutReceiptStoreFailsLoudly(t *testing.T) {
 	}
 	if !strings.Contains(body, `"code":500`) {
 		t.Errorf("不是内部错误信封：%s", body)
+	}
+}
+
+// ctxStrictReceipts 模拟真驱动：ctx 已取消时立即返回 ctx.Err()。
+// 内存 fake 不看 ctx，会把「断连后落账失败」这类缺陷整条遮住。
+type ctxStrictReceipts struct{ *fakeReceipts }
+
+func (f ctxStrictReceipts) Claim(ctx context.Context, userID, eventID string) (bool, string, error) {
+	if err := ctx.Err(); err != nil {
+		return false, "", err
+	}
+	return f.fakeReceipts.Claim(ctx, userID, eventID)
+}
+
+func (f ctxStrictReceipts) MarkAccepted(ctx context.Context, userID, eventID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.fakeReceipts.MarkAccepted(ctx, userID, eventID)
+}
+
+func (f ctxStrictReceipts) Release(ctx context.Context, userID, eventID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.fakeReceipts.Release(ctx, userID, eventID)
+}
+
+// postBatchCanceled 发一个「客户端已断开」的请求：handler 拿到的 ctx 已取消。
+func postBatchCanceled(t *testing.T, handler http.Handler, userID, body string) (int, string) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest("POST", "/api/v1/analytics/batch", strings.NewReader(body))
+	req = req.WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", userID)
+	req.Header.Set("X-Trace-Id", "00000000-0000-0000-0000-000000000001")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.String()
+}
+
+// TestAnalyticsAckPersistsReceiptWhenClientDisconnects：外发已成功但客户端断连时，
+// 台账仍必须落 accepted——认领/落账用请求 ctx 会让那一行永远 pending。
+func TestAnalyticsAckPersistsReceiptWhenClientDisconnects(t *testing.T) {
+	base := newFakeReceipts(nil)
+	handler := newAckServer(t, &consentedProfileReader{found: true, consent: true},
+		&scriptedRelay{fail: map[string]bool{}}, ctxStrictReceipts{base})
+
+	status, body := postBatchCanceled(t, handler, "u1", `{"events":[
+		{"event":"a","occurred_at":"2026-10-01T00:00:00+00:00","event_id":"e-a"}]}`)
+	if status != 200 {
+		t.Fatalf("HTTP %d，want 200（%s）", status, body)
+	}
+	base.mu.Lock()
+	defer base.mu.Unlock()
+	if got := base.rows["e-a"]; got != "accepted" {
+		t.Fatalf("台账 e-a=%q，want accepted（断连后仍须落账）", got)
 	}
 }
