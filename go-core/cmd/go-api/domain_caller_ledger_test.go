@@ -7,7 +7,7 @@
 //   - **已接的四件**（CleanupDeliveryRecords／RequestAITask／InvalidateSource／
 //     RecordUserFeedback）必须在**生产代码**里有引用点，删掉接线就红——inbound／dispatch
 //     自己的用例看不见 main，也看不见 Run 循环里的这一跳；
-//   - **仍为零的四件**必须继续为零，且名字还在登记表里；哪天有人接上了，
+//   - **仍为零的七件**必须继续为零，且名字还在登记表里；哪天有人接上了，
 //     这条会红并要求把台账改掉，而不是让「零调用方」这句口径悄悄失真。
 //     其中 `PropagateEvidenceInvalidation` 是**特例**：T2-06 已经把门接上，但调用方在同包内，
 //     本扫描按定义不算自引用 ⇒ 计数仍为零。它由 `TestInvalidateSourceChainIsReal` 正向守着。
@@ -26,9 +26,14 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 )
 
-// zeroCallerLedger 是「生产代码面（本扫描定义）里找不到调用方」的那四件。
+// zeroCallerLedger 是「生产代码面（本扫描定义）里找不到调用方」的那七件。
 //
 // 每一件为什么不接（带出处，免得下一个人靠猜）：
+//   - `Admit`／`AdmitEvidence`／`AdmitProactive`：P1 #12 之后，入站消费一律走带
+//     `*WithStore` 的同批入口（inbound 的 Call 把 inbox 事务里的 `Store` 传下来），
+//     这三个「自开事务」的包装因此在生产代码面归零。它们仍被 `internal/store`
+//     的集成测当作**直连调用面**使用（等价于未来的 HTTP/gRPC 入口），所以不删；
+//     哪天真接上了，这条闸会要求把它们挪进 wiredThisBatch。
 //   - `RecordOutcome`：结果写入端点归 T4 的行动闭环；T3-02 上的是**反馈**端点
 //     （`RecordUserFeedback`），给反馈面接入口不等于结果面也有入口，两格分开登记就是这件事。
 //   - `ReevaluateInsight`／`RecheckProactive`：两者的触发面是「洞察/主动消息的定时重算」，
@@ -38,6 +43,9 @@ import (
 //     而本扫描按定义排除 `internal/domain` 自引用 ⇒ 计数仍为 0。
 //     链的真实性由 `TestInvalidateSourceChainIsReal` 正向证人守着，不靠这条台账。
 var zeroCallerLedger = map[string]string{
+	"Admit":                         "P1 #12：入站已改走 AdmitWithStore（同一笔 inbox 事务）；本方法仍是集成测/未来直连面的自开事务入口",
+	"AdmitEvidence":                 "P1 #12：入站已改走 AdmitEvidenceWithStore；本方法留给直连面与集成测",
+	"AdmitProactive":                "P1 #12：入站已改走 AdmitProactiveWithStore；本方法留给直连面与集成测",
 	"PropagateEvidenceInvalidation": "T2-06／B-08：唯一调用方是同包的 InvalidateSource（见 TestInvalidateSourceChainIsReal）",
 	"RecheckProactive":              "R6（重算排程未上）",
 	"RecordOutcome": "N6 的内部提案面（origin/targets 由调用方拼），T4-03 上的是它的 HTTP 包装入口 " +
@@ -62,6 +70,11 @@ var wiredThisBatch = map[string]string{
 	// T4-03：行动结果。装配点同样是 main.go 的 `httpapi.V3.OutcomeWrites`，
 	// 且必须是同一个 candidateDomain（否则同日幂等读与版本账本分属两个 Service 实例）。
 	"RecordActionOutcome": "internal/httpapi/v3_outcomes.go 的 handleV3ActionOutcome",
+	// P1 #12：入站消费的三个领域入口必须带 inbox 事务里的 Store 往下传（18 §8 单笔 COMMIT）。
+	// 删掉接线时这里的计数归零，这条闸会红——「候选行与命令同批」不能只靠 inbound 自己的用例。
+	"AdmitWithStore":          "internal/messaging/inbound 的 candidate_decode.go（Call 把 inbox 事务里的 st 传进来）",
+	"AdmitEvidenceWithStore":  "internal/messaging/inbound 的 candidate_decode.go（同上）",
+	"AdmitProactiveWithStore": "internal/messaging/inbound 的 candidate_decode.go（同上）",
 }
 
 // TestDomainServiceCallerLedger 数的是**剥掉注释与字符串之后**的引用点。

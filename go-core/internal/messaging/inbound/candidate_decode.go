@@ -115,11 +115,9 @@ var CandidateKinds = map[string]closenaiv1.Kind{
 
 // Call 是一次已经决定好走哪扇门的领域调用。
 //
-// 它只接 `Domain`，不接 `Store`：三个入口各自开事务（`store/canonical_repo.go:53` 的
-// `InTx` 每次都从池里 `Begin`，不复用 ctx 上已有的事务）。这件事让 18 §8 的
-// 「副作用与幂等行同一事务」在 Go 侧做不到严格成立，风险与两种改法登记在 tasks.md 的 R5b；
-// 本批不改 `domain`／`store` 的签名（授权文件清单里没有它们）。
-type Call func(ctx context.Context, d Domain) error
+// 它接 `Store`：走的是 `Domain` 上的 `…WithStore` 那一族，写入落在 inbox 那一笔事务里
+// （18 §8 的「副作用与幂等行同一事务」）。自开事务的 `Admit` 一族只服务 HTTP 面。
+type Call func(ctx context.Context, st domain.Store, d Domain) error
 
 // Decode 校验传输契约并把载荷映射成一次领域调用。
 //
@@ -269,8 +267,8 @@ func decodeCandidate(d Delivery, userID string) (Call, *domain.PermanentRejectio
 	if from, to := msg.GetWindowFrom(), msg.GetWindowTo(); from != nil && to != nil {
 		c.WindowFrom, c.WindowTo, c.HasWindow = from.AsTime(), to.AsTime(), true
 	}
-	return func(ctx context.Context, dm Domain) error {
-		_, err := dm.Admit(ctx, c)
+	return func(ctx context.Context, st domain.Store, dm Domain) error {
+		_, err := dm.AdmitWithStore(ctx, st, c)
 		return classify(err)
 	}, nil
 }
@@ -310,8 +308,8 @@ func decodeEvidence(d Delivery, userID string) (Call, *domain.PermanentRejection
 	if at := source.GetOccurredAt(); at != nil {
 		c.OccurredAt = at.AsTime()
 	}
-	return func(ctx context.Context, dm Domain) error {
-		_, err := dm.AdmitEvidence(ctx, c)
+	return func(ctx context.Context, st domain.Store, dm Domain) error {
+		_, err := dm.AdmitEvidenceWithStore(ctx, st, c)
 		return classify(err)
 	}, nil
 }
@@ -349,8 +347,8 @@ func decodeProactive(d Delivery, userID string) (Call, *domain.PermanentRejectio
 	if at := msg.GetExpiresAt(); at != nil {
 		c.ExpiresAt, c.HasExpiresAt = at.AsTime(), true
 	}
-	return func(ctx context.Context, dm Domain) error {
-		_, err := dm.AdmitProactive(ctx, c)
+	return func(ctx context.Context, st domain.Store, dm Domain) error {
+		_, err := dm.AdmitProactiveWithStore(ctx, st, c)
 		return classify(err)
 	}, nil
 }

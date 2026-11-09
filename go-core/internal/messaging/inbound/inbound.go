@@ -61,9 +61,8 @@ const (
 
 // 进程参数默认值。都是**代码里的默认**，不是 env 键（见上面 EnvWorker 那条取舍）：
 //   - Prefetch 1：与 Python 侧 `backend/ai/mq/config.py` 同一取向（宁可慢，不要乱序与并发放大）。
-//     它同时压住另一件事：`Runner.Handle` 在 inbox 事务里调领域入口，而领域入口自己会再
-//     `InTx`（`store/canonical_repo.go:53` 每次都从池里 `Begin`，不复用 ctx 上已有的事务）
-//     ⇒ 一条在途消息最多占两条连接。prefetch 调大就是按倍数吃池。这件事登记为 R5b 欠账。
+//     一条在途消息只占**一条**连接：`ConsumeIdempotent` 开的那笔事务就是候选写入用的那笔
+//     （`Domain` 接口上的 `…WithStore` 入口），不再有「领域入口自开第二笔」的倍数。
 //   - MaxBodyBytes 65536：与 Python 侧 `DEFAULT_MAX_BODY_BYTES` 同值；那条跨语言闸在
 //     `backend/tests/test_ai_mq_contract.py`，它读本文件的这个常量。
 //   - DrainTimeout 30s：与 dispatch 的默认同量级；真值待 R7 在 pod 上按
@@ -239,10 +238,17 @@ type DialFunc func(ctx context.Context, url string, dialTimeout time.Duration) (
 type Domain interface {
 	ConsumeIdempotent(ctx context.Context, msg domain.InboundMessage,
 		fn func(context.Context, domain.Store) error) (domain.ConsumeResult, error)
-	Admit(ctx context.Context, c domain.Candidate) (domain.Result, error)
-	AdmitEvidence(ctx context.Context, c domain.EvidenceCandidate) (domain.EvidenceResult, error)
-	AdmitProactive(ctx context.Context, c domain.ProactiveCandidate) (domain.ProactiveResult, error)
+	// 三个候选入口都拿 inbox 这一笔事务的 Store（`…WithStore` 那几个）：
+	// 候选行、事件/投递行与下面的命令必须同一笔 COMMIT（18 §8）。自开事务的
+	// `Admit` 那一组只服务 HTTP 面，入站面用它们等于把「候选已提交」与
+	// 「inbox 行/命令回滚」拆成两笔——重投会把候选重放一遍，而命令丢了补不回来。
+	AdmitWithStore(ctx context.Context, st domain.Store, c domain.Candidate) (domain.Result, error)
+	AdmitEvidenceWithStore(ctx context.Context, st domain.Store,
+		c domain.EvidenceCandidate) (domain.EvidenceResult, error)
+	AdmitProactiveWithStore(ctx context.Context, st domain.Store,
+		c domain.ProactiveCandidate) (domain.ProactiveResult, error)
 	// InvalidateSource 是事件面（T2-06）唯一那扇门：来源行被删 ⇒ 翻登记行 + 逐条传播。
+	// 它今天仍自开事务（本批只收口了候选面的三个入口），事件面的原子性口径差另行登记。
 	InvalidateSource(ctx context.Context, p domain.SourcePointer) (domain.SourceInvalidation, error)
 	// RequestAITask 必须拿 **inbox 这一笔事务的 Store**：命令与「这条消息我消费过了」
 	// 同一条 COMMIT 才是 outbox 模式（18 §2）。自开事务会变成「候选收下了、命令丢了」
@@ -510,8 +516,7 @@ func (r *Runner) Handle(ctx context.Context, d Delivery) (domain.ConsumeResult, 
 	fn := func(inner context.Context, st domain.Store) error {
 		// 解码放在事务**内**：契约级非法要变成 `domain.PermanentRejection`，
 		// 才会走 delivery.go:341-362 那条「主事务回滚＋事务外补 failed 留痕」的分道。
-		// 三个领域入口仍各自开事务（这件事的连带风险登记在
-		// DefaultPrefetch 那段与 tasks.md 的 R5b）；`st` 只有下面那条命令用得上。
+		// `st` 一直往下传：候选行、inbox 行与命令都在这一笔事务里（18 §8）。
 		call, decErr := r.decode(d, r.deps.Switch.MaxBodyBytes)
 		if decErr != nil {
 			// 解引用**不是**风格问题：`classifyFailure` 用 `errors.As(cause, &PermanentRejection{})`
@@ -520,7 +525,7 @@ func (r *Runner) Handle(ctx context.Context, d Delivery) (domain.ConsumeResult, 
 			// 正是本文件上面那条分道要防的反面。闸在 TestDecodeRejectionReachesTheDomainClassifier。
 			return *decErr
 		}
-		if err := call(inner, r.deps.Domain); err != nil {
+		if err := call(inner, st, r.deps.Domain); err != nil {
 			return err
 		}
 		// D-G14-②：候选进门之后，由这里请对面算下一段。放在 `call` 之后而不是之前——
@@ -583,12 +588,10 @@ func admittedKind(routingKey string) (domain.Kind, bool) {
 //     **不能**在这里吞掉：吞了就变成「候选收下了、下一段永远没请求」，
 //     而这正是 R4/R5 一直拒绝的那种静默丢失。
 //
-// `st` 是 `ConsumeIdempotent` 给的那笔 inbox 事务，命令行就写在这里。
-// ⚠️ 连带后果（登记，不粉饰）：三个领域入口各自再开事务（R5b ②），所以「候选行」与
-// 「inbox 行＋命令行」是两笔 COMMIT。候选已提交而本事务回滚 ⇒ 重投时 inbox 不判重，
-// 命令会随第二次消费重新入队，id 与第一次相同 ⇒ 撞 outbox 的 UNIQUE 而**再次失败**。
-// 这一格真正收口要等 R5b 把领域入口改成复用调用方 Store；在那之前这条链的
-// 判据面只能证到「命令与 inbox 同事务」。
+// `st` 是 `ConsumeIdempotent` 给的那笔 inbox 事务，命令行就写在这里；三个领域入口
+// 也用同一笔（`AdmitWithStore` 一族），所以「候选行＋inbox 行＋命令行」是一次 COMMIT。
+// 这条保证的闸：`internal/store` 的 inbox 原子性集成测（成功三行同现、失败三行同无），
+// 以及 `inbound_followup_test.go` 的 Store 身份断言。
 func (r *Runner) requestFollowUp(ctx context.Context, st domain.Store, d Delivery) error {
 	if !r.chained {
 		// 事件面（T2-06）没有「下一段」：删除不产出候选。这里**不记** FollowUpSkipped，

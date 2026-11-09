@@ -187,8 +187,11 @@ def _purge(url: str) -> None:
     async def go() -> None:
         conn = await aio_pika.connect_robust(url)
         try:
-            channel = await conn.channel()
             for name in names:
+                # 被动声明不存在的队列是 **channel 级**错误：broker 关掉这条 channel，
+                # 后面的名字会连坐成 ChannelInvalidStateError。空 broker（首轮）必然走到这里，
+                # 所以每条队列各开一条 channel，404 只丢自己那一条。
+                channel = await conn.channel()
                 try:
                     queue = await channel.declare_queue(name, passive=True)
                 except aio_pika.exceptions.ChannelNotFoundEntity:

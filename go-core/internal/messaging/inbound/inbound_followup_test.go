@@ -11,9 +11,9 @@
 //   - 契约级非法**有没有完全不推**（畸形消息一个命令都不该产）。
 //
 // ⚠️ 口径（不粉饰）：链表与 taskType 的字面量由 `domain/task_chain_test.go` 对账，
-// 这里只判入站这一跳的行为。另外三个领域入口各自再开事务（R5b ②），所以本文件能证到的
-// 上限是「命令与 inbox 同事务」，证不到「命令与候选行同事务」——第 6 条把 `admits==1`
-// 显式断言下来，就是要把这个边界写成事实而不是留给读代码的人猜。
+// 这里只判入站这一跳的行为。领域入口拿到的必须是 inbox 那一笔 Store（第 6 条按**身份**
+// 断言），所以本文件能证到「候选行、inbox 行、命令行同一笔事务」的接线面；
+// 真库上的「三行同现／三行同无」由 `internal/store` 的 inbox 原子性集成测证。
 package inbound
 
 import (
@@ -76,6 +76,18 @@ func (f *fakeDomain) inboxStores() []domain.Store {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]domain.Store{}, f.taskStores...)
+}
+
+func (f *fakeDomain) entryStoreCalls() []domain.Store {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]domain.Store{}, f.entryStores...)
+}
+
+func (f *fakeDomain) theInboxStore() domain.Store {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inboxStore
 }
 
 func (f *fakeDomain) admitCalls() int {
@@ -161,7 +173,7 @@ func TestFactCandidateEnqueuesPatternTask(t *testing.T) {
 }
 
 // TestFollowUpWritesIntoTheInboxTransaction 钉「命令与 inbox 同一笔事务」：
-// 传进来的 Store 必须**正是** fakeInboxStore{} 这个身份哨兵——它内嵌一个永远为 nil 的
+// 传进来的 Store 必须**正是** fakeInboxStore 这个身份哨兵——它内嵌一个永远为 nil 的
 // domain.Store，被当真 Store 调用会当场 panic，所以「传了但没真用」也判得出来。
 func TestFollowUpWritesIntoTheInboxTransaction(t *testing.T) {
 	dm := newFakeDomain()
@@ -173,10 +185,63 @@ func TestFollowUpWritesIntoTheInboxTransaction(t *testing.T) {
 	if len(stores) != 1 {
 		t.Fatalf("命令跑了 %d 次，期望 1 次", len(stores))
 	}
-	if _, ok := stores[0].(fakeInboxStore); !ok {
+	if _, ok := stores[0].(*fakeInboxStore); !ok {
 		t.Fatalf("RequestAITask 拿到的 Store 是 %s，不是 inbox 那一笔事务 ⇒ "+
 			"「自开事务」会把候选行与命令行拆成两笔 COMMIT，半途崩溃就补不回来",
 			reflect.TypeOf(stores[0]))
+	}
+}
+
+// TestCandidateEntriesShareTheInboxTransaction 钉「三个候选入口也写进 inbox 那一笔」。
+//
+// 只判命令那一格不够：Admit 一族若自开事务，候选行先 COMMIT、随后命令入队失败回滚，
+// 表现是「候选收下了、下一段永远没请求」；反过来 inbox 回滚而候选已提交时，
+// 重投会把同一条候选再放一遍。两个方向的修补点都在「入口有没有拿这笔 st」，
+// 所以这里按**指针身份**逐个入口断言，而不是只看调用次数。
+func TestCandidateEntriesShareTheInboxTransaction(t *testing.T) {
+	dm := newFakeDomain()
+	r := testRunner(t, dm, onSwitch(), nil)
+	cases := []struct {
+		name string
+		d    Delivery
+	}{
+		{"fact", factDelivery(newRec(), "cnd-share-1")},
+		{"evidence", evidenceDelivery(newRec(), "cnd-share-2")},
+		{"proactive", delivery(newRec(), func(d *Delivery) {
+			d.RoutingKey = "candidate.proactive"
+			d.MessageType = "candidate_proactive"
+			d.MessageID = "cnd-share-3"
+			d.Body = []byte(`{
+			  "candidateId":"pc-share","triggerType":"TRIGGER_TYPE_MILESTONE",
+			  "triggerSource":"TRIGGER_SOURCE_NEW_PATTERN","message":"这周做到了","confidence":0.62,
+			  "safety":{"status":"SAFETY_STATUS_OK"}
+			}`)
+		})},
+	}
+	inboxStore := dm.theInboxStore()
+	if inboxStore == nil {
+		t.Fatal("fake 没有记下交给 fn 的 Store")
+	}
+	for _, tc := range cases {
+		if _, err := r.Handle(context.Background(), tc.d); err != nil {
+			t.Fatalf("%s: Handle: %v", tc.name, err)
+		}
+	}
+	stores := dm.entryStoreCalls()
+	if len(stores) != len(cases) {
+		t.Fatalf("领域入口跑了 %d 次，期望 %d 次", len(stores), len(cases))
+	}
+	for i, st := range stores {
+		if st != inboxStore {
+			t.Errorf("%s 入口拿到的 Store 不是 inbox 那一笔（第 %d 个）⇒ "+
+				"候选行与 inbox/命令分属两笔 COMMIT", cases[i].name, i)
+		}
+	}
+	// 命令那一侧也要是同一笔：候选 + inbox + 命令三件事同一个身份。
+	for i, st := range dm.inboxStores() {
+		if st != inboxStore {
+			t.Errorf("第 %d 条命令拿到的 Store 不是 inbox 那一笔", i)
+		}
 	}
 }
 
@@ -244,9 +309,11 @@ func TestFollowUpFailureRollsBackWithoutAck(t *testing.T) {
 	if st.FollowUpErrors != 1 || st.FollowUpsEnqueued != 0 || st.Processed != 0 {
 		t.Errorf("计数面把失败的批算成了成功：%+v", st)
 	}
-	// 显式把 R5b ② 的边界写成事实：领域入口在命令失败之前**确实**跑过了（它自开事务）。
+	// 领域入口在命令失败之前确实跑过了，所以单看 fake 的计数会看到 admits==1；
+	// 「候选行也一起回滚」不在这台 fake 的模拟范围内，由 `internal/store` 的
+	// inbox 原子性集成测（失败分支断言候选行不存在）证。
 	if fn, admits, _, _ := dm.counts(); fn != 1 || admits != 1 {
-		t.Errorf("fn=%d admit=%d ⇒ 本文件的判据上限是「命令与 inbox 同事务」，不是「与候选行同事务」", fn, admits)
+		t.Errorf("fn=%d admit=%d ⇒ 命令失败发生在领域入口之后，回滚覆盖两者", fn, admits)
 	}
 }
 

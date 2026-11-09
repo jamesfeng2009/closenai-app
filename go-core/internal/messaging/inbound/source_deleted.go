@@ -139,7 +139,9 @@ func DecodeEvent(d Delivery, maxBodyBytes int) (Call, *domain.PermanentRejection
 				"而「把它当没发生过」与「传播错了别人的账」在这条消息上长得一样", table, rowID))
 	}
 	pointer := domain.SourcePointer{UserID: userID, SourceTable: table, SourceID: rowID}
-	return func(ctx context.Context, dm Domain) error {
+	// st 在这里**不用**：`InvalidateSource` 今天仍自开事务（与候选面三个入口曾经的形状相同），
+	// 这是事件面与候选面之间尚未收口的口径差，不在本次改动范围内。
+	return func(ctx context.Context, _ domain.Store, dm Domain) error {
 		_, err := dm.InvalidateSource(ctx, pointer)
 		if errors.Is(err, domain.ErrUnsupportedSourceTable) {
 			// 复用 T2-03 那张钉码表：表没开是永久拒绝，不许上重试阶梯。

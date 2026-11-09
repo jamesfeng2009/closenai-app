@@ -67,6 +67,11 @@ type fakeDomain struct {
 	admits    []domain.Candidate
 	evidences []domain.EvidenceCandidate
 	proactive []domain.ProactiveCandidate
+	// entryStores 记三个候选入口拿到的 Store：它们必须**就是** inbox 那一笔事务
+	// （`inboxStore` 记 fake 交给 fn 的那个身份哨兵），否则候选行与 inbox/命令行
+	// 分属两笔 COMMIT——重投会重放候选，命令丢了补不回来。
+	entryStores []domain.Store
+	inboxStore  domain.Store
 	// T2-06 事件面：进来的指针与那条门的返回错误。
 	sources   []domain.SourcePointer
 	sourceErr error
@@ -97,7 +102,8 @@ type fakeDomain struct {
 }
 
 func newFakeDomain() *fakeDomain {
-	return &fakeDomain{consumed: map[string]string{}, wantConsumer: Consumer}
+	return &fakeDomain{consumed: map[string]string{}, wantConsumer: Consumer,
+		inboxStore: &fakeInboxStore{}}
 }
 
 // key 是幂等位在 fake 里的键。**必须带 consumer**：真约束是
@@ -146,7 +152,12 @@ func (f *fakeDomain) ConsumeIdempotent(ctx context.Context, msg domain.InboundMe
 		hold()
 	}
 
-	err := fn(ctx, fakeInboxStore{})
+	st := f.inboxStore
+	if st == nil {
+		st = &fakeInboxStore{}
+		f.inboxStore = st
+	}
+	err := fn(ctx, st)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -162,25 +173,31 @@ func (f *fakeDomain) ConsumeIdempotent(ctx context.Context, msg domain.InboundMe
 	return domain.ConsumeResult{Status: domain.ConsumeTransient, Ack: false}, err
 }
 
-func (f *fakeDomain) Admit(_ context.Context, c domain.Candidate) (domain.Result, error) {
+func (f *fakeDomain) AdmitWithStore(_ context.Context, st domain.Store,
+	c domain.Candidate) (domain.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.admits = append(f.admits, c)
+	f.entryStores = append(f.entryStores, st)
 	// Handle 只看 `ConsumeResult`，领域返回值在这里不参与判定。
 	return domain.Result{Action: domain.ActionInsert}, f.admitErr
 }
 
-func (f *fakeDomain) AdmitEvidence(_ context.Context, c domain.EvidenceCandidate) (domain.EvidenceResult, error) {
+func (f *fakeDomain) AdmitEvidenceWithStore(_ context.Context, st domain.Store,
+	c domain.EvidenceCandidate) (domain.EvidenceResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.evidences = append(f.evidences, c)
+	f.entryStores = append(f.entryStores, st)
 	return domain.EvidenceResult{}, f.evidenceEr
 }
 
-func (f *fakeDomain) AdmitProactive(_ context.Context, c domain.ProactiveCandidate) (domain.ProactiveResult, error) {
+func (f *fakeDomain) AdmitProactiveWithStore(_ context.Context, st domain.Store,
+	c domain.ProactiveCandidate) (domain.ProactiveResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.proactive = append(f.proactive, c)
+	f.entryStores = append(f.entryStores, st)
 	return domain.ProactiveResult{}, f.proactErr
 }
 
@@ -991,7 +1008,7 @@ func TestErrUnknownSignalBecomesPermanent(t *testing.T) {
 	}
 	dm := newFakeDomain()
 	dm.evidenceEr = fmt.Errorf("store: %w", domain.ErrUnknownSignal)
-	err := call(context.Background(), dm)
+	err := call(context.Background(), &fakeInboxStore{}, dm)
 	var pr domain.PermanentRejection
 	if !errors.As(err, &pr) || pr.Code != ReasonUnknownDomainValue {
 		t.Fatalf("ErrUnknownSignal 没被转成永久拒绝：%v", err)
@@ -1005,7 +1022,7 @@ func TestErrUnknownSignalBecomesPermanent(t *testing.T) {
 	if rej2 != nil {
 		t.Fatalf("合法载荷：%v", rej2)
 	}
-	if err := call2(context.Background(), dm2); err == nil || errors.Is(err, domain.ErrPermanentMessage) {
+	if err := call2(context.Background(), &fakeInboxStore{}, dm2); err == nil || errors.Is(err, domain.ErrPermanentMessage) {
 		t.Errorf("DB 抖动被读成永久拒绝：%v ⇒ 阶梯上的重投才是它的正确归宿", err)
 	}
 }
@@ -1038,7 +1055,7 @@ func TestSourcePointerSentinelsBecomePermanent(t *testing.T) {
 			}
 			dm := newFakeDomain()
 			dm.evidenceEr = fmt.Errorf("domain: 回查: %w: source_id=m-1", item.sentinel)
-			err := call(context.Background(), dm)
+			err := call(context.Background(), &fakeInboxStore{}, dm)
 			var pr domain.PermanentRejection
 			if !errors.As(err, &pr) || pr.Code != item.code {
 				t.Fatalf("哨兵 %v 没转成码 %q，got %v", item.sentinel, item.code, err)
@@ -1062,7 +1079,7 @@ func TestSourcePointerSentinelsBecomePermanent(t *testing.T) {
 	}
 	dm := newFakeDomain()
 	dm.admitErr = errors.New("pgx: conn closed")
-	if err := call(context.Background(), dm); err == nil ||
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err == nil ||
 		errors.Is(err, domain.ErrPermanentMessage) {
 		t.Errorf("DB 抖动被读成了永久拒绝：%v", err)
 	}
@@ -1089,7 +1106,7 @@ func TestShapeSentinelsBecomePermanent(t *testing.T) {
 			}
 			dm := newFakeDomain()
 			dm.evidenceEr = fmt.Errorf("domain: 校验: %w: excerpt 超上限", item.sentinel)
-			err := call(context.Background(), dm)
+			err := call(context.Background(), &fakeInboxStore{}, dm)
 			var pr domain.PermanentRejection
 			if !errors.As(err, &pr) || pr.Code != item.code {
 				t.Fatalf("哨兵 %v 没转成码 %q，got %v", item.sentinel, item.code, err)
@@ -1116,7 +1133,7 @@ func TestShapeSentinelsBecomePermanent(t *testing.T) {
 	}
 	dm := newFakeDomain()
 	dm.evidenceEr = errors.New("domain: evidence.occurred_at 晚于当下")
-	if err := call(context.Background(), dm); err == nil ||
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err == nil ||
 		errors.Is(err, domain.ErrPermanentMessage) {
 		t.Errorf("观测时刻晚于当下被读成了永久拒绝：%v ⇒ 它该上阶梯", err)
 	}
@@ -1141,7 +1158,7 @@ func TestDecodeMapsPatternCandidate(t *testing.T) {
 		t.Fatalf("合法载荷被拒：%+v", rej)
 	}
 	dm := newFakeDomain()
-	if err := call(context.Background(), dm); err != nil {
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 		t.Fatalf("Admit: %v", err)
 	}
 	if len(dm.admits) != 1 {
@@ -1197,7 +1214,7 @@ func TestDecodeUnsafeSafetyIsItsOwnState(t *testing.T) {
 		t.Fatalf("合法载荷被拒：%+v", rej)
 	}
 	dm := newFakeDomain()
-	if err := call(context.Background(), dm); err != nil {
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 		t.Fatalf("Admit: %v", err)
 	}
 	if len(dm.admits) != 1 {
@@ -1229,7 +1246,7 @@ func TestDecodeWindowNeedsBothEnds(t *testing.T) {
 			t.Fatalf("%s：%+v", name, rej)
 		}
 		dm := newFakeDomain()
-		if err := call(context.Background(), dm); err != nil {
+		if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if dm.admits[0].HasWindow {
@@ -1255,7 +1272,7 @@ func TestSafetyUnspecifiedFailsClosed(t *testing.T) {
 			t.Fatalf("%s：%+v", name, rej)
 		}
 		dm := newFakeDomain()
-		if err := call(context.Background(), dm); err != nil {
+		if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if dm.admits[0].Safety != nil {
@@ -1282,7 +1299,7 @@ func TestDecodeMapsEvidenceCandidate(t *testing.T) {
 		t.Fatalf("合法载荷被拒：%+v", rej)
 	}
 	dm := newFakeDomain()
-	if err := call(context.Background(), dm); err != nil {
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 		t.Fatalf("AdmitEvidence: %v", err)
 	}
 	c := dm.evidences[0]
@@ -1320,7 +1337,7 @@ func TestUnspecifiedEnumsBecomeEmptyNotAGuessedValue(t *testing.T) {
 		t.Fatalf("契约面不管枚举取值合不合法，那是领域侧的判定：%+v", rej)
 	}
 	dm := newFakeDomain()
-	if err := call(context.Background(), dm); err != nil {
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	c := dm.evidences[0]
@@ -1348,7 +1365,7 @@ func TestDecodeMapsProactiveDraft(t *testing.T) {
 		t.Fatalf("合法载荷被拒：%+v", rej)
 	}
 	dm := newFakeDomain()
-	if err := call(context.Background(), dm); err != nil {
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 		t.Fatalf("AdmitProactive: %v", err)
 	}
 	c := dm.proactive[0]
@@ -1383,7 +1400,7 @@ func TestProactiveTimestampsArePresenceFlagged(t *testing.T) {
 		t.Fatalf("%+v", rej)
 	}
 	dm := newFakeDomain()
-	if err := call(context.Background(), dm); err != nil {
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 		t.Fatalf("call: %v", err)
 	}
 	c := dm.proactive[0]

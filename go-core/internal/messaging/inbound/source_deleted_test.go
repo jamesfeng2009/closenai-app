@@ -45,7 +45,7 @@ func TestDecodeEventAcceptsTheContractShape(t *testing.T) {
 	}
 	dm := newFakeDomain()
 	dm.wantConsumer = SourceDeletedConsumer
-	if err := call(context.Background(), dm); err != nil {
+	if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 		t.Fatalf("InvalidateSource: %v", err)
 	}
 	if len(dm.sources) != 1 {
@@ -74,7 +74,7 @@ func TestDecodeEventBodyIsTheOnlyPointerSource(t *testing.T) {
 				t.Fatalf("被拒：%+v", bad)
 			}
 			call, _ := DecodeEvent(eventDeliveryFor(tc.body), DefaultMaxBodyBytes)
-			if err := call(context.Background(), dm); err != nil {
+			if err := call(context.Background(), &fakeInboxStore{}, dm); err != nil {
 				t.Fatalf("call: %v", err)
 			}
 			p := dm.sources[0]
@@ -204,7 +204,7 @@ func TestEventCallTurnsUnsupportedTableIntoPermanent(t *testing.T) {
 	if bad != nil {
 		t.Fatalf("契约面就把合法消息拒了：%+v", bad)
 	}
-	err := call(context.Background(), dm)
+	err := call(context.Background(), &fakeInboxStore{}, dm)
 	var rej domain.PermanentRejection
 	if !errors.As(err, &rej) {
 		t.Fatalf("ErrUnsupportedSourceTable 没转成永久拒绝，实得 %v ⇒ 它会被当瞬态在阶梯上撞三次库", err)
@@ -220,7 +220,7 @@ func TestEventCallPassesOtherErrorsThrough(t *testing.T) {
 	dm := newFakeDomain()
 	dm.sourceErr = errors.New("boom: 连接池耗尽")
 	call, _ := DecodeEvent(eventDeliveryFor(goodEventBody), DefaultMaxBodyBytes)
-	err := call(context.Background(), dm)
+	err := call(context.Background(), &fakeInboxStore{}, dm)
 	if err == nil {
 		t.Fatal("领域错误被吞了")
 	}

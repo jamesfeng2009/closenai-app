@@ -197,12 +197,12 @@ func TestSwitchEnvNamesAreTheSharedOnes(t *testing.T) {
 	}
 }
 
-// TestCallSignatureStaysOutOfTheStore 是分层闸的可执行版本：
-// 契约面（`Decode`）只判传输形状＋归属＋大小，一条都不许碰 Store——
-// 这条由 `Call` 的签名（只接 `Domain`）在编译期保证，所以这里钉的是**签名没被放宽**。
-// 哪天有人给它加一个 `domain.Store` 参数，这一行先红。
-var _ Call = func(ctx context.Context, d Domain) error {
-	_, _ = ctx, d
+// TestCallSignatureCarriesTheInboxStore 是单事务接线的编译期版本：
+// 契约面（`Decode`）解码出的调用必须把 inbox 那一笔 `domain.Store` 带进领域入口，
+// 否则候选行与 inbox 行/命令行分属两笔 COMMIT（18 §8）。
+// 哪天有人把它退回「只接 Domain」的旧签名，这一行先红。
+var _ Call = func(ctx context.Context, st domain.Store, d Domain) error {
+	_, _, _ = ctx, st, d
 	return nil
 }
 

@@ -605,19 +605,22 @@ func (r *recorder) ConsumeIdempotent(ctx context.Context, msg domain.InboundMess
 	return res, err
 }
 
-func (r *recorder) Admit(ctx context.Context, c domain.Candidate) (domain.Result, error) {
+func (r *recorder) AdmitWithStore(ctx context.Context, st domain.Store,
+	c domain.Candidate) (domain.Result, error) {
 	r.bump("Admit")
-	return r.inner.Admit(ctx, c)
+	return r.inner.AdmitWithStore(ctx, st, c)
 }
 
-func (r *recorder) AdmitEvidence(ctx context.Context, c domain.EvidenceCandidate) (domain.EvidenceResult, error) {
+func (r *recorder) AdmitEvidenceWithStore(ctx context.Context, st domain.Store,
+	c domain.EvidenceCandidate) (domain.EvidenceResult, error) {
 	r.bump("AdmitEvidence")
-	return r.inner.AdmitEvidence(ctx, c)
+	return r.inner.AdmitEvidenceWithStore(ctx, st, c)
 }
 
-func (r *recorder) AdmitProactive(ctx context.Context, c domain.ProactiveCandidate) (domain.ProactiveResult, error) {
+func (r *recorder) AdmitProactiveWithStore(ctx context.Context, st domain.Store,
+	c domain.ProactiveCandidate) (domain.ProactiveResult, error) {
 	r.bump("AdmitProactive")
-	return r.inner.AdmitProactive(ctx, c)
+	return r.inner.AdmitProactiveWithStore(ctx, st, c)
 }
 
 // InvalidateSource 逐字转交（T2-06 事件面）。

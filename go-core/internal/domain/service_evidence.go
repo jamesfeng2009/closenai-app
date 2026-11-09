@@ -123,82 +123,92 @@ type InsightStatusRow struct {
 //   - metadata_json 同时留下调用方原文与算分过程，02 §37 的「Why do we know it」
 //     要能指回五个因子各自取值。
 func (s *Service) AdmitEvidence(ctx context.Context, c EvidenceCandidate) (EvidenceResult, error) {
-	if err := s.checkEvidenceCandidate(c); err != nil {
-		return EvidenceResult{}, err
-	}
-	result := EvidenceResult{}
+	var result EvidenceResult
 	err := s.db.InTx(ctx, func(ctx context.Context, st Store) error {
-		// 核验在前、写在后：越权引用必须**在任何写入之前**报错，否则会留下
-		// 一条指向别人业务行的 source 登记（事务会回滚，但「先写后判」的次序
-		// 本身违反不变量 9，也让单测里的半状态看不见）。
-		if err := s.verifySourceOwnership(ctx, st, c); err != nil {
-			return err
-		}
-		cited, err := s.verifyIndependent(ctx, st, c)
-		if err != nil {
-			return err
-		}
-		// 登记 source 指针后才数独立观测：去重要按 source_record_id，
-		// 而本条的 id 只有 upsert 之后才知道（同指针复用既有行，08 §3 幂等）。
-		sourceID, err := st.UpsertSourceRecord(ctx, SourceRecordRow{
-			ID: s.newID(), UserID: c.UserID, SourceType: string(c.SourceKind),
-			SourceTable: c.SourceTable, SourceID: c.SourceID,
-			OccurredAt: c.OccurredAt, HasOccurredAt: !c.OccurredAt.IsZero(),
-		})
-		if err != nil {
-			return err
-		}
-		independent, dropped := s.countIndependent(c, cited, sourceID)
-		scored, err := ScoreEvidence(EvidenceSignals{
-			SourceKind: c.SourceKind, Explicitness: c.Explicitness,
-			Specificity: c.Specificity, Independent: independent,
-			ObservedAt: c.OccurredAt,
-		}, s.gate.Policy.Evidence, s.now())
-		if err != nil {
-			return err
-		}
-		// 终局分的定义域闸（工单 T2-04 §怎么做.2 的 `strength ∈ [0,1]`，口径按 §口径.1）。
-		//
-		// 为什么排在算分之后而不是核验那一格：它判的**不是提案的合法性**（候选体根本没有
-		// strength 这一键，终局分由这里算），而是五因子表与衰减式自己有没有被改坏。
-		// 越界必须由 InTx 整笔回滚——`evidence.strength` 是要进「为何相信这条」的账面数字，
-		// 一个 1.7 或 -0.2 落库之后，读路径的百分比文案会把 bug 说成置信度。
-		// 报永久而不是瞬态：重试不会让因子表回到定义域内，而多撞三次阶梯只把一次配置错误
-		// 洗成「看起来像抖动」。
-		// 写成 `!(0 <= x && x <= 1)` 而不是 `x < 0 || x > 1`：因子被改坏到负数时几何平均
-		// 走 math.Pow 得到 NaN，而后一种写法对 NaN 两个比较都为 false，等于放行。
-		// NaN 落进 evidence.strength 比 1.7 更糟——读路径会把它打印成空白置信度。
-		if !(scored.Strength >= 0 && scored.Strength <= 1) {
-			return fmt.Errorf("%w: strength=%v 落在 [0,1] 之外（因子表或衰减式被改坏，"+
-				"五因子取值见 %s）", ErrCandidateShape, scored.Strength, scored.Detail)
-		}
-		metadata, err := evidenceMetadata(c.Metadata, scored, independent, dropped)
-		if err != nil {
-			return err
-		}
-		id := s.newID()
-		role := c.Role
-		if role == "" {
-			role = "supporting"
-		}
-		if err := st.InsertEvidence(ctx, EvidenceWrite{
-			ID: id, UserID: c.UserID, SourceRecordID: sourceID,
-			EvidenceType: c.EvidenceType, Role: role,
-			Strength: scored.Strength, HasStrength: true,
-			Observation: c.Observation, Excerpt: c.Excerpt, Metadata: metadata,
-			GenerationRunID: c.GenerationRunID,
-		}); err != nil {
-			return err
-		}
-		result = EvidenceResult{ID: id, SourceRecordID: sourceID, Strength: scored.Strength,
-			Class: scored.Class, Independent: independent,
-			Detail: fmt.Sprintf("%s proposed_independent=%d counted_independent=%d",
-				scored.Detail, len(c.ProposedIndependentIDs), independent)}
-		return nil
+		var err error
+		result, err = s.AdmitEvidenceWithStore(ctx, st, c)
+		return err
 	})
 	if err != nil {
 		return EvidenceResult{}, err
 	}
+	return result, nil
+}
+
+// AdmitEvidenceWithStore 与 AdmitEvidence 同判据，写入落在调用方给的 st 上（不入站自开事务）。
+// 理由与 `AdmitWithStore` 同一条：inbox 幂等行与证据行必须同一笔 COMMIT（18 §8）。
+func (s *Service) AdmitEvidenceWithStore(ctx context.Context, st Store,
+	c EvidenceCandidate) (EvidenceResult, error) {
+	if err := s.checkEvidenceCandidate(c); err != nil {
+		return EvidenceResult{}, err
+	}
+	result := EvidenceResult{}
+	// 核验在前、写在后：越权引用必须**在任何写入之前**报错，否则会留下
+	// 一条指向别人业务行的 source 登记（事务会回滚，但「先写后判」的次序
+	// 本身违反不变量 9，也让单测里的半状态看不见）。
+	if err := s.verifySourceOwnership(ctx, st, c); err != nil {
+		return EvidenceResult{}, err
+	}
+	cited, err := s.verifyIndependent(ctx, st, c)
+	if err != nil {
+		return EvidenceResult{}, err
+	}
+	// 登记 source 指针后才数独立观测：去重要按 source_record_id，
+	// 而本条的 id 只有 upsert 之后才知道（同指针复用既有行，08 §3 幂等）。
+	sourceID, err := st.UpsertSourceRecord(ctx, SourceRecordRow{
+		ID: s.newID(), UserID: c.UserID, SourceType: string(c.SourceKind),
+		SourceTable: c.SourceTable, SourceID: c.SourceID,
+		OccurredAt: c.OccurredAt, HasOccurredAt: !c.OccurredAt.IsZero(),
+	})
+	if err != nil {
+		return EvidenceResult{}, err
+	}
+	independent, dropped := s.countIndependent(c, cited, sourceID)
+	scored, err := ScoreEvidence(EvidenceSignals{
+		SourceKind: c.SourceKind, Explicitness: c.Explicitness,
+		Specificity: c.Specificity, Independent: independent,
+		ObservedAt: c.OccurredAt,
+	}, s.gate.Policy.Evidence, s.now())
+	if err != nil {
+		return EvidenceResult{}, err
+	}
+	// 终局分的定义域闸（工单 T2-04 §怎么做.2 的 `strength ∈ [0,1]`，口径按 §口径.1）。
+	//
+	// 为什么排在算分之后而不是核验那一格：它判的**不是提案的合法性**（候选体根本没有
+	// strength 这一键，终局分由这里算），而是五因子表与衰减式自己有没有被改坏。
+	// 越界必须由调用方的事务整笔回滚——`evidence.strength` 是要进「为何相信这条」的
+	// 账面数字，一个 1.7 或 -0.2 落库之后，读路径的百分比文案会把 bug 说成置信度。
+	// 报永久而不是瞬态：重试不会让因子表回到定义域内，而多撞三次阶梯只把一次配置错误
+	// 洗成「看起来像抖动」。
+	// 写成 `!(0 <= x && x <= 1)` 而不是 `x < 0 || x > 1`：因子被改坏到负数时几何平均
+	// 走 math.Pow 得到 NaN，而后一种写法对 NaN 两个比较都为 false，等于放行。
+	// NaN 落进 evidence.strength 比 1.7 更糟——读路径会把它打印成空白置信度。
+	if !(scored.Strength >= 0 && scored.Strength <= 1) {
+		return EvidenceResult{}, fmt.Errorf("%w: strength=%v 落在 [0,1] 之外（因子表或衰减式被改坏，"+
+			"五因子取值见 %s）", ErrCandidateShape, scored.Strength, scored.Detail)
+	}
+	metadata, err := evidenceMetadata(c.Metadata, scored, independent, dropped)
+	if err != nil {
+		return EvidenceResult{}, err
+	}
+	id := s.newID()
+	role := c.Role
+	if role == "" {
+		role = "supporting"
+	}
+	if err := st.InsertEvidence(ctx, EvidenceWrite{
+		ID: id, UserID: c.UserID, SourceRecordID: sourceID,
+		EvidenceType: c.EvidenceType, Role: role,
+		Strength: scored.Strength, HasStrength: true,
+		Observation: c.Observation, Excerpt: c.Excerpt, Metadata: metadata,
+		GenerationRunID: c.GenerationRunID,
+	}); err != nil {
+		return EvidenceResult{}, err
+	}
+	result = EvidenceResult{ID: id, SourceRecordID: sourceID, Strength: scored.Strength,
+		Class: scored.Class, Independent: independent,
+		Detail: fmt.Sprintf("%s proposed_independent=%d counted_independent=%d",
+			scored.Detail, len(c.ProposedIndependentIDs), independent)}
 	return result, nil
 }
 

@@ -567,17 +567,21 @@ def test_the_inbound_caller_is_still_wired_in_source() -> None:
     `go-core/cmd/go-api/domain_caller_ledger_test.go` 已经数过引用，但它跑在 go 工具链上；
     这台机器没装 go 时 pytest 基线照样要能证明「调用点在」，否则批 3 的结案在 CI 里会退化成
     「今天没跑」。这里判的是源码形状：入队发生在 `call(inner, …)`（候选入库）**之后**，
-    且用的是同一个事务句柄 `inner`。
+    且用的是同一个事务句柄 `inner`；候选入库那一跳还必须把 `st` 递下去（P1 #12：
+    候选行与 inbox/命令同一笔 COMMIT，不递就是各自提交）。
     """
     src = _read(INBOUND_GO)
     assert "func (r *Runner) requestFollowUp(" in src, "requestFollowUp 这个函数已经不在了"
     # 各只许出现一次：出现两次就是「候选进门的路径上有两条链」，
     # 而 id 只由来源候选派生 ⇒ 第二条永远撞 outbox 的 UNIQUE(message_id)。
-    assert src.count("call(inner, r.deps.Domain)") == 1, "候选入库的调用点形状变了"
+    assert src.count("call(inner, st, r.deps.Domain)") == 1, (
+        "候选入库的调用点形状变了 ⇒ 若不是 call(inner, st, …)，事务句柄没递到领域入口，"
+        "候选行与 inbox/命令又分属两笔 COMMIT（P1 #12）"
+    )
     assert src.count("return r.requestFollowUp(inner, st, d)") == 1, (
         "D-G14-② 的入队调用点没了 ⇒ `RequestAITask` 又回到零调用方，"
         "而 inbound 自己的用例只在有 fake 域时才看得见"
     )
-    i_call = src.index("call(inner, r.deps.Domain)")
+    i_call = src.index("call(inner, st, r.deps.Domain)")
     i_follow = src.index("return r.requestFollowUp(inner, st, d)")
     assert i_call < i_follow, "候选入库之前就在入队 ⇒ 命令先于决策，回滚后会有孤儿命令"

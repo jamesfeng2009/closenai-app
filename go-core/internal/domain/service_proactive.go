@@ -95,101 +95,111 @@ type EligibilityPacket struct {
 // 版本口径：02:1069「increment model version **if model state changes**」——
 // 一条触达不是「模型相信什么」，是「模型打算做什么」，所以这里**不 ++**，只写事件。
 func (s *Service) AdmitProactive(ctx context.Context, c ProactiveCandidate) (ProactiveResult, error) {
-	result := ProactiveResult{}
+	var result ProactiveResult
 	err := s.db.InTx(ctx, func(ctx context.Context, st Store) error {
-		modelID, version, err := st.EnsurePersonalModel(ctx, c.UserID)
-		if err != nil {
-			return err
-		}
-		if c.PersonalModelID != "" && c.PersonalModelID != modelID {
-			return fmt.Errorf("domain: candidate.personal_model_id=%s 与该用户实际模型 %s 不符",
-				c.PersonalModelID, modelID)
-		}
-		c.PersonalModelID = modelID
-
-		// 重试幂等：同 id 已落库就原样返回，不重复评估也不插第二行。
-		if c.ID != "" {
-			existing, err := st.GetProactiveState(ctx, c.UserID, c.ID)
-			if err == nil {
-				reason := RejectReason(existing.RejectReason)
-				if reason == "" {
-					reason = RejectReason(existing.BlockReason)
-				}
-				result = ProactiveResult{ID: existing.ID, Status: existing.Status,
-					Reason: reason, Score: existing.Eligibility,
-					Detail: "幂等命中：已存在的 proactive 行"}
-				return nil
-			}
-			if !errors.Is(err, ErrProactiveNotFound) {
-				return err
-			}
-		}
-
-		if c.ID == "" {
-			c.ID = s.newID()
-		}
-		at := sendMoment(c, s.now())
-		gate := ProactiveGate{Policy: s.gate.Policy}
-		in, err := s.loadProactiveInputs(ctx, st, c.UserID, at, gate)
-		if err != nil {
-			return err
-		}
-		if err := s.loadRefsAndEvidence(ctx, st, &c, in); err != nil {
-			return err
-		}
-		resolveAnchor(&c, in)
-		outcome := gate.Check(ctx, &c, *in)
-
-		packet := newPacket(s.gate.Policy, c, *in, outcome)
-		encoded, err := json.Marshal(packet)
-		if err != nil {
-			return fmt.Errorf("domain: encode eligibility packet: %w", err)
-		}
-		row := ProactiveRow{
-			ID: c.ID, UserID: c.UserID, PersonalModelID: c.PersonalModelID,
-			Status: outcome.Status, TriggerType: string(c.TriggerType),
-			Message:     c.Message,
-			ScheduledAt: c.ScheduledAt, HasScheduledAt: c.HasScheduledAt,
-			ExpiresAt: at.Add(time.Duration(s.gate.Policy.Proactive.DefaultValidityHours) *
-				time.Hour),
-			HasExpiresAt:      true,
-			EligibilityScore:  outcome.Score,
-			EligibilityDetail: string(encoded),
-			GenerationModel:   c.GenerationModel,
-			GenerationVersion: c.GenerationVer,
-			GenerationRunID:   c.GenerationRunID,
-			ModelVersion:      version,
-			JourneyEventID:    c.JourneyEventID,
-			HasJourneyEventID: c.JourneyEventID != "",
-		}
-		if c.HasExpiresAt {
-			row.ExpiresAt, row.HasExpiresAt = c.ExpiresAt, true
-		}
-		if outcome.Reason != "" {
-			if outcome.IsReject {
-				row.RejectReason = outcome.Reason.String()
-			} else {
-				row.BlockReason = outcome.Reason.String()
-			}
-		}
-		if err := st.InsertProactive(ctx, row); err != nil {
-			return err
-		}
-		if err := st.LinkProactiveRefs(ctx, row.ID, c.UserID, in.Refs); err != nil {
-			return err
-		}
-		if err := s.emit(ctx, st, s.proactiveEvent(c.UserID, c.PersonalModelID, row.ID,
-			proactiveEventType(outcome), string(encoded), version)); err != nil {
-			return err
-		}
-		result = ProactiveResult{ID: row.ID, Status: outcome.Status, Action: outcome.Action,
-			Reason: outcome.Reason, Detail: outcome.Detail, Score: outcome.Score,
-			Layers: outcome.HitLayers, Cadence: outcome.Cadence, SilentDays: outcome.SilentDays}
-		return nil
+		var err error
+		result, err = s.AdmitProactiveWithStore(ctx, st, c)
+		return err
 	})
 	if err != nil {
 		return ProactiveResult{}, err
 	}
+	return result, nil
+}
+
+// AdmitProactiveWithStore 与 AdmitProactive 同判据，写入落在调用方给的 st 上。
+// 入站消费必须走这一条：inbox 幂等行与 proactive 行/事件行同一笔 COMMIT（18 §8）。
+func (s *Service) AdmitProactiveWithStore(ctx context.Context, st Store,
+	c ProactiveCandidate) (ProactiveResult, error) {
+	result := ProactiveResult{}
+	modelID, version, err := st.EnsurePersonalModel(ctx, c.UserID)
+	if err != nil {
+		return ProactiveResult{}, err
+	}
+	if c.PersonalModelID != "" && c.PersonalModelID != modelID {
+		return ProactiveResult{}, fmt.Errorf("domain: candidate.personal_model_id=%s 与该用户实际模型 %s 不符",
+			c.PersonalModelID, modelID)
+	}
+	c.PersonalModelID = modelID
+
+	// 重试幂等：同 id 已落库就原样返回，不重复评估也不插第二行。
+	if c.ID != "" {
+		existing, err := st.GetProactiveState(ctx, c.UserID, c.ID)
+		if err == nil {
+			reason := RejectReason(existing.RejectReason)
+			if reason == "" {
+				reason = RejectReason(existing.BlockReason)
+			}
+			result = ProactiveResult{ID: existing.ID, Status: existing.Status,
+				Reason: reason, Score: existing.Eligibility,
+				Detail: "幂等命中：已存在的 proactive 行"}
+			return result, nil
+		}
+		if !errors.Is(err, ErrProactiveNotFound) {
+			return ProactiveResult{}, err
+		}
+	}
+
+	if c.ID == "" {
+		c.ID = s.newID()
+	}
+	at := sendMoment(c, s.now())
+	gate := ProactiveGate{Policy: s.gate.Policy}
+	in, err := s.loadProactiveInputs(ctx, st, c.UserID, at, gate)
+	if err != nil {
+		return ProactiveResult{}, err
+	}
+	if err := s.loadRefsAndEvidence(ctx, st, &c, in); err != nil {
+		return ProactiveResult{}, err
+	}
+	resolveAnchor(&c, in)
+	outcome := gate.Check(ctx, &c, *in)
+
+	packet := newPacket(s.gate.Policy, c, *in, outcome)
+	encoded, err := json.Marshal(packet)
+	if err != nil {
+		return ProactiveResult{}, fmt.Errorf("domain: encode eligibility packet: %w", err)
+	}
+	row := ProactiveRow{
+		ID: c.ID, UserID: c.UserID, PersonalModelID: c.PersonalModelID,
+		Status: outcome.Status, TriggerType: string(c.TriggerType),
+		Message:     c.Message,
+		ScheduledAt: c.ScheduledAt, HasScheduledAt: c.HasScheduledAt,
+		ExpiresAt: at.Add(time.Duration(s.gate.Policy.Proactive.DefaultValidityHours) *
+			time.Hour),
+		HasExpiresAt:      true,
+		EligibilityScore:  outcome.Score,
+		EligibilityDetail: string(encoded),
+		GenerationModel:   c.GenerationModel,
+		GenerationVersion: c.GenerationVer,
+		GenerationRunID:   c.GenerationRunID,
+		ModelVersion:      version,
+		JourneyEventID:    c.JourneyEventID,
+		HasJourneyEventID: c.JourneyEventID != "",
+	}
+	if c.HasExpiresAt {
+		row.ExpiresAt, row.HasExpiresAt = c.ExpiresAt, true
+	}
+	if outcome.Reason != "" {
+		if outcome.IsReject {
+			row.RejectReason = outcome.Reason.String()
+		} else {
+			row.BlockReason = outcome.Reason.String()
+		}
+	}
+	if err := st.InsertProactive(ctx, row); err != nil {
+		return ProactiveResult{}, err
+	}
+	if err := st.LinkProactiveRefs(ctx, row.ID, c.UserID, in.Refs); err != nil {
+		return ProactiveResult{}, err
+	}
+	if err := s.emit(ctx, st, s.proactiveEvent(c.UserID, c.PersonalModelID, row.ID,
+		proactiveEventType(outcome), string(encoded), version)); err != nil {
+		return ProactiveResult{}, err
+	}
+	result = ProactiveResult{ID: row.ID, Status: outcome.Status, Action: outcome.Action,
+		Reason: outcome.Reason, Detail: outcome.Detail, Score: outcome.Score,
+		Layers: outcome.HitLayers, Cadence: outcome.Cadence, SilentDays: outcome.SilentDays}
 	return result, nil
 }
 

@@ -317,41 +317,58 @@ func NewService(db Transactor, policy Policy) *Service {
 //   - 版本：accept/reactivate 才 ++ current_version 并写 personal_model_versions +
 //     personal_model_events；reject 只写 event（权威模型内容没变）。
 func (s *Service) Admit(ctx context.Context, c Candidate) (Result, error) {
+	var result Result
+	err := s.db.InTx(ctx, func(ctx context.Context, st Store) error {
+		var err error
+		result, err = s.AdmitWithStore(ctx, st, c)
+		return err
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	return result, nil
+}
+
+// AdmitWithStore 与 Admit 判据相同，但**不自己开事务**：写入落在调用方给的 st 上。
+//
+// 入站消费必须走这一条（`messaging/inbound`）：18 §8 要求业务副作用与 inbox 幂等行
+// 同一笔 COMMIT，而自开事务会让「候选已提交、inbox 行回滚」变成一次重投就重放候选，
+// 或者「候选已提交、下一段命令没入队」永远补不回来。HTTP 面没有外部事务可交，
+// 继续用 Admit 那个自开事务的包装。
+func (s *Service) AdmitWithStore(ctx context.Context, st Store, c Candidate) (Result, error) {
 	if c.Kind == "" {
 		return Result{}, errors.New("domain: candidate.kind is required")
 	}
 	result := Result{}
-	err := s.db.InTx(ctx, func(ctx context.Context, st Store) error {
-		// 模型行以库为准：调用方给的 id 只做校验，不作为写入依据。
-		modelID, version, err := st.EnsurePersonalModel(ctx, c.UserID)
-		if err != nil {
-			return err
-		}
-		if c.PersonalModelID != "" && c.PersonalModelID != modelID {
-			return fmt.Errorf("domain: candidate.personal_model_id=%s 与该用户实际模型 %s 不符",
-				c.PersonalModelID, modelID)
-		}
-		c.PersonalModelID = modelID
+	// 模型行以库为准：调用方给的 id 只做校验，不作为写入依据。
+	modelID, version, err := st.EnsurePersonalModel(ctx, c.UserID)
+	if err != nil {
+		return Result{}, err
+	}
+	if c.PersonalModelID != "" && c.PersonalModelID != modelID {
+		return Result{}, fmt.Errorf("domain: candidate.personal_model_id=%s 与该用户实际模型 %s 不符",
+			c.PersonalModelID, modelID)
+	}
+	c.PersonalModelID = modelID
 
-		outcome, err := s.gate.Check(ctx, &c, st)
-		if err != nil {
-			return err
-		}
-		result.Action = outcome.Action
-		result.Reason = outcome.Reason
-		result.Detail = outcome.Detail
+	outcome, err := s.gate.Check(ctx, &c, st)
+	if err != nil {
+		return Result{}, err
+	}
+	result.Action = outcome.Action
+	result.Reason = outcome.Reason
+	result.Detail = outcome.Detail
 
-		switch outcome.Action {
-		case ActionReject:
-			return s.writeRejected(ctx, st, &c, &result, version, outcome)
-		case ActionReactivate:
-			return s.reactivate(ctx, st, &c, &result, version, outcome)
-		case ActionInsert:
-			return s.writeAccepted(ctx, st, &c, &result, version, outcome)
-		default:
-			return fmt.Errorf("domain: 未知 Gate 结论 %q", outcome.Action)
-		}
-	})
+	switch outcome.Action {
+	case ActionReject:
+		err = s.writeRejected(ctx, st, &c, &result, version, outcome)
+	case ActionReactivate:
+		err = s.reactivate(ctx, st, &c, &result, version, outcome)
+	case ActionInsert:
+		err = s.writeAccepted(ctx, st, &c, &result, version, outcome)
+	default:
+		err = fmt.Errorf("domain: 未知 Gate 结论 %q", outcome.Action)
+	}
 	if err != nil {
 		return Result{}, err
 	}

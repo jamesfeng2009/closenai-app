@@ -205,15 +205,18 @@ func (noopDomain) ConsumeIdempotent(context.Context, domain.InboundMessage,
 	return domain.ConsumeResult{}, errors.New("main_test: 退出路径不该消费")
 }
 
-func (noopDomain) Admit(context.Context, domain.Candidate) (domain.Result, error) {
+func (noopDomain) AdmitWithStore(context.Context, domain.Store,
+	domain.Candidate) (domain.Result, error) {
 	return domain.Result{}, errors.New("main_test: 退出路径不该写 canonical")
 }
 
-func (noopDomain) AdmitEvidence(context.Context, domain.EvidenceCandidate) (domain.EvidenceResult, error) {
+func (noopDomain) AdmitEvidenceWithStore(context.Context, domain.Store,
+	domain.EvidenceCandidate) (domain.EvidenceResult, error) {
 	return domain.EvidenceResult{}, errors.New("main_test: 退出路径不该写 canonical")
 }
 
-func (noopDomain) AdmitProactive(context.Context, domain.ProactiveCandidate) (domain.ProactiveResult, error) {
+func (noopDomain) AdmitProactiveWithStore(context.Context, domain.Store,
+	domain.ProactiveCandidate) (domain.ProactiveResult, error) {
 	return domain.ProactiveResult{}, errors.New("main_test: 退出路径不该写 canonical")
 }
 
