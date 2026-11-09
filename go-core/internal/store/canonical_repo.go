@@ -146,20 +146,34 @@ func (t *canonicalTx) EnsurePersonalModel(ctx context.Context, userID string) (s
 		return "", 0, fmt.Errorf("store: get personal model: %w", err)
 	}
 	id := idgen.New()
+	// 唯一冲突会把整个 PG 事务置为 aborted（25P02），之后任何语句都只报
+	// "current transaction is aborted"。所以 INSERT 必须包在 savepoint 里：
+	// 冲突时回滚到 savepoint 恢复事务，再按 READ COMMITTED 的新快照重读。
+	sp, err := t.tx.Begin(ctx)
+	if err != nil {
+		return "", 0, fmt.Errorf("store: begin personal model savepoint: %w", err)
+	}
 	err = t.q.InsertPersonalModel(ctx, canonicaldb.InsertPersonalModelParams{
 		ID: id, UserID: userID})
-	if isUniqueViolation(err) {
-		// 并发首建：另一个事务已提交该行，READ COMMITTED 下本语句之后的新快照读得到。
-		model, err = t.q.GetPersonalModel(ctx, userID)
-		if err != nil {
-			return "", 0, fmt.Errorf("store: personal model 唯一冲突后重读: %w", err)
+	if err == nil {
+		if err := sp.Commit(ctx); err != nil {
+			return "", 0, fmt.Errorf("store: release personal model savepoint: %w", err)
 		}
-		return model.ID, model.CurrentVersion, nil
+		return id, 0, nil
 	}
-	if err != nil {
+	if !isUniqueViolation(err) {
+		_ = sp.Rollback(ctx)
 		return "", 0, fmt.Errorf("store: insert personal model: %w", err)
 	}
-	return id, 0, nil
+	if rbErr := sp.Rollback(ctx); rbErr != nil {
+		return "", 0, fmt.Errorf("store: rollback personal model savepoint: %w", rbErr)
+	}
+	// 并发首建：另一个事务已提交该行，READ COMMITTED 下本语句之后的新快照读得到。
+	model, err = t.q.GetPersonalModel(ctx, userID)
+	if err != nil {
+		return "", 0, fmt.Errorf("store: personal model 唯一冲突后重读: %w", err)
+	}
+	return model.ID, model.CurrentVersion, nil
 }
 
 // BumpVersion 走 02 §32 的条件更新：0 行即版本冲突，翻成 domain.ErrVersionConflict，
