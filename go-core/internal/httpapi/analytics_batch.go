@@ -67,7 +67,7 @@ func (s *Server) handleAnalyticsBatch(w http.ResponseWriter, r *http.Request) {
 
 	profile, err := s.batch1.Users.UserProfile(r.Context(), userID)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	if analyticsAckMode(events) {
@@ -231,7 +231,7 @@ func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userI
 		got, prior, err := s.batch1.Receipts.Claim(dbCtx, userID, eventID)
 		if err != nil {
 			s.releaseReceipts(dbCtx, userID, claimIDs)
-			writeDBError(w, r)
+			writeDBError(w, r, err)
 			return
 		}
 		if !got {
@@ -254,7 +254,7 @@ func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userI
 		if delivered[j] {
 			if err := s.batch1.Receipts.MarkAccepted(dbCtx, userID, eventID); err != nil {
 				s.releaseReceipts(dbCtx, userID, claimIDs[j:])
-				writeDBError(w, r)
+				writeDBError(w, r, err)
 				return
 			}
 			results[idx] = analyticsAckItem(ev, "accepted", "")
@@ -263,7 +263,7 @@ func (s *Server) writeAnalyticsAck(w http.ResponseWriter, r *http.Request, userI
 		// 没送到就不许留下 accepted：删掉认领行，下一次能重新进来。
 		if err := s.batch1.Receipts.Release(dbCtx, userID, eventID); err != nil {
 			s.releaseReceipts(dbCtx, userID, claimIDs[j+1:])
-			writeDBError(w, r)
+			writeDBError(w, r, err)
 			return
 		}
 		results[idx] = analyticsAckItem(ev, "retryable", "relay_failed")

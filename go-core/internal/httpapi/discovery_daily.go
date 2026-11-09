@@ -10,6 +10,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -34,7 +35,7 @@ func (s *Server) handleDiscoveryDaily(w http.ResponseWriter, r *http.Request) {
 
 	profile, err := s.batch1.Users.UserProfile(r.Context(), userID)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	// user_repository.require_user：不存在或已注销 ⇒ 40401，与 analytics 的
@@ -50,12 +51,12 @@ func (s *Server) handleDiscoveryDaily(w http.ResponseWriter, r *http.Request) {
 	cutoff := now.Add(-discoveryWeek)
 	thisWeek, err := s.batch1.Moods.MoodCheckins(r.Context(), userID, cutoff)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	recent, err := s.batch1.Moods.MoodCheckins(r.Context(), userID, now.Add(-discoveryFortnight))
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	var lastWeek []domain.Checkin
@@ -92,7 +93,13 @@ type discoveryPayload struct {
 }
 
 // writeDBError 是读面故障的统一落点：50003 是 contracts/endpoints.md §四 里
-// 已有的码，不新造错误码。
-func writeDBError(w http.ResponseWriter, r *http.Request) {
+// 已有的码，不新造错误码。根因必须落日志——只回一个通用码，线上 DB 故障
+// （连接池耗尽 / 表不存在 / NaN 编码）就全是同一行 50003，没法定位（P2 #21）。
+func writeDBError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.ErrorContext(r.Context(), "go-api: db error",
+		slog.String("method", r.Method),
+		slog.String("path", r.URL.Path),
+		slog.Any("error", err),
+	)
 	writeJSONError(w, r, apierr.New(apierr.CodeDatabaseError, "数据库错误 / Database error"))
 }

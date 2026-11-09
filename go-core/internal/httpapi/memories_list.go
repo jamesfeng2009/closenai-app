@@ -44,7 +44,7 @@ func (s *Server) handleMemoriesList(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.batch6.Memories.MemoryList(r.Context(), userID, limit, category)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 
@@ -56,7 +56,7 @@ func (s *Server) handleMemoriesList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// conviction 列里是 NaN/Infinity：CPython 的 JSONResponse(allow_nan=False) 同样编不出来，
 		// 口径同批 4 对 NaN 那一支的处理（写 50003，不降级成 404）。
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	WriteSuccess(w, json.RawMessage(encoded), rc.traceID, rc.userID)

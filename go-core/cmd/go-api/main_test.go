@@ -11,12 +11,14 @@ import (
 	"errors"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jamesfeng2009/closenai-app/go-core/internal/config"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/domain"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/dispatch"
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/messaging/dlq"
@@ -684,5 +686,27 @@ func TestCloseQueueMetricsGivesUpOnBudget(t *testing.T) {
 	}
 	if !strings.Contains(logs, "回队") {
 		t.Errorf("放弃等待没交代那条 peek 出来的消息去哪：%q", logs)
+	}
+}
+
+// P2 #22：HTTP server 四项超时与头大小必须有值，且读超时覆盖 body 阶段。
+func TestHTTPServerTimeoutsConfigured(t *testing.T) {
+	srv := newHTTPServer(config.Config{HTTPAddr: ":0"},
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	if srv.ReadHeaderTimeout <= 0 {
+		t.Error("ReadHeaderTimeout 未设置：慢速头发送可长期占连接")
+	}
+	if srv.ReadTimeout <= srv.ReadHeaderTimeout {
+		t.Errorf("ReadTimeout(%s) 必须大于 ReadHeaderTimeout(%s)，否则只挡头不挡 body",
+			srv.ReadTimeout, srv.ReadHeaderTimeout)
+	}
+	if srv.WriteTimeout <= 0 {
+		t.Error("WriteTimeout 未设置：慢读客户端可占住 goroutine")
+	}
+	if srv.IdleTimeout <= 0 {
+		t.Error("IdleTimeout 未设置：keep-alive 空闲连接不回收")
+	}
+	if srv.MaxHeaderBytes <= 0 {
+		t.Error("MaxHeaderBytes 未设置：超大头可打爆内存")
 	}
 }

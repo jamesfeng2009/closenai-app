@@ -80,11 +80,22 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 		start := time.Now()
 		defer func() {
 			if rec := recover(); rec != nil {
+				// http.ErrAbortHandler 是 net/http 的「主动断连」信号（客户端已走、
+				// 不要在响应上再写任何东西）。吞掉它反而会写一个 500 信封并且
+				// 不再向上抛，连接被当成正常结束（P2 #23）。
+				if err, ok := rec.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+					slog.WarnContext(ctx, "go-api: request aborted", slog.Any("recover", rec))
+					panic(rec)
+				}
 				// 500 envelope matches the unhandled_exception_handler in
 				// backend/core/middleware.py; the stack goes to stderr only.
 				fmt.Fprintf(os.Stderr, "panic: %v\n%s\n", rec, debug.Stack())
 				slog.ErrorContext(ctx, "go-api: panic recovered", slog.Any("recover", rec))
-				WriteError(sw, apierr.New(apierr.CodeInternalError, "服务器内部错误 / Internal server error"), traceID, userID)
+				// 处理器已经写过头/正文时不能再写信封：那会在同一响应上追加
+				// 第二个状态行与一段 JSON，客户端收到的是一份撕裂的响应。
+				if !sw.wroteHeader {
+					WriteError(sw, apierr.New(apierr.CodeInternalError, "服务器内部错误 / Internal server error"), traceID, userID)
+				}
 			}
 			// 访问日志一行/请求，panic 路径也要有（defer 在前＝先进栈后出，恒打）。
 			slog.InfoContext(ctx, "go-api: access",
@@ -111,14 +122,27 @@ func sanitizeTraceID(raw string) string {
 }
 
 // statusWriter 只为访问日志记最终状态码；其余透传。
+// wroteHeader 同时兼任「响应是否已开始」的判据：panic 恢复只在没写过时补信封。
 type statusWriter struct {
 	http.ResponseWriter
-	status int
+	status      int
+	wroteHeader bool
 }
 
 func (w *statusWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(p)
 }
 
 // resolveUserID reproduces resolve_user_id_from_request: bearer first, then

@@ -56,13 +56,13 @@ func (s *Server) handleMoodTrend(w http.ResponseWriter, r *http.Request) {
 
 	timezone, _, err := s.batch5.Moods.MoodUserTimezone(r.Context(), userID)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	now := s.now().UTC()
 	rows, err := s.batch5.Moods.MoodTrendRows(r.Context(), userID, moodDayWindow(now, days))
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 

@@ -90,7 +90,8 @@ CREATE TABLE public.users (
     referral_code character varying(12),
     referred_by_code character varying(12),
     quiet_start time without time zone,
-    quiet_end time without time zone
+    quiet_end time without time zone,
+    primary_framework character varying(16)
 );
 
 

@@ -67,7 +67,7 @@ func (s *Server) handleFirstReadSubmit(w http.ResponseWriter, r *http.Request) {
 		// 三处写任一失败 ⇒ 整事务回滚（Python 用的是同一个 session）。
 		// 推荐码「连撞 5 次」那条显式失败支也落在这同一格：2^38 的空间取 5 次，
 		// 夹具与真库都造不出观测点，所以不为它单独成码（已在 tasks.md 批 4 节登记）。
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 

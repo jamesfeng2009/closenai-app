@@ -126,7 +126,10 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 }
 
 func readBody(r *http.Request) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+	// io.LimitReader 只截断不报错：超限的 JSON 会被当成「解析失败」回 400，
+	// 真正原因（请求体过大）与客户端下一跳都看不见（P2 #22）。
+	// MaxBytesReader 在越界时返回 *http.MaxBytesError，由 asAPIError 映射成 413。
+	body, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxBodyBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +149,16 @@ func asAPIError(err error) *apierr.Error {
 	var v *ValidationError
 	if errors.As(err, &v) {
 		return v.AsError()
+	}
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		// 不新造业务码（contracts 已冻结）：沿用 40001，只把 HTTP 状态改成 413，
+		// 让「请求体过大」不再伪装成「JSON 不合形」。
+		return &apierr.Error{
+			Code:    apierr.CodeInvalidParams,
+			Message: "请求体过大 / Request body too large",
+			Status:  http.StatusRequestEntityTooLarge,
+		}
 	}
 	return apierr.New(apierr.CodeInternalError, "服务器内部错误 / Internal server error")
 }

@@ -52,7 +52,7 @@ func (s *Server) handleV3InsightFeedback(w http.ResponseWriter, r *http.Request)
 	}
 	raw, err := readBody(r)
 	if err != nil {
-		writeJSONError(w, r, JSONInvalid().AsError())
+		writeJSONError(w, r, asAPIError(err))
 		return
 	}
 	var body v3FeedbackRequest

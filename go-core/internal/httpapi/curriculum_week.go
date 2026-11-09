@@ -35,7 +35,7 @@ func (s *Server) handleCurriculumWeek(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.batch2.Store.CurriculumCards(r.Context(), userID,
 		domain.CurriculumKind, start, end, domain.CurriculumListLimit)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 
@@ -79,7 +79,7 @@ func (s *Server) handleCurriculumWeek(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// 只有一条路能到这里：payload 里有 NaN/Infinity。Python 侧此时是
 		// JSONResponse(allow_nan=False) 抛 ValueError，同样不出 200。
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	WriteSuccess(w, json.RawMessage(raw), rc.traceID, rc.userID)

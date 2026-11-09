@@ -303,7 +303,7 @@ func (s *Server) handleV3ActionTransition(w http.ResponseWriter, r *http.Request
 func decodeV3Body(r *http.Request, dst any) *apierr.Error {
 	raw, err := readBody(r)
 	if err != nil {
-		return JSONInvalid().AsError()
+		return asAPIError(err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()

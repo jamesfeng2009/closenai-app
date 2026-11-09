@@ -37,7 +37,7 @@ var supportedLanguages = []string{
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	body, err := readBody(r)
 	if err != nil {
-		writeJSONError(w, r, JSONInvalid().AsError())
+		writeJSONError(w, r, asAPIError(err))
 		return
 	}
 	parsed, verr := DecodeBody(body)
@@ -67,7 +67,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	body, err := readBody(r)
 	if err != nil {
-		writeJSONError(w, r, JSONInvalid().AsError())
+		writeJSONError(w, r, asAPIError(err))
 		return
 	}
 	parsed, verr := DecodeBody(body)

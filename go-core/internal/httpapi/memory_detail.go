@@ -51,7 +51,7 @@ func (s *Server) handleMemoryDetail(w http.ResponseWriter, r *http.Request) {
 
 	row, found, err := s.batch6.Memories.MemoryByID(r.Context(), memoryID, userID)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	if !found {
@@ -61,7 +61,7 @@ func (s *Server) handleMemoryDetail(w http.ResponseWriter, r *http.Request) {
 
 	encoded, err := memoryResponseValue(row).json()
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	WriteSuccess(w, json.RawMessage(encoded), rc.traceID, rc.userID)

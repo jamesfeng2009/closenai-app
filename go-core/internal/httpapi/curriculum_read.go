@@ -40,7 +40,7 @@ func (s *Server) handleCurriculumRead(w http.ResponseWriter, r *http.Request) {
 	// journey_repository.get 不按 user_id 过滤：越权是业务判定，不是查询条件。
 	event, err := s.batch2.Store.JourneyEventOwner(r.Context(), r.PathValue("event_id"))
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	if !event.Found || event.UserID != user.ID || event.Kind != domain.CurriculumKind {
@@ -53,11 +53,11 @@ func (s *Server) handleCurriculumRead(w http.ResponseWriter, r *http.Request) {
 		payload.set("read_at", pyStringValue(pyISOOffset(s.now().UTC())))
 		text, err := payload.json()
 		if err != nil {
-			writeDBError(w, r)
+			writeDBError(w, r, err)
 			return
 		}
 		if err := s.batch2.Store.SetJourneyPayload(r.Context(), event.ID, text); err != nil {
-			writeDBError(w, r)
+			writeDBError(w, r, err)
 			return
 		}
 	}
@@ -67,7 +67,7 @@ func (s *Server) handleCurriculumRead(w http.ResponseWriter, r *http.Request) {
 	out.set("read", pyBoolValue(true))
 	raw, err := out.json()
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	WriteSuccess(w, json.RawMessage(raw), rc.traceID, rc.userID)

@@ -34,7 +34,7 @@ func (s *Server) handleMoodHistory(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.batch5.Moods.MoodHistory(r.Context(), userID, domain.MoodHistoryLimit)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 

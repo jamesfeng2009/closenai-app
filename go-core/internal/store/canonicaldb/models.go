@@ -330,6 +330,7 @@ type User struct {
 	ReferredByCode         pgtype.Text
 	QuietStart             pgtype.Time
 	QuietEnd               pgtype.Time
+	PrimaryFramework       pgtype.Text
 }
 
 type UserFeedback struct {

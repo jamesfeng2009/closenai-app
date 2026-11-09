@@ -46,7 +46,7 @@ func (s *Server) handleJourneyEvents(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.batch3.Store.JourneyEvents(r.Context(), userID, domain.JourneyListLimit)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 
@@ -71,7 +71,7 @@ func (s *Server) handleJourneyEvents(w http.ResponseWriter, r *http.Request) {
 
 	unseen, err := s.batch3.Store.JourneyUnseenCount(r.Context(), userID)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 
@@ -82,7 +82,7 @@ func (s *Server) handleJourneyEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// 只有 payload 里有 NaN/Infinity 才能到这里：Python 侧此时 JSONResponse
 		// (allow_nan=False) 抛，同样不出 200（批 2 的发散 ② 同形，仍无库内观测点）。
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	WriteSuccess(w, json.RawMessage(raw), rc.traceID, rc.userID)

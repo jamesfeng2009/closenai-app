@@ -46,7 +46,7 @@ func (s *Server) handleJourneyAcknowledge(w http.ResponseWriter, r *http.Request
 	// repository.get 不带 user_id 谓词：越权是业务判定，不是查询条件（批 2 同策）。
 	owner, err := s.batch3.Store.JourneyOwner(r.Context(), eventID)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	if !owner.Found || owner.UserID != userID {
@@ -54,7 +54,7 @@ func (s *Server) handleJourneyAcknowledge(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.batch3.Store.AcknowledgeJourneyEvent(r.Context(), eventID); err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 

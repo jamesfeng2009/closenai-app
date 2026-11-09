@@ -40,7 +40,7 @@ func (s *Server) handleReflectionsList(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.batch5.Reflections.Reflections(
 		r.Context(), userID, domain.ReflectionRecordType, limit)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 

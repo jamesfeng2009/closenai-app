@@ -46,7 +46,7 @@ func (s *Server) handleFirstReadRestore(w http.ResponseWriter, r *http.Request) 
 
 	profile, err := s.batch4.Store.OnboardingProfile(r.Context(), userID)
 	if err != nil {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	if !profile.Found {
@@ -66,13 +66,13 @@ func (s *Server) handleFirstReadRestore(w http.ResponseWriter, r *http.Request) 
 	}
 	if card.kind != pyObject {
 		// 无观测点的 500 支（见文件头）。与 NaN 同一格：写 50003 而不是新造码。
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 
 	payload, ok := firstReadRestorePayload(card)
 	if !ok {
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	payload.set("id", pyStringValue(profile.ID))
@@ -96,7 +96,7 @@ func (s *Server) handleFirstReadRestore(w http.ResponseWriter, r *http.Request) 
 	encoded, err := payload.json()
 	if err != nil {
 		// 列文本里带 NaN/Infinity：CPython 的 JSONResponse(allow_nan=False) 同样编不出来。
-		writeDBError(w, r)
+		writeDBError(w, r, err)
 		return
 	}
 	WriteSuccess(w, json.RawMessage(encoded), rc.traceID, rc.userID)

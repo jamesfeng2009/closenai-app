@@ -35,6 +35,21 @@ import (
 	"github.com/jamesfeng2009/closenai-app/go-core/internal/store"
 )
 
+// newHTTPServer 把超时一次性配齐（P2 #22）：只设 ReadHeaderTimeout 挡不住
+// 「头发完再慢慢灌 body」与「连接建好后一直不读响应」，慢速恶意客户端能长期占住
+// 连接与 goroutine。Go 侧目前没有 SSE/长连接端点，60s 的 WriteTimeout 不会误杀。
+func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+}
+
 func main() {
 	// 批 T-C：日志面先于一切装配装好——JSON handler 从 ctx 自动补 trace_id/user_id。
 	// log.Fatalf 仍走标准库（启动失败时 handler 里的 ctx 也没有 trace 可带，两者等价）。
@@ -176,12 +191,8 @@ func main() {
 		Goals: goalBrowser, GoalWrites: candidateDomain, OutcomeWrites: candidateDomain,
 		Proactives: proactiveAudit}
 
-	srv := &http.Server{
-		Addr: cfg.HTTPAddr,
-		Handler: httpapi.NewServer(cfg, signer, service, explainer,
-			batch1, batch2, batch3, batch4, batch5, batch6, v3).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	srv := newHTTPServer(cfg, httpapi.NewServer(cfg, signer, service, explainer,
+		batch1, batch2, batch3, batch4, batch5, batch6, v3).Handler())
 
 	// R4-④ outbox worker 的进程接线。**默认关**：`CLOSEN_OUTBOX_WORKER` 不给值时
 	// Runner.Run 打一行「未启动」就返回，不拨号、不声明拓扑、一行 DB 都不碰，
